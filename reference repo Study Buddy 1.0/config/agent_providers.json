@@ -1,0 +1,15 @@
+{
+  "default_provider": "auto",
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "executable": "codex",
+      "supports_schema": true,
+      "supports_image": true
+    },
+    "custom": {
+      "enabled": true,
+      "command_env": "STUDY_BUDDY_AGENT_COMMAND"
+    }
+  }
+}

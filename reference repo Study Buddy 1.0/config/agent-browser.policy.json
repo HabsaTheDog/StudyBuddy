@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Guardrails for Moodle browser automation. Final submissions are blocked.",
+  "allowed_domains": [
+    "moodle.technikum-wien.at",
+    "technikum-wien.at"
+  ],
+  "deny_text_patterns": [
+    "submit all and finish",
+    "finish attempt",
+    "submit",
+    "confirm submission",
+    "final submit",
+    "abgeben",
+    "alle abgeben",
+    "versuch abschließen",
+    "versuch abschliessen",
+    "abgabe bestätigen",
+    "abgabe bestaetigen",
+    "endgültig absenden",
+    "endgueltig absenden",
+    "bestätigen",
+    "bestaetigen"
+  ],
+  "allow_text_patterns": [
+    "next page",
+    "previous page",
+    "save without submitting",
+    "check",
+    "weiter",
+    "zurück",
+    "zurueck",
+    "antwort speichern",
+    "speichern"
+  ],
+  "blocked_selector_patterns": [
+    "[name='finishattempt']",
+    "[name='submitbutton']",
+    "#mod_quiz-next-nav[value*='Submit']",
+    ".submitbtns input[type='submit']"
+  ],
+  "on_violation": "stop_and_report"
+}

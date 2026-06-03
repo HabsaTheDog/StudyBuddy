@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "login": {
+    "username_selectors": [
+      "#username",
+      "input[name='username']",
+      "input[type='text']"
+    ],
+    "password_selectors": [
+      "#password",
+      "input[name='password']",
+      "input[type='password']"
+    ],
+    "submit_selectors": [
+      "#loginbtn",
+      "button[type='submit']",
+      "input[type='submit']"
+    ]
+  },
+  "dashboard": {
+    "course_link_selectors": [
+      "a[href*='/course/view.php']",
+      "[data-region='course-content'] a",
+      ".coursebox a"
+    ]
+  },
+  "quiz": {
+    "question_selectors": [
+      ".que",
+      "[id^='question-']"
+    ],
+    "navigation_selectors": [
+      "#quiznavbutton",
+      ".qn_buttons",
+      ".submitbtns"
+    ]
+  }
+}

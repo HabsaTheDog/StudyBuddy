@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "confidence", "citations", "rationale", "risk_flags"],
+  "properties": {
+    "answer": {
+      "description": "Exact answer to fill. For choice questions use exact visible option text; for multi-select use an array of exact visible option texts.",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "array", "items": { "type": ["string", "number", "boolean"] } },
+        { "type": "null" }
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "kind", "url", "path", "page", "section"],
+        "properties": {
+          "title": { "type": "string" },
+          "kind": { "type": "string" },
+          "url": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
+          "page": { "type": ["integer", "null"] },
+          "section": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
