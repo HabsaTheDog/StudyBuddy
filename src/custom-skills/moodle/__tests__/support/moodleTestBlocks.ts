@@ -8,13 +8,25 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     prompt: "make compact notes",
     moodleUrl: "https://moodle.example/course",
     outputPath: "/tmp/document.typ",
+    requestName: "test",
     runDir: "/tmp",
     maxDepth: 0,
     maxPages: 1,
+    maxCisPages: 1,
     allowFileDownloads: false,
     baseUrl: "https://moodle.example",
     dashboardUrl: "https://moodle.example/my",
+    cisUrls: [],
+    cisBaseUrl: "https://cis.example",
+    cisDashboardUrl: "https://cis.example/cis.php",
     headless: true,
+    browserBackend: "playwright",
+    diagnosticOnly: false,
+    autoAnswer: false,
+    maxRuntimeMs: 60_000,
+    idleTimeoutMs: 30_000,
+    stage: "all",
+    includeCis: false,
     ...overrides,
   };
 }
@@ -57,4 +69,22 @@ export function sequenceCodex(outputs: string[]): CodexClient {
       return output;
     },
   };
+}
+
+export function studyBuddyTypstDocument(body = "= DYN2"): string {
+  return `#import "study-buddy-components.typ": *
+
+#sb-document(
+  title: "DYN2 Lernzettel",
+  short-title: "DYN2",
+  course: "Dynamik",
+  kind: "Lernzettel",
+  semester: "SS 2026",
+  status: "Erstellt",
+  date: "07.06.2026",
+  body: [
+    ${body}
+  ],
+)
+`;
 }

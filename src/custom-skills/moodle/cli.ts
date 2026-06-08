@@ -8,8 +8,21 @@ const program = new Command()
   .argument("<prompt>", "User request for the Moodle agent")
   .requiredOption("--url <url>", "Moodle URL to inspect")
   .option("--out <path>", "Output .typ path")
-  .option("--max-depth <number>", "Maximum same-domain crawl depth", parseNumber, 1)
-  .option("--max-pages <number>", "Maximum Moodle pages to inspect", parseNumber, 12)
+  .option("--request-name <slug>", "Request-specific output directory name")
+  .option("--run-dir <path>", "Explicit run directory")
+  .option("--max-depth <number>", "Maximum same-domain crawl depth", parseNumber, 2)
+  .option("--max-pages <number>", "Maximum Moodle pages to inspect", parseNumber, 8)
+  .option("--cis-url <url>", "CIS URL to inspect; repeat for multiple pages", collect, [])
+  .option("--max-cis-pages <number>", "Maximum CIS pages to inspect", parseNumber, 4)
+  .option("--browser-backend <backend>", "Browser backend: playwright or agent-browser")
+  .option("--browser-headed", "Show the browser window for Moodle/CIS scraping")
+  .option("--diagnostic-only", "Only test login, page access, source discovery, and diagnostics")
+  .option("--auto-answer", "Accepted for quiz compatibility; final quiz submission is never allowed")
+  .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
+  .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
+  .option("--stage <stage>", "Pipeline stage: all, extract, or render", parseStage, "all")
+  .option("--source-run-dir <path>", "Successful extraction run consumed by the render stage")
+  .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
   .parse(process.argv);
@@ -17,10 +30,23 @@ const program = new Command()
 const options = program.opts<{
   url: string;
   out?: string;
+  requestName?: string;
+  runDir?: string;
   maxDepth: number;
   maxPages: number;
+  cisUrl: string[];
+  maxCisPages: number;
+  browserBackend?: "playwright" | "agent-browser";
+  browserHeaded?: boolean;
+  diagnosticOnly?: boolean;
+  autoAnswer?: boolean;
+  maxRuntimeMs?: number;
+  idleTimeoutMs?: number;
   downloads: boolean;
   json?: boolean;
+  stage: "all" | "extract" | "render";
+  sourceRunDir?: string;
+  cis: boolean;
 }>();
 
 const prompt = program.args.join(" ");
@@ -28,17 +54,42 @@ const result = await runMoodleGraph({
   prompt,
   moodleUrl: options.url,
   outputPath: options.out,
+  requestName: options.requestName,
+  runDir: options.runDir,
   maxDepth: options.maxDepth,
   maxPages: options.maxPages,
+  cisUrls: options.cisUrl,
+  maxCisPages: options.maxCisPages,
   allowFileDownloads: options.downloads,
+  browserBackend: options.browserBackend,
+  browserHeaded: options.browserHeaded,
+  diagnosticOnly: options.diagnosticOnly,
+  autoAnswer: options.autoAnswer,
+  maxRuntimeMs: options.maxRuntimeMs,
+  idleTimeoutMs: options.idleTimeoutMs,
+  stage: options.stage,
+  sourceRunDir: options.sourceRunDir,
+  includeCis: options.cis,
 });
 
 if (options.json) {
   console.log(JSON.stringify(result, null, 2));
 } else if (result.ok) {
-  console.log(`Wrote Typst document: ${result.outputPath}`);
+  console.log(`Run directory: ${result.runDir}`);
+  if (result.outputPath) {
+    console.log(`Wrote Typst document: ${result.outputPath}`);
+  }
+  if (result.extractedDataPath) {
+    console.log(`Wrote extracted data: ${result.extractedDataPath}`);
+  }
+  if (result.pdfPath) {
+    console.log(`Wrote PDF document: ${result.pdfPath}`);
+  }
+  console.log(`Run summary: ${result.runSummaryPath}`);
 } else {
   console.error(result.error || "Moodle graph failed.");
+  console.error(`Run directory: ${result.runDir}`);
+  console.error(`Run summary: ${result.runSummaryPath}`);
   process.exitCode = 1;
 }
 
@@ -48,4 +99,15 @@ function parseNumber(value: string): number {
     throw new Error(`Expected a non-negative integer, got ${value}`);
   }
   return parsed;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function parseStage(value: string): "all" | "extract" | "render" {
+  if (value === "all" || value === "extract" || value === "render") {
+    return value;
+  }
+  throw new Error(`Expected pipeline stage to be all, extract, or render, got ${value}`);
 }

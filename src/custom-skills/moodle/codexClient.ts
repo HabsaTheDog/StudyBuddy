@@ -8,13 +8,16 @@ export interface CodexClient {
 export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const codex = new Codex();
   const thread = codex.startThread({
-    workingDirectory: process.cwd(),
+    workingDirectory: config.runDir,
     skipGitRepoCheck: true,
   });
 
   return {
     async run(prompt, options) {
-      const turn = await thread.run(prompt, options);
+      const turn = await thread.run(prompt, {
+        ...options,
+        signal: config.abortSignal,
+      });
       return turn.finalResponse;
     },
   };

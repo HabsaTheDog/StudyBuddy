@@ -3,10 +3,10 @@ import { z } from "zod";
 export const SourceSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
-  kind: z.enum(["moodle_page", "pdf", "file", "quiz_question", "assignment", "local_file"]),
-  url: z.string().optional(),
-  path: z.string().optional(),
-  page: z.number().int().positive().optional(),
+  kind: z.enum(["moodle_page", "cis_page", "pdf", "file", "quiz_question", "assignment", "local_file"]),
+  url: z.string().nullable().default(null),
+  path: z.string().nullable().default(null),
+  page: z.number().int().positive().nullable().default(null),
 });
 
 export const FormulaSchema = z.object({
@@ -58,6 +58,69 @@ export type ExtractedData = z.infer<typeof ExtractedDataSchema>;
 export const extractedDataJsonSchema = {
   type: "object",
   additionalProperties: false,
+  $defs: {
+    source: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        kind: {
+          type: "string",
+          enum: ["moodle_page", "cis_page", "pdf", "file", "quiz_question", "assignment", "local_file"],
+        },
+        url: { type: ["string", "null"] },
+        path: { type: ["string", "null"] },
+        page: { type: ["number", "null"] },
+      },
+      required: ["id", "title", "kind", "url", "path", "page"],
+    },
+    section: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        heading: { type: "string" },
+        summary: { type: "string" },
+        key_concepts: { type: "array", items: { type: "string" } },
+        source_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["heading", "summary", "key_concepts", "source_ids"],
+    },
+    formula: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        name: { type: "string" },
+        typst: { type: "string" },
+        variables: { type: "array", items: { type: "string" } },
+        units: { type: "array", items: { type: "string" } },
+        context: { type: "string" },
+        source_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["name", "typst", "variables", "units", "context", "source_ids"],
+    },
+    worked_example: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        prompt: { type: "string" },
+        steps: { type: "array", items: { type: "string" } },
+        result: { type: "string" },
+        source_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["prompt", "steps", "result", "source_ids"],
+    },
+    quiz_style_question: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        question: { type: "string" },
+        answer: { type: "string" },
+        source_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["question", "answer", "source_ids"],
+    },
+  },
   properties: {
     document_title: { type: "string" },
     language: { type: "string", enum: ["de", "en"] },
@@ -70,11 +133,11 @@ export const extractedDataJsonSchema = {
       },
       required: ["title", "url"],
     },
-    sources: { type: "array", items: { type: "object" } },
-    sections: { type: "array", items: { type: "object" } },
-    formulas: { type: "array", items: { type: "object" } },
-    worked_examples: { type: "array", items: { type: "object" } },
-    quiz_style_questions: { type: "array", items: { type: "object" } },
+    sources: { type: "array", items: { "$ref": "#/$defs/source" } },
+    sections: { type: "array", items: { "$ref": "#/$defs/section" } },
+    formulas: { type: "array", items: { "$ref": "#/$defs/formula" } },
+    worked_examples: { type: "array", items: { "$ref": "#/$defs/worked_example" } },
+    quiz_style_questions: { type: "array", items: { "$ref": "#/$defs/quiz_style_question" } },
     warnings: { type: "array", items: { type: "string" } },
   },
   required: [

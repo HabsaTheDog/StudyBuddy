@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
+import { validateTypst } from "../validation.js";
+import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
+
+describe("Study Buddy Typst components", () => {
+  it("compiles and raster-renders standardized tables, math, and diagrams", async () => {
+    const source = studyBuddyTypstDocument(`
+      #sb-math-panel("Mehrzeilige Herleitung")[
+        $
+          J(beta) &= norm(bold(A) beta - bold(y))_2^2 \\
+          nabla_beta J(beta) &= 2 bold(A)^T (bold(A) beta - bold(y)) = 0
+        $
+      ]
+
+      #sb-formula(
+        name: "Einzelelemente",
+        variables: "U: Spannung",
+        units: "V",
+      )[$ U = R I $]
+
+      #sb-table-section("Messwerte")[
+        #sb-table(
+          columns: (16mm, 1fr, 1fr),
+          header: ("Nr.", [$U_"in"$], "Bewertung"),
+          rows: (
+            ("1", "12,0 V", [#sb-chip("plausibel", tone: "success")]),
+            ("2", "24,0 V", [#sb-chip("prüfen", tone: "warning")]),
+          ),
+        )
+      ]
+
+      #sb-figure(label-text: "Abb. 1", caption: "Geprüfter Ablauf")[
+        #sb-flowchart-branch(
+          "Messwert erfassen",
+          "im Bereich?",
+          "Wert übernehmen",
+          "Aufbau prüfen",
+          "Ergebnis dokumentieren",
+        )
+      ]
+
+      #sb-figure(label-text: "Abb. 2", caption: "RC-Tiefpass")[
+        #sb-rc-schematic()
+      ]
+    `);
+
+    const result = await validateTypst(
+      source,
+      await getStudyBuddyTypstSupportFiles(),
+    );
+
+    expect(result).toEqual({ ok: true });
+  }, 30_000);
+});

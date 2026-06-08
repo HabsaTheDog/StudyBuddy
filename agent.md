@@ -2,8 +2,10 @@
 
 - Keep all Moodle/CIS pipeline logic isolated under `src/custom-skills/moodle/`.
 - Do not modify host routing, state, or UI files for the Moodle skill.
-- Treat `reference repo Study Buddy 1.0/` as read-only domain reference only.
-- Use V1 for Moodle data shapes, study-document expectations, and Typst conventions; do not copy its Python architecture or execution flow.
+- Treat `reference repo Study Buddy 1.0/` and `t3code-fork/` as read-only reference repos unless the user explicitly asks to modify them.
+- Store generated study artifacts under `output/<request-name>/`; create a new request-specific subdirectory for every artifact-producing request.
+- Do not place generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, or temporary source files inside `t3code-fork/` or other reference repos.
+- Use the current 2.0 TypeScript contracts for Moodle data shapes, study-document expectations, quiz workflows, and Typst conventions.
 - Govern the Moodle pipeline with LangGraph, not a linear script.
 - Preserve the strict graph state fields: `moodle_raw_text`, `extracted_data`, `final_document`, `error_log`, and `retry_count`.
 - Route invalid analyzer JSON back to the analyzer with `error_log` repair context.
@@ -15,3 +17,18 @@
 - For any question about tomorrow, today, schedules, rooms, attendance, exams, deadlines, Fachlabor/lab sessions, or "what are we doing in class", use both Moodle and CIS before answering.
 - Do not conclude that information is unavailable just because Moodle has no dated entry; check CIS and report source coverage.
 - Never submit final Moodle quiz attempts.
+- For artifact requests, start one Study Buddy run and monitor that run directory until it reaches a terminal status. Do not launch a second broad crawl while the first run is active.
+- Prefer a direct Moodle course, activity, assignment, or resource URL when one is already known from a completed run.
+- Never reinterpret a requested topic as a neighboring topic such as AC-DC instead of DC-DC. Report source mismatches explicitly.
+- Treat a PDF request as successful only when `run-summary.md` is terminal, `error.log` is empty, and non-empty `document.typ` and `document.pdf` files exist.
+- A reachable dashboard or unrelated course page is not sufficient source coverage for a specific topic.
+- Generated study PDFs must use the standardized Study Buddy Typst component library and document shell.
+- If a run is too broad, cancel it through the wrapper and retry once with the most specific discovered URL. Do not leave superseded runs active.
+- For PDF requests, the Study Buddy `doc` wrapper and standardized Typst renderer are the PDF toolchain. Poll the original command session until exit, or use `study_buddy_task.sh wait <run-dir>`; status checks alone do not complete the task.
+- Do not end the agent turn while an artifact-producing process is still active. The final response must include a clickable absolute path to the verified non-empty `document.pdf`.
+- Use the buffered lease protocol in `docs/orchestration-lease-protocol.md` for long-running workers: 210 seconds of tool work, 90 seconds reserved for checkpoint generation, and 30 seconds of parent-side delivery grace. For subagents use `wait_agent` with `timeout_ms: 330000`; for PTY processes use one `write_stdin` with `yield_time_ms: 210000`.
+- A long-running worker must checkpoint as `completed`, `progress`, or `blocked` no later than the end of its five-minute lease. Continue the same worker by default when it is alive, on-topic, and making semantic progress.
+- A worker must not begin a blocking operation that can outlive its remaining 210-second work budget. Long processes must run in a reusable session or detached process so the worker can regain control and respond before the five-minute checkpoint deadline.
+- Do not duplicate or replace an active worker because it is quiet. Redirect or replace only on concrete off-course evidence, terminal failure, or stale semantic progress, and confirm the original process has stopped first.
+- Moodle document generation is a mandatory two-worker workflow: `extract` must finish and persist a validated handoff before `render` starts; `render` must consume that handoff without crawling sources again.
+- For Moodle-derived artifacts, never manually create or patch a replacement `.typ`, never call `typst compile` directly, and never write PDFs to `test*/` or outside the wrapper's printed workflow directory. Rendering recovery must use the official `render` command with the existing successful extraction run.

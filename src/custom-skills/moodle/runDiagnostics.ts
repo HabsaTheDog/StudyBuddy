@@ -1,0 +1,393 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { Page } from "playwright";
+import type { AgentBrowserClient } from "./agentBrowserClient.js";
+
+export type SourceName = "moodle" | "cis";
+
+export type SourceFetchStatus =
+  | "not_requested"
+  | "attempted"
+  | "success"
+  | "partial"
+  | "empty"
+  | "failed"
+  | "failed_auth"
+  | "timeout";
+
+export type FailureKind =
+  | "timeout"
+  | "auth"
+  | "network"
+  | "selector"
+  | "access_denied"
+  | "unknown";
+
+export interface SourceCoverageEntry {
+  status: SourceFetchStatus;
+  detail: string;
+  urls: string[];
+  attemptedUrls: string[];
+  pages: number;
+  lastUrl?: string;
+  lastSuccessfulStep?: string;
+  failureKind?: FailureKind;
+  artifacts: string[];
+}
+
+export interface SourceCoverage {
+  moodle: SourceCoverageEntry;
+  cis: SourceCoverageEntry;
+}
+
+export interface RunEvent {
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  phase:
+    | "config"
+    | "moodle_login"
+    | "moodle_crawl"
+    | "moodle_download"
+    | "cis_login"
+    | "cis_crawl"
+    | "cis_download"
+    | "analyzer"
+    | "formatter"
+    | "typst"
+    | "diagnostic"
+    | "cleanup";
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+export interface RunSummaryInput {
+  route: string;
+  status: "success" | "partial" | "failed" | "canceled" | "timeout";
+  prompt: string;
+  error?: string;
+  outputPath?: string;
+  pdfPath?: string;
+  stateHasRawText: boolean;
+  stateHasDocument: boolean;
+  extractedDataPath?: string;
+}
+
+export const initialSourceCoverage: SourceCoverage = {
+  moodle: {
+    status: "not_requested",
+    detail: "Moodle was not queried.",
+    urls: [],
+    attemptedUrls: [],
+    pages: 0,
+    artifacts: [],
+  },
+  cis: {
+    status: "not_requested",
+    detail: "CIS was not queried.",
+    urls: [],
+    attemptedUrls: [],
+    pages: 0,
+    artifacts: [],
+  },
+};
+
+export class RunDiagnostics {
+  readonly runDir: string;
+  private readonly eventsPath: string;
+  private readonly coveragePath: string;
+  private readonly summaryPath: string;
+  private readonly secrets: string[];
+  private coverage: SourceCoverage = structuredClone(initialSourceCoverage);
+  private lastEventAt = Date.now();
+
+  constructor(input: { runDir: string; secrets?: string[]; initialCoverage?: SourceCoverage }) {
+    this.runDir = input.runDir;
+    this.eventsPath = path.join(input.runDir, "run-events.jsonl");
+    this.coveragePath = path.join(input.runDir, "source_coverage.json");
+    this.summaryPath = path.join(input.runDir, "run-summary.md");
+    this.secrets = (input.secrets ?? []).filter(Boolean);
+    if (input.initialCoverage) {
+      this.coverage = structuredClone(input.initialCoverage);
+    }
+  }
+
+  get runSummaryPath(): string {
+    return this.summaryPath;
+  }
+
+  get lastActivityAt(): number {
+    return this.lastEventAt;
+  }
+
+  getCoverage(): SourceCoverage {
+    return structuredClone(this.coverage);
+  }
+
+  async init(): Promise<void> {
+    await mkdir(this.runDir, { recursive: true });
+    await this.writeCoverage();
+    await writeFile(this.eventsPath, "", "utf8");
+    await this.writeRunningSummary();
+  }
+
+  async log(
+    level: RunEvent["level"],
+    phase: RunEvent["phase"],
+    message: string,
+    data?: Record<string, unknown>,
+  ): Promise<void> {
+    if (phase !== "diagnostic") {
+      this.lastEventAt = Date.now();
+    }
+    const event: RunEvent = {
+      timestamp: new Date().toISOString(),
+      level,
+      phase,
+      message: this.redact(message),
+      data: data ? (JSON.parse(this.redact(JSON.stringify(data))) as Record<string, unknown>) : undefined,
+    };
+    await writeFile(this.eventsPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "a" });
+    const prefix = level === "error" ? "ERROR" : level === "warn" ? "WARN" : "INFO";
+    console[level === "error" ? "error" : level === "warn" ? "warn" : "log"](
+      `[study-buddy] ${prefix} ${phase}: ${event.message}`,
+    );
+  }
+
+  async updateCoverage(source: SourceName, update: Partial<SourceCoverageEntry>): Promise<void> {
+    const current = this.coverage[source];
+    this.coverage = {
+      ...this.coverage,
+      [source]: {
+        ...current,
+        ...update,
+        urls: unique([...(current.urls ?? []), ...(update.urls ?? [])]),
+        attemptedUrls: unique([...(current.attemptedUrls ?? []), ...(update.attemptedUrls ?? [])]),
+        artifacts: unique([...(current.artifacts ?? []), ...(update.artifacts ?? [])]),
+      },
+    };
+    await this.writeCoverage();
+    await this.writeRunningSummary();
+  }
+
+  async markAttempt(source: SourceName, url: string, detail: string): Promise<void> {
+    await this.updateCoverage(source, {
+      status: this.coverage[source].status === "not_requested" ? "attempted" : this.coverage[source].status,
+      detail,
+      attemptedUrls: [url],
+      lastUrl: url,
+    });
+  }
+
+  async markSuccess(
+    source: SourceName,
+    input: { detail: string; urls: string[]; pages: number; partial?: boolean },
+  ): Promise<void> {
+    await this.updateCoverage(source, {
+      status: input.partial ? "partial" : input.pages > 0 ? "success" : "empty",
+      detail: input.detail,
+      urls: input.urls,
+      pages: input.pages,
+      lastSuccessfulStep: input.detail,
+      failureKind: undefined,
+    });
+  }
+
+  async markFailure(
+    source: SourceName,
+    input: { detail: string; urls?: string[]; attemptedUrls?: string[]; failureKind?: FailureKind },
+  ): Promise<void> {
+    await this.updateCoverage(source, {
+      status: input.failureKind === "timeout" ? "timeout" : input.failureKind === "auth" ? "failed_auth" : "failed",
+      detail: this.redact(input.detail),
+      urls: input.urls ?? [],
+      attemptedUrls: input.attemptedUrls ?? [],
+      failureKind: input.failureKind ?? "unknown",
+    });
+  }
+
+  async capturePageDiagnostics(
+    source: SourceName,
+    page: Page,
+    label: string,
+    error: unknown,
+  ): Promise<string[]> {
+    const dir = path.join(this.runDir, "diagnostics");
+    await mkdir(dir, { recursive: true });
+    const safeLabel = safeFileName(`${source}-${label}`);
+    const base = path.join(dir, safeLabel);
+    const artifacts: string[] = [];
+    const currentUrl = page.url();
+    const errorText = error instanceof Error ? error.message : String(error);
+
+    await writeFile(`${base}-current-url.txt`, `${currentUrl}\n`, "utf8");
+    artifacts.push(`${base}-current-url.txt`);
+    await writeFile(`${base}-error.txt`, `${this.redact(errorText)}\n`, "utf8");
+    artifacts.push(`${base}-error.txt`);
+
+    const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    await writeFile(`${base}-visible-text.txt`, visibleText, "utf8");
+    artifacts.push(`${base}-visible-text.txt`);
+
+    const html = await page.content().catch(() => "");
+    await writeFile(`${base}-page.html`, html, "utf8");
+    artifacts.push(`${base}-page.html`);
+
+    await page.screenshot({ path: `${base}-screenshot.png`, fullPage: true }).catch(() => undefined);
+    artifacts.push(`${base}-screenshot.png`);
+
+    await this.updateCoverage(source, { artifacts, lastUrl: currentUrl });
+    return artifacts;
+  }
+
+  async captureAgentBrowserDiagnostics(
+    source: SourceName,
+    client: AgentBrowserClient,
+    label: string,
+    error: unknown,
+  ): Promise<string[]> {
+    const dir = path.join(this.runDir, "diagnostics");
+    await mkdir(dir, { recursive: true });
+    const safeLabel = safeFileName(`${source}-${label}`);
+    const base = path.join(dir, safeLabel);
+    const artifacts: string[] = [];
+    const errorText = error instanceof Error ? error.message : String(error);
+
+    await writeFile(`${base}-error.txt`, `${this.redact(errorText)}\n`, "utf8");
+    artifacts.push(`${base}-error.txt`);
+
+    const currentUrl = await client.getUrl().catch(() => "");
+    await writeFile(`${base}-current-url.txt`, `${currentUrl}\n`, "utf8");
+    artifacts.push(`${base}-current-url.txt`);
+
+    const snapshot = await client.snapshot({ interactive: true, urls: true, compact: true }).catch(() => null);
+    if (snapshot) {
+      await writeFile(`${base}-snapshot.json`, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+      await writeFile(`${base}-visible-text.txt`, snapshotToText(snapshot.snapshot), "utf8");
+      artifacts.push(`${base}-snapshot.json`, `${base}-visible-text.txt`);
+    }
+
+    const html = await client
+      .evalText("document.documentElement ? document.documentElement.outerHTML : ''")
+      .catch(() => "");
+    if (html) {
+      await writeFile(`${base}-page.html`, html, "utf8");
+      artifacts.push(`${base}-page.html`);
+    }
+
+    await this.updateCoverage(source, { artifacts, lastUrl: currentUrl });
+    return artifacts;
+  }
+
+  async writeSummary(input: RunSummaryInput): Promise<void> {
+    const coverage = this.getCoverage();
+    const lines = [
+      "# Study Buddy Run Summary",
+      "",
+      `Prompt: ${input.prompt}`,
+      "",
+      `Route: ${input.route}`,
+      `Run status: ${input.status}`,
+      `Last successful step: ${latestSuccessfulStep(coverage)}`,
+      "",
+      "## Moodle coverage",
+      formatCoverage(coverage.moodle),
+      "",
+      "## CIS coverage",
+      formatCoverage(coverage.cis),
+      "",
+      "## Generated artifacts",
+      input.extractedDataPath ? `- Extracted data: ${input.extractedDataPath}` : "- Extracted data: none",
+      input.outputPath ? `- Typst: ${input.outputPath}` : "- Typst: none",
+      input.pdfPath ? `- PDF: ${input.pdfPath}` : "- PDF: none",
+      `- Raw source text: ${input.stateHasRawText ? "moodle_raw.txt" : "none"}`,
+      `- Final document in state: ${input.stateHasDocument ? "yes" : "no"}`,
+      "",
+      "## Failure cause",
+      input.error ? this.redact(input.error) : "None.",
+      "",
+      "## Recommended next attempt",
+      recommendation(input.status, coverage),
+      "",
+    ];
+    await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
+  }
+
+  async readEvents(): Promise<string> {
+    return readFile(this.eventsPath, "utf8").catch(() => "");
+  }
+
+  private async writeCoverage(): Promise<void> {
+    await mkdir(this.runDir, { recursive: true });
+    await writeFile(this.coveragePath, `${this.redact(JSON.stringify(this.coverage, null, 2))}\n`, "utf8");
+  }
+
+  private async writeRunningSummary(): Promise<void> {
+    const lines = [
+      "# Study Buddy Run Summary",
+      "",
+      "Run status: running",
+      `Last event at: ${new Date(this.lastEventAt).toISOString()}`,
+      "",
+      "## Moodle coverage",
+      formatCoverage(this.coverage.moodle),
+      "",
+      "## CIS coverage",
+      formatCoverage(this.coverage.cis),
+      "",
+      "Final summary will be written when the run exits cleanly.",
+      "",
+    ];
+    await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
+  }
+
+  private redact(text: string): string {
+    return this.secrets.reduce((current, secret) => current.split(secret).join("[redacted]"), text);
+  }
+}
+
+export function safeFileName(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 140) || "artifact";
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function formatCoverage(entry: SourceCoverageEntry): string {
+  return [
+    `- status: ${entry.status}`,
+    `- detail: ${entry.detail}`,
+    `- attempted URLs: ${entry.attemptedUrls.length ? entry.attemptedUrls.join(", ") : "none"}`,
+    `- extracted URLs: ${entry.urls.length ? entry.urls.join(", ") : "none"}`,
+    `- pages: ${entry.pages}`,
+    `- artifacts: ${entry.artifacts.length ? entry.artifacts.join(", ") : "none"}`,
+  ].join("\n");
+}
+
+function latestSuccessfulStep(coverage: SourceCoverage): string {
+  return coverage.cis.lastSuccessfulStep || coverage.moodle.lastSuccessfulStep || "none";
+}
+
+function recommendation(status: RunSummaryInput["status"], coverage: SourceCoverage): string {
+  if (status === "success") {
+    return "No retry needed.";
+  }
+  if (coverage.moodle.status === "timeout") {
+    return "Retry with diagnostic mode or browser-headed mode, then inspect diagnostics/* for the timed-out Moodle page.";
+  }
+  if (coverage.moodle.status === "failed_auth" || coverage.cis.status === "failed_auth") {
+    return "Refresh credentials or browser storage state, then run diagnostic mode before a document run.";
+  }
+  if (coverage.moodle.status === "not_requested") {
+    return "Check the route selection because Moodle was not attempted.";
+  }
+  return "Inspect run-events.jsonl, source_coverage.json, and diagnostics/*, then retry with a narrower prompt or direct course URL.";
+}
+
+function snapshotToText(snapshot: string): string {
+  return snapshot
+    .split("\n")
+    .map((line) => line.replace(/\s*\[ref=[^\]]+\]/g, "").replace(/\s*url=\S+/g, "").trim())
+    .filter(Boolean)
+    .join("\n");
+}

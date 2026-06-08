@@ -2,7 +2,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
-import { ensureInside } from "../validation.js";
+import {
+  compileTypstPdf,
+  ensureInside,
+  writeTypstSupportFiles,
+} from "../validation.js";
+import {
+  getStudyBuddyTypstSupportFiles,
+  studyBuddyTypstPackagePath,
+} from "../typstAssets.js";
+import { typstPdfPath } from "../typstTemplate.js";
 
 export function createDiskWriterNode(config: MoodleRuntimeConfig) {
   return async function diskWriterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
@@ -13,7 +22,20 @@ export function createDiskWriterNode(config: MoodleRuntimeConfig) {
     }
     const outputPath = ensureInside(config.runDir, config.outputPath);
     await mkdir(path.dirname(outputPath), { recursive: true });
+    const supportFiles = await getStudyBuddyTypstSupportFiles();
+    await writeTypstSupportFiles(config.runDir, supportFiles);
     await writeFile(outputPath, state.final_document, "utf8");
+    await config.diagnostics?.log("info", "typst", `Wrote Typst document: ${outputPath}`);
+    const pdfPath = ensureInside(config.runDir, typstPdfPath(outputPath));
+    const pdfResult = await compileTypstPdf(outputPath, pdfPath, {
+      packagePath: studyBuddyTypstPackagePath(config.runDir),
+    });
+    if (!pdfResult.ok) {
+      return {
+        error_log: `PDF compile failed: ${pdfResult.error}`,
+      };
+    }
+    await config.diagnostics?.log("info", "typst", `Wrote PDF document: ${pdfPath}`);
     return { error_log: null };
   };
 }

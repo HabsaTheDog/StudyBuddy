@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { constants } from "node:fs";
@@ -21,26 +21,98 @@ export function validateExtractedData(value: unknown): ExtractedData {
   return ExtractedDataSchema.parse(value);
 }
 
-export async function validateTypst(source: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function validateTypst(
+  source: string,
+  supportFiles: TypstSupportFile[] = [],
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const typstPath = await findExecutable("typst");
   if (!typstPath) {
-    return { ok: true };
+    return { ok: false, error: "typst executable was not found on PATH." };
   }
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "moodle-typst-"));
   const sourcePath = path.join(tempDir, "document.typ");
   const targetPath = path.join(tempDir, "document.pdf");
   await writeFile(sourcePath, source, "utf8");
+  await writeTypstSupportFiles(tempDir, supportFiles);
 
   try {
-    const result = await runCommand(typstPath, ["compile", sourcePath, targetPath]);
-    if (result.code === 0) {
-      return { ok: true };
+    const packagePath = inferPackagePath(tempDir, supportFiles);
+    const result = await runTypstCompile(typstPath, sourcePath, targetPath, {
+      packagePath,
+    });
+    if (result.code !== 0) {
+      return { ok: false, error: result.stderr || result.stdout || `typst exited with code ${result.code}` };
     }
-    return { ok: false, error: result.stderr || result.stdout || `typst exited with code ${result.code}` };
+    if (/warning:/i.test(result.stderr)) {
+      return { ok: false, error: `Typst emitted a warning:\n${result.stderr}` };
+    }
+
+    const previewPattern = path.join(tempDir, "preview-{0p}.png");
+    const renderResult = await runTypstCompile(typstPath, sourcePath, previewPattern, {
+      packagePath,
+      format: "png",
+      ppi: 144,
+    });
+    if (renderResult.code !== 0) {
+      return {
+        ok: false,
+        error: `Typst preview render failed:\n${renderResult.stderr || renderResult.stdout}`,
+      };
+    }
+    const previews = (await readdir(tempDir))
+      .filter((fileName) => /^preview-\d+\.png$/.test(fileName));
+    if (previews.length === 0) {
+      return { ok: false, error: "Typst preview render produced no pages." };
+    }
+    for (const preview of previews) {
+      const previewStat = await stat(path.join(tempDir, preview));
+      if (previewStat.size === 0) {
+        return { ok: false, error: `Typst preview page is empty: ${preview}` };
+      }
+    }
+    return { ok: true };
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+export interface TypstSupportFile {
+  relativePath: string;
+  content: string | Uint8Array;
+}
+
+export type TypstCompileResult =
+  | { ok: true; skipped: false }
+  | { ok: false; error: string };
+
+export interface TypstCompileOptions {
+  packagePath?: string;
+}
+
+export async function compileTypstPdf(
+  sourcePath: string,
+  targetPath: string,
+  options: TypstCompileOptions = {},
+): Promise<TypstCompileResult> {
+  const typstPath = await findExecutable("typst");
+  if (!typstPath) {
+    return { ok: false, error: "typst executable was not found on PATH; PDF generation is required." };
+  }
+
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  const result = await runTypstCompile(typstPath, sourcePath, targetPath, options);
+  if (result.code === 0) {
+    const targetStat = await stat(targetPath).catch(() => null);
+    if (targetStat?.isFile() && targetStat.size > 0) {
+      return { ok: true, skipped: false };
+    }
+    return { ok: false, error: "Typst exited successfully but produced no readable PDF file." };
+  }
+  return {
+    ok: false,
+    error: result.stderr || result.stdout || `typst exited with code ${result.code}`,
+  };
 }
 
 export function ensureInside(baseDir: string, targetPath: string): string {
@@ -51,6 +123,49 @@ export function ensureInside(baseDir: string, targetPath: string): string {
     throw new Error(`Refusing to write outside run directory: ${resolvedTarget}`);
   }
   return resolvedTarget;
+}
+
+export async function writeTypstSupportFiles(
+  baseDir: string,
+  supportFiles: TypstSupportFile[],
+): Promise<void> {
+  for (const file of supportFiles) {
+    const supportPath = ensureInside(baseDir, path.join(baseDir, file.relativePath));
+    await mkdir(path.dirname(supportPath), { recursive: true });
+    await writeFile(supportPath, file.content, "utf8");
+  }
+}
+
+function inferPackagePath(baseDir: string, supportFiles: TypstSupportFile[]): string | undefined {
+  const packageRoot = supportFiles
+    .map((file) => file.relativePath.split(/[\\/]/)[0])
+    .find((segment) => segment === ".typst-packages");
+  return packageRoot ? path.join(baseDir, packageRoot) : undefined;
+}
+
+interface TypstRenderOptions extends TypstCompileOptions {
+  format?: "pdf" | "png";
+  ppi?: number;
+}
+
+function runTypstCompile(
+  typstPath: string,
+  sourcePath: string,
+  targetPath: string,
+  options: TypstRenderOptions,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const args = ["compile"];
+  if (options.packagePath) {
+    args.push("--package-path", options.packagePath);
+  }
+  if (options.format) {
+    args.push("--format", options.format);
+  }
+  if (options.ppi) {
+    args.push("--ppi", String(options.ppi));
+  }
+  args.push(sourcePath, targetPath);
+  return runCommand(typstPath, args);
 }
 
 async function findExecutable(name: string): Promise<string | null> {

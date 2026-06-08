@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseJsonObjectOrArray, validateExtractedData } from "../validation.js";
-import { moodleExtractedData } from "./support/moodleTestBlocks.js";
+import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
+import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
+import {
+  moodleExtractedData,
+  studyBuddyTypstDocument,
+} from "./support/moodleTestBlocks.js";
 
 describe("validation", () => {
   it("parses fenced JSON", () => {
@@ -9,5 +14,44 @@ describe("validation", () => {
 
   it("validates extracted data", () => {
     expect(() => validateExtractedData(moodleExtractedData())).not.toThrow();
+  });
+
+  it("accepts the standardized Study Buddy document shell", () => {
+    expect(validateStudyBuddyDocumentStructure(studyBuddyTypstDocument())).toEqual({
+      ok: true,
+      errors: [],
+    });
+  });
+
+  it("rejects raw tables, text arrows, and missing title metadata", () => {
+    const validation = validateStudyBuddyDocumentStructure(`#import "study-buddy-components.typ": *
+#sb-document(title: "Bad", body: [
+  #table(columns: 2, [A], [B])
+  A → B
+])`);
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("missing the 'short-title:'"),
+      expect.stringContaining("raw table/grid"),
+      expect.stringContaining("text arrow glyphs"),
+    ]));
+  });
+
+  it("loads the component library and vendored CeTZ package", async () => {
+    const files = await getStudyBuddyTypstSupportFiles();
+    expect(files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ relativePath: "study-buddy-components.typ" }),
+      expect.objectContaining({ relativePath: "study-buddy-template.typ" }),
+      expect.objectContaining({
+        relativePath: ".typst-packages/preview/cetz/0.5.0/typst.toml",
+      }),
+      expect.objectContaining({
+        relativePath: ".typst-packages/preview/cetz/0.5.0/cetz-core/cetz_core.wasm",
+      }),
+      expect.objectContaining({
+        relativePath: ".typst-packages/preview/oxifmt/1.0.0/typst.toml",
+      }),
+    ]));
   });
 });

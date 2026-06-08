@@ -72,11 +72,27 @@ describe("createRuntimeConfig", () => {
 
     expect(config.outputPath).toBe(path.join(config.runDir, "document.typ"));
     expect(path.dirname(config.runDir)).toBe(path.resolve(tempRoot));
-    expect(config.maxDepth).toBe(1);
-    expect(config.maxPages).toBe(12);
+    expect(config.maxDepth).toBe(2);
+    expect(config.maxPages).toBe(8);
     expect(config.allowFileDownloads).toBe(true);
+    expect(config.idleTimeoutMs).toBe(8 * 60_000);
     expect(config.baseUrl).toBe("https://moodle.example");
     expect(config.dashboardUrl).toBe("https://moodle.example/course/view.php?id=42");
     expect(config.headless).toBe(true);
+  });
+
+  it("can explicitly disable CIS even when CIS_URLS is configured", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-no-cis-"));
+    vi.stubEnv("MOODLE_OUTPUT_DIR", tempRoot);
+    vi.stubEnv("CIS_URLS", "https://cis.example/cis.php");
+
+    const config = createRuntimeConfig({
+      prompt: "make notes",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      includeCis: false,
+    });
+
+    expect(config.includeCis).toBe(false);
+    expect(config.cisUrls).toEqual([]);
   });
 });

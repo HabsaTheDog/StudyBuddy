@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,11 +24,31 @@ describe("diskWriterNode", () => {
       prompt: "test",
     }));
 
-    await node(moodleTestState({
+    const result = await node(moodleTestState({
       final_document: "#set page()\n",
     }));
 
+    expect(result.error_log).toBeNull();
     await expect(readFile(outputPath, "utf8")).resolves.toBe("#set page()\n");
+    await expect(stat(path.join(runDir, "document.pdf"))).resolves.toMatchObject({
+      size: expect.any(Number),
+    });
+    await expect(
+      readFile(path.join(runDir, "study-buddy-components.typ"), "utf8"),
+    ).resolves.toContain("#let sb-document");
+    await expect(
+      readFile(
+        path.join(
+          runDir,
+          ".typst-packages",
+          "preview",
+          "cetz",
+          "0.5.0",
+          "typst.toml",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain('name = "cetz"');
   });
 
   it("refuses to write outside the run directory", async () => {
