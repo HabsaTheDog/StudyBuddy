@@ -2,6 +2,7 @@ import type { AgentState } from "./state.js";
 import type { RunDiagnostics, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan } from "./sourcePlanner.js";
 import type { RenderStrategyDecision } from "./renderStrategy.js";
+import type { QuizPolicy } from "./quizPolicy.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -76,6 +77,7 @@ export interface MoodleRuntimeConfig {
   browserBackend: BrowserBackend;
   diagnosticOnly: boolean;
   autoAnswer: boolean;
+  quizPolicy: QuizPolicy;
   maxRuntimeMs: number;
   idleTimeoutMs: number;
   stage: PipelineStage;

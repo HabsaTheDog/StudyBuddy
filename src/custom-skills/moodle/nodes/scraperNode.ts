@@ -16,6 +16,15 @@ import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
+import {
+  assertQuizPolicyAllows,
+  detectQuizRestrictions,
+  isMoodleQuizAttemptUrl,
+  isMoodleQuizFinalSubmitUrl,
+  isMoodleQuizSaveOrMoveUrl,
+  QuizPolicyViolation,
+  type QuizContext,
+} from "../quizPolicy.js";
 
 interface CrawlPage {
   url: string;
@@ -67,6 +76,12 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         if (!next || visited.has(next.url)) {
           continue;
         }
+        const openViolation = quizUrlPolicyViolation(config, next.url);
+        if (openViolation) {
+          await recordQuizPolicyBlock(config, openViolation);
+          chunks.push(formatWarning("Moodle quiz safety", openViolation.message));
+          continue;
+        }
         visited.add(next.url);
         await diagnostics?.markAttempt("moodle", next.url, `Opening Moodle URL: ${next.url}`);
         await diagnostics?.log("info", "moodle_crawl", `Opening Moodle URL: ${next.url}`);
@@ -78,8 +93,20 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         await dismissCommonOverlays(page);
 
         const title = await page.title().catch(() => next.url);
-        const text = await page.locator("body").innerText({ timeout: 15_000 }).catch(() => "");
         const resolvedUrl = page.url() || next.url;
+        const readViolation = quizReadPolicyViolation(config, resolvedUrl, title);
+        if (readViolation) {
+          await recordQuizPolicyBlock(config, readViolation);
+          chunks.push(formatWarning("Moodle quiz safety", readViolation.message));
+          continue;
+        }
+        const text = await page.locator("body").innerText({ timeout: 15_000 }).catch(() => "");
+        const quizContext = detectQuizRestrictions({ url: resolvedUrl, text });
+        const restrictionViolations = quizRestrictionPolicyViolations(config, quizContext);
+        for (const violation of restrictionViolations) {
+          await recordQuizPolicyBlock(config, violation);
+          chunks.push(formatWarning("Moodle quiz safety", violation.message));
+        }
         successfulUrls.add(resolvedUrl);
         chunks.push(formatSourceChunk({ title, url: resolvedUrl, text }));
 
@@ -90,6 +117,11 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         if (next.depth < config.maxDepth) {
           const links = await extractMoodleLinks(page, config.baseUrl, config.prompt);
           for (const link of links) {
+            const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
+            if (linkViolation) {
+              await recordQuizPolicyBlock(config, linkViolation);
+              continue;
+            }
             if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
               queue.push({ url: link, depth: next.depth + 1 });
             }
@@ -172,6 +204,12 @@ async function scrapeWithAgentBrowser(
       if (!next || visited.has(next.url)) {
         continue;
       }
+      const openViolation = quizUrlPolicyViolation(config, next.url);
+      if (openViolation) {
+        await recordQuizPolicyBlock(config, openViolation);
+        chunks.push(formatWarning("Moodle quiz safety", openViolation.message));
+        continue;
+      }
       visited.add(next.url);
       await diagnostics?.markAttempt("moodle", next.url, `Opening Moodle URL with agent-browser: ${next.url}`);
       await diagnostics?.log("info", "moodle_crawl", `agent-browser open: ${next.url}`);
@@ -202,7 +240,19 @@ async function scrapeWithAgentBrowser(
       }
 
       const title = snapshot.origin || next.url;
+      const readViolation = quizReadPolicyViolation(config, snapshot.origin || next.url, title);
+      if (readViolation) {
+        await recordQuizPolicyBlock(config, readViolation);
+        chunks.push(formatWarning("Moodle quiz safety", readViolation.message));
+        continue;
+      }
       const text = snapshotToText(snapshot.snapshot);
+      const quizContext = detectQuizRestrictions({ url: snapshot.origin || next.url, text });
+      const restrictionViolations = quizRestrictionPolicyViolations(config, quizContext);
+      for (const violation of restrictionViolations) {
+        await recordQuizPolicyBlock(config, violation);
+        chunks.push(formatWarning("Moodle quiz safety", violation.message));
+      }
       successfulUrls.add(next.url);
       await writeFile(
         path.join(sourcesDir, safeFileName(`${visited.size}-${title || "snapshot"}.json`)),
@@ -233,6 +283,11 @@ async function scrapeWithAgentBrowser(
       if (next.depth < config.maxDepth) {
         const links = extractMoodleLinksFromSnapshot(snapshot, config.baseUrl, config.prompt);
         for (const link of links) {
+          const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
+          if (linkViolation) {
+            await recordQuizPolicyBlock(config, linkViolation);
+            continue;
+          }
           if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
             queue.push({ url: link, depth: next.depth + 1 });
           }
@@ -455,6 +510,11 @@ async function fetchSinglePageWithPlaywright(
 ): Promise<string> {
   let browser: Browser | null = null;
   try {
+    const openViolation = quizUrlPolicyViolation(config, url);
+    if (openViolation) {
+      await recordQuizPolicyBlock(config, openViolation);
+      return formatWarning("Moodle quiz safety", openViolation.message);
+    }
     await config.diagnostics?.log("info", "moodle_crawl", `Playwright diagnostic fallback: ${url}`);
     browser = await chromium.launch({ headless: config.headless });
     const context = await browser.newContext(
@@ -472,6 +532,11 @@ async function fetchSinglePageWithPlaywright(
       return formatWarning("Moodle", opened.message);
     }
     const title = await page.title().catch(() => url);
+    const readViolation = quizReadPolicyViolation(config, page.url() || url, title);
+    if (readViolation) {
+      await recordQuizPolicyBlock(config, readViolation);
+      return formatWarning("Moodle quiz safety", readViolation.message);
+    }
     const text = await page.locator("body").innerText({ timeout: 15_000 }).catch(() => "");
     return formatSourceChunk({ title, url: page.url() || url, text });
   } catch (error) {
@@ -646,6 +711,78 @@ function formatSourceChunk(input: { title: string; url: string; text: string }):
 
 function formatWarning(source: string, message: string): string {
   return [`[${source} warning]`, message].join("\n");
+}
+
+function quizUrlPolicyViolation(
+  config: MoodleRuntimeConfig,
+  url: string,
+  context: QuizContext = {},
+): QuizPolicyViolation | null {
+  if (isMoodleQuizFinalSubmitUrl(url)) {
+    return quizViolation(config, "final_submit", { ...context, url });
+  }
+  if (isMoodleQuizSaveOrMoveUrl(url)) {
+    return quizViolation(config, "save_or_move_page", { ...context, url });
+  }
+  if (isMoodleQuizAttemptUrl(url)) {
+    if (context.timed) {
+      const timedViolation = quizViolation(config, "open_timed_quiz", { ...context, url });
+      if (timedViolation) {
+        return timedViolation;
+      }
+    }
+    if (context.limitedAttempts) {
+      const limitedAttemptViolation = quizViolation(config, "open_limited_attempt_quiz", { ...context, url });
+      if (limitedAttemptViolation) {
+        return limitedAttemptViolation;
+      }
+    }
+    return quizViolation(config, "open_attempt", { ...context, url });
+  }
+  return null;
+}
+
+function quizReadPolicyViolation(
+  config: MoodleRuntimeConfig,
+  url: string,
+  title: string,
+): QuizPolicyViolation | null {
+  return isMoodleQuizAttemptUrl(url)
+    ? quizViolation(config, "read_questions", { url, title })
+    : null;
+}
+
+function quizRestrictionPolicyViolations(
+  config: MoodleRuntimeConfig,
+  context: QuizContext,
+): QuizPolicyViolation[] {
+  return [
+    context.timed ? quizViolation(config, "open_timed_quiz", context) : null,
+    context.limitedAttempts ? quizViolation(config, "open_limited_attempt_quiz", context) : null,
+  ].filter((violation): violation is QuizPolicyViolation => Boolean(violation));
+}
+
+function quizViolation(
+  config: MoodleRuntimeConfig,
+  action: Parameters<typeof assertQuizPolicyAllows>[1],
+  context: QuizContext,
+): QuizPolicyViolation | null {
+  try {
+    assertQuizPolicyAllows(config.quizPolicy, action, context);
+    return null;
+  } catch (error) {
+    if (error instanceof QuizPolicyViolation) {
+      return error;
+    }
+    throw error;
+  }
+}
+
+async function recordQuizPolicyBlock(
+  config: MoodleRuntimeConfig,
+  violation: QuizPolicyViolation,
+): Promise<void> {
+  await config.diagnostics?.log("warn", "diagnostic", violation.message);
 }
 
 function snapshotToText(snapshot: string): string {

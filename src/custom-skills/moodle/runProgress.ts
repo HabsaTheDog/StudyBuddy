@@ -3,6 +3,7 @@ import path from "node:path";
 import type { RunEvent, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan, SourceTarget } from "./sourcePlanner.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { writeRunExpectation, type StudyBuddyRunPhase } from "./runExpectation.js";
 
 export type StudyBuddyRunStatus =
   | "queued"
@@ -195,8 +196,39 @@ export async function writeRunProgress(
     error: update.error ?? previous?.error,
   };
   await atomicWriteJson(path.join(config.runDir, "run-progress.json"), progress);
+  await writeRunExpectation(config, {
+    status: status === "queued" ? "running" : status,
+    phase: expectationPhase(phase),
+    sourceCoverage,
+    artifacts: {
+      pdfPath: artifacts.pdfPath,
+      runSummaryPath: artifacts.runSummaryPath,
+    },
+    error: progress.error,
+  });
   emitProgressLine(progress);
   return progress;
+}
+
+function expectationPhase(phase: StudyBuddyUserPhase): StudyBuddyRunPhase {
+  switch (phase) {
+    case "planning_sources":
+      return "planning";
+    case "reading_sources":
+    case "reading_moodle":
+    case "reading_cis":
+    case "downloading_sources":
+    case "checking_missing_sources":
+      return "reading_sources";
+    case "analyzing":
+      return "analyzing";
+    case "writing_document":
+      return "writing";
+    case "rendering_pdf":
+      return "rendering";
+    case "finalizing":
+      return "finalizing";
+  }
 }
 
 function emitProgressLine(progress: StudyBuddyRunProgress): void {

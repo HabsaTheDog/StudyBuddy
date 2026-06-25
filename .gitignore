@@ -1,7 +1,11 @@
 node_modules/
 dist/
-.env
-.env.local
+.env*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
 output/*
 !output/
 !output/README.md

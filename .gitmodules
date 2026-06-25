@@ -1,0 +1,4 @@
+[submodule "t3code-fork"]
+	path = t3code-fork
+	url = https://github.com/pingdotgg/t3code.git
+	branch = main
