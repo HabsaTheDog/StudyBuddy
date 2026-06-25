@@ -23,6 +23,11 @@ export function hasRequiredTopicEvidence(prompt: string, sourceText: string): bo
     .test(sourceText);
 }
 
+export function expectsDownloadedSourceEvidence(prompt: string): boolean {
+  return /\b(?:pdfs?|folien?|slides?|slide\s*decks?|dateien?|files?|unterlagen|skripten?|worksheet|arbeitsblatt|vorlage|template|herunterlad\w*|download\w*|screenshots?)\b/i
+    .test(prompt);
+}
+
 export function isDcDcRequest(prompt: string): boolean {
   return /\b(?:dc[\s_-]?dc|dcdc|gleichspannungswandler|tiefsetzsteller|hochsetzsteller|buck|boost)\b/i
     .test(prompt);

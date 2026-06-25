@@ -1,0 +1,210 @@
+import type { MoodleRuntimeConfig, SourceMode } from "./types.js";
+
+export type SourceTarget = "moodle" | "cis";
+
+export interface SourcePlan {
+  targets: SourceTarget[];
+  confidence: "low" | "medium" | "high";
+  reason: string;
+  needsCurrentScheduleData: boolean;
+  needsCourseMaterial: boolean;
+  needsFiles: boolean;
+  needsQuizOrAssignment: boolean;
+  allowFollowUpCrawl: boolean;
+}
+
+export function planSources(config: MoodleRuntimeConfig): SourcePlan {
+  return planSourcesForPrompt(config.prompt, {
+    sourceMode: config.sourceMode,
+    includeCis: config.includeCis,
+    hasCisUrls: config.cisUrls.length > 0,
+    isRenderStage: config.stage === "render",
+  });
+}
+
+export function planSourcesForPrompt(
+  prompt: string,
+  options: {
+    sourceMode?: SourceMode;
+    includeCis?: boolean;
+    hasCisUrls?: boolean;
+    isRenderStage?: boolean;
+  } = {},
+): SourcePlan {
+  const sourceMode = options.sourceMode ?? "auto";
+  const includeCis = options.includeCis ?? true;
+  const hasCisUrls = options.hasCisUrls ?? true;
+  const normalized = prompt.toLowerCase();
+  const currentSchedule = hasAny(normalized, [
+    "heute",
+    "morgen",
+    "diese woche",
+    "stundenplan",
+    "raum",
+    "räume",
+    "anwesenheit",
+    "prüfung",
+    "pruefung",
+    "termin",
+    "deadline",
+    "frist",
+    "nächste einheit",
+    "naechste einheit",
+    "was machen wir",
+    "fachlabor",
+    "laborslot",
+    "lv-info",
+    "administrativ",
+  ]);
+  const courseMaterial = hasAny(normalized, [
+    "lernzettel",
+    "unterlagen",
+    "kursunterlagen",
+    "folie",
+    "folien",
+    "skript",
+    "pdf",
+    "datei",
+    "moodle",
+    "kursmaterial",
+    "formelsammlung",
+    "übungsblatt",
+    "uebungsblatt",
+    "dc-dc",
+    "dcdc",
+    "gleichspannungswandler",
+    "wandler",
+    "zusammenfassung",
+    "vokabelliste",
+  ]) || /https:\/\/moodle\.technikum-wien\.at\//i.test(prompt);
+  const needsFiles = hasAny(normalized, [
+    "pdf",
+    "folie",
+    "folien",
+    "skript",
+    "datei",
+    "download",
+    "unterlagen",
+    "screenshot",
+  ]);
+  const needsQuizOrAssignment = hasAny(normalized, [
+    "quiz",
+    "moodle-quiz",
+    "assignment",
+    "aufgabe",
+    "aufgabenstellung",
+    "abgabe",
+  ]);
+  const materialSignals = courseMaterial || needsFiles || needsQuizOrAssignment;
+  const cisAllowed = includeCis && hasCisUrls;
+
+  if (options.isRenderStage) {
+    return {
+      targets: [],
+      confidence: "high",
+      reason: "Render stage consumes an existing extraction run and does not crawl sources.",
+      needsCurrentScheduleData: false,
+      needsCourseMaterial: false,
+      needsFiles: false,
+      needsQuizOrAssignment: false,
+      allowFollowUpCrawl: false,
+    };
+  }
+
+  if (sourceMode !== "auto") {
+    return planFromOverride(sourceMode, {
+      cisAllowed,
+      currentSchedule,
+      courseMaterial: materialSignals,
+      needsFiles,
+      needsQuizOrAssignment,
+    });
+  }
+
+  if (currentSchedule && materialSignals) {
+    return {
+      targets: cisAllowed ? ["moodle", "cis"] : ["moodle"],
+      confidence: "high",
+      reason: cisAllowed
+        ? "The request combines current schedule/exam facts with course material."
+        : "The request combines schedule and material facts, but CIS is disabled or unavailable.",
+      needsCurrentScheduleData: true,
+      needsCourseMaterial: true,
+      needsFiles,
+      needsQuizOrAssignment,
+      allowFollowUpCrawl: true,
+    };
+  }
+
+  if (currentSchedule) {
+    return {
+      targets: cisAllowed ? ["cis"] : [],
+      confidence: cisAllowed ? "high" : "medium",
+      reason: cisAllowed
+        ? "The request is about schedule, room, exam, deadline, or administrative facts."
+        : "The request asks for CIS-style facts, but CIS is disabled or unavailable.",
+      needsCurrentScheduleData: true,
+      needsCourseMaterial: false,
+      needsFiles: false,
+      needsQuizOrAssignment: false,
+      allowFollowUpCrawl: true,
+    };
+  }
+
+  if (materialSignals) {
+    return {
+      targets: ["moodle"],
+      confidence: "high",
+      reason: "The request is about Moodle course material, files, quizzes, or assignments.",
+      needsCurrentScheduleData: false,
+      needsCourseMaterial: true,
+      needsFiles,
+      needsQuizOrAssignment,
+      allowFollowUpCrawl: true,
+    };
+  }
+
+  return {
+    targets: cisAllowed ? ["moodle", "cis"] : ["moodle"],
+    confidence: "low",
+    reason: cisAllowed
+      ? "The request is ambiguous; conservative routing keeps both source families available."
+      : "The request is ambiguous; CIS is disabled or unavailable, so Moodle is used.",
+    needsCurrentScheduleData: cisAllowed,
+    needsCourseMaterial: true,
+    needsFiles: false,
+    needsQuizOrAssignment: false,
+    allowFollowUpCrawl: true,
+  };
+}
+
+function planFromOverride(
+  sourceMode: Exclude<SourceMode, "auto">,
+  signals: {
+    cisAllowed: boolean;
+    currentSchedule: boolean;
+    courseMaterial: boolean;
+    needsFiles: boolean;
+    needsQuizOrAssignment: boolean;
+  },
+): SourcePlan {
+  const targets: SourceTarget[] = sourceMode === "both"
+    ? signals.cisAllowed ? ["moodle", "cis"] : ["moodle"]
+    : sourceMode === "cis"
+      ? signals.cisAllowed ? ["cis"] : []
+      : ["moodle"];
+  return {
+    targets,
+    confidence: "high",
+    reason: `Explicit source mode override: ${sourceMode}.`,
+    needsCurrentScheduleData: sourceMode === "cis" || sourceMode === "both" || signals.currentSchedule,
+    needsCourseMaterial: sourceMode === "moodle" || sourceMode === "both" || signals.courseMaterial,
+    needsFiles: signals.needsFiles,
+    needsQuizOrAssignment: signals.needsQuizOrAssignment,
+    allowFollowUpCrawl: false,
+  };
+}
+
+function hasAny(text: string, needles: string[]): boolean {
+  return needles.some((needle) => text.includes(needle));
+}

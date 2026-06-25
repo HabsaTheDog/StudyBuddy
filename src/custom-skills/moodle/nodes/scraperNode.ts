@@ -15,6 +15,7 @@ import { safeFileName } from "../runDiagnostics.js";
 import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { runDownloadQueue } from "../downloadQueue.js";
 
 interface CrawlPage {
   url: string;
@@ -344,10 +345,10 @@ async function captureAgentBrowserFileLinks(
     downloaded.add(normalized);
     return true;
   });
-  for (const [index, link] of fileLinks.entries()) {
+  const jobs = fileLinks.map((link, index) => async () => {
     throwIfAborted(config.abortSignal);
     const filename = readableFileName(
-      `${downloaded.size + index}-${link.label || path.basename(new URL(link.href).pathname)}`,
+      `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
       link.href,
     );
     const target = path.join(sourcesDir, filename);
@@ -385,19 +386,23 @@ async function captureAgentBrowserFileLinks(
     }
     if (downloadError) {
       const message = downloadError instanceof Error ? downloadError.message : String(downloadError);
-      chunks.push(
-        `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed: ${message}`,
-      );
-      continue;
+      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed: ${message}`;
     }
     await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
     const text = await extractReadableFileText(target).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       return `Readable text extraction failed: ${message}`;
     });
-    chunks.push(
-      `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`,
-    );
+    return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+  });
+  const results = await runDownloadQueue(jobs, {
+    concurrency: config.downloadConcurrency,
+    timeoutMs: 90_000,
+  });
+  for (const result of results) {
+    chunks.push(result.status === "fulfilled"
+      ? result.value
+      : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
   }
 }
 
@@ -484,9 +489,13 @@ async function gotoWithDiagnostics(
   index: number,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await page.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25_000 });
     if (await looksLikeLoginPage(page)) {
       throw new Error("Moodle login is required or the session expired while opening the page.");
+    }
+    const text = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    if (!text.trim()) {
+      await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
     }
     return { ok: true };
   } catch (firstError) {
@@ -589,10 +598,10 @@ async function captureFileLinks(
     downloaded.add(normalized);
     return true;
   });
-  for (const [index, link] of fileLinks.entries()) {
+  const jobs = fileLinks.map((link, index) => async () => {
     throwIfAborted(config.abortSignal);
     const filename = readableFileName(
-      `${downloaded.size + index}-${link.label || path.basename(new URL(link.href).pathname)}`,
+      `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
       link.href,
     );
     const target = path.join(sourcesDir, filename);
@@ -602,10 +611,7 @@ async function captureFileLinks(
       .request.get(link.href)
       .catch(() => null);
     if (!response?.ok()) {
-      chunks.push(
-        `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`,
-      );
-      continue;
+      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`;
     }
 
     const body = await response.body();
@@ -615,9 +621,16 @@ async function captureFileLinks(
       const message = error instanceof Error ? error.message : String(error);
       return `Readable text extraction failed: ${message}`;
     });
-    chunks.push(
-      `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`,
-    );
+    return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+  });
+  const results = await runDownloadQueue(jobs, {
+    concurrency: config.downloadConcurrency,
+    timeoutMs: 90_000,
+  });
+  for (const result of results) {
+    chunks.push(result.status === "fulfilled"
+      ? result.value
+      : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
   }
 }
 
@@ -683,6 +696,7 @@ export function scoreMoodleLink(link: { href: string; label: string }, prompt: s
   let score = 0;
   if (link.href.includes("/course/view.php")) {
     score += 10;
+    score += scoreCourseFocus(link.label, prompt);
   }
   if (link.href.includes("/mod/assign/")) {
     score += 25;
@@ -747,11 +761,82 @@ export function selectRelevantMoodleLinks(
   }
   const scored = [...unique.values()]
     .sort((left, right) => right.score - left.score);
+  const focusedCourses = selectFocusedCourseLinks(scored, prompt);
+  if (focusedCourses.length > 0) {
+    return focusedCourses;
+  }
   const relevant = scored.filter((link) => link.score >= 100);
   const selected = relevant.length > 0
     ? relevant
     : scored.filter((link) => link.href.includes("/course/view.php"));
   return selected.slice(0, 4).map(({ href }) => normalizeMoodleUrl(href));
+}
+
+function selectFocusedCourseLinks(
+  scored: { href: string; label: string; score: number }[],
+  prompt: string,
+): string[] {
+  const courses = scored
+    .filter((link) => link.href.includes("/course/view.php"))
+    .map((link) => ({
+      ...link,
+      focusScore: scoreCourseFocus(link.label, prompt),
+    }))
+    .filter((link) => link.focusScore >= 900)
+    .sort((left, right) => right.focusScore - left.focusScore || right.score - left.score);
+  if (courses.length === 0) {
+    return [];
+  }
+
+  const [best, second] = courses;
+  if (!second || best.focusScore - second.focusScore >= 300) {
+    return [normalizeMoodleUrl(best.href)];
+  }
+
+  return courses
+    .filter((course) => best.focusScore - course.focusScore < 300)
+    .slice(0, 4)
+    .map(({ href }) => normalizeMoodleUrl(href));
+}
+
+function scoreCourseFocus(label: string, prompt: string): number {
+  let score = 0;
+  const labelTokens = textTokens(label);
+  const labelTokenSet = new Set(labelTokens);
+  for (const code of explicitCourseCodes(prompt)) {
+    if (labelTokenSet.has(code.toLowerCase())) {
+      score += 1_500;
+    }
+  }
+
+  const promptTerms = promptTokens(prompt).filter((token) => token.length >= 4);
+  for (let size = Math.min(4, promptTerms.length); size >= 2; size -= 1) {
+    for (let index = 0; index <= promptTerms.length - size; index += 1) {
+      const phrase = promptTerms.slice(index, index + size);
+      if (hasOrderedTokens(labelTokens, phrase)) {
+        score += size >= 3 ? 1_200 : 900;
+        return score;
+      }
+    }
+  }
+
+  return score;
+}
+
+function explicitCourseCodes(prompt: string): string[] {
+  return [...new Set(prompt.match(/\b[A-ZÄÖÜ]{2,8}\d{1,3}\b/g) ?? [])];
+}
+
+function hasOrderedTokens(haystack: string[], needle: string[]): boolean {
+  let offset = 0;
+  for (const token of needle) {
+    const next = haystack.indexOf(token, offset);
+    if (next === -1) {
+      return false;
+    }
+    offset = next + 1;
+  }
+  return true;
 }
 
 export function selectRelevantFileLinks<T extends { href: string; label: string }>(
@@ -796,6 +881,10 @@ function normalizeMoodleUrl(url: string): string {
     parsed.searchParams.delete(key);
   }
   return parsed.toString();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const PROMPT_TOKEN_STOPWORDS = new Set([

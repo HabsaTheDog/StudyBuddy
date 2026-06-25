@@ -38,6 +38,32 @@ describe("validation", () => {
     ]));
   });
 
+  it("rejects verbatim raw code inside formula components", () => {
+    const validation = validateStudyBuddyDocumentStructure(studyBuddyTypstDocument(`
+      #sb-formula(name: "Schwerpunktsatz")[
+        #raw("m bold(a)_M = bold(R)", block: false)
+      ]
+    `));
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("Do not use #raw"),
+    ]));
+  });
+
+  it("rejects images outside managed visual assets", () => {
+    const validation = validateStudyBuddyDocumentStructure(studyBuddyTypstDocument(`
+      #sb-figure(label-text: "Abb. 1", caption: "Unsicher")[
+        #image("../secret.png", width: 90%)
+      ]
+    `));
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("assets/visuals"),
+    ]));
+  });
+
   it("loads the component library and vendored CeTZ package", async () => {
     const files = await getStudyBuddyTypstSupportFiles();
     expect(files).toEqual(expect.arrayContaining([

@@ -22,6 +22,10 @@ const program = new Command()
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--stage <stage>", "Pipeline stage: all, extract, or render", parseStage, "all")
   .option("--source-run-dir <path>", "Successful extraction run consumed by the render stage")
+  .option("--source-mode <mode>", "Source mode: auto, moodle, cis, or both", parseSourceMode, "auto")
+  .option("--download-concurrency <number>", "Parallel source-file downloads, clamped to 1..4", parseNumber)
+  .option("--typst-validation <mode>", "Typst validation mode: strict or balanced", parseTypstValidation, "balanced")
+  .option("--render-strategy <strategy>", "Render strategy: auto, deterministic, or llm_formatter", parseRenderStrategy, "auto")
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
@@ -46,6 +50,10 @@ const options = program.opts<{
   json?: boolean;
   stage: "all" | "extract" | "render";
   sourceRunDir?: string;
+  sourceMode: "auto" | "moodle" | "cis" | "both";
+  downloadConcurrency?: number;
+  typstValidation: "strict" | "balanced";
+  renderStrategy: "auto" | "deterministic" | "llm_formatter";
   cis: boolean;
 }>();
 
@@ -69,6 +77,10 @@ const result = await runMoodleGraph({
   idleTimeoutMs: options.idleTimeoutMs,
   stage: options.stage,
   sourceRunDir: options.sourceRunDir,
+  sourceMode: options.sourceMode,
+  downloadConcurrency: options.downloadConcurrency,
+  typstValidationMode: options.typstValidation,
+  renderStrategy: options.renderStrategy,
   includeCis: options.cis,
 });
 
@@ -110,4 +122,25 @@ function parseStage(value: string): "all" | "extract" | "render" {
     return value;
   }
   throw new Error(`Expected pipeline stage to be all, extract, or render, got ${value}`);
+}
+
+function parseSourceMode(value: string): "auto" | "moodle" | "cis" | "both" {
+  if (value === "auto" || value === "moodle" || value === "cis" || value === "both") {
+    return value;
+  }
+  throw new Error(`Expected source mode to be auto, moodle, cis, or both, got ${value}`);
+}
+
+function parseTypstValidation(value: string): "strict" | "balanced" {
+  if (value === "strict" || value === "balanced") {
+    return value;
+  }
+  throw new Error(`Expected Typst validation mode to be strict or balanced, got ${value}`);
+}
+
+function parseRenderStrategy(value: string): "auto" | "deterministic" | "llm_formatter" {
+  if (value === "auto" || value === "deterministic" || value === "llm_formatter") {
+    return value;
+  }
+  throw new Error(`Expected render strategy to be auto, deterministic, or llm_formatter, got ${value}`);
 }

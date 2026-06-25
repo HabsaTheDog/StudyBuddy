@@ -3,12 +3,12 @@
 #sb-document(
   title: "Study Buddy Dokumentstandard",
   short-title: "Komponentenbibliothek",
-  subtitle: "Visueller Prototyp für zuverlässige technische Lernunterlagen",
+  subtitle: "Corporate-Identity-System für zuverlässige technische Lernunterlagen",
   course: "Engineering · fachübergreifend",
   kind: "Designsystem & Komponenten",
   semester: "SS 2026",
   author: "Study Buddy 2.0",
-  status: "Review-Prototyp",
+  status: "Review",
   date: "07.06.2026",
   body: [
     #outline(title: [Inhaltsverzeichnis], depth: 2)
@@ -135,7 +135,7 @@
     ]
 
     #sb-source-note(
-      "Q1 · Demonstrationsquelle für den Komponenten-Prototyp, 07.06.2026.",
+      "Q1 · Demonstrationsquelle für das Komponenten-System, 07.06.2026.",
       coverage: "Nur Layoutbeispiel; keine Moodle- oder CIS-Fachdaten verwendet.",
     )
 

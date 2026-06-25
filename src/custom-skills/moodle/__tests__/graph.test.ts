@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -129,6 +129,48 @@ describe("moodle graph retry routing", () => {
     expect(codexCalls).toBe(0);
   });
 
+  it("rejects file-based study requests when no Moodle file was downloaded", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    let codexCalls = 0;
+    const config = moodleTestConfig({
+      runDir,
+      outputPath: path.join(runDir, "document.typ"),
+      prompt: "Suche konkrete Folien und PDF-Dateien zu Bohrungen im Technischen Zeichnen",
+      diagnostics,
+    });
+
+    const graph = buildMoodleGraph(config, {
+      codex: {
+        async run() {
+          codexCalls += 1;
+          return "{}";
+        },
+      },
+      scraperNode: async () => {
+        await diagnostics.markSuccess("moodle", {
+          detail: "Course page opened, but no files were downloaded.",
+          urls: [config.moodleUrl],
+          pages: 1,
+        });
+        return {
+          moodle_raw_text: "Grundlagen des technischen Zeichnens: Bohrungen",
+          error_log: null,
+        };
+      },
+      cisScraperNode: async (state) => ({
+        moodle_raw_text: state.moodle_raw_text,
+        error_log: null,
+      }),
+    });
+
+    const result = await graph.invoke(initialAgentState);
+
+    expect(result.error_log).toContain("no readable Moodle file was downloaded");
+    expect(codexCalls).toBe(0);
+  });
+
   it("finishes extraction with validated data and without creating a document", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-extract-"));
     const diagnostics = new RunDiagnostics({ runDir });
@@ -169,14 +211,47 @@ describe("moodle graph retry routing", () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-staged-"));
     const extractionDir = path.join(runDir, "extraction");
     const renderDir = path.join(runDir, "render");
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(extractionDir, { recursive: true }));
+    await mkdir(path.join(extractionDir, "assets", "visuals"), { recursive: true });
+    await writeFile(
+      path.join(extractionDir, "assets", "visuals", "source.svg"),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="white"/><path d="M10 20 H70" stroke="black"/></svg>`,
+      "utf8",
+    );
     await Promise.all([
       writeFile(path.join(extractionDir, "run-summary.md"), "Run status: success\n", "utf8"),
       writeFile(path.join(extractionDir, "error.log"), "", "utf8"),
       writeFile(path.join(extractionDir, "moodle_raw.txt"), "Validated source bundle", "utf8"),
       writeFile(
         path.join(extractionDir, "extracted-data.json"),
-        `${JSON.stringify(moodleExtractedData())}\n`,
+        `${JSON.stringify(moodleExtractedData({
+          visual_assets: [
+            {
+              id: "fig-001",
+              kind: "moodle_pdf_page",
+              title: "Schaltbild",
+              relative_path: "assets/visuals/source.svg",
+              mime_type: "image/svg+xml",
+              width_px: 80,
+              height_px: 40,
+              source_id: null,
+              source_url: "https://moodle.example/resource",
+              source_path: path.join(extractionDir, "sources", "script.pdf"),
+              source_page: 1,
+              confidence: 0.9,
+              caption_hint: "Schaltbild aus Moodle",
+              relevance_reason: "Technisches Thema.",
+              generation_prompt: null,
+            },
+          ],
+          figures: [
+            {
+              asset_id: "fig-001",
+              caption: "Schaltbild aus der Moodle-Unterlage",
+              placement_hint: "overview",
+              source_ids: [],
+            },
+          ],
+        }))}\n`,
         "utf8",
       ),
       writeFile(
@@ -220,6 +295,9 @@ describe("moodle graph retry routing", () => {
     expect(result.ok).toBe(true);
     expect(scraperCalls).toBe(0);
     await expect(readFile(path.join(renderDir, "document.pdf"))).resolves.not.toHaveLength(0);
+    await expect(stat(path.join(renderDir, "assets", "visuals", "source.svg"))).resolves.toMatchObject({
+      size: expect.any(Number),
+    });
   }, 20_000);
 
   it("terminates a stalled graph at the configured hard runtime", async () => {

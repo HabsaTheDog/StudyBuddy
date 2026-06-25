@@ -2,9 +2,10 @@
 
 - Keep all Moodle/CIS pipeline logic isolated under `src/custom-skills/moodle/`.
 - Do not modify host routing, state, or UI files for the Moodle skill.
-- Treat `reference repo Study Buddy 1.0/` and `t3code-fork/` as read-only reference repos unless the user explicitly asks to modify them.
+- Treat `reference repo Study Buddy 1.0/` as read-only unless the user explicitly asks to modify it.
+- Keep `t3code-fork/` edits minimal, scoped, and merge-friendly; do not place generated study artifacts there.
 - Store generated study artifacts under `output/<request-name>/`; create a new request-specific subdirectory for every artifact-producing request.
-- Do not place generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, or temporary source files inside `t3code-fork/` or other reference repos.
+- Do not place generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, or temporary source files inside `t3code-fork/`, `reference repo Study Buddy 1.0/`, or other reference repos.
 - Use the current 2.0 TypeScript contracts for Moodle data shapes, study-document expectations, quiz workflows, and Typst conventions.
 - Govern the Moodle pipeline with LangGraph, not a linear script.
 - Preserve the strict graph state fields: `moodle_raw_text`, `extracted_data`, `final_document`, `error_log`, and `retry_count`.

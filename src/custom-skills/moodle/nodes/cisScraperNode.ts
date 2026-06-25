@@ -7,6 +7,7 @@ import { safeFileName } from "../runDiagnostics.js";
 import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { runDownloadQueue } from "../downloadQueue.js";
 
 interface CrawlPage {
   url: string;
@@ -144,10 +145,13 @@ async function gotoWithDiagnostics(
   index: number,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25_000 });
-      await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25_000 });
     if (await looksLikeLoginPage(page)) {
       throw new Error("CIS login is required or the session expired while opening the page.");
+    }
+    const text = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    if (!text.trim()) {
+      await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined);
     }
     return { ok: true };
   } catch (firstError) {
@@ -252,7 +256,7 @@ async function captureReadableFiles(
       return true;
     })
     .slice(0, 3);
-  for (const [index, link] of fileLinks.entries()) {
+  const jobs = fileLinks.map((link, index) => async () => {
     throwIfAborted(config.abortSignal);
     const filename = safeFileName(
       `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
@@ -264,10 +268,7 @@ async function captureReadableFiles(
       .request.get(link.href)
       .catch(() => null);
     if (!response?.ok()) {
-      chunks.push(
-        `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`,
-      );
-      continue;
+      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`;
     }
     const body = await response.body();
     await writeFile(target, body);
@@ -276,9 +277,16 @@ async function captureReadableFiles(
       const message = error instanceof Error ? error.message : String(error);
       return `Readable text extraction failed: ${message}`;
     });
-    chunks.push(
-      `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`,
-    );
+    return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+  });
+  const results = await runDownloadQueue(jobs, {
+    concurrency: config.downloadConcurrency,
+    timeoutMs: 90_000,
+  });
+  for (const result of results) {
+    chunks.push(result.status === "fulfilled"
+      ? result.value
+      : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
   }
 }
 
@@ -295,4 +303,8 @@ function formatWarning(source: string, message: string): string {
 function hasBodyText(chunk: string): boolean {
   const lines = chunk.split("\n").slice(4).join("\n").trim();
   return lines.length > 0 && !/^download failed$/i.test(lines);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

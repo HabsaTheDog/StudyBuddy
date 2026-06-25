@@ -11,6 +11,25 @@ Freigegebene Referenz für den produktiven Study-Buddy-Typst-Agenten.
 - `geometry-audit.pdf`: visuelle Geometrieprüfung
 - `GEOMETRY-AUDIT.md`: dokumentierte Prüfkriterien
 
+## Layout-Balance
+
+Lernunterlagen sollen zuerst als gut lesbarer Fließtext funktionieren.
+Info-Boxen, Callouts und Quellenboxen sind Akzente, keine Standardform für
+Absatzinhalt.
+
+- Jede fachliche Hauptsektion beginnt mit normalem Prosa-Text.
+- Callouts werden nur für wichtige Felder eingesetzt: Sicherheitswarnungen,
+  harte Randbedingungen, Prüfungstermine, zentrale Merksätze,
+  Quellenkonflikte oder ungewöhnliche Abdeckungsprobleme.
+- Quellenhinweise werden gruppiert. Wiederholte Routinequellen werden im
+  Fließtext genannt oder in einer kompakten Quellenlage zusammengefasst,
+  nicht nach jedem Abschnitt als eigene Box wiederholt.
+- Checklisten sind für kurze Aktions- oder Reviewpunkte reserviert. Lange
+  Vokabellisten, Abläufe, Vergleiche oder Datensammlungen gehören in Prosa
+  plus freigegebene Tabellen.
+- Visuelle Komponenten sollen nicht direkt hintereinander stehen, außer eine
+  fachliche Struktur erfordert es eindeutig.
+
 ## Build
 
 ```bash

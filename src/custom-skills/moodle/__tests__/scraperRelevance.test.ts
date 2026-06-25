@@ -108,4 +108,48 @@ describe("Moodle crawl relevance", () => {
     expect(scoreMoodleLink(news, prompt)).toBeLessThan(100);
     expect(selectRelevantMoodleLinks([drawing, news, laboratory], prompt)[0]).toBe(laboratory.href);
   });
+
+  it("focuses an exact course title instead of crawling neighboring courses", () => {
+    const dyn2 = {
+      href: "https://moodle.example/course/view.php?id=32844",
+      label: "BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik",
+    };
+    const phdyn = {
+      href: "https://moodle.example/course/view.php?id=32916",
+      label: "BMR-VZ-2-SS2026-PHDYN-DE Physikalische Grundlagen der Dynamik",
+    };
+    const statics = {
+      href: "https://moodle.example/course/view.php?id=31034",
+      label: "BMR-VZ-1-WS2025-STA2-DE Anwendungen der Statik und Festigkeitslehre",
+    };
+
+    expect(
+      selectRelevantMoodleLinks(
+        [phdyn, statics, dyn2],
+        "Moodle-Kurs Anwendungen der Dynamik: Finde Kursunterlagen und Prüfungshinweise.",
+      ),
+    ).toEqual([dyn2.href]);
+  });
+
+  it("keeps a small shortlist when course discovery stays ambiguous", () => {
+    const links = [
+      {
+        href: "https://moodle.example/course/view.php?id=1",
+        label: "BMR-VZ-2-SS2026-ET2-DE Elektrotechnik 2",
+      },
+      {
+        href: "https://moodle.example/course/view.php?id=2",
+        label: "BMR-VZ-2-SS2026-ETLB2-DE Elektrotechnik Labor 2",
+      },
+      {
+        href: "https://moodle.example/course/view.php?id=3",
+        label: "BMR-VZ-2-SS2026-ELAB-DE Elektrotechnik Labor Grundlagen",
+      },
+    ];
+
+    const selected = selectRelevantMoodleLinks(links, "Elektrotechnik Labor Vorbereitung");
+    expect(selected).toHaveLength(3);
+    expect(selected).toContain(links[1].href);
+    expect(selected).toContain(links[2].href);
+  });
 });

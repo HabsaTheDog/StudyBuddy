@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  expectsDownloadedSourceEvidence,
   hasRequiredTopicEvidence,
   resolveVerifiedMoodleSource,
 } from "../sourceHints.js";
@@ -23,5 +24,10 @@ describe("verified Moodle source hints", () => {
     const prompt = "DC-DC-Wandler Laborvorbereitung";
     expect(hasRequiredTopicEvidence(prompt, "Grundlagen des technischen Zeichnens")).toBe(false);
     expect(hasRequiredTopicEvidence(prompt, "Versuch 5: Tiefsetzsteller mit LM2575")).toBe(true);
+  });
+
+  it("detects prompts that require downloaded Moodle files or slides", () => {
+    expect(expectsDownloadedSourceEvidence("Suche konkrete Folien und PDF-Dateien")).toBe(true);
+    expect(expectsDownloadedSourceEvidence("Ermittle den Abgabetermin und Raum")).toBe(false);
   });
 });
