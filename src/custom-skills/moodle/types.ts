@@ -1,8 +1,13 @@
 import type { AgentState } from "./state.js";
 import type { RunDiagnostics, SourceCoverage } from "./runDiagnostics.js";
+import type { SourcePlan } from "./sourcePlanner.js";
+import type { RenderStrategyDecision } from "./renderStrategy.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
+export type SourceMode = "auto" | "moodle" | "cis" | "both";
+export type TypstValidationMode = "strict" | "balanced";
+export type RenderStrategyMode = "auto" | "deterministic" | "llm_formatter";
 
 export interface MoodleGraphInput {
   prompt: string;
@@ -24,6 +29,13 @@ export interface MoodleGraphInput {
   stage?: PipelineStage;
   sourceRunDir?: string;
   includeCis?: boolean;
+  sourceMode?: SourceMode;
+  downloadConcurrency?: number;
+  typstValidationMode?: TypstValidationMode;
+  renderStrategy?: RenderStrategyMode;
+  visualsEnabled?: boolean;
+  maxVisualAssets?: number;
+  visualMinConfidence?: number;
 }
 
 export interface MoodleGraphResult {
@@ -69,6 +81,15 @@ export interface MoodleRuntimeConfig {
   stage: PipelineStage;
   sourceRunDir?: string;
   includeCis: boolean;
+  sourceMode: SourceMode;
+  downloadConcurrency: number;
+  typstValidationMode: TypstValidationMode;
+  renderStrategy: RenderStrategyMode;
+  visualsEnabled: boolean;
+  maxVisualAssets: number;
+  visualMinConfidence: number;
   abortSignal?: AbortSignal;
   diagnostics?: RunDiagnostics;
+  sourcePlan?: SourcePlan;
+  renderStrategyDecision?: RenderStrategyDecision;
 }

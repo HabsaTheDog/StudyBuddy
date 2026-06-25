@@ -1,19 +1,21 @@
-// Study Buddy 2.0 - prototype component library
+// Study Buddy 2.0 - corporate identity component library
 // CeTZ is pinned so flowcharts use geometric anchors instead of text arrows.
 
 #import "@preview/cetz:0.5.0"
 
 #let sb-colors = (
-  navy: rgb("#17324D"),
-  blue: rgb("#246BCE"),
-  cyan: rgb("#27A8C7"),
+  navy: rgb("#19254b"),
+  blue: rgb("#323a61"),
+  gold: rgb("#dfbb63"),
+  gold-dark: rgb("#c3994d"),
+  cyan: rgb("#397f93"),
   green: rgb("#23805A"),
-  amber: rgb("#B66A00"),
+  amber: rgb("#c3994d"),
   red: rgb("#B33A3A"),
-  ink: rgb("#1D2733"),
-  muted: rgb("#637083"),
-  line: rgb("#D7DEE8"),
-  soft: rgb("#F4F7FB"),
+  ink: rgb("#20263f"),
+  muted: rgb("#66708f"),
+  line: rgb("#d9ddea"),
+  soft: rgb("#f6f7fb"),
   white: rgb("#FFFFFF"),
 )
 
@@ -88,7 +90,7 @@
     height: 100%,
     inset: 0pt,
   )[
-    #rect(width: 100%, height: 4mm, fill: sb-colors.blue)
+    #rect(width: 100%, height: 4mm, fill: sb-colors.navy)
     #v(14mm)
     #grid(
       columns: (1fr, auto),
@@ -110,7 +112,7 @@
       #text(13pt, fill: sb-colors.muted)[#subtitle]
     ]
     #v(8mm)
-    #line(length: 42mm, stroke: 2pt + sb-colors.cyan)
+    #line(length: 42mm, stroke: 2pt + sb-colors.gold)
     #v(10mm)
 
     #block(
@@ -136,7 +138,7 @@
       columns: (1fr, auto),
       align: (left, bottom),
       [#text(8pt, fill: sb-colors.muted)[
-        Standardisiertes A4-Dokument · Typst · Version 0.1 Prototyp
+        Standardisiertes Study Buddy Dokument · Typst · Corporate Identity
       ]],
       [
         #box(

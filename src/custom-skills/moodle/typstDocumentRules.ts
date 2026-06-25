@@ -49,6 +49,21 @@ export function validateStudyBuddyDocumentStructure(source: string): TypstStruct
     errors.push("Use sb-rc-schematic only for an explicitly identified RC low-pass.");
   }
 
+  if (/#sb-formula\s*\([\s\S]*?\)\s*\[[\s\S]{0,1600}#raw\s*\(/.test(source)) {
+    errors.push("Do not use #raw(...) inside #sb-formula; formula bodies must use editable Typst math delimited with '$'.");
+  }
+
+  const imageCalls = [...source.matchAll(/#image\s*\(\s*"([^"]+)"/g)];
+  for (const imageCall of imageCalls) {
+    const imagePath = imageCall[1];
+    if (!imagePath.startsWith("assets/visuals/") || imagePath.includes("..")) {
+      errors.push(`Image paths must stay inside assets/visuals/: ${imagePath}`);
+    }
+  }
+  if (imageCalls.length > 0 && !/#sb-figure\s*\([\s\S]*?\)\s*\[[\s\S]*#image\s*\(/.test(source)) {
+    errors.push("Use #image(...) only inside #sb-figure(...)[...].");
+  }
+
   return {
     ok: errors.length === 0,
     errors,

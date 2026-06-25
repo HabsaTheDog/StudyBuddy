@@ -12,6 +12,7 @@ import {
   studyBuddyTypstPackagePath,
 } from "../typstAssets.js";
 import { typstPdfPath } from "../typstTemplate.js";
+import { writeRunProgress } from "../runProgress.js";
 
 export function createDiskWriterNode(config: MoodleRuntimeConfig) {
   return async function diskWriterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
@@ -26,6 +27,10 @@ export function createDiskWriterNode(config: MoodleRuntimeConfig) {
     await writeTypstSupportFiles(config.runDir, supportFiles);
     await writeFile(outputPath, state.final_document, "utf8");
     await config.diagnostics?.log("info", "typst", `Wrote Typst document: ${outputPath}`);
+    await writeRunProgress(config, {
+      phase: "rendering_pdf",
+      artifacts: { typstPath: outputPath },
+    });
     const pdfPath = ensureInside(config.runDir, typstPdfPath(outputPath));
     const pdfResult = await compileTypstPdf(outputPath, pdfPath, {
       packagePath: studyBuddyTypstPackagePath(config.runDir),
@@ -36,6 +41,10 @@ export function createDiskWriterNode(config: MoodleRuntimeConfig) {
       };
     }
     await config.diagnostics?.log("info", "typst", `Wrote PDF document: ${pdfPath}`);
+    await writeRunProgress(config, {
+      phase: "finalizing",
+      artifacts: { typstPath: outputPath, pdfPath },
+    });
     return { error_log: null };
   };
 }

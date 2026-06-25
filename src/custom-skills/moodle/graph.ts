@@ -13,13 +13,22 @@ import { createCisScraperNode } from "./nodes/cisScraperNode.js";
 import { createDiskWriterNode } from "./nodes/diskWriterNode.js";
 import { createFormatterNode } from "./nodes/formatterNode.js";
 import { createScraperNode } from "./nodes/scraperNode.js";
+import { createVisualAssetResolverNode } from "./nodes/visualAssetResolverNode.js";
+import { createVisualDiscoveryNode } from "./nodes/visualDiscoveryNode.js";
+import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceOrchestrator.js";
 import { typstPdfPath } from "./typstTemplate.js";
 import { getStudyBuddyTypstSupportFiles } from "./typstAssets.js";
 import { validateTypst } from "./validation.js";
 import { validateExtractedData } from "./validation.js";
-import { hasRequiredTopicEvidence, isDcDcRequest } from "./sourceHints.js";
+import { writeRunProgress } from "./runProgress.js";
+import {
+  expectsDownloadedSourceEvidence,
+  hasRequiredTopicEvidence,
+  isDcDcRequest,
+} from "./sourceHints.js";
 
 const MAX_RETRIES = 3;
+let typstPreflightPromise: Promise<void> | null = null;
 
 export interface GraphDependencies {
   codex?: CodexClient;
@@ -52,6 +61,7 @@ export async function runMoodleGraph(
     diagnostics,
     abortSignal: abortController.signal,
   };
+  await writeRunProgress(config, { status: "running", phase: "planning_sources" });
   await diagnostics.log("info", "config", `Run directory: ${config.runDir}`);
   await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
   await writeJson(path.join(config.runDir, "schema.json"), extractedDataJsonSchema);
@@ -71,11 +81,8 @@ export async function runMoodleGraph(
         ? await loadRenderState(config.sourceRunDir)
         : initialAgentState;
       if (config.stage !== "extract") {
-      const toolchain = await validateTypst(typstPreflightDocument(), await getStudyBuddyTypstSupportFiles());
-      if (!toolchain.ok) {
-        throw new Error(`Study Buddy Typst toolchain preflight failed:\n${toolchain.error}`);
-      }
-      await diagnostics.log("info", "typst", "Study Buddy Typst toolchain preflight passed.");
+        await ensureTypstPreflight();
+        await diagnostics.log("info", "typst", "Study Buddy Typst toolchain preflight passed.");
       }
       const graph = config.stage === "extract"
         ? buildExtractionGraph(config, dependencies)
@@ -150,6 +157,16 @@ export async function runMoodleGraph(
     stateHasDocument: hasDocument,
     extractedDataPath,
   });
+  await writeRunProgress(config, {
+    status: ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed",
+    phase: "finalizing",
+    error: state.error_log ? { message: state.error_log, retryable: !timedOut } : undefined,
+    artifacts: {
+      extractedDataPath,
+      typstPath: ok && hasDocument ? config.outputPath : undefined,
+      pdfPath,
+    },
+  });
 
   return {
     ok,
@@ -163,6 +180,20 @@ export async function runMoodleGraph(
     error: state.error_log ?? undefined,
     extractedDataPath,
   };
+}
+
+async function ensureTypstPreflight(): Promise<void> {
+  typstPreflightPromise ??= (async () => {
+    const toolchain = await validateTypst(
+      typstPreflightDocument(),
+      await getStudyBuddyTypstSupportFiles(),
+      { preview: true },
+    );
+    if (!toolchain.ok) {
+      throw new Error(`Study Buddy Typst toolchain preflight failed:\n${toolchain.error}`);
+    }
+  })();
+  return typstPreflightPromise;
 }
 
 function typstPreflightDocument(): string {
@@ -191,19 +222,21 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
   const codex = dependencies.codex ?? createCodexClient(config);
 
   return new StateGraph(AgentStateAnnotation)
-    .addNode("scraper", dependencies.scraperNode ?? createScraperNode(config))
-    .addNode("cisScraper", dependencies.cisScraperNode ?? createCisScraperNode(config))
+    .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
     .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
     .addNode("formatter", createFormatterNode(config, codex))
     .addNode("diskWriter", createDiskWriterNode(config))
-    .addEdge(START, "scraper")
-    .addEdge("scraper", "cisScraper")
-    .addEdge("cisScraper", "sourceGate")
+    .addEdge(START, "sourcePlanner")
+    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourceOrchestrator", "sourceGate")
     .addConditionalEdges("sourceGate", routeAfterSourceGate, {
-      analyzer: "analyzer",
+      analyzer: "visualDiscovery",
       abort: END,
     })
+    .addEdge("visualDiscovery", "analyzer")
     .addConditionalEdges("analyzer", routeAfterAnalyzer, {
       analyzer: "analyzer",
       formatter: "formatter",
@@ -224,17 +257,19 @@ export function buildExtractionGraph(
 ) {
   const codex = dependencies.codex ?? createCodexClient(config);
   return new StateGraph(AgentStateAnnotation)
-    .addNode("scraper", dependencies.scraperNode ?? createScraperNode(config))
-    .addNode("cisScraper", dependencies.cisScraperNode ?? createCisScraperNode(config))
+    .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
     .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
-    .addEdge(START, "scraper")
-    .addEdge("scraper", "cisScraper")
-    .addEdge("cisScraper", "sourceGate")
+    .addEdge(START, "sourcePlanner")
+    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourceOrchestrator", "sourceGate")
     .addConditionalEdges("sourceGate", routeAfterSourceGate, {
-      analyzer: "analyzer",
+      analyzer: "visualDiscovery",
       abort: END,
     })
+    .addEdge("visualDiscovery", "analyzer")
     .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
       analyzer: "analyzer",
       done: END,
@@ -249,9 +284,14 @@ export function buildRenderGraph(
 ) {
   const codex = dependencies.codex ?? createCodexClient(config);
   return new StateGraph(AgentStateAnnotation)
+    .addNode("visualAssetResolver", createVisualAssetResolverNode(config))
     .addNode("formatter", createFormatterNode(config, codex))
     .addNode("diskWriter", createDiskWriterNode(config))
-    .addEdge(START, "formatter")
+    .addEdge(START, "visualAssetResolver")
+    .addConditionalEdges("visualAssetResolver", routeAfterVisualAssetResolver, {
+      formatter: "formatter",
+      abort: END,
+    })
     .addConditionalEdges("formatter", routeAfterFormatter, {
       formatter: "formatter",
       diskWriter: "diskWriter",
@@ -261,12 +301,34 @@ export function buildRenderGraph(
     .compile();
 }
 
+function routeAfterVisualAssetResolver(state: LangGraphAgentState): "formatter" | "abort" {
+  return state.error_log ? "abort" : "formatter";
+}
+
 function createSourceGateNode(config: MoodleRuntimeConfig) {
   return async function sourceGateNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     const coverage = config.diagnostics?.getCoverage();
     if (!coverage) {
+      return { error_log: null };
+    }
+    const plan = config.sourcePlan;
+    const needsMoodle =
+      !plan ||
+      plan.targets.includes("moodle") ||
+      plan.needsCourseMaterial ||
+      plan.needsFiles ||
+      plan.needsQuizOrAssignment;
+    const needsCis = Boolean(plan?.targets.includes("cis") || plan?.needsCurrentScheduleData);
+    const cisStatus = coverage.cis.status;
+    if (needsCis && cisStatus !== "success" && cisStatus !== "partial") {
+      const detail = coverage.cis.detail || "CIS source coverage is unavailable.";
+      return {
+        error_log: `Required CIS source failed (${cisStatus}): ${detail}`,
+      };
+    }
+    if (!needsMoodle) {
       return { error_log: null };
     }
     const status = coverage?.moodle.status ?? "not_requested";
@@ -281,6 +343,12 @@ function createSourceGateNode(config: MoodleRuntimeConfig) {
         return {
           error_log:
             "The DC-DC source page was found, but no readable Moodle file was downloaded. Refusing to generate an incomplete calculation document.",
+        };
+      }
+      if (expectsDownloadedSourceEvidence(config.prompt) && coverage.moodle.artifacts.length === 0) {
+        return {
+          error_log:
+            "The request asks for Moodle files, slides, PDFs, downloads, or screenshots, but no readable Moodle file was downloaded. Refusing to generate a source-weak document.",
         };
       }
       return { error_log: null };
@@ -344,9 +412,15 @@ function isCoverageComplete(
   config: MoodleRuntimeConfig,
   coverage: ReturnType<RunDiagnostics["getCoverage"]>,
 ): boolean {
-  const moodleOk = coverage.moodle.status === "success" || coverage.moodle.status === "partial";
+  const plan = config.sourcePlan;
+  const needsMoodle = !plan || plan.targets.includes("moodle");
+  const needsCis = Boolean(plan?.targets.includes("cis"));
+  const moodleOk =
+    !needsMoodle ||
+    coverage.moodle.status === "success" ||
+    coverage.moodle.status === "partial";
   const cisOk =
-    config.cisUrls.length === 0 ||
+    !needsCis ||
     coverage.cis.status === "success" ||
     coverage.cis.status === "partial";
   return moodleOk && cisOk;

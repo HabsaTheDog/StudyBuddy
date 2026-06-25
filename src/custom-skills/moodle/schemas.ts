@@ -38,6 +38,38 @@ export const QuizStyleQuestionSchema = z.object({
   source_ids: z.array(z.string()).default([]),
 });
 
+export const VisualAssetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum([
+    "moodle_pdf_image",
+    "moodle_pdf_page",
+    "moodle_page_screenshot",
+    "cis_page_screenshot",
+    "typst_diagram",
+    "placeholder_prompt",
+  ]),
+  title: z.string().min(1),
+  relative_path: z.string().nullable().default(null),
+  mime_type: z.enum(["image/png", "image/jpeg", "image/svg+xml"]).nullable().default(null),
+  width_px: z.number().int().positive().nullable().default(null),
+  height_px: z.number().int().positive().nullable().default(null),
+  source_id: z.string().nullable().default(null),
+  source_url: z.string().nullable().default(null),
+  source_path: z.string().nullable().default(null),
+  source_page: z.number().int().positive().nullable().default(null),
+  confidence: z.number().min(0).max(1).default(0),
+  caption_hint: z.string().default(""),
+  relevance_reason: z.string().default(""),
+  generation_prompt: z.string().nullable().default(null),
+});
+
+export const FigureSchema = z.object({
+  asset_id: z.string().min(1),
+  caption: z.string().min(1),
+  placement_hint: z.string().default(""),
+  source_ids: z.array(z.string()).default([]),
+});
+
 export const ExtractedDataSchema = z.object({
   document_title: z.string().min(1),
   language: z.enum(["de", "en"]).default("de"),
@@ -50,6 +82,8 @@ export const ExtractedDataSchema = z.object({
   formulas: z.array(FormulaSchema).default([]),
   worked_examples: z.array(WorkedExampleSchema).default([]),
   quiz_style_questions: z.array(QuizStyleQuestionSchema).default([]),
+  visual_assets: z.array(VisualAssetSchema).default([]),
+  figures: z.array(FigureSchema).default([]),
   warnings: z.array(z.string()).default([]),
 });
 
@@ -120,6 +154,65 @@ export const extractedDataJsonSchema = {
       },
       required: ["question", "answer", "source_ids"],
     },
+    visual_asset: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string" },
+        kind: {
+          type: "string",
+          enum: [
+            "moodle_pdf_image",
+            "moodle_pdf_page",
+            "moodle_page_screenshot",
+            "cis_page_screenshot",
+            "typst_diagram",
+            "placeholder_prompt",
+          ],
+        },
+        title: { type: "string" },
+        relative_path: { type: ["string", "null"] },
+        mime_type: { type: ["string", "null"], enum: ["image/png", "image/jpeg", "image/svg+xml", null] },
+        width_px: { type: ["number", "null"] },
+        height_px: { type: ["number", "null"] },
+        source_id: { type: ["string", "null"] },
+        source_url: { type: ["string", "null"] },
+        source_path: { type: ["string", "null"] },
+        source_page: { type: ["number", "null"] },
+        confidence: { type: "number" },
+        caption_hint: { type: "string" },
+        relevance_reason: { type: "string" },
+        generation_prompt: { type: ["string", "null"] },
+      },
+      required: [
+        "id",
+        "kind",
+        "title",
+        "relative_path",
+        "mime_type",
+        "width_px",
+        "height_px",
+        "source_id",
+        "source_url",
+        "source_path",
+        "source_page",
+        "confidence",
+        "caption_hint",
+        "relevance_reason",
+        "generation_prompt",
+      ],
+    },
+    figure: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        asset_id: { type: "string" },
+        caption: { type: "string" },
+        placement_hint: { type: "string" },
+        source_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["asset_id", "caption", "placement_hint", "source_ids"],
+    },
   },
   properties: {
     document_title: { type: "string" },
@@ -138,6 +231,8 @@ export const extractedDataJsonSchema = {
     formulas: { type: "array", items: { "$ref": "#/$defs/formula" } },
     worked_examples: { type: "array", items: { "$ref": "#/$defs/worked_example" } },
     quiz_style_questions: { type: "array", items: { "$ref": "#/$defs/quiz_style_question" } },
+    visual_assets: { type: "array", items: { "$ref": "#/$defs/visual_asset" } },
+    figures: { type: "array", items: { "$ref": "#/$defs/figure" } },
     warnings: { type: "array", items: { type: "string" } },
   },
   required: [
@@ -149,6 +244,8 @@ export const extractedDataJsonSchema = {
     "formulas",
     "worked_examples",
     "quiz_style_questions",
+    "visual_assets",
+    "figures",
     "warnings"
   ],
 } as const;

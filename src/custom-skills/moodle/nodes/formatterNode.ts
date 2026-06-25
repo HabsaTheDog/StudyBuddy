@@ -8,10 +8,40 @@ import { validateExtractedData, validateTypst } from "../validation.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
 import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
+import { decideRenderStrategy } from "../renderStrategy.js";
+import { writeRunProgress } from "../runProgress.js";
 
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
+      const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
+      config.renderStrategyDecision = decision;
+      await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
+      await writeRunProgress(config, { phase: "writing_document" });
+      if (!state.error_log && decision.strategy === "deterministic") {
+        const document = renderDeterministicStudyDocument(
+          validateExtractedData(state.extracted_data),
+          config.diagnostics?.getCoverage() ?? emptyCoverage(),
+        );
+        const validation = await validateGeneratedDocument(document, config);
+        if (!validation.ok) {
+          await config.diagnostics?.log(
+            "warn",
+            "formatter",
+            "Deterministic renderer output was not suitable; switching to LLM formatter.",
+          );
+          config.renderStrategyDecision = {
+            strategy: "llm_formatter",
+            reason: `Deterministic renderer validation failed: ${validation.error}`,
+          };
+        } else {
+          await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
+          return {
+            final_document: document,
+            error_log: null,
+          };
+        }
+      }
       if (state.error_log && state.retry_count > 0) {
         await config.diagnostics?.log(
           "warn",
@@ -22,7 +52,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
         );
-        const fallbackValidation = await validateGeneratedDocument(fallback);
+        const fallbackValidation = await validateGeneratedDocument(fallback, config);
         if (!fallbackValidation.ok) {
           return {
             final_document: fallback,
@@ -55,7 +85,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         };
       }
       const supportFiles = await getStudyBuddyTypstSupportFiles();
-      const validation = await validateTypst(document, supportFiles);
+      const validation = await validateTypst(document, supportFiles, { assetBaseDir: config.runDir });
       if (!validation.ok) {
         const error = `Typst validation failed:\n${validation.error}`;
         await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, error);
@@ -96,6 +126,7 @@ async function persistFormatterAttempt(
 
 async function validateGeneratedDocument(
   document: string,
+  config: MoodleRuntimeConfig,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const structure = validateStudyBuddyDocumentStructure(document);
   if (!structure.ok) {
@@ -105,8 +136,15 @@ async function validateGeneratedDocument(
     };
   }
   const supportFiles = await getStudyBuddyTypstSupportFiles();
-  const validation = await validateTypst(document, supportFiles);
+  const validation = await validateTypst(document, supportFiles, {
+    assetBaseDir: config.runDir,
+    preview: config.typstValidationMode === "strict" ? true : requiresPreview(document),
+  });
   return validation.ok ? { ok: true } : validation;
+}
+
+function requiresPreview(document: string): boolean {
+  return /#image\s*\(|#sb-figure\s*\(|#sb-flowchart|#sb-block-diagram|#cetz|#canvas/i.test(document);
 }
 
 function emptyCoverage() {

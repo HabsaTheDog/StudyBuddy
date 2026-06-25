@@ -27,6 +27,13 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     idleTimeoutMs: 30_000,
     stage: "all",
     includeCis: false,
+    sourceMode: "auto",
+    downloadConcurrency: 3,
+    typstValidationMode: "balanced",
+    renderStrategy: "auto",
+    visualsEnabled: true,
+    maxVisualAssets: 3,
+    visualMinConfidence: 0.65,
     ...overrides,
   };
 }
@@ -52,6 +59,8 @@ export function moodleExtractedData(overrides: Partial<ExtractedData> = {}): Ext
     formulas: [],
     worked_examples: [],
     quiz_style_questions: [],
+    visual_assets: [],
+    figures: [],
     warnings: [],
     ...overrides,
   };

@@ -9,9 +9,7 @@ export function renderDeterministicStudyDocument(
   const course = data.course.title || "FH Technikum Wien";
   const body: string[] = [
     heading(1, "Dokumenthinweis"),
-    callout(
-      "Quellen und Modellannahmen",
-      "info",
+    paragraph(
       "Konkrete Laborvorgaben stammen aus den im Quellenverzeichnis genannten Moodle- und CIS-Inhalten. Allgemeine Herleitungen sind als Fachtheorie gekennzeichnet; Messwerte müssen im Labor erhoben und dokumentiert werden.",
     ),
     sourceNote(
@@ -21,16 +19,18 @@ export function renderDeterministicStudyDocument(
   ];
 
   for (const section of data.sections) {
-    body.push(heading(1, section.heading), paragraph(section.summary));
+    body.push(
+      heading(1, section.heading),
+      paragraph(withInlineSources(data, section.summary, section.source_ids)),
+    );
     if (section.key_concepts.length > 0) {
       body.push(heading(2, "Kernpunkte"), checklist(section.key_concepts));
     }
-    if (section.source_ids.length > 0) {
-      body.push(sourceNote(
-        sourceTitles(data, section.source_ids),
-        "Belegte Aussage aus den strukturiert extrahierten Kursquellen.",
-      ));
-    }
+  }
+
+  const figures = renderFigures(data);
+  if (figures.length > 0) {
+    body.push(heading(1, "Abbildungen und Visualisierungen"), ...figures);
   }
 
   if (data.formulas.length > 0) {
@@ -43,7 +43,7 @@ export function renderDeterministicStudyDocument(
   units: ${stringTuple(formula.units)},
   source: ${typstString(sourceTitles(data, formula.source_ids) || "Allgemeine Fachtheorie")},
 )[
-  #raw(${typstString(formula.typst)}, block: false)
+  ${math(formula.typst)}
 ]
 `,
       );
@@ -71,8 +71,12 @@ export function renderDeterministicStudyDocument(
 
   if (data.quiz_style_questions.length > 0) {
     body.push(heading(1, "Kontrollfragen"));
-    for (const item of data.quiz_style_questions) {
-      body.push(callout(item.question, "primary", item.answer));
+    for (const [index, item] of data.quiz_style_questions.entries()) {
+      body.push(
+        heading(2, `Frage ${index + 1}`),
+        paragraph(item.question),
+        paragraph(`Antwort: ${item.answer}`),
+      );
     }
   }
 
@@ -104,6 +108,46 @@ ${body.map((part) => indent(part.trim(), 4)).join("\n\n")}
 `;
 }
 
+function renderFigures(data: ExtractedData): string[] {
+  const assetsById = new Map(data.visual_assets.map((asset) => [asset.id, asset]));
+  return data.figures.flatMap((figure, index) => {
+    const asset = assetsById.get(figure.asset_id);
+    if (!asset) {
+      return [];
+    }
+    const caption = sourceTitles(data, figure.source_ids)
+      ? `${figure.caption} Quelle: ${sourceTitles(data, figure.source_ids)}.`
+      : figure.caption;
+    if (asset.relative_path) {
+      return [
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+  #image(${typstString(asset.relative_path)}, width: 90%)
+]
+`,
+      ];
+    }
+    if (asset.kind === "typst_diagram") {
+      return [
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+  #sb-block-diagram(("Eingang", "Verarbeitung", "Ausgang"))
+]
+`,
+      ];
+    }
+    if (asset.kind === "placeholder_prompt") {
+      return [
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+  #sb-callout(title: "Visualisierungsprompt", tone: "info")[
+    #text(${typstString(asset.generation_prompt || asset.caption_hint || "Didaktische Visualisierung generieren.")})
+  ]
+]
+`,
+      ];
+    }
+    return [];
+  });
+}
+
 function heading(level: number, value: string): string {
   return `#heading(level: ${level})[${text(value)}]`;
 }
@@ -114,6 +158,88 @@ function paragraph(value: string): string {
 
 function text(value: string): string {
   return `#text(${typstString(value)})`;
+}
+
+function math(value: string): string {
+  const body = normalizeTypstMath(stripMathDelimiters(value));
+  return `$ ${body} $`;
+}
+
+function stripMathDelimiters(value: string): string {
+  let body = value.trim();
+  const fenced = /^```(?:typst|typ|math)?\s*([\s\S]*?)\s*```$/i.exec(body);
+  body = (fenced?.[1] ?? body).trim();
+  if (body.startsWith("$") && body.endsWith("$")) {
+    body = body.slice(1, -1).trim();
+  }
+  return body;
+}
+
+function normalizeTypstMath(value: string): string {
+  return replaceTypstMathFunctionCalls(
+    value
+      .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
+      .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)"),
+    "ddot",
+    (argument) => `accent(${argument}, dot.double)`,
+  );
+}
+
+function replaceTypstMathFunctionCalls(
+  value: string,
+  functionName: string,
+  replacement: (argument: string) => string,
+): string {
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    const index = value.indexOf(functionName, cursor);
+    if (index === -1) {
+      result += value.slice(cursor);
+      break;
+    }
+
+    const before = value[index - 1] ?? "";
+    let openIndex = index + functionName.length;
+    while (/\s/.test(value[openIndex] ?? "")) {
+      openIndex += 1;
+    }
+
+    if (/[A-Za-z0-9_\\]/.test(before) || value[openIndex] !== "(") {
+      result += value.slice(cursor, index + functionName.length);
+      cursor = index + functionName.length;
+      continue;
+    }
+
+    const closeIndex = findMatchingParen(value, openIndex);
+    if (closeIndex === -1) {
+      result += value.slice(cursor, index + functionName.length);
+      cursor = index + functionName.length;
+      continue;
+    }
+
+    result += value.slice(cursor, index);
+    result += replacement(value.slice(openIndex + 1, closeIndex).trim());
+    cursor = closeIndex + 1;
+  }
+
+  return result;
+}
+
+function findMatchingParen(value: string, openIndex: number): number {
+  let depth = 0;
+  for (let index = openIndex; index < value.length; index += 1) {
+    if (value[index] === "(") {
+      depth += 1;
+    } else if (value[index] === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return -1;
 }
 
 function checklist(items: string[]): string {
@@ -141,6 +267,11 @@ function sourceTitles(data: ExtractedData, ids: string[]): string {
     .filter((source) => requested.has(source.id))
     .map((source) => source.title)
     .join("; ");
+}
+
+function withInlineSources(data: ExtractedData, value: string, ids: string[]): string {
+  const titles = sourceTitles(data, ids);
+  return titles ? `${value} Quelle: ${titles}.` : value;
 }
 
 function stringTuple(values: string[]): string {

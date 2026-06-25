@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
+    "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

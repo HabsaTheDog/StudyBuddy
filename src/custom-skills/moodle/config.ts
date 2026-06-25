@@ -2,8 +2,16 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-import type { BrowserBackend, MoodleGraphInput, MoodleRuntimeConfig } from "./types.js";
+import type {
+  BrowserBackend,
+  MoodleGraphInput,
+  MoodleRuntimeConfig,
+  RenderStrategyMode,
+  SourceMode,
+  TypstValidationMode,
+} from "./types.js";
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
+import { clampConcurrency } from "./downloadQueue.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -22,9 +30,10 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   }
 
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
-  const outputRoot = resolveStudyBuddyPath(process.env.MOODLE_OUTPUT_DIR || path.join("output", requestName));
-  const explicitRunDir = input.runDir ? resolveStudyBuddyPath(input.runDir) : null;
-  const explicitOutputPath = input.outputPath ? resolveStudyBuddyPath(input.outputPath) : null;
+  const workspaceRoot = resolveWorkspaceRoot();
+  const outputRoot = path.join(workspaceRoot, "output", requestName);
+  const explicitRunDir = input.runDir ? resolveWorkspacePath(input.runDir, workspaceRoot) : null;
+  const explicitOutputPath = input.outputPath ? resolveWorkspacePath(input.outputPath, workspaceRoot) : null;
   const runDir = explicitRunDir || (explicitOutputPath ? path.dirname(explicitOutputPath) : path.resolve(outputRoot, timestampSlug()));
   mkdirSync(runDir, { recursive: true });
   const includeCis = input.includeCis ?? true;
@@ -34,10 +43,13 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       : parseUrlList(process.env.CIS_URLS)
     : [];
 
-  const moodleUrl = resolveVerifiedMoodleSource(
-    input.prompt,
-    input.moodleUrl || process.env.STUDY_BUDDY_MOODLE_URL || DEFAULT_MOODLE_URL,
-  );
+  const requestedMoodleUrl = input.moodleUrl || process.env.STUDY_BUDDY_MOODLE_URL || DEFAULT_MOODLE_URL;
+  const promptMoodleUrl = extractMoodleUrlFromPrompt(input.prompt);
+  const selectedMoodleUrl = shouldPreferPromptMoodleUrl(requestedMoodleUrl, promptMoodleUrl)
+    ? promptMoodleUrl
+    : requestedMoodleUrl;
+  const moodleUrl = resolveVerifiedMoodleSource(input.prompt, selectedMoodleUrl);
+  const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
 
   return {
     prompt: input.prompt,
@@ -45,8 +57,8 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     requestName,
     outputPath: explicitOutputPath || path.resolve(path.join(runDir, "document.typ")),
     runDir,
-    maxDepth: input.maxDepth ?? 2,
-    maxPages: input.maxPages ?? 8,
+    maxDepth: input.maxDepth ?? (isDirectQuizAttempt ? 0 : 2),
+    maxPages: input.maxPages ?? (isDirectQuizAttempt ? 1 : 8),
     maxCisPages: input.maxCisPages ?? parsePositiveInteger(process.env.CIS_MAX_PAGES, 4),
     allowFileDownloads: input.allowFileDownloads ?? true,
     baseUrl: process.env.MOODLE_BASE_URL || new URL(moodleUrl).origin,
@@ -67,8 +79,22 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     maxRuntimeMs: input.maxRuntimeMs ?? parsePositiveInteger(process.env.MOODLE_MAX_RUNTIME_MS, 12 * 60_000),
     idleTimeoutMs: input.idleTimeoutMs ?? parsePositiveInteger(process.env.MOODLE_IDLE_TIMEOUT_MS, 8 * 60_000),
     stage: input.stage ?? "all",
-    sourceRunDir: input.sourceRunDir ? resolveStudyBuddyPath(input.sourceRunDir) : undefined,
+    sourceRunDir: input.sourceRunDir
+      ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
+      : undefined,
     includeCis,
+    sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
+    downloadConcurrency: clampConcurrency(
+      input.downloadConcurrency ?? parsePositiveInteger(process.env.STUDY_BUDDY_DOWNLOAD_CONCURRENCY, 3),
+    ),
+    typstValidationMode: parseTypstValidationMode(
+      input.typstValidationMode || process.env.STUDY_BUDDY_TYPST_VALIDATION,
+    ),
+    renderStrategy: parseRenderStrategy(input.renderStrategy || process.env.STUDY_BUDDY_RENDER_STRATEGY),
+    visualsEnabled: input.visualsEnabled ?? process.env.STUDY_BUDDY_VISUALS_DISABLE !== "true",
+    maxVisualAssets: input.maxVisualAssets ?? parsePositiveInteger(process.env.STUDY_BUDDY_VISUALS_MAX, 3),
+    visualMinConfidence: input.visualMinConfidence ??
+      parseConfidence(process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE, 0.65),
   };
 }
 
@@ -103,6 +129,15 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     stage: config.stage,
     sourceRunDir: config.sourceRunDir,
     includeCis: config.includeCis,
+    sourceMode: config.sourceMode,
+    downloadConcurrency: config.downloadConcurrency,
+    typstValidationMode: config.typstValidationMode,
+    renderStrategy: config.renderStrategy,
+    sourcePlan: config.sourcePlan,
+    renderStrategyDecision: config.renderStrategyDecision,
+    visualsEnabled: config.visualsEnabled,
+    maxVisualAssets: config.maxVisualAssets,
+    visualMinConfidence: config.visualMinConfidence,
   };
 }
 
@@ -110,8 +145,16 @@ function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function resolveStudyBuddyPath(value: string): string {
-  return path.isAbsolute(value) ? value : path.resolve(STUDY_BUDDY_ROOT, value);
+function resolveWorkspaceRoot(): string {
+  return path.resolve(
+    process.env.STUDY_BUDDY_WORKSPACE ||
+      process.env.T3CODE_CWD ||
+      process.cwd(),
+  );
+}
+
+function resolveWorkspacePath(value: string, workspaceRoot: string): string {
+  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
 }
 
 function inferRequestName(prompt: string): string {
@@ -121,6 +164,26 @@ function inferRequestName(prompt: string): string {
     .match(/[a-z0-9äöüß_-]{3,}/gi);
   return (words ?? ["moodle-run"]).slice(0, 6).join("-");
 }
+
+function extractMoodleUrlFromPrompt(prompt: string): string | null {
+  const match = prompt.match(/https:\/\/moodle\.technikum-wien\.at\/[^\s<>)"']+/i);
+  return match ? match[0].replace(/[.,;:!?]+$/g, "") : null;
+}
+
+function shouldPreferPromptMoodleUrl(requestedUrl: string, promptUrl: string | null): promptUrl is string {
+  if (!promptUrl) {
+    return false;
+  }
+  const requested = new URL(requestedUrl);
+  return requested.hostname === "moodle.technikum-wien.at" && MOODLE_DASHBOARD_PATHS.has(requested.pathname);
+}
+
+function isMoodleQuizAttemptUrl(url: string): boolean {
+  const parsed = new URL(url);
+  return parsed.hostname === "moodle.technikum-wien.at" && parsed.pathname === "/mod/quiz/attempt.php";
+}
+
+const MOODLE_DASHBOARD_PATHS = new Set(["/", "/my", "/my/"]);
 
 function safeSlug(value: string): string {
   return value
@@ -149,6 +212,14 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseConfidence(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
+}
+
 function parseBrowserBackend(value: string | undefined): BrowserBackend {
   if (!value) {
     return DEFAULT_BROWSER_BACKEND;
@@ -159,6 +230,36 @@ function parseBrowserBackend(value: string | undefined): BrowserBackend {
   throw new Error(`Expected browser backend to be playwright or agent-browser, got ${value}`);
 }
 
+function parseSourceMode(value: string | undefined): SourceMode {
+  if (!value) {
+    return "auto";
+  }
+  if (value === "auto" || value === "moodle" || value === "cis" || value === "both") {
+    return value;
+  }
+  throw new Error(`Expected source mode to be auto, moodle, cis, or both, got ${value}`);
+}
+
+function parseTypstValidationMode(value: string | undefined): TypstValidationMode {
+  if (!value) {
+    return "balanced";
+  }
+  if (value === "strict" || value === "balanced") {
+    return value;
+  }
+  throw new Error(`Expected Typst validation mode to be strict or balanced, got ${value}`);
+}
+
+function parseRenderStrategy(value: string | undefined): RenderStrategyMode {
+  if (!value) {
+    return "auto";
+  }
+  if (value === "auto" || value === "deterministic" || value === "llm_formatter") {
+    return value;
+  }
+  throw new Error(`Expected render strategy to be auto, deterministic, or llm_formatter, got ${value}`);
+}
+
 export function loadEnvFiles(candidates = defaultEnvFileCandidates()): void {
   for (const envPath of new Set(candidates)) {
     dotenv.config({ path: envPath, override: false, quiet: true });
@@ -167,6 +268,8 @@ export function loadEnvFiles(candidates = defaultEnvFileCandidates()): void {
 
 function defaultEnvFileCandidates(): string[] {
   return [
+    path.resolve(process.cwd(), ".env.local"),
+    path.join(STUDY_BUDDY_ROOT, ".env.local"),
     path.resolve(process.cwd(), ".env"),
     path.join(STUDY_BUDDY_ROOT, ".env"),
   ];

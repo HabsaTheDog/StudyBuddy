@@ -24,6 +24,7 @@ export function validateExtractedData(value: unknown): ExtractedData {
 export async function validateTypst(
   source: string,
   supportFiles: TypstSupportFile[] = [],
+  options: { assetBaseDir?: string; preview?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const typstPath = await findExecutable("typst");
   if (!typstPath) {
@@ -35,6 +36,9 @@ export async function validateTypst(
   const targetPath = path.join(tempDir, "document.pdf");
   await writeFile(sourcePath, source, "utf8");
   await writeTypstSupportFiles(tempDir, supportFiles);
+  if (options.assetBaseDir) {
+    await copyReferencedVisualAssets(source, options.assetBaseDir, tempDir);
+  }
 
   try {
     const packagePath = inferPackagePath(tempDir, supportFiles);
@@ -48,27 +52,29 @@ export async function validateTypst(
       return { ok: false, error: `Typst emitted a warning:\n${result.stderr}` };
     }
 
-    const previewPattern = path.join(tempDir, "preview-{0p}.png");
-    const renderResult = await runTypstCompile(typstPath, sourcePath, previewPattern, {
-      packagePath,
-      format: "png",
-      ppi: 144,
-    });
-    if (renderResult.code !== 0) {
-      return {
-        ok: false,
-        error: `Typst preview render failed:\n${renderResult.stderr || renderResult.stdout}`,
-      };
-    }
-    const previews = (await readdir(tempDir))
-      .filter((fileName) => /^preview-\d+\.png$/.test(fileName));
-    if (previews.length === 0) {
-      return { ok: false, error: "Typst preview render produced no pages." };
-    }
-    for (const preview of previews) {
-      const previewStat = await stat(path.join(tempDir, preview));
-      if (previewStat.size === 0) {
-        return { ok: false, error: `Typst preview page is empty: ${preview}` };
+    if (options.preview !== false) {
+      const previewPattern = path.join(tempDir, "preview-{0p}.png");
+      const renderResult = await runTypstCompile(typstPath, sourcePath, previewPattern, {
+        packagePath,
+        format: "png",
+        ppi: 144,
+      });
+      if (renderResult.code !== 0) {
+        return {
+          ok: false,
+          error: `Typst preview render failed:\n${renderResult.stderr || renderResult.stdout}`,
+        };
+      }
+      const previews = (await readdir(tempDir))
+        .filter((fileName) => /^preview-\d+\.png$/.test(fileName));
+      if (previews.length === 0) {
+        return { ok: false, error: "Typst preview render produced no pages." };
+      }
+      for (const preview of previews) {
+        const previewStat = await stat(path.join(tempDir, preview));
+        if (previewStat.size === 0) {
+          return { ok: false, error: `Typst preview page is empty: ${preview}` };
+        }
       }
     }
     return { ok: true };
@@ -133,6 +139,28 @@ export async function writeTypstSupportFiles(
     const supportPath = ensureInside(baseDir, path.join(baseDir, file.relativePath));
     await mkdir(path.dirname(supportPath), { recursive: true });
     await writeFile(supportPath, file.content, "utf8");
+  }
+}
+
+async function copyReferencedVisualAssets(
+  source: string,
+  assetBaseDir: string,
+  tempDir: string,
+): Promise<void> {
+  const paths = [...source.matchAll(/#image\s*\(\s*"([^"]+)"/g)].map((match) => match[1]);
+  for (const relativePath of new Set(paths)) {
+    if (!relativePath.startsWith("assets/visuals/")) {
+      continue;
+    }
+    const sourcePath = ensureInside(assetBaseDir, path.join(assetBaseDir, relativePath));
+    const targetPath = ensureInside(tempDir, path.join(tempDir, relativePath));
+    const sourceStat = await stat(sourcePath).catch(() => null);
+    if (!sourceStat?.isFile()) {
+      throw new Error(`Referenced visual asset is missing: ${relativePath}`);
+    }
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    const { copyFile } = await import("node:fs/promises");
+    await copyFile(sourcePath, targetPath);
   }
 }
 
