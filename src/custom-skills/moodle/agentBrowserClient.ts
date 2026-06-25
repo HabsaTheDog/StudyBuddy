@@ -1,6 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { MoodleRuntimeConfig } from "./types.js";
+import {
+  assertQuizPolicyAllows,
+  isMoodleQuizAttemptUrl,
+  isMoodleQuizFinalSubmitUrl,
+  isMoodleQuizSaveOrMoveUrl,
+  type QuizPolicy,
+} from "./quizPolicy.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_AGENT_BROWSER_PACKAGE = "agent-browser@0.27.0";
@@ -57,7 +64,10 @@ export class AgentBrowserCommandError extends Error {
 }
 
 export function createAgentBrowserClient(config: MoodleRuntimeConfig): AgentBrowserClient {
-  return new CliAgentBrowserClient(buildAgentBrowserCommandSpec(config));
+  return new QuizPolicyAgentBrowserClient(
+    new CliAgentBrowserClient(buildAgentBrowserCommandSpec(config)),
+    config.quizPolicy,
+  );
 }
 
 function buildAgentBrowserCommandSpec(config: MoodleRuntimeConfig): CommandSpec {
@@ -162,6 +172,91 @@ class CliAgentBrowserClient implements AgentBrowserClient {
       throw toAgentBrowserCommandError(error, this.spec.sensitiveValues);
     }
   }
+}
+
+class QuizPolicyAgentBrowserClient implements AgentBrowserClient {
+  constructor(
+    private readonly inner: AgentBrowserClient,
+    private readonly quizPolicy: QuizPolicy,
+  ) {}
+
+  async open(url: string): Promise<AgentBrowserCommandResult> {
+    assertQuizUrlOpenAllowed(this.quizPolicy, url);
+    return this.inner.open(url);
+  }
+
+  async snapshot(options?: SnapshotOptions): Promise<AgentBrowserSnapshot> {
+    return this.inner.snapshot(options);
+  }
+
+  async getUrl(): Promise<string> {
+    return this.inner.getUrl();
+  }
+
+  async evalText(script: string): Promise<string> {
+    return this.inner.evalText(script);
+  }
+
+  async fill(selector: string, value: string): Promise<AgentBrowserCommandResult> {
+    const url = await this.inner.getUrl().catch(() => "");
+    if (isMoodleQuizAttemptUrl(url)) {
+      assertQuizPolicyAllows(this.quizPolicy, "fill_answers", { url, reason: selector });
+    }
+    return this.inner.fill(selector, value);
+  }
+
+  async click(selector: string): Promise<AgentBrowserCommandResult> {
+    const url = await this.inner.getUrl().catch(() => "");
+    if (isMoodleQuizAttemptUrl(url) || isMoodleQuizSaveOrMoveUrl(url)) {
+      assertQuizPolicyAllows(this.quizPolicy, classifyQuizClick(selector), { url, reason: selector });
+    }
+    return this.inner.click(selector);
+  }
+
+  async press(key: string): Promise<AgentBrowserCommandResult> {
+    const url = await this.inner.getUrl().catch(() => "");
+    if (isMoodleQuizAttemptUrl(url)) {
+      assertQuizPolicyAllows(this.quizPolicy, "save_or_move_page", { url, reason: key });
+    }
+    return this.inner.press(key);
+  }
+
+  async wait(ms: number): Promise<AgentBrowserCommandResult> {
+    return this.inner.wait(ms);
+  }
+
+  async download(selector: string, targetPath: string): Promise<AgentBrowserCommandResult> {
+    return this.inner.download(selector, targetPath);
+  }
+
+  async close(): Promise<AgentBrowserCommandResult> {
+    return this.inner.close();
+  }
+}
+
+function assertQuizUrlOpenAllowed(policy: QuizPolicy, url: string): void {
+  if (isMoodleQuizFinalSubmitUrl(url)) {
+    assertQuizPolicyAllows(policy, "final_submit", { url });
+    return;
+  }
+  if (isMoodleQuizSaveOrMoveUrl(url)) {
+    assertQuizPolicyAllows(policy, "save_or_move_page", { url });
+    return;
+  }
+  if (isMoodleQuizAttemptUrl(url)) {
+    assertQuizPolicyAllows(policy, "open_attempt", { url });
+  }
+}
+
+function classifyQuizClick(selector: string): "fill_answers" | "save_or_move_page" | "final_submit" {
+  const normalized = selector.toLowerCase();
+  if (/(submit|finishattempt|finish|abgeben|einreichen)/.test(normalized)) {
+    return "final_submit";
+  }
+  if (/(next|previous|prev|save|summary|mod_quiz-next-nav|mod_quiz-prev-nav|weiter|zurück|zurueck)/.test(normalized)) {
+    return "save_or_move_page";
+  }
+  return "fill_answers";
 }
 
 function parseAgentBrowserSnapshot(stdout: string): AgentBrowserSnapshot {

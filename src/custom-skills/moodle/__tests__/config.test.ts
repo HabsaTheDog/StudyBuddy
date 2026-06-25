@@ -112,6 +112,32 @@ describe("createRuntimeConfig", () => {
     expect(config.visualMinConfidence).toBe(0.4);
   });
 
+  it("reads quiz safety policy from environment settings", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-policy-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_QUIZ_AUTO_ANSWER", "true");
+    vi.stubEnv("MOODLE_QUIZ_REQUIRE_MANUAL_REVIEW", "false");
+    vi.stubEnv("MOODLE_QUIZ_BLOCK_FINAL_SUBMIT", "false");
+    vi.stubEnv("MOODLE_QUIZ_DRAFT_ONLY", "false");
+
+    const config = createRuntimeConfig({
+      prompt: "bearbeite das Moodle Quiz",
+      moodleUrl: "https://moodle.example/mod/quiz/view.php?id=42",
+    });
+
+    expect(config.autoAnswer).toBe(true);
+    expect(config.quizPolicy).toMatchObject({
+      requestedAutoAnswer: true,
+      settingAutoAnswer: true,
+      requireManualReview: false,
+      blockFinalSubmit: false,
+      draftOnly: false,
+      allowAttemptOpen: true,
+      allowAnswerFill: true,
+      allowFinalSubmit: false,
+    });
+  });
+
   it("uses a direct Moodle URL from the prompt when the configured URL is the dashboard", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-prompt-url-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

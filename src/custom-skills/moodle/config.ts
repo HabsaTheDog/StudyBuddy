@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
 import { clampConcurrency } from "./downloadQueue.js";
+import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -50,6 +51,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     : requestedMoodleUrl;
   const moodleUrl = resolveVerifiedMoodleSource(input.prompt, selectedMoodleUrl);
   const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
+  const quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
 
   return {
     prompt: input.prompt,
@@ -75,7 +77,8 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     headless: input.browserHeaded ? false : process.env.MOODLE_HEADLESS !== "false",
     browserBackend: parseBrowserBackend(input.browserBackend || process.env.MOODLE_BROWSER_BACKEND),
     diagnosticOnly: input.diagnosticOnly ?? false,
-    autoAnswer: input.autoAnswer ?? false,
+    autoAnswer: quizPolicy.requestedAutoAnswer,
+    quizPolicy,
     maxRuntimeMs: input.maxRuntimeMs ?? parsePositiveInteger(process.env.MOODLE_MAX_RUNTIME_MS, 12 * 60_000),
     idleTimeoutMs: input.idleTimeoutMs ?? parsePositiveInteger(process.env.MOODLE_IDLE_TIMEOUT_MS, 8 * 60_000),
     stage: input.stage ?? "all",
@@ -124,6 +127,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     browserBackend: config.browserBackend,
     diagnosticOnly: config.diagnosticOnly,
     autoAnswer: config.autoAnswer,
+    quizPolicy: config.quizPolicy,
     maxRuntimeMs: config.maxRuntimeMs,
     idleTimeoutMs: config.idleTimeoutMs,
     stage: config.stage,
@@ -176,11 +180,6 @@ function shouldPreferPromptMoodleUrl(requestedUrl: string, promptUrl: string | n
   }
   const requested = new URL(requestedUrl);
   return requested.hostname === "moodle.technikum-wien.at" && MOODLE_DASHBOARD_PATHS.has(requested.pathname);
-}
-
-function isMoodleQuizAttemptUrl(url: string): boolean {
-  const parsed = new URL(url);
-  return parsed.hostname === "moodle.technikum-wien.at" && parsed.pathname === "/mod/quiz/attempt.php";
 }
 
 const MOODLE_DASHBOARD_PATHS = new Set(["/", "/my", "/my/"]);
