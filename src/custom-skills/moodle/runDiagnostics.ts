@@ -67,6 +67,8 @@ export interface RunSummaryInput {
   error?: string;
   outputPath?: string;
   pdfPath?: string;
+  answerPath?: string;
+  answerJsonPath?: string;
   stateHasRawText: boolean;
   stateHasDocument: boolean;
   extractedDataPath?: string;
@@ -297,8 +299,10 @@ export class RunDiagnostics {
       "",
       "## Generated artifacts",
       input.extractedDataPath ? `- Extracted data: ${input.extractedDataPath}` : "- Extracted data: none",
-      input.outputPath ? `- Typst: ${input.outputPath}` : "- Typst: none",
-      input.pdfPath ? `- PDF: ${input.pdfPath}` : "- PDF: none",
+      input.answerPath ? `- Answer: ${input.answerPath}` : "- Answer: none",
+      input.answerJsonPath ? `- Answer data: ${input.answerJsonPath}` : "- Answer data: none",
+      input.answerPath ? "- Typst: none" : input.outputPath ? `- Typst: ${input.outputPath}` : "- Typst: none",
+      input.answerPath ? "- PDF: none" : input.pdfPath ? `- PDF: ${input.pdfPath}` : "- PDF: none",
       `- Raw source text: ${input.stateHasRawText ? "moodle_raw.txt" : "none"}`,
       `- Final document in state: ${input.stateHasDocument ? "yes" : "no"}`,
       "",

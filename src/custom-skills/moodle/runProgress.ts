@@ -57,6 +57,8 @@ export interface StudyBuddyRunProgress {
     extractedDataPath?: string;
     typstPath?: string;
     pdfPath?: string;
+    answerPath?: string;
+    answerJsonPath?: string;
     runSummaryPath: string;
   };
   error?: {
@@ -75,6 +77,8 @@ export interface RunProgressUpdate {
     extractedDataPath?: string;
     typstPath?: string;
     pdfPath?: string;
+    answerPath?: string;
+    answerJsonPath?: string;
   };
 }
 
@@ -169,6 +173,8 @@ export async function writeRunProgress(
     extractedDataPath: update.artifacts?.extractedDataPath ?? previous?.artifacts.extractedDataPath,
     typstPath: update.artifacts?.typstPath ?? previous?.artifacts.typstPath,
     pdfPath: update.artifacts?.pdfPath ?? previous?.artifacts.pdfPath,
+    answerPath: update.artifacts?.answerPath ?? previous?.artifacts.answerPath,
+    answerJsonPath: update.artifacts?.answerJsonPath ?? previous?.artifacts.answerJsonPath,
     runSummaryPath: config.diagnostics?.runSummaryPath ?? previous?.artifacts.runSummaryPath ?? path.join(config.runDir, "run-summary.md"),
   };
   const progress: StudyBuddyRunProgress = {
@@ -190,7 +196,7 @@ export async function writeRunProgress(
     progressRatio,
     sourcePlan,
     sourceCoverage,
-    publicSteps: buildPublicSteps(sourcePlan, sourceCoverage, phase, update.followUpTargets ?? []),
+    publicSteps: buildPublicSteps(config, sourcePlan, sourceCoverage, phase, update.followUpTargets ?? []),
     technicalEventsTail: await readEventsTail(config.runDir, 20),
     artifacts,
     error: update.error ?? previous?.error,
@@ -202,6 +208,8 @@ export async function writeRunProgress(
     sourceCoverage,
     artifacts: {
       pdfPath: artifacts.pdfPath,
+      answerPath: artifacts.answerPath,
+      answerJsonPath: artifacts.answerJsonPath,
       runSummaryPath: artifacts.runSummaryPath,
     },
     error: progress.error,
@@ -275,6 +283,7 @@ function emitProgressLine(progress: StudyBuddyRunProgress): void {
 }
 
 function buildPublicSteps(
+  config: MoodleRuntimeConfig,
   plan: SourcePlan,
   coverage: SourceCoverage,
   phase: StudyBuddyUserPhase,
@@ -300,11 +309,22 @@ function buildPublicSteps(
       status: phase === "checking_missing_sources" ? "running" : "done",
     });
   }
-  steps.push(
-    { id: "analyze", label: "Inhalte auswerten", status: stepStatus(phase, ["analyzing"], hasReached(phase, "writing_document")) },
-    { id: "write", label: "Dokument schreiben", status: stepStatus(phase, ["writing_document"], hasReached(phase, "rendering_pdf")) },
-    { id: "pdf", label: "PDF erstellen", status: stepStatus(phase, ["rendering_pdf", "finalizing"], false) },
-  );
+  const answerRoute = config.intentDecision?.wantsQuickAnswer === true;
+  steps.push({
+    id: "analyze",
+    label: "Inhalte auswerten",
+    status: stepStatus(phase, ["analyzing"], hasReached(phase, answerRoute ? "finalizing" : "writing_document")),
+  });
+  steps.push({
+    id: "write",
+    label: answerRoute ? "Antwort schreiben" : "Dokument schreiben",
+    status: stepStatus(phase, answerRoute ? ["finalizing"] : ["writing_document"], answerRoute ? phase === "finalizing" : hasReached(phase, "rendering_pdf")),
+  });
+  steps.push({
+    id: "pdf",
+    label: "PDF erstellen",
+    status: answerRoute ? "skipped" : stepStatus(phase, ["rendering_pdf", "finalizing"], false),
+  });
   return steps;
 }
 

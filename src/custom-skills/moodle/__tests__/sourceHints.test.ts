@@ -28,6 +28,12 @@ describe("verified Moodle source hints", () => {
 
   it("detects prompts that require downloaded Moodle files or slides", () => {
     expect(expectsDownloadedSourceEvidence("Suche konkrete Folien und PDF-Dateien")).toBe(true);
+    expect(expectsDownloadedSourceEvidence("prüfungsrelevante Lernunterlagen")).toBe(true);
     expect(expectsDownloadedSourceEvidence("Ermittle den Abgabetermin und Raum")).toBe(false);
+  });
+
+  it("requires generic target-course evidence", () => {
+    expect(hasRequiredTopicEvidence("MEL Prüfung", "DYN2 Test beginnt")).toBe(false);
+    expect(hasRequiredTopicEvidence("MEL Prüfung", "Maschinenelemente 1")).toBe(true);
   });
 });

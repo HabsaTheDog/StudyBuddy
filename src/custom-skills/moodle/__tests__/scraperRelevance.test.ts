@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  explicitCourseCodes,
+  isLowValueMoodleUtilityLink,
   scoreMoodleLink,
+  scoreCourseFocus,
   selectRelevantFileLinks,
   selectRelevantMoodleLinks,
 } from "../nodes/scraperNode.js";
@@ -151,5 +154,29 @@ describe("Moodle crawl relevance", () => {
     expect(selected).toHaveLength(3);
     expect(selected).toContain(links[1].href);
     expect(selected).toContain(links[2].href);
+  });
+
+  it("prioritizes MEL1 course over Moodle utility pages for MEL exam prompts", () => {
+    const links = [
+      { href: "https://moodle.example/mod/page/view.php?id=1872333", label: "Generico Tool" },
+      { href: "https://moodle.example/course/view.php?id=32280", label: "BMR-VZ-2-SS2026-MEL1-DE Maschinenelemente 1" },
+      { href: "https://moodle.example/course/view.php?id=32844", label: "BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik" },
+    ];
+    const prompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin.";
+
+    expect(selectRelevantMoodleLinks(links, prompt)).toEqual([
+      "https://moodle.example/course/view.php?id=32280",
+    ]);
+    expect(scoreMoodleLink(links[0], prompt)).toBeLessThan(scoreMoodleLink(links[1], prompt));
+    expect(scoreCourseFocus(links[1].label, prompt)).toBeGreaterThanOrEqual(1_400);
+  });
+
+  it("extracts digitless course codes and does not boost Moodle utility pages", () => {
+    const help = { href: "https://moodle.example/mod/page/view.php?id=1", label: "Moodle Hilfe und Tipps" };
+    const course = { href: "https://moodle.example/course/view.php?id=32280", label: "MEL1 Maschinenelemente 1" };
+
+    expect(explicitCourseCodes("MEL Prüfung in Moodle und CIS")).toEqual(["MEL"]);
+    expect(isLowValueMoodleUtilityLink(help)).toBe(true);
+    expect(scoreMoodleLink(help, "MEL Prüfung in Moodle")).toBeLessThan(scoreMoodleLink(course, "MEL Prüfung in Moodle"));
   });
 });

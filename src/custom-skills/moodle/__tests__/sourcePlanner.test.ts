@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { planSourcesForPrompt } from "../sourcePlanner.js";
+import { planSources, planSourcesForPrompt } from "../sourcePlanner.js";
+import { classifyStudyBuddyIntent } from "../taskIntent.js";
+import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 describe("sourcePlanner", () => {
   it("routes Moodle material and PDF prompts to Moodle only", () => {
@@ -38,5 +40,46 @@ describe("sourcePlanner", () => {
     });
     expect(plan.targets).toEqual(["cis"]);
     expect(plan.allowFollowUpCrawl).toBe(false);
+  });
+
+  it("routes schedule answer with course material to Moodle and CIS without file/PDF needs", () => {
+    const prompt = "Finde die naechste MEL Prüfung. Nenne nur den Termin und prüfungsrelevante Lernunterlagen aus Moodle.";
+    const plan = planSources(moodleTestConfig({
+      prompt,
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+      }),
+    }));
+
+    expect(plan.targets).toEqual(["moodle", "cis"]);
+    expect(plan.needsFiles).toBe(false);
+    expect(plan.needsCourseMaterial).toBe(true);
+  });
+
+  it("keeps explicit course overview PDF prompts on the document path", () => {
+    const prompt = "Erstelle eine Kursübersicht für MEL als PDF";
+    const plan = planSources(moodleTestConfig({
+      prompt,
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+      }),
+    }));
+
+    expect(plan.targets).toEqual(["moodle"]);
+    expect(plan.needsFiles).toBe(true);
   });
 });

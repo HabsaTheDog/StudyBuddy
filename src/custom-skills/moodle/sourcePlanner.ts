@@ -14,12 +14,52 @@ export interface SourcePlan {
 }
 
 export function planSources(config: MoodleRuntimeConfig): SourcePlan {
+  if (config.intentDecision) {
+    return planSourcesForIntent(config);
+  }
   return planSourcesForPrompt(config.prompt, {
     sourceMode: config.sourceMode,
     includeCis: config.includeCis,
     hasCisUrls: config.cisUrls.length > 0,
     isRenderStage: config.stage === "render",
   });
+}
+
+function planSourcesForIntent(config: MoodleRuntimeConfig): SourcePlan {
+  const intent = config.intentDecision;
+  if (!intent) {
+    return planSourcesForPrompt(config.prompt);
+  }
+  if (config.stage === "render") {
+    return planSourcesForPrompt(config.prompt, {
+      sourceMode: config.sourceMode,
+      includeCis: config.includeCis,
+      hasCisUrls: config.cisUrls.length > 0,
+      isRenderStage: true,
+    });
+  }
+  if (config.sourceMode !== "auto") {
+    return planFromOverride(config.sourceMode, {
+      cisAllowed: config.includeCis && config.cisUrls.length > 0,
+      currentSchedule: intent.needsCis,
+      courseMaterial: intent.needsCourseMaterial,
+      needsFiles: intent.needsDownloadedFiles,
+      needsQuizOrAssignment: intent.wantsQuizAssistance,
+    });
+  }
+  const targets: SourceTarget[] = [];
+  if (intent.needsMoodle) targets.push("moodle");
+  if (intent.needsCis && config.includeCis && config.cisUrls.length > 0) targets.push("cis");
+  return {
+    targets,
+    confidence: "high",
+    reason: intent.reason,
+    needsCurrentScheduleData: intent.needsCis,
+    needsCourseMaterial: intent.needsCourseMaterial,
+    needsFiles: intent.needsDownloadedFiles,
+    needsQuizOrAssignment: intent.wantsQuizAssistance,
+    allowFollowUpCrawl: intent.intent !== "render" && intent.intent !== "diagnostic",
+  };
 }
 
 export function planSourcesForPrompt(

@@ -3,6 +3,7 @@ import type { RunDiagnostics, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan } from "./sourcePlanner.js";
 import type { RenderStrategyDecision } from "./renderStrategy.js";
 import type { QuizPolicy } from "./quizPolicy.js";
+import type { StudyBuddyIntent, StudyBuddyIntentDecision } from "./taskIntent.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -44,6 +45,9 @@ export interface MoodleGraphResult {
   coverageComplete: boolean;
   outputPath?: string;
   pdfPath?: string;
+  answerPath?: string;
+  answerJsonPath?: string;
+  route: StudyBuddyIntent;
   runDir: string;
   runSummaryPath: string;
   state: AgentState;
@@ -94,4 +98,6 @@ export interface MoodleRuntimeConfig {
   diagnostics?: RunDiagnostics;
   sourcePlan?: SourcePlan;
   renderStrategyDecision?: RenderStrategyDecision;
+  intentDecision?: StudyBuddyIntentDecision;
+  targetCourseUrls?: string[];
 }

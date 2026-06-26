@@ -13,6 +13,7 @@ import type {
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
 import { clampConcurrency } from "./downloadQueue.js";
 import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
+import { classifyStudyBuddyIntent } from "./taskIntent.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -52,6 +53,15 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const moodleUrl = resolveVerifiedMoodleSource(input.prompt, selectedMoodleUrl);
   const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
   const quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
+  const stage = input.stage ?? "all";
+  const intentDecision = classifyStudyBuddyIntent({
+    prompt: input.prompt,
+    stage,
+    diagnosticOnly: input.diagnosticOnly ?? false,
+    autoAnswer: quizPolicy.requestedAutoAnswer,
+    includeCis,
+    hasCisUrls: cisUrls.length > 0,
+  });
 
   return {
     prompt: input.prompt,
@@ -81,7 +91,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     quizPolicy,
     maxRuntimeMs: input.maxRuntimeMs ?? parsePositiveInteger(process.env.MOODLE_MAX_RUNTIME_MS, 12 * 60_000),
     idleTimeoutMs: input.idleTimeoutMs ?? parsePositiveInteger(process.env.MOODLE_IDLE_TIMEOUT_MS, 8 * 60_000),
-    stage: input.stage ?? "all",
+    stage,
     sourceRunDir: input.sourceRunDir
       ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
       : undefined,
@@ -98,6 +108,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     maxVisualAssets: input.maxVisualAssets ?? parsePositiveInteger(process.env.STUDY_BUDDY_VISUALS_MAX, 3),
     visualMinConfidence: input.visualMinConfidence ??
       parseConfidence(process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE, 0.65),
+    intentDecision,
   };
 }
 
@@ -139,6 +150,8 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     renderStrategy: config.renderStrategy,
     sourcePlan: config.sourcePlan,
     renderStrategyDecision: config.renderStrategyDecision,
+    intentDecision: config.intentDecision,
+    targetCourseUrls: config.targetCourseUrls,
     visualsEnabled: config.visualsEnabled,
     maxVisualAssets: config.maxVisualAssets,
     visualMinConfidence: config.visualMinConfidence,
