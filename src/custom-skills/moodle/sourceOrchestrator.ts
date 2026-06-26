@@ -65,6 +65,7 @@ export function createSourceOrchestratorNode(
     if (followUp.targets.length > 0) {
       await config.diagnostics?.log("info", "diagnostic", followUp.reason, {
         followUpTargets: followUp.targets,
+        reasonCodes: followUp.reasonCodes,
       });
       await writeRunProgress(config, {
         phase: "checking_missing_sources",
@@ -77,6 +78,7 @@ export function createSourceOrchestratorNode(
         scraperNode,
         cisScraperNode,
         followUp: true,
+        reasonCodes: followUp.reasonCodes,
       });
       mergedText = mergeRawText([
         mergedText,
@@ -101,6 +103,7 @@ async function runTargets(input: {
   scraperNode: SourceNode;
   cisScraperNode: SourceNode;
   followUp?: boolean;
+  reasonCodes?: string[];
 }): Promise<{ moodleText: string; cisText: string; warnings: string[] }> {
   const targets = [...new Set(input.targets)];
   const shouldRunMoodle = targets.includes("moodle");
@@ -116,11 +119,22 @@ async function runTargets(input: {
       ? "reading_cis"
       : "reading_sources";
   await writeRunProgress(input.config, { phase: progressPhase });
+  const warnings: string[] = [];
+  const effectiveScraperNode = shouldRunMoodle && input.followUp && targetCourseFollowUp(input.reasonCodes) && input.config.targetCourseUrls?.[0]
+    ? createScraperNode({
+        ...input.config,
+        moodleUrl: input.config.targetCourseUrls[0],
+        maxDepth: Math.max(input.config.maxDepth, 1),
+      })
+    : input.scraperNode;
+  if (shouldRunMoodle && input.followUp && targetCourseFollowUp(input.reasonCodes) && !input.config.targetCourseUrls?.[0]) {
+    warnings.push("[Moodle warning]\nTarget-course follow-up requested, but no resolved Moodle course URL is known.");
+  }
+
   const [moodleResult, cisResult] = await Promise.allSettled([
-    shouldRunMoodle ? input.scraperNode(emptyState) : Promise.resolve({}),
+    shouldRunMoodle ? effectiveScraperNode(emptyState) : Promise.resolve({}),
     shouldRunCis ? input.cisScraperNode(emptyState) : Promise.resolve({}),
   ]);
-  const warnings: string[] = [];
   if (moodleResult.status === "rejected") {
     const message = errorMessage(moodleResult.reason);
     warnings.push(`[Moodle warning]\nMoodle crawl failed in source orchestrator: ${message}`);
@@ -144,6 +158,10 @@ async function runTargets(input: {
     cisText: fulfilledText(cisResult),
     warnings,
   };
+}
+
+function targetCourseFollowUp(reasonCodes: string[] = []): boolean {
+  return reasonCodes.includes("wrong_moodle_course") || reasonCodes.includes("missing_target_course");
 }
 
 function fulfilledText(result: PromiseSettledResult<Partial<LangGraphAgentState>>): string {

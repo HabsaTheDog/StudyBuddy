@@ -9,6 +9,7 @@ import { RunDiagnostics, type SourceCoverage } from "./runDiagnostics.js";
 import { raceWithAbort, StudyBuddyTimeoutError } from "./runtimeAbort.js";
 import { extractedDataJsonSchema } from "./schemas.js";
 import { createAnalyzerNode } from "./nodes/analyzerNode.js";
+import { answerJsonPath, answerPath, createAnswerWriterNode } from "./nodes/answerWriterNode.js";
 import { createCisScraperNode } from "./nodes/cisScraperNode.js";
 import { createDiskWriterNode } from "./nodes/diskWriterNode.js";
 import { createFormatterNode } from "./nodes/formatterNode.js";
@@ -26,6 +27,7 @@ import {
   hasRequiredTopicEvidence,
   isDcDcRequest,
 } from "./sourceHints.js";
+import type { StudyBuddyIntent } from "./taskIntent.js";
 
 const MAX_RETRIES = 3;
 let typstPreflightPromise: Promise<void> | null = null;
@@ -67,11 +69,13 @@ export async function runMoodleGraph(
   await writeJson(path.join(config.runDir, "schema.json"), extractedDataJsonSchema);
 
   let state: AgentState = initialAgentState;
-  let route = baseConfig.stage === "extract"
-    ? "extraction"
-    : baseConfig.stage === "render"
-      ? "render"
-      : "document";
+  let route: StudyBuddyIntent = baseConfig.intentDecision?.intent ?? (
+    baseConfig.stage === "extract"
+      ? "extraction"
+      : baseConfig.stage === "render"
+        ? "render"
+        : "document"
+  );
   try {
     if (config.diagnosticOnly) {
       route = "diagnostic";
@@ -80,7 +84,7 @@ export async function runMoodleGraph(
       const initialStateForStage = config.stage === "render"
         ? await loadRenderState(config.sourceRunDir)
         : initialAgentState;
-      if (config.stage !== "extract") {
+      if (config.stage !== "extract" && !config.intentDecision?.wantsQuickAnswer) {
         await ensureTypstPreflight();
         await diagnostics.log("info", "typst", "Study Buddy Typst toolchain preflight passed.");
       }
@@ -88,7 +92,9 @@ export async function runMoodleGraph(
         ? buildExtractionGraph(config, dependencies)
         : config.stage === "render"
           ? buildRenderGraph(config, dependencies)
-          : buildMoodleGraph(config, dependencies);
+          : config.intentDecision?.wantsQuickAnswer
+            ? buildAnswerGraph(config, dependencies)
+            : buildMoodleGraph(config, dependencies);
       state = (await withRuntimeGuard(
         config,
         abortController,
@@ -120,10 +126,15 @@ export async function runMoodleGraph(
   const extractedDataPath = hasExtractedData
     ? path.join(config.runDir, "extracted-data.json")
     : undefined;
+  const answerArtifactPath = config.intentDecision?.wantsQuickAnswer ? await existingFilePath(answerPath(config)) : undefined;
+  const answerDataArtifactPath = config.intentDecision?.wantsQuickAnswer
+    ? await existingFilePath(answerJsonPath(config))
+    : undefined;
   const pdfPath = hasDocument ? await existingPdfPath(config.outputPath) : undefined;
   if (
     !config.diagnosticOnly &&
     config.stage !== "extract" &&
+    !config.intentDecision?.wantsQuickAnswer &&
     !state.error_log &&
     hasDocument &&
     !pdfPath
@@ -140,7 +151,9 @@ export async function runMoodleGraph(
         ? Boolean(state.moodle_raw_text.trim())
         : config.stage === "extract"
           ? hasExtractedData
-          : hasDocument && Boolean(pdfPath)
+          : config.intentDecision?.wantsQuickAnswer
+            ? Boolean(answerArtifactPath && answerDataArtifactPath)
+            : hasDocument && Boolean(pdfPath)
     );
   const sourceCoverage = diagnostics.getCoverage();
   const coverageComplete = isCoverageComplete(config, sourceCoverage);
@@ -151,8 +164,10 @@ export async function runMoodleGraph(
     status: ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed",
     prompt: config.prompt,
     error: state.error_log ?? undefined,
-    outputPath: ok && hasDocument ? config.outputPath : undefined,
-    pdfPath,
+    outputPath: ok && hasDocument && !config.intentDecision?.wantsQuickAnswer ? config.outputPath : undefined,
+    pdfPath: config.intentDecision?.wantsQuickAnswer ? undefined : pdfPath,
+    answerPath: answerArtifactPath,
+    answerJsonPath: answerDataArtifactPath,
     stateHasRawText: Boolean(state.moodle_raw_text.trim()),
     stateHasDocument: hasDocument,
     extractedDataPath,
@@ -163,16 +178,21 @@ export async function runMoodleGraph(
     error: state.error_log ? { message: state.error_log, retryable: !timedOut } : undefined,
     artifacts: {
       extractedDataPath,
-      typstPath: ok && hasDocument ? config.outputPath : undefined,
+      typstPath: ok && hasDocument && !config.intentDecision?.wantsQuickAnswer ? config.outputPath : undefined,
       pdfPath,
+      answerPath: answerArtifactPath,
+      answerJsonPath: answerDataArtifactPath,
     },
   });
 
   return {
     ok,
     coverageComplete,
-    outputPath: ok && hasDocument ? config.outputPath : undefined,
-    pdfPath,
+    outputPath: ok && hasDocument && !config.intentDecision?.wantsQuickAnswer ? config.outputPath : undefined,
+    pdfPath: config.intentDecision?.wantsQuickAnswer ? undefined : pdfPath,
+    answerPath: answerArtifactPath,
+    answerJsonPath: answerDataArtifactPath,
+    route,
     runDir: config.runDir,
     runSummaryPath: diagnostics.runSummaryPath,
     state,
@@ -248,6 +268,31 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
       abort: END,
     })
     .addEdge("diskWriter", END)
+    .compile();
+}
+
+export function buildAnswerGraph(config: MoodleRuntimeConfig, dependencies: GraphDependencies = {}) {
+  const codex = dependencies.codex ?? createCodexClient(config);
+
+  return new StateGraph(AgentStateAnnotation)
+    .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
+    .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("answerWriter", createAnswerWriterNode(config))
+    .addEdge(START, "sourcePlanner")
+    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourceOrchestrator", "sourceGate")
+    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
+      analyzer: "analyzer",
+      abort: END,
+    })
+    .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
+      analyzer: "analyzer",
+      done: "answerWriter",
+      abort: END,
+    })
+    .addEdge("answerWriter", END)
     .compile();
 }
 
@@ -336,7 +381,7 @@ function createSourceGateNode(config: MoodleRuntimeConfig) {
       if (!hasRequiredTopicEvidence(config.prompt, state.moodle_raw_text)) {
         return {
           error_log:
-            "Required Moodle source is reachable, but it contains no evidence for the requested topic. Refusing to generate a misleading PDF.",
+            "Required Moodle source is reachable, but it contains no evidence for the requested target course or topic.",
         };
       }
       if (isDcDcRequest(config.prompt) && coverage.moodle.artifacts.length === 0) {
@@ -345,7 +390,11 @@ function createSourceGateNode(config: MoodleRuntimeConfig) {
             "The DC-DC source page was found, but no readable Moodle file was downloaded. Refusing to generate an incomplete calculation document.",
         };
       }
-      if (expectsDownloadedSourceEvidence(config.prompt) && coverage.moodle.artifacts.length === 0) {
+      if (
+        expectsDownloadedSourceEvidence(config.prompt) &&
+        coverage.moodle.artifacts.length === 0 &&
+        (config.intentDecision?.needsDownloadedFiles ?? true)
+      ) {
         return {
           error_log:
             "The request asks for Moodle files, slides, PDFs, downloads, or screenshots, but no readable Moodle file was downloaded. Refusing to generate a source-weak document.",
@@ -436,7 +485,9 @@ export async function persistRunDiagnostics(
     writeJson(path.join(config.runDir, "state.json"), {
       ...state,
       moodle_raw_text: state.moodle_raw_text ? "[see moodle_raw.txt]" : "",
-      final_document: state.final_document ? "[see document.typ]" : "",
+      final_document: state.final_document
+        ? config.intentDecision?.wantsQuickAnswer ? "[see answer.md]" : "[see document.typ]"
+        : "",
     }),
     writeFile(path.join(config.runDir, "error.log"), state.error_log ?? "", "utf8"),
   ]);
@@ -444,8 +495,12 @@ export async function persistRunDiagnostics(
 
 async function existingPdfPath(outputPath: string): Promise<string | undefined> {
   const pdfPath = typstPdfPath(outputPath);
-  const pdfStat = await stat(pdfPath).catch(() => null);
-  return pdfStat?.isFile() && pdfStat.size > 0 ? pdfPath : undefined;
+  return existingFilePath(pdfPath);
+}
+
+async function existingFilePath(filePath: string): Promise<string | undefined> {
+  const fileStat = await stat(filePath).catch(() => null);
+  return fileStat?.isFile() && fileStat.size > 0 ? filePath : undefined;
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {

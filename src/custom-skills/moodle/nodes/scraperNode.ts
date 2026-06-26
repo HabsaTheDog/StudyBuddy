@@ -17,6 +17,12 @@ import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
 import {
+  explicitCourseCodesFromText,
+  extractCourseTargetHint,
+  resolveCourseTargetsFromLinks,
+  scoreCourseTargetLabel,
+} from "../courseTargeting.js";
+import {
   assertQuizPolicyAllows,
   detectQuizRestrictions,
   isMoodleQuizAttemptUrl,
@@ -115,7 +121,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         }
 
         if (next.depth < config.maxDepth) {
-          const links = await extractMoodleLinks(page, config.baseUrl, config.prompt);
+          const links = await extractMoodleLinks(page, config);
           for (const link of links) {
             const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
             if (linkViolation) {
@@ -281,7 +287,7 @@ async function scrapeWithAgentBrowser(
       }
 
       if (next.depth < config.maxDepth) {
-        const links = extractMoodleLinksFromSnapshot(snapshot, config.baseUrl, config.prompt);
+        const links = extractMoodleLinksFromSnapshot(snapshot, config);
         for (const link of links) {
           const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
           if (linkViolation) {
@@ -604,8 +610,8 @@ async function gotoWithDiagnostics(
   }
 }
 
-async function extractMoodleLinks(page: Page, baseUrl: string, prompt: string): Promise<string[]> {
-  const origin = new URL(baseUrl).origin;
+async function extractMoodleLinks(page: Page, config: MoodleRuntimeConfig): Promise<string[]> {
+  const origin = new URL(config.baseUrl).origin;
   const hrefs = await page.locator("a[href]").evaluateAll((anchors) =>
     anchors.map((anchor) => ({
       href: (anchor as HTMLAnchorElement).href,
@@ -617,22 +623,24 @@ async function extractMoodleLinks(page: Page, baseUrl: string, prompt: string): 
     })),
   );
   const seen = new Set<string>();
-  return selectRelevantMoodleLinks(
-    hrefs
-      .filter(({ href }) => href.startsWith(origin))
-      .filter(
-        ({ href }) =>
-          href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
-      )
-      .filter(({ href }) => {
-        if (seen.has(href)) {
-          return false;
-        }
-        seen.add(href);
-        return true;
-      }),
-    prompt,
-  );
+  const relevantLinks = hrefs
+    .filter(({ href }) => href.startsWith(origin))
+    .filter(
+      ({ href }) =>
+        href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
+    )
+    .filter(({ href }) => {
+      if (seen.has(href)) {
+        return false;
+      }
+      seen.add(href);
+      return true;
+    });
+  const resolved = resolveCourseTargetsFromLinks(config.prompt, relevantLinks);
+  if (resolved.selectedUrls.length > 0) {
+    config.targetCourseUrls = resolved.selectedUrls;
+  }
+  return selectRelevantMoodleLinks(relevantLinks, config.prompt);
 }
 
 async function captureFileLinks(
@@ -795,17 +803,20 @@ function snapshotToText(snapshot: string): string {
 
 function extractMoodleLinksFromSnapshot(
   snapshot: AgentBrowserSnapshot,
-  baseUrl: string,
-  prompt: string,
+  config: MoodleRuntimeConfig,
 ): string[] {
-  const origin = new URL(baseUrl).origin;
+  const origin = new URL(config.baseUrl).origin;
   const links = extractSnapshotLinks(snapshot)
     .filter(({ href }) => href.startsWith(origin))
     .filter(
       ({ href }) =>
         href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
     );
-  return selectRelevantMoodleLinks(links, prompt);
+  const resolved = resolveCourseTargetsFromLinks(config.prompt, links);
+  if (resolved.selectedUrls.length > 0) {
+    config.targetCourseUrls = resolved.selectedUrls;
+  }
+  return selectRelevantMoodleLinks(links, config.prompt);
 }
 
 function extractSnapshotLinks(
@@ -831,6 +842,9 @@ export function scoreMoodleLink(link: { href: string; label: string }, prompt: s
   const haystack = `${link.href}\n${link.label}`.toLowerCase();
   const haystackTokens = new Set(textTokens(haystack));
   let score = 0;
+  if (isLowValueMoodleUtilityLink(link)) {
+    score -= 500;
+  }
   if (link.href.includes("/course/view.php")) {
     score += 10;
     score += scoreCourseFocus(link.label, prompt);
@@ -883,6 +897,10 @@ export function selectRelevantMoodleLinks(
   links: { href: string; label: string }[],
   prompt: string,
 ): string[] {
+  const resolvedTarget = resolveCourseTargetsFromLinks(prompt, links);
+  if (resolvedTarget.selectedUrls.length > 0) {
+    return resolvedTarget.selectedUrls;
+  }
   const unique = new Map<string, { href: string; label: string; score: number }>();
   for (const link of links) {
     const normalized = normalizeMoodleUrl(link.href);
@@ -913,6 +931,10 @@ function selectFocusedCourseLinks(
   scored: { href: string; label: string; score: number }[],
   prompt: string,
 ): string[] {
+  const target = extractCourseTargetHint(prompt);
+  if (target.requestedCodes.length === 0 && target.requestedNames.length === 0) {
+    return [];
+  }
   const courses = scored
     .filter((link) => link.href.includes("/course/view.php"))
     .map((link) => ({
@@ -936,15 +958,9 @@ function selectFocusedCourseLinks(
     .map(({ href }) => normalizeMoodleUrl(href));
 }
 
-function scoreCourseFocus(label: string, prompt: string): number {
-  let score = 0;
+export function scoreCourseFocus(label: string, prompt: string): number {
+  let score = scoreCourseTargetLabel(label, extractCourseTargetHint(prompt));
   const labelTokens = textTokens(label);
-  const labelTokenSet = new Set(labelTokens);
-  for (const code of explicitCourseCodes(prompt)) {
-    if (labelTokenSet.has(code.toLowerCase())) {
-      score += 1_500;
-    }
-  }
 
   const promptTerms = promptTokens(prompt).filter((token) => token.length >= 4);
   for (let size = Math.min(4, promptTerms.length); size >= 2; size -= 1) {
@@ -960,8 +976,14 @@ function scoreCourseFocus(label: string, prompt: string): number {
   return score;
 }
 
-function explicitCourseCodes(prompt: string): string[] {
-  return [...new Set(prompt.match(/\b[A-ZÄÖÜ]{2,8}\d{1,3}\b/g) ?? [])];
+export function explicitCourseCodes(prompt: string): string[] {
+  return explicitCourseCodesFromText(prompt);
+}
+
+export function isLowValueMoodleUtilityLink(link: { href: string; label: string }): boolean {
+  const text = `${link.href} ${link.label}`.toLowerCase();
+  return /(?:moodle\s*hilfe|moodle\s*tipps|generico|qr\s*codes?|particify|w3schools|fontawesome|\/mod\/forum\/|news|nachrichtenforum|ankündigungen|ankuendigungen)/i
+    .test(text);
 }
 
 function hasOrderedTokens(haystack: string[], needle: string[]): boolean {
@@ -1088,6 +1110,18 @@ const PROMPT_TOKEN_STOPWORDS = new Set([
   "wenn",
   "wie",
   "wir",
+  "datum",
+  "exact",
+  "exaktem",
+  "kommende",
+  "lernunterlagen",
+  "naechste",
+  "nächste",
+  "pruefung",
+  "prüfung",
+  "raum",
+  "termin",
+  "uhrzeit",
   "zu",
   "zur",
   "zum",

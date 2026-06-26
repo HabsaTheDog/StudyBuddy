@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SourceCoverage } from "./runDiagnostics.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import type { StudyBuddyIntent } from "./taskIntent.js";
 
 export const STUDY_BUDDY_EXPECTATION_MARKER = "STUDY_BUDDY_RUN_EXPECTATION ";
 
@@ -68,6 +69,8 @@ export interface StudyBuddyRunExpectation {
   taskShape: StudyBuddyTaskShape;
   artifacts?: {
     pdfPath?: string;
+    answerPath?: string;
+    answerJsonPath?: string;
     runSummaryPath?: string;
   };
   error?: {
@@ -82,6 +85,8 @@ export interface RunExpectationUpdate {
   sourceCoverage?: SourceCoverage;
   artifacts?: {
     pdfPath?: string;
+    answerPath?: string;
+    answerJsonPath?: string;
     runSummaryPath?: string;
   };
   error?: {
@@ -168,6 +173,7 @@ export function classifyTaskShape(
   sourceCoverage?: SourceCoverage,
 ): StudyBuddyTaskShape {
   const prompt = config.prompt.toLowerCase();
+  const intent = config.intentDecision;
   const usesCis = config.includeCis ||
     config.sourceMode === "cis" ||
     config.sourceMode === "both" ||
@@ -177,11 +183,15 @@ export function classifyTaskShape(
     /\b(cis|schedule|timetable|exam|room|today|tomorrow|deadline|termin|prüfung|raum|morgen|heute)\b/i.test(
       config.prompt,
     );
-  const downloadsFiles = config.allowFileDownloads || config.sourcePlan?.needsFiles === true;
-  const rendersPdf = !config.diagnosticOnly && config.stage !== "extract";
+  const downloadsFiles = intent
+    ? intent.needsDownloadedFiles
+    : config.allowFileDownloads || config.sourcePlan?.needsFiles === true;
+  const rendersPdf = intent
+    ? intent.wantsPdf || intent.wantsTypstDocument
+    : !config.diagnosticOnly && config.stage !== "extract";
   const maxPagesBucket = maxPagesBucketFor(config.maxPages);
-  const hasDirectUrl = /https?:\/\/\S+/i.test(config.prompt) || /https?:\/\/\S+/i.test(config.moodleUrl);
-  const kind = classifyKind(prompt, {
+  const hasDirectUrl = hasUsefulDirectUrl(config.prompt) || hasUsefulDirectUrl(config.moodleUrl);
+  const kind = intent ? kindFromIntent(intent.intent, prompt) : classifyKind(prompt, {
     autoAnswer: config.autoAnswer,
     diagnosticOnly: config.diagnosticOnly,
     rendersPdf,
@@ -192,13 +202,26 @@ export function classifyTaskShape(
 
   return {
     kind,
-    usesMoodle: config.sourceMode !== "cis",
+    usesMoodle: intent ? intent.needsMoodle || config.sourceMode !== "cis" : config.sourceMode !== "cis",
     usesCis,
     downloadsFiles,
     rendersPdf,
     hasDirectUrl,
     maxPagesBucket,
   };
+}
+
+function kindFromIntent(intent: StudyBuddyIntent, prompt: string): StudyBuddyTaskKind {
+  if (intent === "diagnostic") return "diagnostic";
+  if (intent === "quiz_assist") return "quiz_review";
+  if (intent === "study_pdf") return "study_pdf";
+  if (intent === "document") return "material_summary";
+  if (intent === "schedule_answer") return "schedule_answer";
+  if (intent === "quick_answer") return "quick_answer";
+  if (intent === "extraction") {
+    return /\b(?:quiz|test|minitest|kurztest)\b/i.test(prompt) ? "quiz_review" : "material_summary";
+  }
+  return "study_pdf";
 }
 
 async function buildExpectation(
@@ -379,7 +402,7 @@ function classifyKind(
   if (flags.diagnosticOnly) {
     return "diagnostic";
   }
-  if (flags.autoAnswer || /\b(quiz|test|mcq|multiple choice|antworten ausfüllen)\b/i.test(prompt)) {
+  if (/\b(quiz|test|mcq|multiple choice|antworten ausfüllen)\b/i.test(prompt)) {
     return "quiz_review";
   }
   if (/\b(pdf|lernzettel|formelsammlung|study guide|document|typst|worksheet|skript)\b/i.test(prompt)) {
@@ -395,6 +418,29 @@ function classifyKind(
     return "quick_answer";
   }
   return "unknown";
+}
+
+function hasUsefulDirectUrl(value: string): boolean {
+  const urls = value.match(/https?:\/\/\S+/gi) ?? [];
+  return urls.some((entry) => {
+    try {
+      const url = new URL(entry.replace(/[.,;:!?]+$/g, ""));
+      if (isMoodleDashboardUrl(url) || isCisDashboardUrl(url)) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isMoodleDashboardUrl(url: URL): boolean {
+  return url.hostname.includes("moodle.") && ["/", "/my", "/my/"].includes(url.pathname);
+}
+
+function isCisDashboardUrl(url: URL): boolean {
+  return url.hostname.includes("cis.") && ["/", "/cis.php", "/cis.php/"].includes(url.pathname);
 }
 
 function emitExpectationLine(expectation: StudyBuddyRunExpectation): void {

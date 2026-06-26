@@ -8,6 +8,7 @@ import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
+import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "../courseTargeting.js";
 
 interface CrawlPage {
   url: string;
@@ -90,7 +91,7 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
         }
 
         if (next.depth < config.maxDepth) {
-          const links = await extractCisLinks(page, config.cisBaseUrl);
+          const links = await extractCisLinks(page, config.cisBaseUrl, config.prompt, text);
           for (const link of links) {
             if (!visited.has(normalizeCisUrl(link)) && queue.length + visited.size < config.maxCisPages) {
               queue.push({ url: link, depth: next.depth + 1 });
@@ -100,13 +101,18 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
       }
 
       const hasText = chunks.some(hasBodyText);
+      const target = extractCourseTargetHint(config.prompt);
+      const targetRequested = target.requestedCodes.length > 0 || target.requestedNames.length > 0;
+      const targetCovered = !targetRequested || rawTextContainsRequestedCourse(config.prompt, chunks.join("\n\n"));
       await diagnostics?.markSuccess("cis", {
         detail: hasText
-          ? `Fetched ${successfulUrls.size} CIS page(s).`
+          ? targetCovered
+            ? `Fetched ${successfulUrls.size} CIS page(s).`
+            : `Fetched ${successfulUrls.size} CIS page(s), but target-course detail was not reached.`
           : "CIS was reachable, but no readable page text was extracted.",
         urls: [...successfulUrls],
         pages: successfulUrls.size,
-        partial: !hasText,
+        partial: !hasText || !targetCovered,
       });
 
       return {
@@ -185,15 +191,25 @@ async function gotoWithDiagnostics(
   }
 }
 
-async function extractCisLinks(page: Page, baseUrl: string): Promise<string[]> {
+async function extractCisLinks(page: Page, baseUrl: string, prompt: string, pageText: string): Promise<string[]> {
   const origin = new URL(baseUrl).origin;
-  const hrefs = await page.locator("a[href]").evaluateAll((anchors) =>
-    anchors.map((anchor) => (anchor as HTMLAnchorElement).href),
+  const links = await page.locator("a[href]").evaluateAll((anchors) =>
+    anchors.map((anchor) => ({
+      href: (anchor as HTMLAnchorElement).href,
+      label: (
+        (anchor as HTMLAnchorElement).innerText ||
+        (anchor as HTMLAnchorElement).textContent ||
+        ""
+      ).trim(),
+    })),
   );
-  return [...new Set(hrefs)]
-    .filter((href) => href.startsWith(origin))
-    .filter((href) => href.includes("cis.php"))
-    .filter(isUsefulCisUrl)
+  const targetOnPage = rawTextContainsRequestedCourse(prompt, pageText);
+  return uniqueLinks(links)
+    .filter(({ href }) => href.startsWith(origin))
+    .filter(({ href }) => href.includes("cis.php"))
+    .filter(({ href }) => isUsefulCisUrl(href))
+    .sort((left, right) => cisLinkPriority(right, targetOnPage) - cisLinkPriority(left, targetOnPage))
+    .map(({ href }) => href)
     .slice(0, 12);
 }
 
@@ -203,7 +219,27 @@ function seedCisUrls(config: MoodleRuntimeConfig): string[] {
     ...config.cisUrls,
     `${base}/cis.php/Cis/MyLvPlan`,
     `${base}/cis.php/Cis/MyLv`,
+    `${base}/cis.php/Cis4`,
   ].filter(isUsefulCisUrl);
+}
+
+function uniqueLinks<T extends { href: string; label: string }>(links: T[]): T[] {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    const normalized = normalizeCisUrl(link.href);
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function cisLinkPriority(link: { href: string; label: string }, targetOnPage: boolean): number {
+  if (!targetOnPage) return 0;
+  const text = `${link.href} ${link.label}`.toLowerCase();
+  if (/alle\s+termine\s+dieser\s+lv/.test(text)) return 300;
+  if (/lehrveranstaltungsinformationen|lv-info|lvinfo/.test(text)) return 250;
+  if (/termin|exam|prüfung|pruefung/.test(text)) return 150;
+  return 0;
 }
 
 function normalizeCisUrl(url: string): string {

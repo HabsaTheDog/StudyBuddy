@@ -91,6 +91,12 @@ if (options.json) {
   if (result.outputPath) {
     console.log(`Wrote Typst document: ${result.outputPath}`);
   }
+  if (result.answerPath) {
+    console.log(`Wrote answer: ${result.answerPath}`);
+  }
+  if (result.answerJsonPath) {
+    console.log(`Wrote answer data: ${result.answerJsonPath}`);
+  }
   if (result.extractedDataPath) {
     console.log(`Wrote extracted data: ${result.extractedDataPath}`);
   }

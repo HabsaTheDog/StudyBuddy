@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildExtractionGraph, buildMoodleGraph, runMoodleGraph } from "../graph.js";
+import { buildAnswerGraph, buildExtractionGraph, buildMoodleGraph, runMoodleGraph } from "../graph.js";
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
+import { classifyStudyBuddyIntent } from "../taskIntent.js";
 import {
   moodleExtractedData,
   moodleTestConfig,
@@ -22,6 +23,184 @@ afterEach(async () => {
 });
 
 describe("moodle graph retry routing", () => {
+  it("writes schedule answers without Typst or PDF artifacts", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-answer-"));
+    const prompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin mit exactem Datum, Uhrzeit, Raum und pruefungsrelevanten Lernunterlagen aus dem zugehoerigen MEL Moodle-Kurs.";
+
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      prompt,
+      moodleUrl: "https://moodle.example/my/",
+      outputPath: path.join(runDir, "document.typ"),
+      runDir,
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      diagnostics,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+      }),
+    });
+    const graph = buildAnswerGraph(
+      config,
+      {
+        scraperNode: async () => {
+          await diagnostics.markSuccess("moodle", {
+            detail: "MEL course opened.",
+            urls: ["https://moodle.example/course/view.php?id=32280"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: "[Moodle page]\nTitle: MEL1\nURL: https://moodle.example/course/view.php?id=32280\n\nMaschinenelemente 1 prüfungsrelevante Lernunterlagen",
+            error_log: null,
+          };
+        },
+        cisScraperNode: async (state) => {
+          await diagnostics.markSuccess("cis", {
+            detail: "MEL detail opened.",
+            urls: ["https://cis.example/cis.php/lv"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: `${state.moodle_raw_text}\n\n[CIS page]\nTitle: MEL Termine\nURL: https://cis.example/cis.php/lv\n\nMaschinenelemente 1 Prüfung 30.06.2026 10:00 Raum A1`,
+            error_log: null,
+          };
+        },
+        codex: sequenceCodex([JSON.stringify(moodleExtractedData({
+          sections: [{ heading: "Nächster Termin", summary: "30.06.2026, 10:00, Raum A1", key_concepts: [], source_ids: [] }],
+        }))]),
+      },
+    );
+    const result = await graph.invoke(initialAgentState);
+
+    expect(result.error_log).toBeNull();
+    await expect(stat(path.join(runDir, "answer.md"))).resolves.toMatchObject({ size: expect.any(Number) });
+    await expect(stat(path.join(runDir, "answer.json"))).resolves.toMatchObject({ size: expect.any(Number) });
+    await expect(stat(path.join(runDir, "document.typ"))).rejects.toThrow();
+    await expect(stat(path.join(runDir, "document.pdf"))).rejects.toThrow();
+  });
+
+  it("rejects answer routes when the requested MEL target course is missing", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-answer-"));
+    let codexCalls = 0;
+    const prompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin und Lernunterlagen.";
+
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      prompt,
+      moodleUrl: "https://moodle.example/my/",
+      outputPath: path.join(runDir, "document.typ"),
+      runDir,
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      diagnostics,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+      }),
+    });
+    const graph = buildAnswerGraph(config, {
+        scraperNode: async () => {
+          await diagnostics.markSuccess("moodle", {
+            detail: "Dashboard opened.",
+            urls: ["https://moodle.example/my/"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: "Dashboard Generico Tool\nDYN2 Anwendungen der Dynamik",
+            error_log: null,
+          };
+        },
+        cisScraperNode: async (state) => {
+          await diagnostics.markSuccess("cis", {
+            detail: "CIS opened.",
+            urls: ["https://cis.example/cis.php"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: `${state.moodle_raw_text}\nDYN2 Prüfung 26.06.2026`,
+            error_log: null,
+          };
+        },
+        codex: {
+          async run() {
+            codexCalls += 1;
+            return "{}";
+          },
+        },
+      });
+    const result = await graph.invoke(initialAgentState);
+
+    expect(result.error_log).toContain("no evidence for the requested target course");
+    expect(codexCalls).toBe(0);
+  });
+
+  it("writes a partial answer when target coverage exists but no date is found", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-answer-"));
+    const prompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin mit Datum, Uhrzeit und Raum.";
+
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      prompt,
+      moodleUrl: "https://moodle.example/my/",
+      outputPath: path.join(runDir, "document.typ"),
+      runDir,
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      diagnostics,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+      }),
+    });
+    const graph = buildAnswerGraph(config, {
+        scraperNode: async () => {
+          await diagnostics.markSuccess("moodle", {
+            detail: "MEL course opened.",
+            urls: ["https://moodle.example/course/view.php?id=32280"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: "Maschinenelemente 1 Moodle-Kurs",
+            error_log: null,
+          };
+        },
+        cisScraperNode: async (state) => {
+          await diagnostics.markSuccess("cis", {
+            detail: "MEL detail opened.",
+            urls: ["https://cis.example/cis.php/lv"],
+            pages: 1,
+          });
+          return {
+            moodle_raw_text: `${state.moodle_raw_text}\nMaschinenelemente 1 keine zukünftigen Prüfungstermine sichtbar`,
+            error_log: null,
+          };
+        },
+        codex: sequenceCodex([JSON.stringify(moodleExtractedData())]),
+      });
+    const result = await graph.invoke(initialAgentState);
+
+    expect(result.error_log).toBeNull();
+    const answerJson = JSON.parse(await readFile(path.join(runDir, "answer.json"), "utf8")) as { status: string; answer: string };
+    expect(["not_found", "partial"]).toContain(answerJson.status);
+    expect(answerJson.answer).toContain("Kein kommender");
+  });
+
   it("retries invalid analyzer JSON and then writes Typst", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
     const outputPath = path.join(runDir, "document.typ");

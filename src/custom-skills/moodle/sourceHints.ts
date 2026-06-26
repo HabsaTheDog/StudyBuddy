@@ -1,3 +1,5 @@
+import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "./courseTargeting.js";
+
 const MOODLE_DASHBOARD_PATHS = new Set(["/", "/my", "/my/"]);
 
 const VERIFIED_TOPIC_SOURCES = [
@@ -16,6 +18,10 @@ export function resolveVerifiedMoodleSource(prompt: string, requestedUrl: string
 }
 
 export function hasRequiredTopicEvidence(prompt: string, sourceText: string): boolean {
+  const target = extractCourseTargetHint(prompt);
+  if (target.requestedCodes.length > 0 || target.requestedNames.length > 0) {
+    return rawTextContainsRequestedCourse(prompt, sourceText);
+  }
   if (!isDcDcRequest(prompt)) {
     return true;
   }
@@ -24,7 +30,7 @@ export function hasRequiredTopicEvidence(prompt: string, sourceText: string): bo
 }
 
 export function expectsDownloadedSourceEvidence(prompt: string): boolean {
-  return /\b(?:pdfs?|folien?|slides?|slide\s*decks?|dateien?|files?|unterlagen|skripten?|worksheet|arbeitsblatt|vorlage|template|herunterlad\w*|download\w*|screenshots?)\b/i
+  return /\b(?:pdfs?|folien?|slides?|slide\s*decks?|dateien?|files?|lernunterlagen|kursunterlagen|prüfungsrelevante\s+unterlagen|pruefungsrelevante\s+unterlagen|pruefungsunterlagen|prüfungsunterlagen|materialien|unterlagen\w*|\w*unterlagen|skripten?|worksheet|arbeitsblatt|vorlage|template|herunterlad\w*|download\w*|screenshots?)\b/i
     .test(prompt);
 }
 
