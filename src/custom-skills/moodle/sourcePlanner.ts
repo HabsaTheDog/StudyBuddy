@@ -1,6 +1,7 @@
 import type { MoodleRuntimeConfig, SourceMode } from "./types.js";
+import { requiresCisDirectly } from "./calendarAdapter.js";
 
-export type SourceTarget = "moodle" | "cis";
+export type SourceTarget = "moodle" | "cis" | "calendar";
 
 export interface SourcePlan {
   targets: SourceTarget[];
@@ -21,6 +22,7 @@ export function planSources(config: MoodleRuntimeConfig): SourcePlan {
     sourceMode: config.sourceMode,
     includeCis: config.includeCis,
     hasCisUrls: config.cisUrls.length > 0,
+    hasCalendarUrl: Boolean(config.calendarUrl),
     isRenderStage: config.stage === "render",
   });
 }
@@ -35,6 +37,7 @@ function planSourcesForIntent(config: MoodleRuntimeConfig): SourcePlan {
       sourceMode: config.sourceMode,
       includeCis: config.includeCis,
       hasCisUrls: config.cisUrls.length > 0,
+      hasCalendarUrl: Boolean(config.calendarUrl),
       isRenderStage: true,
     });
   }
@@ -49,7 +52,11 @@ function planSourcesForIntent(config: MoodleRuntimeConfig): SourcePlan {
   }
   const targets: SourceTarget[] = [];
   if (intent.needsMoodle) targets.push("moodle");
-  if (intent.needsCis && config.includeCis && config.cisUrls.length > 0) targets.push("cis");
+  if (intent.needsCalendar && config.calendarUrl && !requiresCisDirectly(config.prompt)) {
+    targets.push("calendar");
+  } else if (intent.needsCis && config.includeCis && config.cisUrls.length > 0) {
+    targets.push("cis");
+  }
   return {
     targets,
     confidence: "high",
@@ -68,12 +75,14 @@ export function planSourcesForPrompt(
     sourceMode?: SourceMode;
     includeCis?: boolean;
     hasCisUrls?: boolean;
+    hasCalendarUrl?: boolean;
     isRenderStage?: boolean;
   } = {},
 ): SourcePlan {
   const sourceMode = options.sourceMode ?? "auto";
   const includeCis = options.includeCis ?? true;
   const hasCisUrls = options.hasCisUrls ?? true;
+  const hasCalendarUrl = options.hasCalendarUrl ?? false;
   const normalized = prompt.toLowerCase();
   const currentSchedule = hasAny(normalized, [
     "heute",
@@ -116,6 +125,10 @@ export function planSourcesForPrompt(
     "wandler",
     "zusammenfassung",
     "vokabelliste",
+    "was machen wir",
+    "what are we doing",
+    "fachlabor",
+    "laborinhalt",
   ]) || /https:\/\/moodle\.technikum-wien\.at\//i.test(prompt);
   const needsFiles = hasAny(normalized, [
     "pdf",
@@ -137,6 +150,7 @@ export function planSourcesForPrompt(
   ]);
   const materialSignals = courseMaterial || needsFiles || needsQuizOrAssignment;
   const cisAllowed = includeCis && hasCisUrls;
+  const calendarAllowed = hasCalendarUrl && !requiresCisDirectly(prompt);
 
   if (options.isRenderStage) {
     return {
@@ -163,10 +177,12 @@ export function planSourcesForPrompt(
 
   if (currentSchedule && materialSignals) {
     return {
-      targets: cisAllowed ? ["moodle", "cis"] : ["moodle"],
+      targets: calendarAllowed ? ["moodle", "calendar"] : cisAllowed ? ["moodle", "cis"] : ["moodle"],
       confidence: "high",
-      reason: cisAllowed
-        ? "The request combines current schedule/exam facts with course material."
+      reason: calendarAllowed
+        ? "The request combines current schedule/exam facts with course material; calendar is primary."
+        : cisAllowed
+          ? "The request combines current schedule/exam facts with course material."
         : "The request combines schedule and material facts, but CIS is disabled or unavailable.",
       needsCurrentScheduleData: true,
       needsCourseMaterial: true,
@@ -178,10 +194,12 @@ export function planSourcesForPrompt(
 
   if (currentSchedule) {
     return {
-      targets: cisAllowed ? ["cis"] : [],
-      confidence: cisAllowed ? "high" : "medium",
-      reason: cisAllowed
-        ? "The request is about schedule, room, exam, deadline, or administrative facts."
+      targets: calendarAllowed ? ["calendar"] : cisAllowed ? ["cis"] : [],
+      confidence: calendarAllowed || cisAllowed ? "high" : "medium",
+      reason: calendarAllowed
+        ? "The request is about schedule, room, exam, or deadline facts; calendar is primary."
+        : cisAllowed
+          ? "The request is about schedule, room, exam, deadline, or administrative facts."
         : "The request asks for CIS-style facts, but CIS is disabled or unavailable.",
       needsCurrentScheduleData: true,
       needsCourseMaterial: false,

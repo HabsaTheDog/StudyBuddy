@@ -92,11 +92,10 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
 
         if (next.depth < config.maxDepth) {
           const links = await extractCisLinks(page, config.cisBaseUrl, config.prompt, text);
-          for (const link of links) {
-            if (!visited.has(normalizeCisUrl(link)) && queue.length + visited.size < config.maxCisPages) {
-              queue.push({ url: link, depth: next.depth + 1 });
-            }
-          }
+          const nextLinks = links
+            .filter((link) => !visited.has(normalizeCisUrl(link)))
+            .map((url) => ({ url, depth: next.depth + 1 }));
+          queue.unshift(...nextLinks);
         }
       }
 
@@ -201,6 +200,10 @@ async function extractCisLinks(page: Page, baseUrl: string, prompt: string, page
         (anchor as HTMLAnchorElement).textContent ||
         ""
       ).trim(),
+      context: (
+        (anchor.closest("tr, article, section, .card, .panel, li, div") as HTMLElement | null)
+          ?.innerText || ""
+      ).trim().slice(0, 2_000),
     })),
   );
   const targetOnPage = rawTextContainsRequestedCourse(prompt, pageText);
@@ -208,7 +211,9 @@ async function extractCisLinks(page: Page, baseUrl: string, prompt: string, page
     .filter(({ href }) => href.startsWith(origin))
     .filter(({ href }) => href.includes("cis.php"))
     .filter(({ href }) => isUsefulCisUrl(href))
-    .sort((left, right) => cisLinkPriority(right, targetOnPage) - cisLinkPriority(left, targetOnPage))
+    .sort((left, right) =>
+      cisLinkPriority(right, targetOnPage, prompt) - cisLinkPriority(left, targetOnPage, prompt)
+    )
     .map(({ href }) => href)
     .slice(0, 12);
 }
@@ -223,7 +228,7 @@ function seedCisUrls(config: MoodleRuntimeConfig): string[] {
   ].filter(isUsefulCisUrl);
 }
 
-function uniqueLinks<T extends { href: string; label: string }>(links: T[]): T[] {
+function uniqueLinks<T extends { href: string; label: string; context?: string }>(links: T[]): T[] {
   const seen = new Set<string>();
   return links.filter((link) => {
     const normalized = normalizeCisUrl(link.href);
@@ -233,12 +238,17 @@ function uniqueLinks<T extends { href: string; label: string }>(links: T[]): T[]
   });
 }
 
-function cisLinkPriority(link: { href: string; label: string }, targetOnPage: boolean): number {
+function cisLinkPriority(
+  link: { href: string; label: string; context?: string },
+  targetOnPage: boolean,
+  prompt: string,
+): number {
   if (!targetOnPage) return 0;
   const text = `${link.href} ${link.label}`.toLowerCase();
-  if (/alle\s+termine\s+dieser\s+lv/.test(text)) return 300;
-  if (/lehrveranstaltungsinformationen|lv-info|lvinfo/.test(text)) return 250;
-  if (/termin|exam|prüfung|pruefung/.test(text)) return 150;
+  const targetContext = rawTextContainsRequestedCourse(prompt, link.context ?? "");
+  if (/alle\s+termine\s+dieser\s+lv/.test(text)) return targetContext ? 1_000 : 300;
+  if (/lehrveranstaltungsinformationen|lv-info|lvinfo/.test(text)) return targetContext ? 900 : 250;
+  if (/termin|exam|prüfung|pruefung/.test(text)) return targetContext ? 800 : 150;
   return 0;
 }
 

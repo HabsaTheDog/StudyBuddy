@@ -1,6 +1,7 @@
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
 import { createCisScraperNode } from "./nodes/cisScraperNode.js";
+import { createCalendarNode } from "./nodes/calendarNode.js";
 import { createScraperNode } from "./nodes/scraperNode.js";
 import { assessFollowUpCrawl } from "./sourceNeedAssessment.js";
 import { planSources } from "./sourcePlanner.js";
@@ -12,6 +13,7 @@ export type SourceNode = (state: LangGraphAgentState) => Promise<Partial<LangGra
 export interface SourceOrchestratorDependencies {
   scraperNode?: SourceNode;
   cisScraperNode?: SourceNode;
+  calendarNode?: SourceNode;
 }
 
 export function createSourcePlannerNode(config: MoodleRuntimeConfig) {
@@ -41,6 +43,7 @@ export function createSourceOrchestratorNode(
     config.sourcePlan = initialPlan;
     const scraperNode = dependencies.scraperNode ?? createScraperNode(config);
     const cisScraperNode = dependencies.cisScraperNode ?? createCisScraperNode(config);
+    const calendarNode = dependencies.calendarNode ?? createCalendarNode(config);
 
     const initialResult = await runTargets({
       config,
@@ -48,13 +51,43 @@ export function createSourceOrchestratorNode(
       targets: initialPlan.targets,
       scraperNode,
       cisScraperNode,
+      calendarNode,
     });
     let mergedText = mergeRawText([
       state.moodle_raw_text,
       initialResult.moodleText,
       initialResult.cisText,
+      initialResult.calendarText,
       ...initialResult.warnings,
     ]);
+    if (
+      initialPlan.targets.includes("calendar") &&
+      config.calendarSelection?.needsCisFallback &&
+      config.includeCis &&
+      config.cisUrls.length > 0
+    ) {
+      const reason = config.calendarSelection.status === "failed"
+        ? "Calendar unavailable; loading targeted CIS fallback."
+        : config.calendarSelection.events.length === 0
+          ? "No matching calendar event; loading targeted CIS fallback."
+          : `Calendar event is missing required fields (${config.calendarSelection.missingFields.join(", ")}); loading targeted CIS fallback.`;
+      await config.diagnostics?.log("info", "diagnostic", reason);
+      await writeRunProgress(config, {
+        phase: "checking_missing_sources",
+        followUpTargets: ["cis"],
+      });
+      const fallbackResult = await runTargets({
+        config,
+        state: { ...state, moodle_raw_text: mergedText },
+        targets: ["cis"],
+        scraperNode,
+        cisScraperNode,
+        calendarNode,
+        followUp: true,
+        reasonCodes: ["missing_cis_schedule"],
+      });
+      mergedText = mergeRawText([mergedText, fallbackResult.cisText, ...fallbackResult.warnings]);
+    }
     const followUp = assessFollowUpCrawl({
       prompt: config.prompt,
       plan: initialPlan,
@@ -77,6 +110,7 @@ export function createSourceOrchestratorNode(
         targets: followUp.targets,
         scraperNode,
         cisScraperNode,
+        calendarNode,
         followUp: true,
         reasonCodes: followUp.reasonCodes,
       });
@@ -84,6 +118,7 @@ export function createSourceOrchestratorNode(
         mergedText,
         followUpResult.moodleText,
         followUpResult.cisText,
+        followUpResult.calendarText,
         ...followUpResult.warnings,
       ]);
     }
@@ -102,21 +137,25 @@ async function runTargets(input: {
   targets: SourceTarget[];
   scraperNode: SourceNode;
   cisScraperNode: SourceNode;
+  calendarNode: SourceNode;
   followUp?: boolean;
   reasonCodes?: string[];
-}): Promise<{ moodleText: string; cisText: string; warnings: string[] }> {
+}): Promise<{ moodleText: string; cisText: string; calendarText: string; warnings: string[] }> {
   const targets = [...new Set(input.targets)];
   const shouldRunMoodle = targets.includes("moodle");
   const shouldRunCis = targets.includes("cis");
-  if (!shouldRunMoodle && !shouldRunCis) {
-    return { moodleText: "", cisText: "", warnings: [] };
+  const shouldRunCalendar = targets.includes("calendar");
+  if (!shouldRunMoodle && !shouldRunCis && !shouldRunCalendar) {
+    return { moodleText: "", cisText: "", calendarText: "", warnings: [] };
   }
 
   const emptyState = { ...input.state, moodle_raw_text: "" };
   const progressPhase = shouldRunMoodle && !shouldRunCis
-    ? "reading_moodle"
+    ? shouldRunCalendar ? "reading_sources" : "reading_moodle"
     : shouldRunCis && !shouldRunMoodle
       ? "reading_cis"
+      : shouldRunCalendar && !shouldRunMoodle && !shouldRunCis
+        ? "reading_calendar"
       : "reading_sources";
   await writeRunProgress(input.config, { phase: progressPhase });
   const warnings: string[] = [];
@@ -131,9 +170,10 @@ async function runTargets(input: {
     warnings.push("[Moodle warning]\nTarget-course follow-up requested, but no resolved Moodle course URL is known.");
   }
 
-  const [moodleResult, cisResult] = await Promise.allSettled([
+  const [moodleResult, cisResult, calendarResult] = await Promise.allSettled([
     shouldRunMoodle ? effectiveScraperNode(emptyState) : Promise.resolve({}),
     shouldRunCis ? input.cisScraperNode(emptyState) : Promise.resolve({}),
+    shouldRunCalendar ? input.calendarNode(emptyState) : Promise.resolve({}),
   ]);
   if (moodleResult.status === "rejected") {
     const message = errorMessage(moodleResult.reason);
@@ -153,9 +193,18 @@ async function runTargets(input: {
       failureKind: message.toLowerCase().includes("timeout") ? "timeout" : "unknown",
     });
   }
+  if (calendarResult.status === "rejected") {
+    const message = errorMessage(calendarResult.reason);
+    warnings.push(`[Calendar warning]\nCalendar read failed in source orchestrator: ${message}`);
+    await input.config.diagnostics?.markFailure("calendar", {
+      detail: message,
+      failureKind: message.toLowerCase().includes("timeout") ? "timeout" : "unknown",
+    });
+  }
   return {
     moodleText: fulfilledText(moodleResult),
     cisText: fulfilledText(cisResult),
+    calendarText: fulfilledText(calendarResult),
     warnings,
   };
 }
@@ -198,6 +247,14 @@ function emptyCoverage() {
       artifacts: [],
     },
     cis: {
+      status: "not_requested" as const,
+      detail: "No coverage diagnostics available.",
+      urls: [],
+      attemptedUrls: [],
+      pages: 0,
+      artifacts: [],
+    },
+    calendar: {
       status: "not_requested" as const,
       detail: "No coverage diagnostics available.",
       urls: [],

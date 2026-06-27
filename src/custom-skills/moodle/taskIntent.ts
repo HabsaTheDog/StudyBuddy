@@ -18,6 +18,7 @@ export interface StudyBuddyIntentDecision {
   wantsQuizAssistance: boolean;
   needsMoodle: boolean;
   needsCis: boolean;
+  needsCalendar: boolean;
   needsCourseMaterial: boolean;
   needsDownloadedFiles: boolean;
   reason: string;
@@ -30,21 +31,25 @@ export function classifyStudyBuddyIntent(input: {
   autoAnswer: boolean;
   includeCis: boolean;
   hasCisUrls: boolean;
+  hasCalendarUrl?: boolean;
 }): StudyBuddyIntentDecision {
   const prompt = input.prompt;
   const normalized = prompt.toLowerCase();
   const cisAvailable = input.includeCis && input.hasCisUrls;
+  const calendarAvailable = Boolean(input.hasCalendarUrl);
 
   if (input.diagnosticOnly) {
     return decision("diagnostic", "Diagnostic-only runs only probe source access.", {
       needsMoodle: true,
       needsCis: cisAvailable,
+      needsCalendar: calendarAvailable,
     });
   }
   if (input.stage === "extract") {
     return decision("extraction", "Extraction stage persists structured source handoff only.", {
       needsMoodle: true,
       needsCis: cisAvailable,
+      needsCalendar: calendarAvailable,
     });
   }
   if (input.stage === "render") {
@@ -61,9 +66,9 @@ export function classifyStudyBuddyIntent(input: {
     /\b(?:kursübersicht|kursuebersicht|stoffübersicht|stoffuebersicht|zusammenfassung|vorbereitung|lernunterlagen|kursunterlagen|prüfungsrelevante unterlagen|pruefungsrelevante unterlagen)\b/i
       .test(prompt);
   const onlyShortAnswer = /\b(?:nenne nur|nur den termin|kurz|nur kurz|nur datum|nur die antwort)\b/i.test(prompt);
-  const scheduleSignal = /\b(?:termin|prüfung|pruefung|raum|räume|raeume|uhrzeit|heute|morgen|deadline|frist|wann|wo|schedule|timetable|exam|room|today|tomorrow)\b/i
+  const scheduleSignal = /\b(?:termin|prüfung|pruefung|test|klausur|raum|räume|raeume|uhrzeit|heute|morgen|deadline|frist|wann|wo|schedule|timetable|exam|room|today|tomorrow|anwesenheit|attendance|lv-info|administrativ)\b/i
     .test(prompt);
-  const courseMaterial = /\b(?:moodle|lernunterlagen|kursunterlagen|unterlagen|prüfungsrelevante|pruefungsrelevante|materialien|skript|folie|folien|pdf|datei|kursmaterial)\b/i
+  const courseMaterial = /\b(?:moodle|lernunterlagen|kursunterlagen|unterlagen|prüfungsrelevante|pruefungsrelevante|materialien|skript|folie|folien|pdf|datei|kursmaterial|fachlabor|laborinhalt)\b|was machen wir|what are we doing/i
     .test(prompt);
   const needsDownloadedFiles = wantsPdf ||
     /\b(?:download|herunterlad\w*|pdfs?|dateien?|files?|folien?|slides?|skript|screenshots?)\b/i.test(prompt);
@@ -84,6 +89,7 @@ export function classifyStudyBuddyIntent(input: {
       wantsTypstDocument: true,
       needsMoodle: true,
       needsCis: scheduleSignal && cisAvailable,
+      needsCalendar: scheduleSignal && calendarAvailable,
       needsCourseMaterial: true,
       needsDownloadedFiles,
     });
@@ -94,6 +100,7 @@ export function classifyStudyBuddyIntent(input: {
       wantsQuickAnswer: true,
       needsMoodle: courseMaterial || normalized.includes("moodle"),
       needsCis: cisAvailable,
+      needsCalendar: calendarAvailable,
       needsCourseMaterial: courseMaterial,
       needsDownloadedFiles: false,
     });
@@ -104,6 +111,7 @@ export function classifyStudyBuddyIntent(input: {
       wantsTypstDocument: true,
       needsMoodle: true,
       needsCis: scheduleSignal && cisAvailable,
+      needsCalendar: scheduleSignal && calendarAvailable,
       needsCourseMaterial: true,
       needsDownloadedFiles,
     });
@@ -113,12 +121,19 @@ export function classifyStudyBuddyIntent(input: {
     wantsQuickAnswer: true,
     needsMoodle: true,
     needsCis: scheduleSignal && cisAvailable,
+    needsCalendar: scheduleSignal && calendarAvailable,
     needsCourseMaterial: courseMaterial,
     needsDownloadedFiles: false,
   });
 }
 
 function explicitQuizIntent(prompt: string): boolean {
+  if (
+    /\b(?:wann|wo|termin|uhrzeit|raum|schedule|date|time)\b/i.test(prompt) &&
+    !/\b(?:bearbeite|mach|starte|fülle|fuelle|ausfüllen|ausfuellen|solve|fill|answer)\b/i.test(prompt)
+  ) {
+    return false;
+  }
   return (
     /\/mod\/quiz\//i.test(prompt) ||
     /\b(?:quiz|test|minitest|kurztest|moodle-test|testblock|multiple choice)\b/i.test(prompt) ||
@@ -141,6 +156,7 @@ function decision(
     wantsQuizAssistance: false,
     needsMoodle: true,
     needsCis: false,
+    needsCalendar: false,
     needsCourseMaterial: false,
     needsDownloadedFiles: false,
     ...overrides,

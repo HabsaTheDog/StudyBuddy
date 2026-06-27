@@ -5,7 +5,6 @@ export { assessFollowUpCrawl } from "./sourceNeedAssessment.js";
 export { runDownloadQueue, clampConcurrency } from "./downloadQueue.js";
 export { decideRenderStrategy } from "./renderStrategy.js";
 export { writeRunProgress } from "./runProgress.js";
-export { writeRunExpectation } from "./runExpectation.js";
 export {
   assertQuizPolicyAllows,
   createQuizPolicy,
@@ -28,9 +27,4 @@ export type {
   StudyBuddyRunStatus,
   StudyBuddyUserPhase,
 } from "./runProgress.js";
-export type {
-  StudyBuddyRunExpectation,
-  StudyBuddyRunPhase,
-  StudyBuddyTaskShape,
-} from "./runExpectation.js";
 export type { QuizContext, QuizPolicy, QuizPolicyAction } from "./quizPolicy.js";

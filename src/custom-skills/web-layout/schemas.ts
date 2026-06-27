@@ -67,7 +67,7 @@ export const layoutSpecJsonSchema = {
       },
     },
     requiredInteractions: { type: "array", items: { type: "string" } },
-    dataModel: { type: "object" },
+    dataModel: { type: "object", additionalProperties: false, properties: {} },
     designDirection: { type: "string" },
     accessibilityNotes: { type: "array", items: { type: "string" } },
   },

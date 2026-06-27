@@ -11,6 +11,7 @@ import { extractedDataJsonSchema } from "./schemas.js";
 import { createAnalyzerNode } from "./nodes/analyzerNode.js";
 import { answerJsonPath, answerPath, createAnswerWriterNode } from "./nodes/answerWriterNode.js";
 import { createCisScraperNode } from "./nodes/cisScraperNode.js";
+import { createCalendarNode } from "./nodes/calendarNode.js";
 import { createDiskWriterNode } from "./nodes/diskWriterNode.js";
 import { createFormatterNode } from "./nodes/formatterNode.js";
 import { createScraperNode } from "./nodes/scraperNode.js";
@@ -36,6 +37,7 @@ export interface GraphDependencies {
   codex?: CodexClient;
   scraperNode?: ReturnType<typeof createScraperNode>;
   cisScraperNode?: ReturnType<typeof createCisScraperNode>;
+  calendarNode?: ReturnType<typeof createCalendarNode>;
 }
 
 export async function runMoodleGraph(
@@ -53,6 +55,7 @@ export async function runMoodleGraph(
       baseConfig.password,
       baseConfig.cisUsername,
       baseConfig.cisPassword,
+      baseConfig.calendarUrl,
     ].filter((value): value is string => Boolean(value)),
     initialCoverage,
   });
@@ -283,8 +286,9 @@ export function buildAnswerGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "sourceOrchestrator")
     .addEdge("sourceOrchestrator", "sourceGate")
-    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
+    .addConditionalEdges("sourceGate", (state) => routeAfterAnswerSourceGate(config, state), {
       analyzer: "analyzer",
+      answerWriter: "answerWriter",
       abort: END,
     })
     .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
@@ -365,7 +369,12 @@ function createSourceGateNode(config: MoodleRuntimeConfig) {
       plan.needsCourseMaterial ||
       plan.needsFiles ||
       plan.needsQuizOrAssignment;
-    const needsCis = Boolean(plan?.targets.includes("cis") || plan?.needsCurrentScheduleData);
+    const scheduleCoveredByCalendar =
+      coverage.calendar.status === "success" && config.calendarSelection?.complete === true;
+    const needsCis = Boolean(
+      plan?.targets.includes("cis") ||
+      (plan?.needsCurrentScheduleData && !scheduleCoveredByCalendar),
+    );
     const cisStatus = coverage.cis.status;
     if (needsCis && cisStatus !== "success" && cisStatus !== "partial") {
       const detail = coverage.cis.detail || "CIS source coverage is unavailable.";
@@ -413,15 +422,38 @@ function routeAfterSourceGate(state: LangGraphAgentState): "analyzer" | "abort" 
   return state.error_log ? "abort" : "analyzer";
 }
 
+function routeAfterAnswerSourceGate(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+): "analyzer" | "answerWriter" | "abort" {
+  if (state.error_log) return "abort";
+  if (
+    config.intentDecision?.intent === "schedule_answer" &&
+    !config.intentDecision.needsCourseMaterial &&
+    config.calendarSelection?.complete
+  ) {
+    return "answerWriter";
+  }
+  return "analyzer";
+}
+
 async function runDiagnosticOnly(config: MoodleRuntimeConfig): Promise<AgentState> {
-  await config.diagnostics?.log("info", "diagnostic", "Running diagnostic-only Moodle/CIS probe.");
+  await config.diagnostics?.log("info", "diagnostic", "Running diagnostic-only Moodle/CIS/calendar probe.");
+  const calendarState = await createCalendarNode(config)(initialAgentState);
   const moodleState = await createScraperNode({
     ...config,
     maxPages: Math.min(config.maxPages, 3),
     maxDepth: 1,
     allowFileDownloads: false,
-  })(initialAgentState);
-  const stateAfterMoodle = { ...initialAgentState, ...moodleState };
+  })({ ...initialAgentState, ...calendarState });
+  const stateAfterMoodle = {
+    ...initialAgentState,
+    ...calendarState,
+    ...moodleState,
+    moodle_raw_text: [calendarState.moodle_raw_text, moodleState.moodle_raw_text]
+      .filter((value): value is string => Boolean(value))
+      .join("\n\n"),
+  };
   const cisState = await createCisScraperNode({
     ...config,
     maxCisPages: Math.min(config.maxCisPages, 3),
@@ -464,6 +496,7 @@ function isCoverageComplete(
   const plan = config.sourcePlan;
   const needsMoodle = !plan || plan.targets.includes("moodle");
   const needsCis = Boolean(plan?.targets.includes("cis"));
+  const needsCalendar = Boolean(plan?.targets.includes("calendar"));
   const moodleOk =
     !needsMoodle ||
     coverage.moodle.status === "success" ||
@@ -472,7 +505,14 @@ function isCoverageComplete(
     !needsCis ||
     coverage.cis.status === "success" ||
     coverage.cis.status === "partial";
-  return moodleOk && cisOk;
+  const calendarOk =
+    !needsCalendar ||
+    coverage.calendar.status === "success" ||
+    (
+      config.calendarSelection?.needsCisFallback === true &&
+      (coverage.cis.status === "success" || coverage.cis.status === "partial")
+    );
+  return moodleOk && cisOk && calendarOk;
 }
 
 export async function persistRunDiagnostics(

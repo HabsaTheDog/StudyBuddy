@@ -3,7 +3,6 @@ import path from "node:path";
 import type { RunEvent, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan, SourceTarget } from "./sourcePlanner.js";
 import type { MoodleRuntimeConfig } from "./types.js";
-import { writeRunExpectation, type StudyBuddyRunPhase } from "./runExpectation.js";
 
 export type StudyBuddyRunStatus =
   | "queued"
@@ -19,6 +18,7 @@ export type StudyBuddyUserPhase =
   | "reading_sources"
   | "reading_moodle"
   | "reading_cis"
+  | "reading_calendar"
   | "downloading_sources"
   | "checking_missing_sources"
   | "analyzing"
@@ -33,7 +33,7 @@ export interface StudyBuddyPublicStep {
 }
 
 export interface StudyBuddyRunProgress {
-  schemaVersion: 1;
+  schemaVersion: 2;
   runDir: string;
   requestName: string;
   status: StudyBuddyRunStatus;
@@ -44,10 +44,6 @@ export interface StudyBuddyRunProgress {
   updatedAt: string;
   completedAt?: string;
   elapsedMs: number;
-  estimatedTotalMs: number | null;
-  estimatedRemainingMs: number | null;
-  etaLabel: string;
-  etaConfidence: "low" | "medium" | "high";
   progressRatio: number | null;
   sourcePlan: SourcePlan;
   sourceCoverage: SourceCoverage;
@@ -98,6 +94,7 @@ const PHASE_PROGRESS: Record<StudyBuddyUserPhase, number> = {
   reading_sources: 0.22,
   reading_moodle: 0.22,
   reading_cis: 0.22,
+  reading_calendar: 0.18,
   downloading_sources: 0.35,
   checking_missing_sources: 0.45,
   analyzing: 0.58,
@@ -111,6 +108,7 @@ const PHASE_LABELS: Record<StudyBuddyUserPhase, string> = {
   reading_sources: "Moodle und CIS werden gelesen",
   reading_moodle: "Moodle-Unterlagen werden gelesen",
   reading_cis: "CIS-Informationen werden gelesen",
+  reading_calendar: "Kalender wird geprüft",
   downloading_sources: "Dateien werden gelesen",
   checking_missing_sources: "Fehlende Quellen werden geprüft",
   analyzing: "Inhalte werden ausgewertet",
@@ -124,6 +122,7 @@ const STUDENT_MESSAGES: Record<StudyBuddyUserPhase, string> = {
   reading_sources: "Ich lese Moodle und CIS parallel und grenze die relevanten Kurse ein.",
   reading_moodle: "Ich lese die relevanten Moodle-Unterlagen.",
   reading_cis: "Ich prüfe aktuelle CIS-Informationen.",
+  reading_calendar: "Ich prüfe den persönlichen Uni-Kalender.",
   downloading_sources: "Ich lade relevante Dateien als Quellen für diesen Run.",
   checking_missing_sources: "Ich prüfe noch eine fehlende Quelle.",
   analyzing: "Ich strukturiere die gefundenen Inhalte.",
@@ -142,7 +141,18 @@ export async function writeRunProgress(
   const startedAt = previous?.startedAt ?? STARTED_AT.get(config.runDir) ?? new Date().toISOString();
   STARTED_AT.set(config.runDir, startedAt);
   const sourcePlan = update.sourcePlan ?? config.sourcePlan ?? previous?.sourcePlan ?? DEFAULT_SOURCE_PLAN;
-  const sourceCoverage = config.diagnostics?.getCoverage() ?? previous?.sourceCoverage ?? {
+  const reportedCoverage = config.diagnostics?.getCoverage() ?? previous?.sourceCoverage;
+  const sourceCoverage: SourceCoverage = reportedCoverage ? {
+    ...reportedCoverage,
+    calendar: reportedCoverage.calendar ?? {
+      status: "not_requested",
+      detail: "Personal calendar was not queried.",
+      urls: [],
+      attemptedUrls: [],
+      pages: 0,
+      artifacts: [],
+    },
+  } : {
     moodle: {
       status: "not_requested",
       detail: "Moodle was not queried.",
@@ -159,15 +169,19 @@ export async function writeRunProgress(
       pages: 0,
       artifacts: [],
     },
+    calendar: {
+      status: "not_requested",
+      detail: "Personal calendar was not queried.",
+      urls: [],
+      attemptedUrls: [],
+      pages: 0,
+      artifacts: [],
+    },
   };
   const phase = update.phase ?? previous?.phase ?? "planning_sources";
   const status = update.status ?? previous?.status ?? "running";
   const elapsedMs = Math.max(0, Date.now() - Date.parse(startedAt));
-  const estimate = estimateRunTimeMs(config, sourcePlan, update.followUpTargets ?? []);
   const progressRatio = terminalStatus(status) ? 1 : PHASE_PROGRESS[phase] ?? null;
-  const estimatedRemainingMs = estimate === null || progressRatio === null
-    ? null
-    : Math.max(0, estimate - elapsedMs);
   const now = new Date().toISOString();
   const artifacts = {
     extractedDataPath: update.artifacts?.extractedDataPath ?? previous?.artifacts.extractedDataPath,
@@ -178,7 +192,7 @@ export async function writeRunProgress(
     runSummaryPath: config.diagnostics?.runSummaryPath ?? previous?.artifacts.runSummaryPath ?? path.join(config.runDir, "run-summary.md"),
   };
   const progress: StudyBuddyRunProgress = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runDir: config.runDir,
     requestName: config.requestName,
     status,
@@ -189,10 +203,6 @@ export async function writeRunProgress(
     updatedAt: now,
     completedAt: terminalStatus(status) ? now : previous?.completedAt,
     elapsedMs,
-    estimatedTotalMs: estimate,
-    estimatedRemainingMs,
-    etaLabel: etaLabel(estimatedRemainingMs),
-    etaConfidence: etaConfidence(sourcePlan, update.followUpTargets ?? []),
     progressRatio,
     sourcePlan,
     sourceCoverage,
@@ -202,84 +212,7 @@ export async function writeRunProgress(
     error: update.error ?? previous?.error,
   };
   await atomicWriteJson(path.join(config.runDir, "run-progress.json"), progress);
-  await writeRunExpectation(config, {
-    status: status === "queued" ? "running" : status,
-    phase: expectationPhase(phase),
-    sourceCoverage,
-    artifacts: {
-      pdfPath: artifacts.pdfPath,
-      answerPath: artifacts.answerPath,
-      answerJsonPath: artifacts.answerJsonPath,
-      runSummaryPath: artifacts.runSummaryPath,
-    },
-    error: progress.error,
-  });
-  emitProgressLine(progress);
   return progress;
-}
-
-function expectationPhase(phase: StudyBuddyUserPhase): StudyBuddyRunPhase {
-  switch (phase) {
-    case "planning_sources":
-      return "planning";
-    case "reading_sources":
-    case "reading_moodle":
-    case "reading_cis":
-    case "downloading_sources":
-    case "checking_missing_sources":
-      return "reading_sources";
-    case "analyzing":
-      return "analyzing";
-    case "writing_document":
-      return "writing";
-    case "rendering_pdf":
-      return "rendering";
-    case "finalizing":
-      return "finalizing";
-  }
-}
-
-function emitProgressLine(progress: StudyBuddyRunProgress): void {
-  if (process.env.STUDY_BUDDY_PROGRESS_STDOUT === "false") {
-    return;
-  }
-  const compact = {
-    schemaVersion: progress.schemaVersion,
-    runDir: progress.runDir,
-    requestName: progress.requestName,
-    status: progress.status,
-    phase: progress.phase,
-    phaseLabel: progress.phaseLabel,
-    studentMessage: progress.studentMessage,
-    startedAt: progress.startedAt,
-    updatedAt: progress.updatedAt,
-    completedAt: progress.completedAt,
-    elapsedMs: progress.elapsedMs,
-    estimatedTotalMs: progress.estimatedTotalMs,
-    estimatedRemainingMs: progress.estimatedRemainingMs,
-    etaLabel: progress.etaLabel,
-    etaConfidence: progress.etaConfidence,
-    progressRatio: progress.progressRatio,
-    sourcePlan: progress.sourcePlan,
-    sourceCoverage: {
-      moodle: {
-        status: progress.sourceCoverage.moodle.status,
-        detail: progress.sourceCoverage.moodle.detail,
-        pages: progress.sourceCoverage.moodle.pages,
-        artifacts: progress.sourceCoverage.moodle.artifacts.length,
-      },
-      cis: {
-        status: progress.sourceCoverage.cis.status,
-        detail: progress.sourceCoverage.cis.detail,
-        pages: progress.sourceCoverage.cis.pages,
-        artifacts: progress.sourceCoverage.cis.artifacts.length,
-      },
-    },
-    publicSteps: progress.publicSteps,
-    artifacts: progress.artifacts,
-    error: progress.error,
-  };
-  console.log(`STUDY_BUDDY_RUN_PROGRESS ${JSON.stringify(compact)}`);
 }
 
 function buildPublicSteps(
@@ -291,6 +224,11 @@ function buildPublicSteps(
 ): StudyBuddyPublicStep[] {
   const steps: StudyBuddyPublicStep[] = [
     { id: "plan", label: "Quellen planen", status: stepStatus(phase, ["planning_sources"], true) },
+    {
+      id: "calendar",
+      label: "Kalender prüfen",
+      status: sourceStepStatus("calendar", plan.targets, coverage.calendar.status),
+    },
     {
       id: "moodle",
       label: "Moodle lesen",
@@ -310,10 +248,16 @@ function buildPublicSteps(
     });
   }
   const answerRoute = config.intentDecision?.wantsQuickAnswer === true;
+  const deterministicCalendarAnswer =
+    answerRoute &&
+    config.intentDecision?.needsCourseMaterial === false &&
+    config.calendarSelection?.complete === true;
   steps.push({
     id: "analyze",
     label: "Inhalte auswerten",
-    status: stepStatus(phase, ["analyzing"], hasReached(phase, answerRoute ? "finalizing" : "writing_document")),
+    status: deterministicCalendarAnswer
+      ? "skipped"
+      : stepStatus(phase, ["analyzing"], hasReached(phase, answerRoute ? "finalizing" : "writing_document")),
   });
   steps.push({
     id: "write",
@@ -363,60 +307,6 @@ function hasReached(phase: StudyBuddyUserPhase, target: StudyBuddyUserPhase): bo
   return PHASE_PROGRESS[phase] >= PHASE_PROGRESS[target];
 }
 
-function estimateRunTimeMs(
-  config: MoodleRuntimeConfig,
-  sourcePlan: SourcePlan,
-  followUpTargets: SourceTarget[],
-): number | null {
-  let estimate = 45_000;
-  if (sourcePlan.targets.includes("moodle")) {
-    estimate += Math.min(config.maxPages, 8) * 14_000;
-  }
-  if (sourcePlan.targets.includes("cis")) {
-    estimate += Math.min(config.maxCisPages, 6) * 10_000;
-  }
-  if (config.allowFileDownloads && sourcePlan.needsFiles) {
-    estimate += 60_000;
-  }
-  if (followUpTargets.length > 0) {
-    estimate += followUpTargets.length * 70_000;
-  }
-  if (config.stage === "extract") {
-    estimate -= 45_000;
-  }
-  if (config.renderStrategyDecision?.strategy === "deterministic" || config.renderStrategy === "deterministic") {
-    estimate -= 35_000;
-  }
-  if (config.typstValidationMode === "strict") {
-    estimate += 25_000;
-  }
-  return Math.max(30_000, estimate);
-}
-
-function etaLabel(remainingMs: number | null): string {
-  if (remainingMs === null) {
-    return "Zeit wird neu geschätzt";
-  }
-  const minutes = Math.ceil(remainingMs / 60_000);
-  if (minutes <= 1) {
-    return "noch etwa 1 min";
-  }
-  if (minutes <= 5) {
-    return `noch etwa ${Math.max(2, minutes - 1)}-${minutes + 1} min`;
-  }
-  if (minutes <= 10) {
-    return `noch etwa ${minutes}-${minutes + 2} min`;
-  }
-  return "dauert wahrscheinlich länger als 10 min";
-}
-
-function etaConfidence(sourcePlan: SourcePlan, followUpTargets: SourceTarget[]): "low" | "medium" | "high" {
-  if (followUpTargets.length > 0 || sourcePlan.confidence === "low") {
-    return "low";
-  }
-  return sourcePlan.confidence;
-}
-
 async function readEventsTail(runDir: string, limit: number): Promise<RunEvent[]> {
   const text = await readFile(path.join(runDir, "run-events.jsonl"), "utf8").catch(() => "");
   return text
@@ -457,7 +347,7 @@ async function atomicWriteJson(filePath: string, value: StudyBuddyRunProgress): 
 }
 
 function validateProgress(value: StudyBuddyRunProgress): void {
-  if (value.schemaVersion !== 1 || !value.runDir || !value.requestName || !value.phase || !value.status) {
+  if (value.schemaVersion !== 2 || !value.runDir || !value.requestName || !value.phase || !value.status) {
     throw new Error("Malformed Study Buddy run progress payload.");
   }
   if (

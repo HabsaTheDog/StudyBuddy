@@ -13,6 +13,7 @@ const program = new Command()
   .option("--max-depth <number>", "Maximum same-domain crawl depth", parseNumber, 2)
   .option("--max-pages <number>", "Maximum Moodle pages to inspect", parseNumber, 8)
   .option("--cis-url <url>", "CIS URL to inspect; repeat for multiple pages", collect, [])
+  .option("--calendar-url <url>", "Private personal university iCalendar feed URL")
   .option("--max-cis-pages <number>", "Maximum CIS pages to inspect", parseNumber, 4)
   .option("--browser-backend <backend>", "Browser backend: playwright or agent-browser")
   .option("--browser-headed", "Show the browser window for Moodle/CIS scraping")
@@ -39,6 +40,7 @@ const options = program.opts<{
   maxDepth: number;
   maxPages: number;
   cisUrl: string[];
+  calendarUrl?: string;
   maxCisPages: number;
   browserBackend?: "playwright" | "agent-browser";
   browserHeaded?: boolean;
@@ -67,6 +69,7 @@ const result = await runMoodleGraph({
   maxDepth: options.maxDepth,
   maxPages: options.maxPages,
   cisUrls: options.cisUrl,
+  calendarUrl: options.calendarUrl,
   maxCisPages: options.maxCisPages,
   allowFileDownloads: options.downloads,
   browserBackend: options.browserBackend,
