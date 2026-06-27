@@ -15,6 +15,7 @@
     "@openai/codex-sdk": "^0.142.2",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
+    "ical.js": "^2.2.1",
     "playwright": "^1.60.0",
     "zod": "^4.4.3"
   },

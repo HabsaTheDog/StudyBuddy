@@ -165,6 +165,14 @@ function emptyCoverage() {
       pages: 0,
       artifacts: [],
     },
+    calendar: {
+      status: "not_requested" as const,
+      detail: "No coverage diagnostics available.",
+      urls: [],
+      attemptedUrls: [],
+      pages: 0,
+      artifacts: [],
+    },
   };
 }
 

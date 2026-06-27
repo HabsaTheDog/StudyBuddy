@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "../courseTargeting.js";
+import { formatCalendarAnswer } from "../calendarAdapter.js";
 import type { SourceCoverageEntry } from "../runDiagnostics.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
@@ -13,7 +14,7 @@ export interface QuickAnswerArtifact {
   status: "answered" | "not_found" | "partial";
   confidence: "high" | "medium" | "low";
   sources: Array<{
-    kind: "moodle_page" | "cis_page" | "pdf" | "file";
+    kind: "moodle_page" | "cis_page" | "calendar_event" | "pdf" | "file";
     title: string;
     url?: string;
     path?: string;
@@ -28,8 +29,13 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     const coverage = config.diagnostics?.getCoverage();
-    const missing = answerMissingItems(config, state.moodle_raw_text);
-    const extractedAnswer = extractAnswerText(state.extracted_data);
+    const missing = config.calendarSelection?.complete
+      ? []
+      : answerMissingItems(config, state.moodle_raw_text);
+    const calendarAnswer = config.calendarSelection?.complete
+      ? formatCalendarAnswer(config.calendarSelection.events)
+      : "";
+    const extractedAnswer = calendarAnswer || extractAnswerText(state.extracted_data);
     const fallbackAnswer = fallbackAnswerText(config, missing);
     const answer = extractedAnswer || fallbackAnswer;
     const status = extractedAnswer && missing.length === 0
@@ -48,6 +54,11 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
       confidence: status === "answered" ? "high" : missing.length > 0 ? "low" : "medium",
       sources: coverage ? coverageSources(coverage.moodle, "moodle_page").concat(
         coverageSources(coverage.cis, "cis_page"),
+        (config.calendarSelection?.events ?? []).map((event) => ({
+          kind: "calendar_event" as const,
+          title: event.title,
+          coverageNote: coverage.calendar.detail,
+        })),
       ) : [],
       missing,
       generatedAt: new Date().toISOString(),
@@ -58,7 +69,7 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
       writeFile(answerPath(config), `${answer.trim()}\n`, "utf8"),
       writeFile(answerJsonPath(config), `${JSON.stringify(artifact, null, 2)}\n`, "utf8"),
     ]);
-    await config.diagnostics?.log("info", "analyzer", "Wrote quick answer artifacts.");
+    await config.diagnostics?.log("info", "answer", "Wrote deterministic quick answer artifacts.");
 
     return {
       final_document: answer,
@@ -127,13 +138,13 @@ function answerMissingItems(config: MoodleRuntimeConfig, rawText: string): strin
     /\b(?:prüfung|pruefung|exam)\b/i.test(config.prompt) &&
     !hasConcreteScheduleDate(rawText)
   ) {
-    missing.push(`${targetLabel || "Target"} CIS detail page did not expose a future Prüfungstermin`);
+    missing.push(`${targetLabel || "Target"} direct source did not expose a future Prüfungstermin`);
   }
   return missing;
 }
 
 function hasConcreteScheduleDate(text: string): boolean {
-  return /\b(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[.]\d{1,2}[.](?:20)?\d{2})\b/.test(text) &&
+  return /(?:\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}(?=\D)|\b\d{1,2}[.]\d{1,2}[.](?:20)?\d{2}\b)/.test(text) &&
     /\b(?:\d{1,2}:\d{2}|uhr)\b/i.test(text);
 }
 

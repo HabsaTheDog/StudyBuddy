@@ -26,8 +26,13 @@ describe("runProgress", () => {
     await writeRunProgress(config, { phase: "planning_sources" });
 
     const progress = JSON.parse(await readFile(path.join(runDir, "run-progress.json"), "utf8"));
+    expect(progress.schemaVersion).toBe(2);
     expect(progress.status).toBe("running");
     expect(progress.phase).toBe("planning_sources");
+    expect(progress).not.toHaveProperty("estimatedTotalMs");
+    expect(progress).not.toHaveProperty("estimatedRemainingMs");
+    expect(progress).not.toHaveProperty("etaLabel");
+    expect(progress).not.toHaveProperty("etaConfidence");
   });
 
   it("records Moodle-only and CIS skipped public source steps", async () => {

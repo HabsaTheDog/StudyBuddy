@@ -37,11 +37,14 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
 async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): Promise<string> {
   const visualManifest = await readVisualManifest(config.runDir);
   return [
-    "Extract structured study data from Moodle text for a mechatronics/engineering student.",
+    "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a mechatronics/engineering student.",
     "Return only JSON matching the requested schema. Do not include Markdown fences.",
     "Preserve German source language unless the user asks otherwise.",
     "Represent formulas in Typst math syntax where possible.",
     "Never invent source citations.",
+    "Treat calendar_event as the primary source for dates, times, exams, and rooms.",
+    "Treat CIS as the fallback for missing calendar facts and as the source for attendance or administrative LV information.",
+    "The calendar input is already filtered; do not infer events that are not present.",
     "Visual policy:",
     `- Select at most ${config.maxVisualAssets} figures.`,
     "- Prefer Moodle/CIS visual candidates over generated or placeholder visuals.",

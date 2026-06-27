@@ -1,0 +1,92 @@
+- generic [active] [ref=e1]:
+  - link "Zum Trainer springen" [ref=e2] [cursor=pointer]:
+    - /url: "#trainer"
+  - generic [ref=e3]:
+    - generic [ref=e5]: SB 2.0 · Study Buddy
+    - banner [ref=e7]:
+      - generic [ref=e8]:
+        - paragraph [ref=e9]: Prüfungsvorbereitung · MEL 1
+        - heading "Theorie- Werkbank" [level=1] [ref=e10]:
+          - text: Theorie-
+          - text: Werkbank
+        - paragraph [ref=e11]: 15 kompakte Übungsfragen in fünf Themenfeldern. Antworten prüfen, Unsicherheiten markieren und gezielt wiederholen – vollständig offline.
+      - complementary "Prüfungstermin laut CIS" [ref=e12]:
+        - strong [ref=e13]: MEL1-EXAM
+        - generic [ref=e14]: 03.07.2026 · 14:30–16:00
+        - generic [ref=e15]: Raum HS_F4.22
+        - generic [ref=e16]: "Quelle: CIS-LV-Plan, Abruf 27.06.2026"
+      - text: MEL·1
+    - note [ref=e17]:
+      - generic [ref=e18]: ⓘ
+      - generic [ref=e19]: "Abgrenzung: Dies sind allgemeine, aus dem MEL-1-Themenplan abgeleitete Übungsfragen – keine wörtlich extrahierten Moodle-Testfragen. Die fachlichen Kurzantworten wurden nicht durch die verlinkten Moodle-Unterlagen validiert."
+    - main [ref=e20]:
+      - complementary "Trainer-Einstellungen" [ref=e21]:
+        - heading "Werkbank einstellen" [level=2] [ref=e22]
+        - generic [ref=e23]: Themenfeld
+        - combobox "Themenfeld" [ref=e24]:
+          - option "Alle Themen"
+          - option "Toleranzen & Passungen"
+          - option "Klebeverbindungen"
+          - option "Nietverbindungen"
+          - option "Lötverbindungen"
+          - option "Tribologie" [selected]
+        - generic [ref=e25] [cursor=pointer]:
+          - checkbox "Nur unsichere/falsche" [ref=e26]
+          - generic [ref=e27]: Nur unsichere/falsche
+        - generic [ref=e28] [cursor=pointer]:
+          - checkbox "Reihenfolge mischen" [checked] [ref=e29]
+          - generic [ref=e30]: Reihenfolge mischen
+        - generic [ref=e31]:
+          - button "Neue Runde" [ref=e32] [cursor=pointer]
+          - button "Fortschritt löschen" [ref=e33] [cursor=pointer]
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - strong [ref=e36]: "1"
+            - text: Sicher
+          - generic [ref=e37]:
+            - strong [ref=e38]: "1"
+            - text: Nochmal
+          - generic [ref=e39]:
+            - strong [ref=e40]: "2"
+            - text: Bearbeitet
+          - generic [ref=e41]:
+            - strong [ref=e42]: 50%
+            - text: Treffer
+      - region "Theoriefragen" [ref=e43]:
+        - generic [ref=e47]: 1 / 3
+        - article [ref=e48]:
+          - generic [ref=e85]:
+            - generic [ref=e86]: Tribologie
+            - generic [ref=e87]: Offene Selbstkontrolle
+          - heading "Beschreibe Grenz-, Misch- und Flüssigkeitsreibung anhand des Oberflächenkontakts." [level=2] [ref=e88]
+          - generic [ref=e89]:
+            - generic [ref=e90]: Deine Stichpunkte
+            - textbox "Deine Stichpunkte" [ref=e91]:
+              - /placeholder: Formuliere deine Antwort, bevor du die Musterantwort öffnest …
+              - text: "Grenzreibung: Rauheitsspitzen; Mischreibung: beides; Flüssigkeitsreibung: tragender Film."
+            - button "Antwort vergleichen" [disabled] [ref=e93]
+          - generic [ref=e94]:
+            - heading "Vergleiche Aufbau und Fachbegriffe." [level=3] [ref=e95]
+            - paragraph [ref=e96]:
+              - strong [ref=e97]: "Musterantwort:"
+              - text: Bei Grenzreibung wird die Last weitgehend über oberflächennahe Grenzschichten und Rauheitsspitzen übertragen. Bei Mischreibung tragen sowohl Festkörperkontakte als auch der Schmierfilm. Bei vollständiger Flüssigkeitsreibung trennt ein tragender Film die Oberflächen; Festkörperkontakt wird im Ideal vermieden.
+            - paragraph [ref=e98]: Der zentrale Vergleich ist der Anteil des direkten Festkörperkontakts. Daraus folgen Reibung, Verschleiß und Anforderungen an den Schmierstoff.
+          - generic "Selbsteinschätzung" [ref=e99]:
+            - button "Sitzt" [disabled] [ref=e100]
+            - button "Nochmal" [disabled] [ref=e101]
+        - navigation "Fragennavigation" [ref=e66]:
+          - button "← Zurück" [disabled] [ref=e67]
+          - button "Weiter →" [ref=e68] [cursor=pointer]
+    - generic [ref=e69]:
+      - paragraph [ref=e70]: Quellen & Abdeckung
+      - heading "Was aus dem Kurs belegt ist" [level=2] [ref=e71]
+      - generic [ref=e72]:
+        - generic [ref=e73]:
+          - strong [ref=e74]: Moodle · Maschinenelemente 1
+          - paragraph [ref=e75]: Belegt die fünf Themenblöcke, zugehörige Literaturbereiche und die Existenz der Theorie-Tests 1–5. Die konkreten Testfragen und verlinkten Fachunterlagen konnten nicht als Text validiert werden.
+          - paragraph [ref=e76]: moodle.technikum-wien.at/course/view.php?id=32280
+        - generic [ref=e77]:
+          - strong [ref=e78]: CIS · persönlicher LV-Plan
+          - paragraph [ref=e79]: Belegt den angezeigten MEL1-EXAM-Termin am 03.07.2026, die Uhrzeit 14:30–16:00 und den Raum HS_F4.22.
+          - paragraph [ref=e80]: cis.technikum-wien.at/cis.php/
+      - paragraph [ref=e81]: Lernfortschritt wird ausschließlich im lokalen Browser gespeichert. Die Seite lädt keine externen Inhalte und sendet keine Daten.
