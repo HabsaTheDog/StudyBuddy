@@ -64,7 +64,11 @@ describe("deterministic Typst renderer", () => {
 
     expect(source).toContain("#sb-document(");
     expect(source).toContain("Allgemeine Theorie");
-    expect(source).toContain("Quelle: Tiefsetzsteller Skript.");
+    expect(source).toContain('#text(weight: "bold")[Quellen:] [#sb-source-ref("Q1", target: <source-q1>)]');
+    expect(source).toContain('#sb-source-note([#sb-source-ref("Q1", target: <source-q1>)');
+    expect(source).toContain("<source-q1>");
+    expect(source).toContain('#sb-divider(label: "Rechnen")');
+    expect(source).not.toContain("#sb-checklist");
     expect(source.match(/#sb-source-note/g)).toHaveLength(2);
     expect(source).toContain("$ U_a = d U_e $");
     expect(source).not.toContain("#raw(");
@@ -143,6 +147,30 @@ describe("deterministic Typst renderer", () => {
     expect(source).toContain("accent(r, dot.double)_x");
     expect(source).toContain("accent(vec(r), dot.double)_y");
     expect(source).toContain("accent(phi, dot.double)");
+    await expect(
+      validateTypst(source, await getStudyBuddyTypstSupportFiles()),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes multi-letter math subscripts into Typst text subscripts", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        formulas: [
+          {
+            name: "Tastverhältnis",
+            typst: "d = T_(ON) / (T_(ON) + T_(OFF))",
+            variables: ["d: Tastverhältnis", "T_ON: Einschaltzeit"],
+            units: ["T: s"],
+            context: "Laborformel.",
+            source_ids: [],
+          },
+        ],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).toContain('T_"ON"');
+    expect(source).toContain('T_"OFF"');
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles()),
     ).resolves.toEqual({ ok: true });
