@@ -36,6 +36,7 @@ export function assessFollowUpCrawl(input: {
     !input.plan.targets.includes("cis") &&
     !completed.has("cis") &&
     scheduleSignal(prompt) &&
+    input.coverage.calendar.status !== "success" &&
     !cisOk
   ) {
     targets.push("cis");

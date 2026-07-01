@@ -20,6 +20,22 @@ describe("sourcePlanner", () => {
     expect(plan.needsCurrentScheduleData).toBe(true);
   });
 
+  it("uses calendar as the primary source for schedule questions", () => {
+    const plan = planSourcesForPrompt("Wann ist die MEL1 Prüfung?", {
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+    expect(plan.targets).toEqual(["calendar"]);
+  });
+
+  it("routes attendance directly to CIS even when calendar is configured", () => {
+    const plan = planSourcesForPrompt("Wie ist die Anwesenheit bei MEL1 geregelt?", {
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+    expect(plan.targets).toEqual(["cis"]);
+  });
+
   it("routes mixed preparation prompts to both sources", () => {
     const plan = planSourcesForPrompt("Bereite mich mit den Unterlagen auf die Prüfung morgen vor", {
       hasCisUrls: true,

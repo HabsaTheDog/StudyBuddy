@@ -67,6 +67,30 @@
   ]
 }
 
+#let sb-source-ref(label, target: none, url: none) = {
+  let chip = sb-chip(label, tone: "info")
+  let destination = if target != none { target } else { url }
+  if destination == none {
+    chip
+  } else {
+    link(destination)[#chip]
+  }
+}
+
+#let sb-divider(label: none) = [
+  #v(7pt)
+  #line(length: 100%, stroke: 0.45pt + sb-colors.line)
+  #if label != none [
+    #v(-6pt)
+    #align(center)[
+      #box(fill: sb-colors.white, inset: (x: 6pt, y: 0pt))[
+        #text(7.4pt, weight: "medium", fill: sb-colors.muted)[#label]
+      ]
+    ]
+  ]
+  #v(7pt)
+]
+
 #let sb-meta-row(label, value) = grid(
   columns: (30mm, 1fr),
   gutter: 3mm,

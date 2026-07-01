@@ -18,13 +18,20 @@ export function renderDeterministicStudyDocument(
     ),
   ];
 
-  for (const section of data.sections) {
+  for (const [index, section] of data.sections.entries()) {
+    if (index > 0) {
+      body.push(divider());
+    }
     body.push(
       heading(1, section.heading),
-      paragraph(withInlineSources(data, section.summary, section.source_ids)),
+      paragraph(section.summary),
     );
+    const sectionSources = sourceLine(data, section.source_ids);
+    if (sectionSources) {
+      body.push(sectionSources);
+    }
     if (section.key_concepts.length > 0) {
-      body.push(heading(2, "Kernpunkte"), checklist(section.key_concepts));
+      body.push(renderKeyConcepts(section.key_concepts));
     }
   }
 
@@ -34,14 +41,14 @@ export function renderDeterministicStudyDocument(
   }
 
   if (data.formulas.length > 0) {
-    body.push(heading(1, "Formeln und Berechnungen"));
+    body.push(divider("Rechnen"), heading(1, "Formeln und Berechnungen"));
     for (const formula of data.formulas) {
       body.push(
         `#sb-formula(
   name: ${typstString(formula.name)},
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
-  source: ${typstString(sourceTitles(data, formula.source_ids) || "Allgemeine Fachtheorie")},
+  source: ${sourceReferenceList(data, formula.source_ids) ?? typstString("Allgemeine Fachtheorie")},
 )[
   ${math(formula.typst)}
 ]
@@ -54,13 +61,14 @@ export function renderDeterministicStudyDocument(
   }
 
   if (data.worked_examples.length > 0) {
-    body.push(heading(1, "Durchgerechnete Beispiele"));
+    body.push(divider("Anwenden"), heading(1, "Durchgerechnete Beispiele"));
     for (const [index, example] of data.worked_examples.entries()) {
       body.push(
         `#sb-example(title: ${typstString(`Beispiel ${index + 1}`)})[
   ${text(example.prompt)}
+  ${sourceLine(data, example.source_ids) ?? ""}
   #v(4pt)
-  ${checklist(example.steps)}
+  ${numberedList(example.steps)}
   #v(4pt)
   #text(weight: "bold")[Ergebnis:] ${text(example.result)}
 ]
@@ -70,25 +78,24 @@ export function renderDeterministicStudyDocument(
   }
 
   if (data.quiz_style_questions.length > 0) {
-    body.push(heading(1, "Kontrollfragen"));
+    body.push(divider("Prüfen"), heading(1, "Kontrollfragen"));
     for (const [index, item] of data.quiz_style_questions.entries()) {
       body.push(
         heading(2, `Frage ${index + 1}`),
         paragraph(item.question),
+        sourceLine(data, item.source_ids) ?? "",
         paragraph(`Antwort: ${item.answer}`),
       );
     }
   }
 
-  body.push(heading(1, "Quellen"));
+  body.push(divider("Nachweise"), heading(1, "Quellenverzeichnis"));
   for (const source of data.sources) {
-    const location = [source.url, source.path, source.page ? `Seite ${source.page}` : ""]
-      .filter(Boolean)
-      .join(" · ");
-    body.push(sourceNote(source.title, location || source.kind));
+    body.push(sourceEntry(data, source.id));
   }
-  for (const warning of data.warnings) {
-    body.push(callout("Quellen- oder Inhaltswarnung", "warning", warning));
+  if (data.warnings.length > 0) {
+    body.push(heading(1, "Quellenhinweise und Grenzen"));
+    body.push(callout("Gebündelte Quellenhinweise", "warning", bulletList(data.warnings)));
   }
 
   return `#import "study-buddy-components.typ": *
@@ -115,12 +122,12 @@ function renderFigures(data: ExtractedData): string[] {
     if (!asset) {
       return [];
     }
-    const caption = sourceTitles(data, figure.source_ids)
-      ? `${figure.caption} Quelle: ${sourceTitles(data, figure.source_ids)}.`
-      : figure.caption;
+    const caption = sourceReferenceList(data, figure.source_ids)
+      ? `[${text(figure.caption)} #h(3pt) ${sourceReferenceList(data, figure.source_ids)}]`
+      : typstString(figure.caption);
     if (asset.relative_path) {
       return [
-        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
   #image(${typstString(asset.relative_path)}, width: 90%)
 ]
 `,
@@ -128,7 +135,7 @@ function renderFigures(data: ExtractedData): string[] {
     }
     if (asset.kind === "typst_diagram") {
       return [
-        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
   #sb-block-diagram(("Eingang", "Verarbeitung", "Ausgang"))
 ]
 `,
@@ -136,7 +143,7 @@ function renderFigures(data: ExtractedData): string[] {
     }
     if (asset.kind === "placeholder_prompt") {
       return [
-        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${typstString(caption)})[
+        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
   #sb-callout(title: "Visualisierungsprompt", tone: "info")[
     #text(${typstString(asset.generation_prompt || asset.caption_hint || "Didaktische Visualisierung generieren.")})
   ]
@@ -150,6 +157,10 @@ function renderFigures(data: ExtractedData): string[] {
 
 function heading(level: number, value: string): string {
   return `#heading(level: ${level})[${text(value)}]`;
+}
+
+function divider(label?: string): string {
+  return label ? `#sb-divider(label: ${typstString(label)})` : "#sb-divider()";
 }
 
 function paragraph(value: string): string {
@@ -178,6 +189,7 @@ function stripMathDelimiters(value: string): string {
 function normalizeTypstMath(value: string): string {
   return replaceTypstMathFunctionCalls(
     value
+      .replace(/_\(([A-Za-z][A-Za-z0-9 -]+)\)/g, (_, label: string) => `_"${label.trim()}"`)
       .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
       .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)"),
     "ddot",
@@ -242,23 +254,43 @@ function findMatchingParen(value: string, openIndex: number): number {
   return -1;
 }
 
-function checklist(items: string[]): string {
+function renderKeyConcepts(items: string[]): string {
+  const ordered = isOrderedList(items);
+  const normalizedItems = ordered ? items.map(stripLeadingNumber) : items;
+  if (items.length <= 4) {
+    return paragraph(`${ordered ? "Ablauf" : "Leitbegriffe"}: ${joinGermanList(normalizedItems)}.`);
+  }
+  return `${text(ordered ? "Ablauf:" : "Leitbegriffe:")}
+
+${ordered ? numberedList(normalizedItems) : bulletList(normalizedItems)}`;
+}
+
+function bulletList(items: string[]): string {
   if (items.length === 0) {
     return text("Keine Einträge.");
   }
-  return `#sb-checklist((
-${items.map((item) => `  [${text(item)}],`).join("\n")}
-))`;
+  return items.map((item) => `- ${text(item)}`).join("\n");
+}
+
+function numberedList(items: string[]): string {
+  if (items.length === 0) {
+    return text("Keine Zwischenschritte angegeben.");
+  }
+  return items.map((item) => `+ ${text(item)}`).join("\n");
 }
 
 function callout(title: string, tone: string, body: string): string {
   return `#sb-callout(title: ${typstString(title)}, tone: ${typstString(tone)})[
-  ${text(body)}
+  ${body}
 ]`;
 }
 
 function sourceNote(source: string, coverage: string): string {
   return `#sb-source-note(${typstString(source)}, coverage: ${typstString(coverage)})`;
+}
+
+function sourceNoteContent(source: string, coverage: string): string {
+  return `#sb-source-note(${source}, coverage: ${coverage})`;
 }
 
 function sourceTitles(data: ExtractedData, ids: string[]): string {
@@ -269,9 +301,79 @@ function sourceTitles(data: ExtractedData, ids: string[]): string {
     .join("; ");
 }
 
-function withInlineSources(data: ExtractedData, value: string, ids: string[]): string {
-  const titles = sourceTitles(data, ids);
-  return titles ? `${value} Quelle: ${titles}.` : value;
+function sourceLine(data: ExtractedData, ids: string[]): string | null {
+  const refs = sourceReferenceList(data, ids);
+  if (!refs) {
+    return null;
+  }
+  return `#text(8pt, fill: rgb("#5b667a"))[
+  #text(weight: "bold")[Quellen:] ${refs}
+]`;
+}
+
+function sourceEntry(data: ExtractedData, id: string): string {
+  const source = data.sources.find((item) => item.id === id);
+  if (!source) {
+    return "";
+  }
+  const label = sourceLabel(data, id);
+  const sourceContent = `[${sourceRef(data, id)} #h(4pt) ${text(source.title)}]`;
+  const parts = [
+    source.url ? `#link(${typstString(source.url)})[${text(source.url)}]` : "",
+    source.path ? text(source.path) : "",
+    source.page ? text(`Seite ${source.page}`) : "",
+  ].filter(Boolean);
+  const coverage = parts.length > 0 ? `[${parts.join(" #text(\" · \") ")}]` : typstString(source.kind);
+  return `${sourceNoteContent(sourceContent, coverage)} ${sourceAnchor(label)}`;
+}
+
+function sourceReferenceList(data: ExtractedData, ids: string[]): string | null {
+  const refs = ids
+    .map((id) => sourceRef(data, id))
+    .filter((value) => value.length > 0);
+  if (refs.length === 0) {
+    return null;
+  }
+  return `[${refs.join(" #h(3pt) ")}]`;
+}
+
+function sourceRef(data: ExtractedData, id: string): string {
+  const source = data.sources.find((item) => item.id === id);
+  if (!source) {
+    return "";
+  }
+  const label = sourceLabel(data, id);
+  return `#sb-source-ref(${typstString(label)}, target: ${sourceAnchor(label)})`;
+}
+
+function sourceLabel(data: ExtractedData, id: string): string {
+  const index = data.sources.findIndex((source) => source.id === id);
+  return index >= 0 ? `Q${index + 1}` : "Q?";
+}
+
+function sourceAnchor(label: string): string {
+  return `<source-${label.toLowerCase()}>`;
+}
+
+function isOrderedList(items: string[]): boolean {
+  return items.length > 1 && items.every((item) => /^\s*\d+[.)]\s+/.test(item));
+}
+
+function stripLeadingNumber(item: string): string {
+  return item.replace(/^\s*\d+[.)]\s+/, "");
+}
+
+function joinGermanList(items: string[]): string {
+  if (items.length === 0) {
+    return "keine gesondert extrahierten Begriffe";
+  }
+  if (items.length === 1) {
+    return items[0];
+  }
+  if (items.length === 2) {
+    return `${items[0]} und ${items[1]}`;
+  }
+  return `${items.slice(0, -1).join(", ")} und ${items[items.length - 1]}`;
 }
 
 function stringTuple(values: string[]): string {
