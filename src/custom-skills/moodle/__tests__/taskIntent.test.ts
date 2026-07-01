@@ -67,4 +67,20 @@ describe("Study Buddy task intent", () => {
     expect(intent.intent).toBe("schedule_answer");
     expect(intent.wantsQuizAssistance).toBe(false);
   });
+
+  it("treats a test-date question as calendar schedule intent, not quiz assistance", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Wann und wo ist der MEL1 Test?",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+
+    expect(intent.intent).toBe("schedule_answer");
+    expect(intent.needsCalendar).toBe(true);
+    expect(intent.wantsQuizAssistance).toBe(false);
+  });
 });

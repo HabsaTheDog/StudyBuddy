@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Page } from "playwright";
 import type { AgentBrowserClient } from "./agentBrowserClient.js";
 
-export type SourceName = "moodle" | "cis";
+export type SourceName = "moodle" | "cis" | "calendar";
 
 export type SourceFetchStatus =
   | "not_requested"
@@ -38,6 +38,7 @@ export interface SourceCoverageEntry {
 export interface SourceCoverage {
   moodle: SourceCoverageEntry;
   cis: SourceCoverageEntry;
+  calendar: SourceCoverageEntry;
 }
 
 export interface RunEvent {
@@ -51,6 +52,8 @@ export interface RunEvent {
     | "cis_login"
     | "cis_crawl"
     | "cis_download"
+    | "calendar"
+    | "answer"
     | "analyzer"
     | "formatter"
     | "typst"
@@ -91,6 +94,14 @@ export const initialSourceCoverage: SourceCoverage = {
     pages: 0,
     artifacts: [],
   },
+  calendar: {
+    status: "not_requested",
+    detail: "Personal calendar was not queried.",
+    urls: [],
+    attemptedUrls: [],
+    pages: 0,
+    artifacts: [],
+  },
 };
 
 export class RunDiagnostics {
@@ -109,7 +120,10 @@ export class RunDiagnostics {
     this.summaryPath = path.join(input.runDir, "run-summary.md");
     this.secrets = (input.secrets ?? []).filter(Boolean);
     if (input.initialCoverage) {
-      this.coverage = structuredClone(input.initialCoverage);
+      this.coverage = {
+        ...structuredClone(input.initialCoverage),
+        calendar: structuredClone(input.initialCoverage.calendar ?? initialSourceCoverage.calendar),
+      };
     }
   }
 
@@ -297,6 +311,9 @@ export class RunDiagnostics {
       "## CIS coverage",
       formatCoverage(coverage.cis),
       "",
+      "## Calendar coverage",
+      formatCoverage(coverage.calendar),
+      "",
       "## Generated artifacts",
       input.extractedDataPath ? `- Extracted data: ${input.extractedDataPath}` : "- Extracted data: none",
       input.answerPath ? `- Answer: ${input.answerPath}` : "- Answer: none",
@@ -338,6 +355,9 @@ export class RunDiagnostics {
       "## CIS coverage",
       formatCoverage(this.coverage.cis),
       "",
+      "## Calendar coverage",
+      formatCoverage(this.coverage.calendar),
+      "",
       "Final summary will be written when the run exits cleanly.",
       "",
     ];
@@ -369,7 +389,10 @@ function formatCoverage(entry: SourceCoverageEntry): string {
 }
 
 function latestSuccessfulStep(coverage: SourceCoverage): string {
-  return coverage.cis.lastSuccessfulStep || coverage.moodle.lastSuccessfulStep || "none";
+  return coverage.calendar.lastSuccessfulStep ||
+    coverage.cis.lastSuccessfulStep ||
+    coverage.moodle.lastSuccessfulStep ||
+    "none";
 }
 
 function recommendation(status: RunSummaryInput["status"], coverage: SourceCoverage): string {
@@ -381,6 +404,9 @@ function recommendation(status: RunSummaryInput["status"], coverage: SourceCover
   }
   if (coverage.moodle.status === "failed_auth" || coverage.cis.status === "failed_auth") {
     return "Refresh credentials or browser storage state, then run diagnostic mode before a document run.";
+  }
+  if (coverage.calendar.status === "failed" || coverage.calendar.status === "timeout") {
+    return "Check the private calendar URL locally; CIS fallback remains available.";
   }
   if (coverage.moodle.status === "not_requested") {
     return "Check the route selection because Moodle was not attempted.";

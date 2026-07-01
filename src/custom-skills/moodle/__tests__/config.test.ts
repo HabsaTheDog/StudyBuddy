@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRuntimeConfig } from "../config.js";
+import { createRuntimeConfig, sanitizeConfig } from "../config.js";
 
 let tempRoot: string | null = null;
 
@@ -94,6 +94,20 @@ describe("createRuntimeConfig", () => {
 
     expect(config.includeCis).toBe(false);
     expect(config.cisUrls).toEqual([]);
+  });
+
+  it("keeps the private calendar URL out of sanitized run config", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-calendar-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    const config = createRuntimeConfig({
+      prompt: "Wann ist die MEL1 Prüfung?",
+      moodleUrl: "https://moodle.example/my/",
+      calendarUrl: "https://calendar.example/private-token",
+    });
+
+    const serialized = JSON.stringify(sanitizeConfig(config));
+    expect(serialized).toContain('"hasCalendarUrl":true');
+    expect(serialized).not.toContain("private-token");
   });
 
   it("applies visual asset defaults and environment overrides", async () => {

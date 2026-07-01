@@ -120,4 +120,51 @@ describe("sourceOrchestrator", () => {
       expect.objectContaining({ id: "cis", status: "done" }),
     ]));
   });
+
+  it("loads CIS when calendar has no matching event", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "source-orchestrator-"));
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      runDir,
+      prompt: "Wann ist die MEL1 Prüfung?",
+      calendarUrl: "https://calendar.example/private-token",
+      cisUrls: ["https://cis.example/cis.php/Cis/MyLv"],
+      includeCis: true,
+      diagnostics,
+    });
+    await createSourcePlannerNode(config)();
+    let cisCalls = 0;
+    const result = await createSourceOrchestratorNode(config, {
+      calendarNode: async () => {
+        config.calendarSelection = {
+          status: "empty",
+          events: [],
+          complete: false,
+          missingFields: [],
+          needsCisFallback: true,
+          detail: "No matching event.",
+        };
+        await diagnostics.markSuccess("calendar", {
+          detail: "No matching event.",
+          urls: [],
+          pages: 0,
+          partial: true,
+        });
+        return { moodle_raw_text: "", error_log: null };
+      },
+      cisScraperNode: async () => {
+        cisCalls += 1;
+        await diagnostics.markSuccess("cis", {
+          detail: "MEL detail opened.",
+          urls: config.cisUrls,
+          pages: 1,
+        });
+        return { moodle_raw_text: "CIS_MEL_EXAM", error_log: null };
+      },
+    })(initialAgentState);
+
+    expect(cisCalls).toBe(1);
+    expect(result.moodle_raw_text).toContain("CIS_MEL_EXAM");
+  });
 });

@@ -61,7 +61,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     autoAnswer: quizPolicy.requestedAutoAnswer,
     includeCis,
     hasCisUrls: cisUrls.length > 0,
+    hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
+  const calendarUrl = input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim() || undefined;
 
   return {
     prompt: input.prompt,
@@ -79,6 +81,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     password: process.env.MOODLE_PASSWORD,
     storageState: process.env.MOODLE_STORAGE_STATE || undefined,
     cisUrls,
+    calendarUrl,
     cisBaseUrl: process.env.CIS_BASE_URL || inferBaseUrl(cisUrls[0]),
     cisDashboardUrl: process.env.CIS_DASHBOARD_URL || cisUrls[0] || DEFAULT_CIS_URL,
     cisUsername: process.env.CIS_USERNAME || process.env.MOODLE_USERNAME,
@@ -134,6 +137,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     hasCisUsername: Boolean(config.cisUsername),
     hasCisPassword: Boolean(config.cisPassword),
     hasCisStorageState: Boolean(config.cisStorageState),
+    hasCalendarUrl: Boolean(config.calendarUrl),
     headless: config.headless,
     browserBackend: config.browserBackend,
     diagnosticOnly: config.diagnosticOnly,

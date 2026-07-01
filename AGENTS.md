@@ -15,8 +15,9 @@
 - Expose both a reusable TypeScript API and a CLI wrapper.
 - Prefer live Moodle reads for current information; download linked files only as per-run artifacts when they add usable source text.
 - Prefer live CIS reads for timetable, exam, administrative, and study-program information that Moodle does not expose.
-- For any question about tomorrow, today, schedules, rooms, attendance, exams, deadlines, Fachlabor/lab sessions, or "what are we doing in class", use both Moodle and CIS before answering.
-- Do not conclude that information is unavailable just because Moodle has no dated entry; check CIS and report source coverage.
+- For dates, schedules, rooms, exams, and deadlines, use the personal calendar first when configured. One complete direct result from calendar, CIS, or Moodle is sufficient; do not start another run merely to corroborate it.
+- Use CIS directly for attendance and administrative LV information. Use another source only when the primary source is unavailable, has no match, or lacks a requested field.
+- Do not conclude that information is unavailable from one empty source; use the appropriate fallback and report source coverage.
 - Never submit final Moodle quiz attempts.
 - For artifact requests, start one Study Buddy run and monitor that run directory until it reaches a terminal status. Do not launch a second broad crawl while the first run is active.
 - Prefer a direct Moodle course, activity, assignment, or resource URL when one is already known from a completed run.
@@ -26,7 +27,7 @@
 - Generated study PDFs must use the standardized Study Buddy Typst component library and document shell.
 - If a run is too broad, cancel it through the wrapper and retry once with the most specific discovered URL. Do not leave superseded runs active.
 - For PDF requests, the Study Buddy `doc` wrapper and standardized Typst renderer are the PDF toolchain. Poll the original command session until exit, or use `study_buddy_task.sh wait <run-dir>`; status checks alone do not complete the task.
-- Do not end the agent turn while an artifact-producing process is still active. The final response must include a clickable absolute path to the verified non-empty `document.pdf`.
+- Do not end the agent turn while an artifact-producing process is still active. The final response must include the verified non-empty `document.pdf` as an absolute-path Markdown link in exactly this shape: `[PDF öffnen](</absolute/path/document.pdf>)`. Keep the angle brackets for paths with spaces. Never use a `file://` URL, percent-encoded path, or plain-text-only path.
 - Use the buffered lease protocol in `docs/orchestration-lease-protocol.md` for long-running workers: 210 seconds of tool work, 90 seconds reserved for checkpoint generation, and 30 seconds of parent-side delivery grace. For subagents use `wait_agent` with `timeout_ms: 330000`; for PTY processes use one `write_stdin` with `yield_time_ms: 210000`.
 - A long-running worker must checkpoint as `completed`, `progress`, or `blocked` no later than the end of its five-minute lease. Continue the same worker by default when it is alive, on-topic, and making semantic progress.
 - A worker must not begin a blocking operation that can outlive its remaining 210-second work budget. Long processes must run in a reusable session or detached process so the worker can regain control and respond before the five-minute checkpoint deadline.

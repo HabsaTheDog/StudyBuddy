@@ -4,6 +4,7 @@ import type { SourcePlan } from "./sourcePlanner.js";
 import type { RenderStrategyDecision } from "./renderStrategy.js";
 import type { QuizPolicy } from "./quizPolicy.js";
 import type { StudyBuddyIntent, StudyBuddyIntentDecision } from "./taskIntent.js";
+import type { CalendarSelection } from "./calendarAdapter.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -21,6 +22,7 @@ export interface MoodleGraphInput {
   maxPages?: number;
   allowFileDownloads?: boolean;
   cisUrls?: string[];
+  calendarUrl?: string;
   maxCisPages?: number;
   browserBackend?: BrowserBackend;
   browserHeaded?: boolean;
@@ -72,6 +74,7 @@ export interface MoodleRuntimeConfig {
   password?: string;
   storageState?: string;
   cisUrls: string[];
+  calendarUrl?: string;
   cisBaseUrl: string;
   cisDashboardUrl: string;
   cisUsername?: string;
@@ -100,4 +103,5 @@ export interface MoodleRuntimeConfig {
   renderStrategyDecision?: RenderStrategyDecision;
   intentDecision?: StudyBuddyIntentDecision;
   targetCourseUrls?: string[];
+  calendarSelection?: CalendarSelection;
 }
