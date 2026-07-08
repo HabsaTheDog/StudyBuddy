@@ -25,6 +25,7 @@ export interface WebLayoutInput {
   idleTimeoutMs?: number;
   browserHeaded?: boolean;
   skipBrowserValidation?: boolean;
+  codexModel?: string;
 }
 
 export interface WebLayoutResult {
@@ -52,6 +53,7 @@ export interface WebLayoutRuntimeConfig {
   idleTimeoutMs: number;
   browserHeaded: boolean;
   skipBrowserValidation: boolean;
+  codexModel?: string;
   abortSignal?: AbortSignal;
   diagnostics?: WebLayoutDiagnosticsLike;
 }

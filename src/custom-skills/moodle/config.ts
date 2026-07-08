@@ -9,17 +9,24 @@ import type {
   RenderStrategyMode,
   SourceMode,
   TypstValidationMode,
+  VisualMode,
 } from "./types.js";
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
 import { clampConcurrency } from "./downloadQueue.js";
 import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
 import { classifyStudyBuddyIntent } from "./taskIntent.js";
+import { classifyArtifactIntent } from "./studentFirstPolicy.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
 const DEFAULT_BROWSER_BACKEND = "agent-browser";
 const DEFAULT_MOODLE_URL = "https://moodle.technikum-wien.at/my/";
 const DEFAULT_CIS_URL = "https://cis.technikum-wien.at/cis.php/";
+const DEFAULT_QUICK_MAX_RUNTIME_MS = 12 * 60_000;
+const DEFAULT_ARTIFACT_MAX_RUNTIME_MS = 45 * 60_000;
+const DEFAULT_RENDER_MAX_RUNTIME_MS = 20 * 60_000;
+const DEFAULT_QUICK_IDLE_TIMEOUT_MS = 8 * 60_000;
+const DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS = 15 * 60_000;
 
 loadEnvFiles();
 
@@ -64,6 +71,18 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
   const calendarUrl = input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim() || undefined;
+  const artifactIntent = classifyArtifactIntent(input.prompt, {
+    profile: input.artifactProfile,
+    formats: input.formats,
+    sourcePolicy: input.sourcePolicy,
+    linkPolicy: input.linkPolicy,
+  });
+  const visualMode = parseVisualMode(
+    input.visualMode || process.env.STUDY_BUDDY_VISUAL_MODE,
+    input.visualsEnabled,
+    !intentDecision.wantsQuickAnswer,
+  );
+  const visualsEnabled = visualMode === "inline" || (stage === "render" && visualMode === "deferred");
 
   return {
     prompt: input.prompt,
@@ -76,7 +95,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     maxCisPages: input.maxCisPages ?? parsePositiveInteger(process.env.CIS_MAX_PAGES, 4),
     allowFileDownloads: input.allowFileDownloads ?? true,
     baseUrl: process.env.MOODLE_BASE_URL || new URL(moodleUrl).origin,
-    dashboardUrl: process.env.MOODLE_DASHBOARD_URL || input.moodleUrl,
+    dashboardUrl: normalizeDashboardUrl(process.env.MOODLE_DASHBOARD_URL || input.moodleUrl),
     username: process.env.MOODLE_USERNAME,
     password: process.env.MOODLE_PASSWORD,
     storageState: process.env.MOODLE_STORAGE_STATE || undefined,
@@ -92,8 +111,8 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     diagnosticOnly: input.diagnosticOnly ?? false,
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,
-    maxRuntimeMs: input.maxRuntimeMs ?? parsePositiveInteger(process.env.MOODLE_MAX_RUNTIME_MS, 12 * 60_000),
-    idleTimeoutMs: input.idleTimeoutMs ?? parsePositiveInteger(process.env.MOODLE_IDLE_TIMEOUT_MS, 8 * 60_000),
+    maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(stage, intentDecision.wantsQuickAnswer),
+    idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
     sourceRunDir: input.sourceRunDir
       ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
@@ -107,11 +126,14 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       input.typstValidationMode || process.env.STUDY_BUDDY_TYPST_VALIDATION,
     ),
     renderStrategy: parseRenderStrategy(input.renderStrategy || process.env.STUDY_BUDDY_RENDER_STRATEGY),
-    visualsEnabled: input.visualsEnabled ?? process.env.STUDY_BUDDY_VISUALS_DISABLE !== "true",
-    maxVisualAssets: input.maxVisualAssets ?? parsePositiveInteger(process.env.STUDY_BUDDY_VISUALS_MAX, 3),
+    visualsEnabled,
+    visualMode,
+    maxVisualAssets: input.maxVisualAssets ?? parseNonNegativeInteger(process.env.STUDY_BUDDY_VISUALS_MAX, 0),
     visualMinConfidence: input.visualMinConfidence ??
       parseConfidence(process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE, 0.65),
     intentDecision,
+    artifactIntent,
+    codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
   };
 }
 
@@ -159,7 +181,42 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     visualsEnabled: config.visualsEnabled,
     maxVisualAssets: config.maxVisualAssets,
     visualMinConfidence: config.visualMinConfidence,
+    visualMode: config.visualMode,
+    artifactIntent: config.artifactIntent,
+    codexModel: config.codexModel,
   };
+}
+
+function parseVisualMode(
+  value: string | undefined,
+  legacyVisualsEnabled: boolean | undefined,
+  artifactRequest: boolean,
+): VisualMode {
+  if (legacyVisualsEnabled === false) {
+    return "off";
+  }
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "off" || normalized === "deferred" || normalized === "inline") {
+    return normalized;
+  }
+  if (legacyVisualsEnabled === true) {
+    return "inline";
+  }
+  if (process.env.STUDY_BUDDY_VISUALS_DISABLE === "true") {
+    return "off";
+  }
+  if (
+    process.env.STUDY_BUDDY_VISUALS_MAX !== undefined ||
+    process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE !== undefined
+  ) {
+    return "inline";
+  }
+  return artifactRequest ? "deferred" : "off";
+}
+
+function trimOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function timestampSlug(): string {
@@ -220,12 +277,68 @@ function inferBaseUrl(url: string | undefined): string {
   return url ? new URL(url).origin : "https://cis.technikum-wien.at";
 }
 
+function normalizeDashboardUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "moodle.technikum-wien.at" && url.pathname === "/my") {
+      url.pathname = "/my/";
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseMaxRuntimeMs(
+  stage: MoodleRuntimeConfig["stage"],
+  wantsQuickAnswer: boolean,
+): number {
+  const stageOverride = stage === "extract"
+    ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
+    : stage === "render"
+      ? process.env.MOODLE_RENDER_MAX_RUNTIME_MS
+      : !wantsQuickAnswer
+        ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS
+        : undefined;
+  const fallback = stage === "render"
+    ? DEFAULT_RENDER_MAX_RUNTIME_MS
+    : wantsQuickAnswer
+      ? DEFAULT_QUICK_MAX_RUNTIME_MS
+      : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
+  return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
+}
+
+function parseIdleTimeoutMs(
+  stage: MoodleRuntimeConfig["stage"],
+  wantsQuickAnswer: boolean,
+): number {
+  const stageOverride = stage === "extract"
+    ? process.env.MOODLE_TEXT_EXTRACT_IDLE_TIMEOUT_MS || process.env.MOODLE_EXTRACT_IDLE_TIMEOUT_MS
+    : stage === "render"
+      ? process.env.MOODLE_RENDER_IDLE_TIMEOUT_MS
+      : !wantsQuickAnswer
+        ? process.env.MOODLE_ARTIFACT_IDLE_TIMEOUT_MS
+        : undefined;
+  const fallback = wantsQuickAnswer
+    ? DEFAULT_QUICK_IDLE_TIMEOUT_MS
+    : DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS;
+  return parsePositiveInteger(stageOverride || process.env.MOODLE_IDLE_TIMEOUT_MS, fallback);
+}
+
+function parseNonNegativeInteger(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function parseConfidence(value: string | undefined, fallback: number): number {

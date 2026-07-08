@@ -239,36 +239,54 @@
   body,
 )
 
+#let sb-sequence(value) = if type(value) == str { (value,) } else { value }
+
 #let sb-formula(
   name: "Formel",
   variables: (),
   units: (),
   source: none,
+  note: none,
   body,
-) = sb-callout(
-  title: name,
-  tone: "success",
-)[
-  #align(center)[#text(13pt)[#body]]
-  #if variables.len() > 0 [
-    #v(5pt)
-    #text(8.5pt, fill: sb-colors.muted)[
-      *Variablen:* #variables.join("; ")
+) = {
+  let normalized-variables = sb-sequence(variables)
+  let normalized-units = sb-sequence(units)
+  block(
+    width: 100%,
+    breakable: true,
+    fill: sb-colors.white,
+    stroke: (bottom: 0.55pt + sb-colors.line),
+    inset: (x: 3pt, y: 7pt),
+  )[
+    #grid(
+      columns: (31mm, 1fr),
+      gutter: 7pt,
+      align: (left, horizon),
+      [#text(8.6pt, weight: "bold", fill: sb-colors.green)[#name]],
+      [#align(center)[#text(12.5pt)[#body]]],
+    )
+    #if note != none [
+      #v(4pt)
+      #text(8.5pt, fill: sb-colors.ink)[#note]
+    ]
+    #if normalized-variables.len() > 0 or normalized-units.len() > 0 or source != none [
+      #v(3pt)
+      #text(7.5pt, fill: sb-colors.muted)[
+        #if normalized-variables.len() > 0 [
+          *Variablen:* #normalized-variables.join("; ")
+        ]
+        #if normalized-units.len() > 0 [
+          #if normalized-variables.len() > 0 [#h(6pt)]
+          *Einheiten:* #normalized-units.join("; ")
+        ]
+        #if source != none [
+          #h(6pt)
+          *Quelle:* #source
+        ]
+      ]
     ]
   ]
-  #if units.len() > 0 [
-    #linebreak()
-    #text(8.5pt, fill: sb-colors.muted)[
-      *SI-Einheiten:* #units.join("; ")
-    ]
-  ]
-  #if source != none [
-    #linebreak()
-    #text(8.2pt, fill: sb-colors.muted)[
-      *Quelle:* #source
-    ]
-  ]
-]
+}
 
 #let sb-math-panel(title, note: none, body) = block(
   width: 100%,
@@ -287,11 +305,30 @@
   #align(center)[#body]
 ]
 
-#let sb-example(title: "Rechenbeispiel", body) = sb-callout(
-  title: title,
-  tone: "warning",
-  body,
-)
+#let sb-example(title: "Rechenbeispiel", result: none, breakable: false, body) = block(
+  width: 100%,
+  breakable: breakable,
+  fill: sb-colors.white,
+  stroke: (left: 2.4pt + sb-colors.gold-dark, rest: 0.55pt + sb-colors.line),
+  radius: 3pt,
+  inset: 0pt,
+)[
+  #block(width: 100%, fill: sb-colors.soft, inset: (x: 9pt, y: 7pt))[
+    #text(9pt, weight: "bold", fill: sb-colors.navy)[#title]
+  ]
+  #block(width: 100%, inset: 9pt)[#body]
+  #if result != none [
+    #block(
+      width: 100%,
+      fill: rgb("#FFF8E8"),
+      inset: (x: 9pt, y: 7pt),
+    )[
+      #text(8.5pt, weight: "bold", fill: sb-colors.gold-dark)[Ergebnis]
+      #h(5pt)
+      #text(9pt, weight: "semibold", fill: sb-colors.ink)[#result]
+    ]
+  ]
+]
 
 #let sb-source-note(source, coverage: none) = block(
   width: 100%,

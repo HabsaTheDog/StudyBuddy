@@ -53,6 +53,15 @@ describe("single-file HTML validation", () => {
     expect(report.issues.map((issue) => issue.code)).toContain("network-api");
   });
 
+  it("allows user-triggered HTTPS source links", () => {
+    const html = minimalValidStudyBuddyHtml({ title: "Reference", kind: "reference", language: "de" })
+      .replace("</main>", "<a href=\"https://moodle.example/course\" target=\"_blank\" rel=\"noopener noreferrer\">Quelle</a></main>");
+
+    const report = validateSingleFileHtml(html, "reference");
+
+    expect(report.ok).toBe(true);
+  });
+
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")("passes browser validation", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-browser-"));
     tempDirs.push(runDir);

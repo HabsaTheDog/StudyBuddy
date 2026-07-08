@@ -4,18 +4,19 @@
 #import "@preview/cetz:0.5.0"
 
 #let sb-colors = (
-  navy: rgb("#19254b"),
-  blue: rgb("#323a61"),
-  gold: rgb("#dfbb63"),
-  gold-dark: rgb("#c3994d"),
-  cyan: rgb("#397f93"),
-  green: rgb("#23805A"),
-  amber: rgb("#c3994d"),
-  red: rgb("#B33A3A"),
-  ink: rgb("#20263f"),
-  muted: rgb("#66708f"),
-  line: rgb("#d9ddea"),
-  soft: rgb("#f6f7fb"),
+  navy: rgb("#111827"),
+  blue: rgb("#ff5f6d"),
+  gold: rgb("#ff8f5e"),
+  gold-dark: rgb("#ff5f6d"),
+  cyan: rgb("#f97316"),
+  green: rgb("#16a34a"),
+  amber: rgb("#f59e0b"),
+  red: rgb("#dc2626"),
+  ink: rgb("#111827"),
+  muted: rgb("#4b5563"),
+  line: rgb("#fed7aa"),
+  soft: rgb("#fff7ed"),
+  soft-2: rgb("#fff1f2"),
   white: rgb("#FFFFFF"),
 )
 
@@ -45,15 +46,27 @@
   if tone == "success" {
     rgb("#EAF6F0")
   } else if tone == "warning" {
-    rgb("#FFF4E2")
+    rgb("#FFFBEB")
   } else if tone == "danger" {
-    rgb("#FCECEC")
+    rgb("#FEF2F2")
   } else if tone == "info" {
-    rgb("#EAF7FA")
+    rgb("#FFF7ED")
   } else {
-    rgb("#ECF3FD")
+    rgb("#FFF1F2")
   }
 }
+
+#let sb-logo-mark(size: 10mm, text-size: 6pt) = box(
+  width: size,
+  height: size,
+  fill: sb-colors.gold-dark,
+  radius: 2.5pt,
+  inset: 0pt,
+)[
+  #align(center + horizon)[
+    #text(text-size, weight: "bold", fill: sb-colors.white)[SB]
+  ]
+]
 
 #let sb-chip(label, tone: "primary") = {
   let color = sb-tone-color(tone)
@@ -68,12 +81,16 @@
 }
 
 #let sb-source-ref(label, target: none, url: none) = {
-  let chip = sb-chip(label, tone: "info")
+  let marker = box(
+    inset: (x: 1.5pt, y: 0.5pt),
+  )[
+    #text(6.8pt, weight: "bold", fill: sb-colors.gold-dark)[#label]
+  ]
   let destination = if target != none { target } else { url }
   if destination == none {
-    chip
+    marker
   } else {
-    link(destination)[#chip]
+    link(destination)[#marker]
   }
 }
 
@@ -114,17 +131,25 @@
     height: 100%,
     inset: 0pt,
   )[
-    #rect(width: 100%, height: 4mm, fill: sb-colors.navy)
+    #rect(width: 100%, height: 4mm, fill: sb-colors.gold-dark)
     #v(14mm)
     #grid(
       columns: (1fr, auto),
       align: (left, top),
       [
-        #text(10pt, weight: "bold", tracking: 1.2pt, fill: sb-colors.blue)[
-          STUDY BUDDY 2.0
-        ]
-        #v(2mm)
-        #text(8.5pt, fill: sb-colors.muted)[FH Technikum Wien · Engineering Study Documents]
+        #grid(
+          columns: (auto, 1fr),
+          gutter: 6pt,
+          align: (left, horizon),
+          [#sb-logo-mark(size: 9mm, text-size: 5.2pt)],
+          [
+            #text(10pt, weight: "bold", tracking: 1.2pt, fill: sb-colors.gold-dark)[
+              STUDY BUDDY
+            ]
+            #linebreak()
+            #text(8.5pt, fill: sb-colors.muted)[FH Technikum Wien · Engineering Study Documents]
+          ],
+        )
       ],
       [#sb-chip(kind, tone: "success")],
     )
@@ -136,7 +161,7 @@
       #text(13pt, fill: sb-colors.muted)[#subtitle]
     ]
     #v(8mm)
-    #line(length: 42mm, stroke: 2pt + sb-colors.gold)
+    #line(length: 42mm, stroke: 2pt + sb-colors.gold-dark)
     #v(10mm)
 
     #block(
@@ -168,7 +193,7 @@
         #box(
           width: 13mm,
           height: 13mm,
-          fill: sb-colors.navy,
+          fill: sb-colors.gold-dark,
           radius: 2pt,
           inset: 2pt,
         )[
@@ -183,15 +208,17 @@
 
 #let sb-header(short-title, course: none) = context {
   grid(
-    columns: (1fr, auto),
+    columns: (auto, 1fr, auto),
+    gutter: 5pt,
     align: (left, bottom),
+    [#sb-logo-mark(size: 5mm, text-size: 3.5pt)],
     [
       #text(8pt, weight: "medium", fill: sb-colors.navy)[#short-title]
       #if course != none [
         #text(8pt, fill: sb-colors.muted)[ · #course]
       ]
     ],
-    [#text(7.5pt, weight: "bold", fill: sb-colors.blue)[STUDY BUDDY]],
+    [#text(7.5pt, weight: "bold", fill: sb-colors.gold-dark)[STUDY BUDDY]],
   )
   v(2pt)
   line(length: 100%, stroke: 0.55pt + sb-colors.line)
@@ -204,7 +231,7 @@
     columns: (1fr, auto),
     [
       #text(7.5pt, fill: sb-colors.muted)[
-        Lernunterlage · Angaben und Quellen vor Verwendung prüfen
+        Study Buddy · Lernunterlage · Angaben und Quellen prüfen
       ]
     ],
     [
@@ -246,35 +273,63 @@
   variables: (),
   units: (),
   source: none,
+  note: none,
   body,
 ) = {
   let normalized-variables = sb-sequence(variables)
   let normalized-units = sb-sequence(units)
-  sb-callout(
-    title: name,
-    tone: "success",
+  block(
+    width: 100%,
+    breakable: true,
+    fill: rgb("#fffaf7"),
+    stroke: (left: 2.2pt + sb-colors.gold-dark, rest: 0.5pt + sb-colors.line),
+    radius: 3pt,
+    inset: (x: 8pt, y: 8pt),
   )[
-    #align(center)[#text(13pt)[#body]]
-    #if normalized-variables.len() > 0 [
-      #v(5pt)
-      #text(8.5pt, fill: sb-colors.muted)[
-        *Variablen:* #normalized-variables.join("; ")
-      ]
+    #text(8.6pt, weight: "bold", fill: sb-colors.gold-dark)[#name]
+    #v(4pt)
+    #align(center)[#text(11.5pt)[#body]]
+    #if note != none [
+      #v(4pt)
+      #text(8.5pt, fill: sb-colors.ink)[#note]
     ]
-    #if normalized-units.len() > 0 [
-      #linebreak()
-      #text(8.5pt, fill: sb-colors.muted)[
-        *SI-Einheiten:* #normalized-units.join("; ")
-      ]
-    ]
-    #if source != none [
-      #linebreak()
-      #text(8.2pt, fill: sb-colors.muted)[
-        *Quelle:* #source
+    #if normalized-variables.len() > 0 or normalized-units.len() > 0 or source != none [
+      #v(3pt)
+      #text(7.5pt, fill: sb-colors.muted)[
+        #if normalized-variables.len() > 0 [
+          *Variablen:* #normalized-variables.join("; ")
+        ]
+        #if normalized-units.len() > 0 [
+          #if normalized-variables.len() > 0 [#h(6pt)]
+          *Einheiten:* #normalized-units.join("; ")
+        ]
+        #if source != none [
+          #h(6pt)
+          *Quelle:* #source
+        ]
       ]
     ]
   ]
 }
+
+#let sb-formula-group(title: "Formelwerkzeug", body) = block(
+  width: 100%,
+  breakable: true,
+  fill: sb-colors.white,
+  stroke: 0.6pt + sb-colors.line,
+  radius: 3pt,
+  inset: 9pt,
+)[
+  #grid(
+    columns: (auto, 1fr),
+    gutter: 7pt,
+    align: (left, horizon),
+    [#text(8pt, weight: "bold", tracking: 0.6pt, fill: sb-colors.gold-dark)[FORMELN]],
+    [#line(length: 100%, stroke: 0.55pt + sb-colors.line)],
+  )
+  #v(2pt)
+  #body
+]
 
 #let sb-math-panel(title, note: none, body) = block(
   width: 100%,
@@ -293,11 +348,36 @@
   #align(center)[#body]
 ]
 
-#let sb-example(title: "Rechenbeispiel", body) = sb-callout(
-  title: title,
-  tone: "warning",
-  body,
-)
+#let sb-example(title: "Rechenbeispiel", result: none, breakable: false, body) = block(
+  width: 100%,
+  breakable: breakable,
+  fill: sb-colors.white,
+  stroke: 0.65pt + sb-colors.line,
+  radius: 4pt,
+  inset: 0pt,
+)[
+  #block(width: 100%, fill: sb-colors.soft-2, inset: (x: 9pt, y: 7pt))[
+    #grid(
+      columns: (auto, 1fr),
+      gutter: 5pt,
+      align: (left, horizon),
+      [#box(width: 2.5mm, height: 2.5mm, fill: sb-colors.gold-dark, radius: 0.6pt)],
+      [#text(9pt, weight: "bold", fill: sb-colors.navy)[#title]],
+    )
+  ]
+  #block(width: 100%, inset: 9pt)[#body]
+  #if result != none [
+    #block(
+      width: 100%,
+      fill: sb-colors.soft,
+      inset: (x: 9pt, y: 7pt),
+    )[
+      #text(8.5pt, weight: "bold", fill: sb-colors.gold-dark)[Ergebnis]
+      #h(5pt)
+      #text(9pt, weight: "semibold", fill: sb-colors.ink)[#result]
+    ]
+  ]
+]
 
 #let sb-source-note(source, coverage: none) = block(
   width: 100%,
@@ -320,9 +400,9 @@
   #block(
     width: 100%,
     breakable: false,
-    fill: sb-colors.white,
+    fill: rgb("#fffdfb"),
     stroke: 0.55pt + sb-colors.line,
-    radius: 3pt,
+    radius: 4pt,
     inset: 9pt,
   )[
     #align(center)[#body]
@@ -843,7 +923,7 @@
   #body
 ]
 
-#let sb-page-rules() = [
+#let sb-page-rules(body) = [
   #set text(
     font: "New Computer Modern",
     size: 10.2pt,
@@ -855,16 +935,28 @@
   #set heading(numbering: "1.1", outlined: true)
   #show heading.where(level: 1): it => [
     #pagebreak(weak: true)
-    #v(2mm)
-    #text(18pt, weight: "bold", fill: sb-colors.navy)[#it.body]
-    #v(2pt)
-    #line(length: 22mm, stroke: 1.8pt + sb-colors.cyan)
-    #v(5mm)
+    #v(1mm)
+    #grid(
+      columns: (auto, 1fr),
+      gutter: 7pt,
+      align: (left, horizon),
+      [#sb-logo-mark(size: 6mm, text-size: 3.8pt)],
+      [#text(15pt, weight: "bold", fill: sb-colors.navy)[#it.body]],
+    )
+    #v(1.5mm)
+    #line(length: 100%, stroke: 1pt + sb-colors.gold-dark)
+    #v(3.5mm)
   ]
   #show heading.where(level: 2): it => [
-    #v(5mm)
-    #text(12pt, weight: "bold", fill: sb-colors.blue)[#it.body]
-    #v(2mm)
+    #v(4mm)
+    #grid(
+      columns: (auto, 1fr),
+      gutter: 6pt,
+      align: (left, horizon),
+      [#text(10.5pt, weight: "bold", fill: sb-colors.gold-dark)[#it.body]],
+      [#line(length: 100%, stroke: 0.45pt + sb-colors.line)],
+    )
+    #v(1.5mm)
   ]
   #show heading.where(level: 3): it => [
     #v(3mm)
@@ -873,6 +965,56 @@
   ]
   #show link: underline
   #show raw: set text(font: "DejaVu Sans Mono", size: 8.5pt)
+  #body
+]
+
+#let sb-compact-frontmatter(
+  title,
+  course: none,
+  kind: "Lernunterlage",
+  semester: none,
+  status: "Arbeitsstand",
+  date: datetime.today().display("[day].[month].[year]"),
+  show-outline: true,
+) = [
+  #rect(width: 100%, height: 3mm, fill: sb-colors.gold-dark)
+  #v(7mm)
+  #grid(
+    columns: (auto, 1fr),
+    gutter: 7pt,
+    align: (left, horizon),
+    [#sb-logo-mark(size: 10mm, text-size: 5.8pt)],
+    [
+      #text(8pt, weight: "bold", tracking: 1pt, fill: sb-colors.gold-dark)[STUDY BUDDY · #kind]
+      #linebreak()
+      #text(7.8pt, fill: sb-colors.muted)[Moodle-Struktur · quellengebunden · prüfungsnah]
+    ],
+  )
+  #v(3mm)
+  #text(24pt, weight: "bold", fill: sb-colors.navy)[#title]
+  #if course != none [
+    #v(2mm)
+    #text(11pt, fill: sb-colors.muted)[#course]
+  ]
+  #v(5mm)
+  #grid(
+    columns: (auto, auto, auto, 1fr, auto),
+    gutter: 5pt,
+    align: (left, horizon),
+    [#sb-chip(if semester == none { "Semester offen" } else { semester }, tone: "info")],
+    [#sb-chip(status, tone: "warning")],
+    [#sb-chip(date)],
+    [],
+    [#text(8pt, fill: sb-colors.muted)[Study Buddy]],
+  )
+  #if show-outline [
+    #v(7mm)
+    #line(length: 100%, stroke: 0.7pt + sb-colors.line)
+    #v(4mm)
+    #text(11pt, weight: "bold", fill: sb-colors.navy)[Inhalt]
+    #v(2mm)
+    #outline(title: none, depth: 1)
+  ]
 ]
 
 #let sb-document(
@@ -886,6 +1028,7 @@
   status: "Arbeitsstand",
   date: datetime.today().display("[day].[month].[year]"),
   show-outline: true,
+  compact: false,
   body: [],
 ) = [
   #set document(title: title, author: author)
@@ -893,29 +1036,51 @@
     paper: "a4",
     margin: (left: 18mm, right: 18mm, top: 17mm, bottom: 17mm),
   )
-  #sb-page-rules()
-  #sb-title-page(
-    title: title,
-    subtitle: subtitle,
-    course: course,
-    kind: kind,
-    semester: semester,
-    author: author,
-    status: status,
-    date: date,
-  )
-  #pagebreak()
-  #counter(page).update(1)
-  #set page(
-    header: sb-header(
-      if short-title == none { title } else { short-title },
+  #show: sb-page-rules
+  #if compact [
+    #counter(page).update(1)
+    #set page(header: none, footer: sb-footer())
+    #sb-compact-frontmatter(
+      title,
       course: course,
-    ),
-    footer: sb-footer(),
-  )
-  #if show-outline [
-    #outline(title: [Inhaltsverzeichnis], depth: 2)
+      kind: kind,
+      semester: semester,
+      status: status,
+      date: date,
+      show-outline: show-outline,
+    )
     #pagebreak()
+    #set page(
+      header: sb-header(
+        if short-title == none { title } else { short-title },
+        course: course,
+      ),
+      footer: sb-footer(),
+    )
+  ] else [
+    #sb-title-page(
+      title: title,
+      subtitle: subtitle,
+      course: course,
+      kind: kind,
+      semester: semester,
+      author: author,
+      status: status,
+      date: date,
+    )
+    #pagebreak()
+    #counter(page).update(1)
+    #set page(
+      header: sb-header(
+        if short-title == none { title } else { short-title },
+        course: course,
+      ),
+      footer: sb-footer(),
+    )
+    #if show-outline [
+      #outline(title: [Inhaltsverzeichnis], depth: 2)
+      #pagebreak()
+    ]
   ]
   #body
 ]

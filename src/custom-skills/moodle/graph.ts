@@ -17,6 +17,13 @@ import { createFormatterNode } from "./nodes/formatterNode.js";
 import { createScraperNode } from "./nodes/scraperNode.js";
 import { createVisualAssetResolverNode } from "./nodes/visualAssetResolverNode.js";
 import { createVisualDiscoveryNode } from "./nodes/visualDiscoveryNode.js";
+import { createVisualPlannerNode } from "./nodes/visualPlannerNode.js";
+import { createResourceManifestNode } from "./nodes/resourceManifestNode.js";
+import { createEvidenceNode } from "./nodes/evidenceNode.js";
+import { createCoverageNode } from "./nodes/coverageNode.js";
+import { createStudyModelNode } from "./nodes/studyModelNode.js";
+import { createReviewNode } from "./nodes/reviewNode.js";
+import { createBundleWriterNode } from "./nodes/bundleWriterNode.js";
 import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceOrchestrator.js";
 import { typstPdfPath } from "./typstTemplate.js";
 import { getStudyBuddyTypstSupportFiles } from "./typstAssets.js";
@@ -29,6 +36,18 @@ import {
   isDcDcRequest,
 } from "./sourceHints.js";
 import type { StudyBuddyIntent } from "./taskIntent.js";
+import {
+  CoverageAssessmentSchema,
+  EvidencePackageSchema,
+  ResourceManifestSchema,
+  ReviewReportSchema,
+  StudyModelSchema,
+} from "./examNavigatorContracts.js";
+import { buildResourceManifest } from "./resourceManifest.js";
+import { buildEvidencePackage } from "./evidencePackage.js";
+import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
+import { buildStudyModel } from "./studyModel.js";
+import { reviewStudyModel } from "./studentFirstReview.js";
 
 const MAX_RETRIES = 3;
 let typstPreflightPromise: Promise<void> | null = null;
@@ -85,7 +104,7 @@ export async function runMoodleGraph(
       state = await runDiagnosticOnly(config);
     } else {
       const initialStateForStage = config.stage === "render"
-        ? await loadRenderState(config.sourceRunDir)
+        ? await loadRenderState(config)
         : initialAgentState;
       if (config.stage !== "extract" && !config.intentDecision?.wantsQuickAnswer) {
         await ensureTypstPreflight();
@@ -134,6 +153,9 @@ export async function runMoodleGraph(
     ? await existingFilePath(answerJsonPath(config))
     : undefined;
   const pdfPath = hasDocument ? await existingPdfPath(config.outputPath) : undefined;
+  const htmlPath = state.artifact_bundle?.htmlPath
+    ? await existingFilePath(state.artifact_bundle.htmlPath)
+    : undefined;
   if (
     !config.diagnosticOnly &&
     config.stage !== "extract" &&
@@ -159,7 +181,13 @@ export async function runMoodleGraph(
             : hasDocument && Boolean(pdfPath)
     );
   const sourceCoverage = diagnostics.getCoverage();
-  const coverageComplete = isCoverageComplete(config, sourceCoverage);
+  const sourceFamiliesComplete = isCoverageComplete(config, sourceCoverage);
+  const coverageComplete =
+    sourceFamiliesComplete &&
+    (
+      config.intentDecision?.wantsQuickAnswer ||
+      state.coverage_assessment.status === "complete"
+    );
   await persistRunDiagnostics(config, state);
   const timedOut = state.error_log?.startsWith("Study Buddy run timed out") ?? false;
   await diagnostics.writeSummary({
@@ -202,6 +230,8 @@ export async function runMoodleGraph(
     sourceCoverage,
     error: state.error_log ?? undefined,
     extractedDataPath,
+    htmlPath,
+    artifactBundle: state.artifact_bundle ?? undefined,
   };
 }
 
@@ -247,22 +277,47 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
   return new StateGraph(AgentStateAnnotation)
     .addNode("sourcePlanner", createSourcePlannerNode(config))
     .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
+    .addNode("resourceManifest", createResourceManifestNode(config))
+    .addNode("evidence", createEvidenceNode(config))
+    .addNode("coverage", createCoverageNode(config))
     .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("visualPlanner", createVisualPlannerNode(config, codex))
     .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
     .addNode("formatter", createFormatterNode(config, codex))
+    .addNode("studyModel", createStudyModelNode(config))
+    .addNode("review", createReviewNode(config))
     .addNode("diskWriter", createDiskWriterNode(config))
+    .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "sourceOrchestrator")
-    .addEdge("sourceOrchestrator", "sourceGate")
-    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
-      analyzer: "visualDiscovery",
+    .addEdge("sourceOrchestrator", "resourceManifest")
+    .addEdge("resourceManifest", "evidence")
+    .addEdge("evidence", "coverage")
+    .addConditionalEdges("coverage", routeAfterCoverage, {
+      sourceGate: "sourceGate",
       abort: END,
     })
+    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
+      analyzer: "visualPlanner",
+      abort: END,
+    })
+    .addEdge("visualPlanner", "visualDiscovery")
     .addEdge("visualDiscovery", "analyzer")
     .addConditionalEdges("analyzer", routeAfterAnalyzer, {
       analyzer: "analyzer",
+      formatter: "studyModel",
+      abort: END,
+    })
+    .addConditionalEdges("studyModel", routeAfterStudyModel, {
+      studyModel: "studyModel",
+      review: "review",
+      abort: END,
+    })
+    .addConditionalEdges("review", routeAfterReview, {
+      analyzer: "analyzer",
       formatter: "formatter",
+      done: END,
       abort: END,
     })
     .addConditionalEdges("formatter", routeAfterFormatter, {
@@ -270,7 +325,8 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
       diskWriter: "diskWriter",
       abort: END,
     })
-    .addEdge("diskWriter", END)
+    .addEdge("diskWriter", "bundleWriter")
+    .addEdge("bundleWriter", END)
     .compile();
 }
 
@@ -308,19 +364,43 @@ export function buildExtractionGraph(
   return new StateGraph(AgentStateAnnotation)
     .addNode("sourcePlanner", createSourcePlannerNode(config))
     .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
+    .addNode("resourceManifest", createResourceManifestNode(config))
+    .addNode("evidence", createEvidenceNode(config))
+    .addNode("coverage", createCoverageNode(config))
     .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("visualPlanner", createVisualPlannerNode(config, codex))
     .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("studyModel", createStudyModelNode(config))
+    .addNode("review", createReviewNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "sourceOrchestrator")
-    .addEdge("sourceOrchestrator", "sourceGate")
-    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
-      analyzer: "visualDiscovery",
+    .addEdge("sourceOrchestrator", "resourceManifest")
+    .addEdge("resourceManifest", "evidence")
+    .addEdge("evidence", "coverage")
+    .addConditionalEdges("coverage", routeAfterCoverage, {
+      sourceGate: "sourceGate",
       abort: END,
     })
+    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
+      analyzer: "visualPlanner",
+      abort: END,
+    })
+    .addEdge("visualPlanner", "visualDiscovery")
     .addEdge("visualDiscovery", "analyzer")
     .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
       analyzer: "analyzer",
+      done: "studyModel",
+      abort: END,
+    })
+    .addConditionalEdges("studyModel", routeAfterStudyModel, {
+      studyModel: "studyModel",
+      review: "review",
+      abort: END,
+    })
+    .addConditionalEdges("review", routeAfterReview, {
+      analyzer: "analyzer",
+      formatter: END,
       done: END,
       abort: END,
     })
@@ -336,6 +416,7 @@ export function buildRenderGraph(
     .addNode("visualAssetResolver", createVisualAssetResolverNode(config))
     .addNode("formatter", createFormatterNode(config, codex))
     .addNode("diskWriter", createDiskWriterNode(config))
+    .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "visualAssetResolver")
     .addConditionalEdges("visualAssetResolver", routeAfterVisualAssetResolver, {
       formatter: "formatter",
@@ -346,7 +427,8 @@ export function buildRenderGraph(
       diskWriter: "diskWriter",
       abort: END,
     })
-    .addEdge("diskWriter", END)
+    .addEdge("diskWriter", "bundleWriter")
+    .addEdge("bundleWriter", END)
     .compile();
 }
 
@@ -359,6 +441,14 @@ function createSourceGateNode(config: MoodleRuntimeConfig) {
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     const coverage = config.diagnostics?.getCoverage();
+    if (
+      !config.intentDecision?.wantsQuickAnswer &&
+      state.coverage_assessment.status === "blocked"
+    ) {
+      return {
+        error_log: `Student-first coverage blocked publication: ${state.coverage_assessment.detail}`,
+      };
+    }
     if (!coverage) {
       return { error_log: null };
     }
@@ -475,6 +565,24 @@ function routeAfterAnalyzer(state: LangGraphAgentState): "analyzer" | "formatter
   return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
 }
 
+function routeAfterCoverage(state: LangGraphAgentState): "sourceGate" | "abort" {
+  return state.error_log ? "abort" : "sourceGate";
+}
+
+function routeAfterStudyModel(state: LangGraphAgentState): "studyModel" | "review" | "abort" {
+  if (!state.error_log) return "review";
+  return state.retry_count >= MAX_RETRIES ? "abort" : "studyModel";
+}
+
+function routeAfterReview(
+  state: LangGraphAgentState,
+): "analyzer" | "formatter" | "done" | "abort" {
+  if (!state.error_log) {
+    return state.final_document ? "done" : "formatter";
+  }
+  return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
+}
+
 function routeAfterExtractionAnalyzer(state: LangGraphAgentState): "analyzer" | "done" | "abort" {
   if (!state.error_log) {
     return "done";
@@ -520,6 +628,8 @@ export async function persistRunDiagnostics(
   state: AgentState,
 ): Promise<void> {
   await mkdir(config.runDir, { recursive: true });
+  await mkdir(path.join(config.runDir, "extraction"), { recursive: true });
+  await mkdir(path.join(config.runDir, "render"), { recursive: true });
   await Promise.all([
     writeFile(path.join(config.runDir, "moodle_raw.txt"), state.moodle_raw_text, "utf8"),
     writeJson(path.join(config.runDir, "state.json"), {
@@ -530,6 +640,28 @@ export async function persistRunDiagnostics(
         : "",
     }),
     writeFile(path.join(config.runDir, "error.log"), state.error_log ?? "", "utf8"),
+    writeJson(path.join(config.runDir, "extraction", "visual-status.json"), {
+      visualMode: config.visualMode,
+      visualsEnabled: config.visualsEnabled,
+      status:
+        config.visualMode === "inline"
+          ? "inline"
+          : config.visualMode === "deferred"
+            ? "deferred"
+            : "off",
+      warning:
+        config.visualMode === "deferred"
+          ? "Visual intake was deferred so the text-first handoff/render can complete first."
+          : undefined,
+    }),
+    writeJson(path.join(config.runDir, "render", "render-manifest.json"), {
+      stage: config.stage,
+      outputPath: config.outputPath,
+      pdfPath: state.final_document.trim() ? typstPdfPath(config.outputPath) : undefined,
+      visualMode: config.visualMode,
+      generatedAt: new Date().toISOString(),
+    }),
+    writeJson(path.join(config.runDir, "render", "coverage-report.json"), state.coverage_assessment),
   ]);
 }
 
@@ -555,24 +687,75 @@ async function loadSourceCoverage(sourceRunDir: string | undefined): Promise<Sou
   return JSON.parse(await readFile(coveragePath, "utf8")) as SourceCoverage;
 }
 
-async function loadRenderState(sourceRunDir: string | undefined): Promise<AgentState> {
+async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState> {
+  const sourceRunDir = config.sourceRunDir;
   if (!sourceRunDir) {
     throw new Error("Render stage requires --source-run-dir.");
   }
-  const [summary, errorLog, rawText, extractedText] = await Promise.all([
+  const [
+    summary,
+    errorLog,
+    rawText,
+    extractedText,
+    manifestText,
+    evidenceText,
+    coverageText,
+    modelText,
+    reviewText,
+  ] = await Promise.all([
     readFile(path.join(sourceRunDir, "run-summary.md"), "utf8"),
     readFile(path.join(sourceRunDir, "error.log"), "utf8"),
     readFile(path.join(sourceRunDir, "moodle_raw.txt"), "utf8"),
     readFile(path.join(sourceRunDir, "extracted-data.json"), "utf8"),
+    readOptional(path.join(sourceRunDir, "source-map.json")),
+    readOptional(path.join(sourceRunDir, "evidence-package.json")),
+    readOptional(path.join(sourceRunDir, "coverage-report.json")),
+    readOptional(path.join(sourceRunDir, "study-model.json")),
+    readOptional(path.join(sourceRunDir, "review-report.json")),
   ]);
-  if (!/^Run status:\s*success$/m.test(summary) || errorLog.trim()) {
+  if (!/^Run status:\s*(?:success|partial)$/m.test(summary) || errorLog.trim()) {
     throw new Error(`Render source is not a successful extraction run: ${sourceRunDir}`);
+  }
+  const extractedData = validateExtractedData(JSON.parse(extractedText));
+  const resourceManifest = manifestText
+    ? ResourceManifestSchema.parse(JSON.parse(manifestText))
+    : await buildResourceManifest(sourceRunDir, rawText);
+  const evidencePackage = evidenceText
+    ? EvidencePackageSchema.parse(JSON.parse(evidenceText))
+    : await buildEvidencePackage(sourceRunDir, rawText, resourceManifest);
+  const coverageAssessment = coverageText
+    ? CoverageAssessmentSchema.parse(JSON.parse(coverageText))
+    : assessExamNavigatorCoverage(config, resourceManifest, evidencePackage);
+  if (modelText) StudyModelSchema.parse(JSON.parse(modelText));
+  if (reviewText) ReviewReportSchema.parse(JSON.parse(reviewText));
+  const studyModel = buildStudyModel(
+    config,
+    extractedData,
+    resourceManifest,
+    coverageAssessment,
+  );
+  const reviewReport = await reviewStudyModel(
+    studyModel,
+    coverageAssessment,
+    resourceManifest,
+  );
+  if (coverageAssessment.status === "blocked" || !reviewReport.ok) {
+    throw new Error(`Render source is blocked by student-first review: ${sourceRunDir}`);
   }
   return {
     ...initialAgentState,
     moodle_raw_text: rawText,
-    extracted_data: validateExtractedData(JSON.parse(extractedText)),
+    extracted_data: extractedData,
+    resource_manifest: resourceManifest,
+    evidence_package: evidencePackage,
+    coverage_assessment: coverageAssessment,
+    study_model: studyModel,
+    review_report: reviewReport,
   };
+}
+
+async function readOptional(filePath: string): Promise<string | null> {
+  return readFile(filePath, "utf8").catch(() => null);
 }
 
 async function withRuntimeGuard<T>(

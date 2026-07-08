@@ -46,11 +46,18 @@ export function classifyStudyBuddyIntent(input: {
     });
   }
   if (input.stage === "extract") {
-    return decision("extraction", "Extraction stage persists structured source handoff only.", {
-      needsMoodle: true,
-      needsCis: cisAvailable,
-      needsCalendar: calendarAvailable,
+    const semanticIntent = classifyStudyBuddyIntent({
+      ...input,
+      stage: "all",
     });
+    return {
+      ...semanticIntent,
+      intent: "extraction",
+      wantsPdf: false,
+      wantsTypstDocument: false,
+      wantsQuickAnswer: false,
+      reason: `Extraction handoff for ${semanticIntent.intent}: ${semanticIntent.reason}`,
+    };
   }
   if (input.stage === "render") {
     return decision("render", "Render stage consumes an existing extraction handoff.", {

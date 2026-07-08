@@ -10,6 +10,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const thread = codex.startThread({
     workingDirectory: config.runDir,
     skipGitRepoCheck: true,
+    ...(config.codexModel ? { model: config.codexModel } : {}),
   });
 
   return {
