@@ -191,12 +191,20 @@ async function validateHtmlInBrowser(html: string, options: BrowserValidationOpt
 
 function findExternalReferences(html: string): string[] {
   const refs: string[] = [];
-  const attrPattern = /\b(?:src|href|poster)\s*=\s*["']([^"']+)["']/gi;
+  const attrPattern = /\b(?:src|poster|data)\s*=\s*["']([^"']+)["']/gi;
   for (const match of html.matchAll(attrPattern)) {
     const value = match[1];
     if (isExternalReference(value)) {
       refs.push(value);
     }
+  }
+  const hrefPattern = /\bhref\s*=\s*["']([^"']+)["']/gi;
+  for (const match of html.matchAll(hrefPattern)) {
+    const value = match[1];
+    if (/^https?:/i.test(value) || value.startsWith("#") || isSafeRelativeReference(value)) {
+      continue;
+    }
+    if (isExternalReference(value)) refs.push(value);
   }
   const cssUrlPattern = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
   for (const match of html.matchAll(cssUrlPattern)) {
@@ -206,6 +214,14 @@ function findExternalReferences(html: string): string[] {
     }
   }
   return refs;
+}
+
+function isSafeRelativeReference(value: string): boolean {
+  return (
+    !/^[a-z][a-z0-9+.-]*:/i.test(value) &&
+    !value.startsWith("//") &&
+    !value.split(/[?#]/)[0].split("/").includes("..")
+  );
 }
 
 function isExternalReference(value: string): boolean {

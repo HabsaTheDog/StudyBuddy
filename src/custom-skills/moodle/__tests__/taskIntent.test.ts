@@ -83,4 +83,22 @@ describe("Study Buddy task intent", () => {
     expect(intent.needsCalendar).toBe(true);
     expect(intent.wantsQuizAssistance).toBe(false);
   });
+
+  it("preserves course-material and download requirements in the extraction stage", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Erstelle einen Study Guide als PDF aus allen Moodle-Folien und Rechenaufgaben",
+      stage: "extract",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "extraction",
+      needsMoodle: true,
+      needsCourseMaterial: true,
+      needsDownloadedFiles: true,
+    });
+  });
 });

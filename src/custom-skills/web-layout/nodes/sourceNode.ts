@@ -40,14 +40,28 @@ async function readTextSourceFile(filePath: string): Promise<string> {
 }
 
 async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
-  const [summary, errorLog, rawText, extractedData, coverage] = await Promise.all([
+  const [
+    summary,
+    errorLog,
+    rawText,
+    extractedData,
+    coverage,
+    sourceMap,
+    evidencePackage,
+    studyModel,
+    reviewReport,
+  ] = await Promise.all([
     readRequired(path.join(sourceRunDir, "run-summary.md")),
     readRequired(path.join(sourceRunDir, "error.log")),
     readRequired(path.join(sourceRunDir, "moodle_raw.txt")),
     readRequired(path.join(sourceRunDir, "extracted-data.json")),
     readRequired(path.join(sourceRunDir, "source_coverage.json")),
+    readOptional(path.join(sourceRunDir, "source-map.json")),
+    readOptional(path.join(sourceRunDir, "evidence-package.json")),
+    readOptional(path.join(sourceRunDir, "study-model.json")),
+    readOptional(path.join(sourceRunDir, "review-report.json")),
   ]);
-  if (!/^Run status:\s*success$/m.test(summary)) {
+  if (!/^Run status:\s*(?:success|partial)$/m.test(summary)) {
     throw new Error(`Moodle handoff is not a successful extraction run: ${sourceRunDir}`);
   }
   if (errorLog.trim()) {
@@ -58,14 +72,20 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
   }
   JSON.parse(extractedData);
   JSON.parse(coverage);
+  for (const optionalJson of [sourceMap, evidencePackage, studyModel, reviewReport]) {
+    if (optionalJson) JSON.parse(optionalJson);
+  }
   return [
     `# Moodle extraction handoff: ${sourceRunDir}`,
     "## Source coverage",
     coverage.trim(),
     "## Extracted data",
     extractedData.trim(),
-    "## Raw source text",
-    rawText.trim(),
+    sourceMap ? `## Resource graph\n${sourceMap.trim()}` : "",
+    evidencePackage ? `## Evidence package\n${evidencePackage.trim()}` : "",
+    studyModel ? `## Validated study model\n${studyModel.trim()}` : "",
+    reviewReport ? `## Student-first review\n${reviewReport.trim()}` : "",
+    studyModel ? "" : `## Raw source text\n${rawText.trim()}`,
   ].join("\n\n");
 }
 
@@ -75,4 +95,8 @@ async function readRequired(filePath: string): Promise<string> {
   } catch (error) {
     throw new Error(`Required handoff file is missing or unreadable: ${filePath}`);
   }
+}
+
+async function readOptional(filePath: string): Promise<string | null> {
+  return readFile(filePath, "utf8").catch(() => null);
 }

@@ -18,6 +18,7 @@ const program = new Command()
   .option("--skip-browser-validation", "Skip Playwright validation")
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
+  .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
   .option("--json", "Print machine-readable JSON result")
   .parse(process.argv);
 
@@ -33,6 +34,7 @@ const options = program.opts<{
   skipBrowserValidation?: boolean;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
+  codexModel?: string;
   json?: boolean;
 }>();
 
@@ -50,6 +52,7 @@ const result = await runWebLayoutGraph({
   skipBrowserValidation: options.skipBrowserValidation,
   maxRuntimeMs: options.maxRuntimeMs,
   idleTimeoutMs: options.idleTimeoutMs,
+  codexModel: options.codexModel,
 });
 
 if (options.json) {
