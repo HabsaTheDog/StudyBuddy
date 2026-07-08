@@ -5,12 +5,21 @@ import type { RenderStrategyDecision } from "./renderStrategy.js";
 import type { QuizPolicy } from "./quizPolicy.js";
 import type { StudyBuddyIntent, StudyBuddyIntentDecision } from "./taskIntent.js";
 import type { CalendarSelection } from "./calendarAdapter.js";
+import type {
+  ArtifactBundle,
+  ArtifactProfile,
+  LinkPolicy,
+  OutputFormat,
+  SourcePolicy,
+} from "./examNavigatorContracts.js";
+import type { ArtifactIntent } from "./studentFirstPolicy.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
 export type SourceMode = "auto" | "moodle" | "cis" | "both";
 export type TypstValidationMode = "strict" | "balanced";
 export type RenderStrategyMode = "auto" | "deterministic" | "llm_formatter";
+export type VisualMode = "off" | "deferred" | "inline";
 
 export interface MoodleGraphInput {
   prompt: string;
@@ -38,8 +47,14 @@ export interface MoodleGraphInput {
   typstValidationMode?: TypstValidationMode;
   renderStrategy?: RenderStrategyMode;
   visualsEnabled?: boolean;
+  visualMode?: VisualMode;
   maxVisualAssets?: number;
   visualMinConfidence?: number;
+  artifactProfile?: ArtifactProfile;
+  formats?: OutputFormat[];
+  sourcePolicy?: SourcePolicy;
+  linkPolicy?: LinkPolicy;
+  codexModel?: string;
 }
 
 export interface MoodleGraphResult {
@@ -56,6 +71,8 @@ export interface MoodleGraphResult {
   sourceCoverage: SourceCoverage;
   error?: string;
   extractedDataPath?: string;
+  htmlPath?: string;
+  artifactBundle?: ArtifactBundle;
 }
 
 export interface MoodleRuntimeConfig {
@@ -95,8 +112,10 @@ export interface MoodleRuntimeConfig {
   typstValidationMode: TypstValidationMode;
   renderStrategy: RenderStrategyMode;
   visualsEnabled: boolean;
+  visualMode: VisualMode;
   maxVisualAssets: number;
   visualMinConfidence: number;
+  artifactIntent: ArtifactIntent;
   abortSignal?: AbortSignal;
   diagnostics?: RunDiagnostics;
   sourcePlan?: SourcePlan;
@@ -104,4 +123,5 @@ export interface MoodleRuntimeConfig {
   intentDecision?: StudyBuddyIntentDecision;
   targetCourseUrls?: string[];
   calendarSelection?: CalendarSelection;
+  codexModel?: string;
 }

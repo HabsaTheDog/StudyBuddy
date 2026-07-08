@@ -17,7 +17,18 @@ describe("Study Buddy Typst components", () => {
         name: "Einzelelemente",
         variables: "U: Spannung",
         units: "V",
+        note: "Gültig für den ohmschen Widerstand.",
       )[$ U = R I $]
+
+      #sb-example(
+        title: "Beispiel 1",
+        result: [$ I = 2 A $],
+      )[
+        *Aufgabe:* Bestimme den Strom.
+
+        + Spannung und Widerstand einsetzen.
+        + Gleichung nach dem Strom auflösen.
+      ]
 
       #sb-table-section("Messwerte")[
         #sb-table(

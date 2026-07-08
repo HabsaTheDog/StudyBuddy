@@ -27,6 +27,14 @@ const program = new Command()
   .option("--download-concurrency <number>", "Parallel source-file downloads, clamped to 1..4", parseNumber)
   .option("--typst-validation <mode>", "Typst validation mode: strict or balanced", parseTypstValidation, "balanced")
   .option("--render-strategy <strategy>", "Render strategy: auto, deterministic, or llm_formatter", parseRenderStrategy, "auto")
+  .option("--artifact-profile <profile>", "Artifact profile: study_guide, exam_navigator, interactive_learning, practice_pack, or source_audit", parseArtifactProfile)
+  .option("--format <format>", "Output format; repeat for html and pdf", collectFormat, [])
+  .option("--visual-mode <mode>", "Visual mode: off, deferred, or inline", parseVisualMode)
+  .option("--fast-first", "Prioritize validated text extraction and first render before optional visuals")
+  .option("--no-visuals", "Skip visual planning and visual asset extraction")
+  .option("--max-visual-assets <number>", "Maximum visual candidates to pass through; 0 means automatic budget", parseNumber)
+  .option("--visual-min-confidence <number>", "Minimum visual candidate confidence from 0 to 1", parseConfidence)
+  .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
@@ -57,9 +65,26 @@ const options = program.opts<{
   typstValidation: "strict" | "balanced";
   renderStrategy: "auto" | "deterministic" | "llm_formatter";
   cis: boolean;
+  artifactProfile?: "study_guide" | "exam_navigator" | "interactive_learning" | "practice_pack" | "source_audit";
+  format: Array<"html" | "pdf">;
+  visualMode?: "off" | "deferred" | "inline";
+  fastFirst?: boolean;
+  visuals: boolean;
+  maxVisualAssets?: number;
+  visualMinConfidence?: number;
+  codexModel?: string;
 }>();
 
 const prompt = program.args.join(" ");
+const visualsEnabled = program.getOptionValueSource("visuals") === "cli"
+  ? options.visuals
+  : undefined;
+const visualMode =
+  program.getOptionValueSource("visualMode") === "cli"
+    ? options.visualMode
+    : options.fastFirst
+      ? "deferred"
+      : undefined;
 const result = await runMoodleGraph({
   prompt,
   moodleUrl: options.url,
@@ -85,6 +110,13 @@ const result = await runMoodleGraph({
   typstValidationMode: options.typstValidation,
   renderStrategy: options.renderStrategy,
   includeCis: options.cis,
+  artifactProfile: options.artifactProfile,
+  formats: options.format.length ? options.format : undefined,
+  visualsEnabled,
+  visualMode,
+  maxVisualAssets: options.maxVisualAssets,
+  visualMinConfidence: options.visualMinConfidence,
+  codexModel: options.codexModel,
 });
 
 if (options.json) {
@@ -106,6 +138,9 @@ if (options.json) {
   if (result.pdfPath) {
     console.log(`Wrote PDF document: ${result.pdfPath}`);
   }
+  if (result.htmlPath) {
+    console.log(`Wrote HTML navigator: ${result.htmlPath}`);
+  }
   console.log(`Run summary: ${result.runSummaryPath}`);
 } else {
   console.error(result.error || "Moodle graph failed.");
@@ -118,6 +153,14 @@ function parseNumber(value: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new Error(`Expected a non-negative integer, got ${value}`);
+  }
+  return parsed;
+}
+
+function parseConfidence(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`Expected a number from 0 to 1, got ${value}`);
   }
   return parsed;
 }
@@ -152,4 +195,36 @@ function parseRenderStrategy(value: string): "auto" | "deterministic" | "llm_for
     return value;
   }
   throw new Error(`Expected render strategy to be auto, deterministic, or llm_formatter, got ${value}`);
+}
+
+function parseVisualMode(value: string): "off" | "deferred" | "inline" {
+  if (value === "off" || value === "deferred" || value === "inline") {
+    return value;
+  }
+  throw new Error(`Invalid visual mode: ${value}`);
+}
+
+function parseArtifactProfile(
+  value: string,
+): "study_guide" | "exam_navigator" | "interactive_learning" | "practice_pack" | "source_audit" {
+  if (
+    value === "study_guide" ||
+    value === "exam_navigator" ||
+    value === "interactive_learning" ||
+    value === "practice_pack" ||
+    value === "source_audit"
+  ) {
+    return value;
+  }
+  throw new Error(`Unknown artifact profile: ${value}`);
+}
+
+function collectFormat(
+  value: string,
+  previous: Array<"html" | "pdf">,
+): Array<"html" | "pdf"> {
+  if (value !== "html" && value !== "pdf") {
+    throw new Error(`Expected html or pdf, got ${value}`);
+  }
+  return [...previous, value];
 }

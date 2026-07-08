@@ -49,14 +49,12 @@ export function renderDeterministicStudyDocument(
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
   source: ${sourceReferenceList(data, formula.source_ids) ?? typstString("Allgemeine Fachtheorie")},
+  note: ${typstString(formula.context)},
 )[
   ${math(formula.typst)}
 ]
 `,
       );
-      if (formula.context) {
-        body.push(paragraph(formula.context));
-      }
     }
   }
 
@@ -64,13 +62,14 @@ export function renderDeterministicStudyDocument(
     body.push(divider("Anwenden"), heading(1, "Durchgerechnete Beispiele"));
     for (const [index, example] of data.worked_examples.entries()) {
       body.push(
-        `#sb-example(title: ${typstString(`Beispiel ${index + 1}`)})[
-  ${text(example.prompt)}
+        `#sb-example(
+  title: ${typstString(`Beispiel ${index + 1}`)},
+  result: [${text(example.result)}],
+)[
+  #text(weight: "bold")[Aufgabe:] ${text(example.prompt)}
   ${sourceLine(data, example.source_ids) ?? ""}
   #v(4pt)
   ${numberedList(example.steps)}
-  #v(4pt)
-  #text(weight: "bold")[Ergebnis:] ${text(example.result)}
 ]
 `,
       );

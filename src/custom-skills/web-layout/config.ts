@@ -31,6 +31,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     idleTimeoutMs: input.idleTimeoutMs ?? 5 * 60_000,
     browserHeaded: input.browserHeaded ?? false,
     skipBrowserValidation: input.skipBrowserValidation ?? false,
+    codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
   };
 }
 
@@ -49,7 +50,13 @@ export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
     idleTimeoutMs: config.idleTimeoutMs,
     browserHeaded: config.browserHeaded,
     skipBrowserValidation: config.skipBrowserValidation,
+    codexModel: config.codexModel,
   };
+}
+
+function trimOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function inferSourceMode(input: WebLayoutInput): WebLayoutSourceMode {

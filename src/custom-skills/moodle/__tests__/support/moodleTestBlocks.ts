@@ -2,6 +2,14 @@ import type { CodexClient } from "../../codexClient.js";
 import type { ExtractedData } from "../../schemas.js";
 import type { LangGraphAgentState } from "../../state.js";
 import type { MoodleRuntimeConfig } from "../../types.js";
+import {
+  emptyCoverageAssessment,
+  emptyEvidencePackage,
+  emptyResourceManifest,
+  emptyReviewReport,
+  emptyStudyModel,
+} from "../../examNavigatorContracts.js";
+import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
 
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
   return {
@@ -47,8 +55,10 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     typstValidationMode: "balanced",
     renderStrategy: "auto",
     visualsEnabled: true,
+    visualMode: "inline",
     maxVisualAssets: 3,
     visualMinConfidence: 0.65,
+    artifactIntent: classifyArtifactIntent("make compact notes"),
     ...overrides,
   };
 }
@@ -60,6 +70,12 @@ export function moodleTestState(overrides: Partial<LangGraphAgentState> = {}): L
     final_document: "",
     error_log: null,
     retry_count: 0,
+    resource_manifest: emptyResourceManifest(),
+    evidence_package: emptyEvidencePackage(),
+    coverage_assessment: emptyCoverageAssessment(),
+    study_model: emptyStudyModel(),
+    review_report: emptyReviewReport(),
+    artifact_bundle: null,
     ...overrides,
   };
 }

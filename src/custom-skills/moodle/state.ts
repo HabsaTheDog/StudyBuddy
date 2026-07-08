@@ -1,4 +1,17 @@
 import { Annotation } from "@langchain/langgraph";
+import {
+  emptyCoverageAssessment,
+  emptyEvidencePackage,
+  emptyResourceManifest,
+  emptyReviewReport,
+  emptyStudyModel,
+  type ArtifactBundle,
+  type CoverageAssessment,
+  type EvidencePackage,
+  type ResourceManifest,
+  type ReviewReport,
+  type StudyModel,
+} from "./examNavigatorContracts.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
@@ -13,6 +26,12 @@ export interface AgentState {
   final_document: string;
   error_log: string | null;
   retry_count: number;
+  resource_manifest: ResourceManifest;
+  evidence_package: EvidencePackage;
+  coverage_assessment: CoverageAssessment;
+  study_model: StudyModel;
+  review_report: ReviewReport;
+  artifact_bundle: ArtifactBundle | null;
 }
 
 export const initialAgentState: AgentState = {
@@ -21,6 +40,12 @@ export const initialAgentState: AgentState = {
   final_document: "",
   error_log: null,
   retry_count: 0,
+  resource_manifest: emptyResourceManifest(),
+  evidence_package: emptyEvidencePackage(),
+  coverage_assessment: emptyCoverageAssessment(),
+  study_model: emptyStudyModel(),
+  review_report: emptyReviewReport(),
+  artifact_bundle: null,
 };
 
 export const AgentStateAnnotation = Annotation.Root({
@@ -43,6 +68,30 @@ export const AgentStateAnnotation = Annotation.Root({
   retry_count: Annotation<number>({
     reducer: (_current, update) => update,
     default: () => 0,
+  }),
+  resource_manifest: Annotation<ResourceManifest>({
+    reducer: (_current, update) => update,
+    default: emptyResourceManifest,
+  }),
+  evidence_package: Annotation<EvidencePackage>({
+    reducer: (_current, update) => update,
+    default: emptyEvidencePackage,
+  }),
+  coverage_assessment: Annotation<CoverageAssessment>({
+    reducer: (_current, update) => update,
+    default: emptyCoverageAssessment,
+  }),
+  study_model: Annotation<StudyModel>({
+    reducer: (_current, update) => update,
+    default: emptyStudyModel,
+  }),
+  review_report: Annotation<ReviewReport>({
+    reducer: (_current, update) => update,
+    default: emptyReviewReport,
+  }),
+  artifact_bundle: Annotation<ArtifactBundle | null>({
+    reducer: (_current, update) => update,
+    default: () => null,
   }),
 });
 

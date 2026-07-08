@@ -10,5 +10,7 @@ output/*
 !output/
 !output/README.md
 .playwright/
+.playwright-cli/
 coverage/
 *.tsbuildinfo
+tmp/
