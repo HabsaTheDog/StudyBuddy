@@ -81,6 +81,59 @@ describe("createRuntimeConfig", () => {
     expect(config.headless).toBe(true);
   });
 
+  it("uses an explicit Codex model over the inherited Study Buddy model", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-model-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("STUDY_BUDDY_CODEX_MODEL", "gpt-env");
+
+    const config = createRuntimeConfig({
+      prompt: "make notes",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      codexModel: "gpt-selected",
+    });
+
+    expect(config.codexModel).toBe("gpt-selected");
+    expect(sanitizeConfig(config).codexModel).toBe("gpt-selected");
+  });
+
+  it("uses longer runtime budgets for staged document artifacts", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-timeout-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+
+    const extractionConfig = createRuntimeConfig({
+      prompt: "Create a study guide for the MEL exam",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      stage: "extract",
+    });
+    const renderConfig = createRuntimeConfig({
+      prompt: "Create a study guide for the MEL exam",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      stage: "render",
+      sourceRunDir: tempRoot,
+    });
+
+    expect(extractionConfig.maxRuntimeMs).toBe(45 * 60_000);
+    expect(extractionConfig.idleTimeoutMs).toBe(15 * 60_000);
+    expect(renderConfig.maxRuntimeMs).toBe(20 * 60_000);
+    expect(renderConfig.idleTimeoutMs).toBe(15 * 60_000);
+  });
+
+  it("lets stage-specific runtime environment settings override artifact defaults", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-stage-timeout-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_EXTRACT_MAX_RUNTIME_MS", "3600000");
+    vi.stubEnv("MOODLE_EXTRACT_IDLE_TIMEOUT_MS", "1200000");
+
+    const config = createRuntimeConfig({
+      prompt: "Create a study guide for the MEL exam",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      stage: "extract",
+    });
+
+    expect(config.maxRuntimeMs).toBe(60 * 60_000);
+    expect(config.idleTimeoutMs).toBe(20 * 60_000);
+  });
+
   it("can explicitly disable CIS even when CIS_URLS is configured", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-no-cis-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

@@ -37,6 +37,21 @@ interface CrawlPage {
   depth: number;
 }
 
+interface PageFetchSuccess {
+  ok: true;
+  chunk: string;
+  url: string;
+}
+
+interface PageFetchFailure {
+  ok: false;
+  chunk: string;
+  message: string;
+  failureKind: "timeout" | "auth" | "unknown";
+}
+
+type PageFetchResult = PageFetchSuccess | PageFetchFailure;
+
 export function createScraperNode(config: MoodleRuntimeConfig) {
   return async function scraperNode(
     state: LangGraphAgentState,
@@ -115,6 +130,13 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         }
         successfulUrls.add(resolvedUrl);
         chunks.push(formatSourceChunk({ title, url: resolvedUrl, text }));
+        await capturePlaywrightResourceSnapshot(
+          page,
+          sourcesDir,
+          visited.size,
+          title,
+          resolvedUrl,
+        );
 
         if (config.allowFileDownloads) {
           await captureFileLinks(page, sourcesDir, chunks, config, downloaded);
@@ -126,6 +148,9 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
             const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
             if (linkViolation) {
               await recordQuizPolicyBlock(config, linkViolation);
+              continue;
+            }
+            if (config.allowFileDownloads && isReadableResourceLink(link)) {
               continue;
             }
             if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
@@ -189,6 +214,8 @@ async function scrapeWithAgentBrowser(
   const successfulUrls = new Set<string>();
   const downloaded = new Set<string>();
   const chunks: string[] = [];
+  const failures: PageFetchFailure[] = [];
+  let recoveredPages = 0;
 
   try {
     await diagnostics?.log("info", "moodle_login", "Opening Moodle dashboard with agent-browser...");
@@ -235,14 +262,35 @@ async function scrapeWithAgentBrowser(
           error,
         );
         const message = error instanceof Error ? error.message : String(error);
-        await diagnostics?.markFailure("moodle", {
-          detail: `agent-browser failed opening ${next.url}: ${message}`,
-          attemptedUrls: [next.url],
-          failureKind: message.toLowerCase().includes("timeout") ? "timeout" : "unknown",
-        });
-        const fallback = await fetchSinglePageWithPlaywright(config, next.url, visited.size);
-        chunks.push(fallback);
-        continue;
+        const openFailureKind = isAuthFailure(message)
+          ? "auth"
+          : isTimeoutFailure(message)
+            ? "timeout"
+            : "unknown";
+        snapshot = await recoverAgentBrowserSnapshot(client, next.url);
+        if (snapshot) {
+          recoveredPages += 1;
+          await diagnostics?.log(
+            "warn",
+            "moodle_crawl",
+            `agent-browser reported an open failure, but the requested page loaded and was recovered: ${next.url}`,
+          );
+        } else {
+          const fallback = await fetchSinglePageWithPlaywright(config, next.url, visited.size);
+          chunks.push(fallback.chunk);
+          if (fallback.ok) {
+            successfulUrls.add(fallback.url);
+            recoveredPages += 1;
+          } else {
+            failures.push({
+              ...fallback,
+              message: `agent-browser failed opening ${next.url}: ${message}; ${fallback.message}`,
+              failureKind:
+                fallback.failureKind === "unknown" ? openFailureKind : fallback.failureKind,
+            });
+          }
+          continue;
+        }
       }
 
       const title = snapshot.origin || next.url;
@@ -294,6 +342,9 @@ async function scrapeWithAgentBrowser(
             await recordQuizPolicyBlock(config, linkViolation);
             continue;
           }
+          if (config.allowFileDownloads && isReadableResourceLink(link)) {
+            continue;
+          }
           if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
             queue.push({ url: link, depth: next.depth + 1 });
           }
@@ -302,13 +353,25 @@ async function scrapeWithAgentBrowser(
     }
 
     const hasText = chunks.some(hasBodyText);
+    if (successfulUrls.size === 0 && failures.length > 0) {
+      const lastFailure = failures.at(-1)!;
+      await diagnostics?.markFailure("moodle", {
+        detail: lastFailure.message,
+        attemptedUrls: [...visited],
+        failureKind: lastFailure.failureKind,
+      });
+      return {
+        moodle_raw_text: chunks.join("\n\n"),
+        error_log: null,
+      };
+    }
     await diagnostics?.markSuccess("moodle", {
       detail: hasText
         ? `Fetched ${successfulUrls.size} relevant Moodle page(s) with agent-browser.`
         : "Moodle was reachable with agent-browser, but no readable page text was extracted.",
       urls: [...successfulUrls],
       pages: successfulUrls.size,
-      partial: !hasText,
+      partial: recoveredPages > 0 || failures.length > 0 || !hasText,
     });
 
     return {
@@ -398,6 +461,8 @@ async function captureAgentBrowserFileLinks(
   const fileLinks = selectRelevantFileLinks(
     extractSnapshotLinks(snapshot).filter(({ href }) => isReadableResourceLink(href)),
     config.prompt,
+    config.intentDecision?.needsCourseMaterial ? 60 : 3,
+    config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
   ).filter(({ href }) => {
     const normalized = normalizeMoodleUrl(href);
     if (downloaded.has(normalized)) {
@@ -513,13 +578,18 @@ async function fetchSinglePageWithPlaywright(
   config: MoodleRuntimeConfig,
   url: string,
   index: number,
-): Promise<string> {
+): Promise<PageFetchResult> {
   let browser: Browser | null = null;
   try {
     const openViolation = quizUrlPolicyViolation(config, url);
     if (openViolation) {
       await recordQuizPolicyBlock(config, openViolation);
-      return formatWarning("Moodle quiz safety", openViolation.message);
+      return {
+        ok: false,
+        chunk: formatWarning("Moodle quiz safety", openViolation.message),
+        message: openViolation.message,
+        failureKind: "unknown",
+      };
     }
     await config.diagnostics?.log("info", "moodle_crawl", `Playwright diagnostic fallback: ${url}`);
     browser = await chromium.launch({ headless: config.headless });
@@ -535,22 +605,81 @@ async function fetchSinglePageWithPlaywright(
     });
     const opened = await gotoWithDiagnostics(page, config, url, index);
     if (!opened.ok) {
-      return formatWarning("Moodle", opened.message);
+      return {
+        ok: false,
+        chunk: formatWarning("Moodle", opened.message),
+        message: opened.message,
+        failureKind: "timeout",
+      };
     }
     const title = await page.title().catch(() => url);
     const readViolation = quizReadPolicyViolation(config, page.url() || url, title);
     if (readViolation) {
       await recordQuizPolicyBlock(config, readViolation);
-      return formatWarning("Moodle quiz safety", readViolation.message);
+      return {
+        ok: false,
+        chunk: formatWarning("Moodle quiz safety", readViolation.message),
+        message: readViolation.message,
+        failureKind: "unknown",
+      };
     }
     const text = await page.locator("body").innerText({ timeout: 15_000 }).catch(() => "");
-    return formatSourceChunk({ title, url: page.url() || url, text });
+    const resolvedUrl = page.url() || url;
+    return {
+      ok: true,
+      chunk: formatSourceChunk({ title, url: resolvedUrl, text }),
+      url: resolvedUrl,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return formatWarning("Moodle", `Playwright diagnostic fallback failed for ${url}: ${message}`);
+    const detail = `Playwright diagnostic fallback failed for ${url}: ${message}`;
+    return {
+      ok: false,
+      chunk: formatWarning("Moodle", detail),
+      message: detail,
+      failureKind: isAuthFailure(message) ? "auth" : "unknown",
+    };
   } finally {
     await browser?.close();
   }
+}
+
+async function recoverAgentBrowserSnapshot(
+  client: AgentBrowserClient,
+  requestedUrl: string,
+): Promise<AgentBrowserSnapshot | null> {
+  const snapshot = await client
+    .snapshot({ interactive: true, urls: true, compact: true })
+    .catch(() => null);
+  if (
+    !snapshot ||
+    !isMatchingMoodleLocation(requestedUrl, snapshot.origin) ||
+    !snapshotToText(snapshot.snapshot).trim()
+  ) {
+    return null;
+  }
+  if (await looksLikeAgentBrowserLoginPage(client).catch(() => true)) {
+    return null;
+  }
+  return snapshot;
+}
+
+function isMatchingMoodleLocation(requestedUrl: string, currentUrl: string): boolean {
+  try {
+    const requested = new URL(requestedUrl);
+    const current = new URL(currentUrl);
+    if (requested.origin !== current.origin || requested.pathname !== current.pathname) {
+      return false;
+    }
+    const requestedId = requested.searchParams.get("id");
+    return !requestedId || requestedId === current.searchParams.get("id");
+  } catch {
+    return false;
+  }
+}
+
+function isTimeoutFailure(message: string): boolean {
+  return /\btime(?:d\s*out|out)\b/i.test(message);
 }
 
 async function gotoWithDiagnostics(
@@ -663,6 +792,8 @@ async function captureFileLinks(
   const fileLinks = selectRelevantFileLinks(
     hrefs.filter(({ href }) => isReadableResourceLink(href)),
     config.prompt,
+    config.intentDecision?.needsCourseMaterial ? 60 : 3,
+    config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
   ).filter(({ href }) => {
     const normalized = normalizeMoodleUrl(href);
     if (downloaded.has(normalized)) {
@@ -705,6 +836,53 @@ async function captureFileLinks(
       ? result.value
       : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
   }
+}
+
+async function capturePlaywrightResourceSnapshot(
+  page: Page,
+  sourcesDir: string,
+  index: number,
+  title: string,
+  origin: string,
+): Promise<void> {
+  const links = await page.locator("a[href]").evaluateAll((anchors) =>
+    anchors.map((anchor, anchorIndex) => {
+      const element = anchor as HTMLAnchorElement;
+      const section = element.closest("[data-sectionid], li.section, section");
+      const sectionTitle = section
+        ?.querySelector("h2, h3, h4, .sectionname")
+        ?.textContent
+        ?.replace(/\s+/g, " ")
+        .trim() ?? "";
+      return {
+        ref: `pw-${anchorIndex + 1}`,
+        href: element.href,
+        label: (element.innerText || element.textContent || element.href).replace(/\s+/g, " ").trim(),
+        sectionTitle,
+      };
+    }),
+  );
+  let currentSection = "";
+  const lines: string[] = [];
+  const refs: AgentBrowserSnapshot["refs"] = {};
+  for (const link of links) {
+    if (link.sectionTitle && link.sectionTitle !== currentSection) {
+      currentSection = link.sectionTitle;
+      lines.push(`- heading ${JSON.stringify(currentSection)} [level=3, ref=section-${link.ref}]`);
+    }
+    refs[link.ref] = { role: "link", name: link.label };
+    lines.push(`- link ${JSON.stringify(link.label)} [ref=${link.ref}, url=${link.href}]`);
+  }
+  const snapshot: AgentBrowserSnapshot = {
+    origin,
+    refs,
+    snapshot: lines.join("\n"),
+  };
+  await writeFile(
+    path.join(sourcesDir, safeFileName(`${index}-${title}-resource-snapshot.json`)),
+    `${JSON.stringify(snapshot, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 function formatSourceChunk(input: { title: string; url: string; text: string }): string {
@@ -1001,6 +1179,8 @@ function hasOrderedTokens(haystack: string[], needle: string[]): boolean {
 export function selectRelevantFileLinks<T extends { href: string; label: string }>(
   links: T[],
   prompt: string,
+  limit = 3,
+  minimumScore = 90,
 ): T[] {
   const unique = new Map<string, T>();
   for (const link of links) {
@@ -1010,9 +1190,9 @@ export function selectRelevantFileLinks<T extends { href: string; label: string 
   }
   return [...unique.values()]
     .map((link) => ({ link, score: scoreMoodleLink(link, prompt) }))
-    .filter(({ score }) => score >= 90)
+    .filter(({ score }) => score >= minimumScore)
     .sort((left, right) => right.score - left.score)
-    .slice(0, 3)
+    .slice(0, limit)
     .map(({ link }) => link);
 }
 

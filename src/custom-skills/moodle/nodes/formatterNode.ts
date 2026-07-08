@@ -10,11 +10,31 @@ import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
 import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
 import { decideRenderStrategy } from "../renderStrategy.js";
 import { writeRunProgress } from "../runProgress.js";
+import { renderStudentFirstTypst } from "../studentFirstTypstRenderer.js";
 
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
+      if (
+        state.review_report.ok &&
+        state.study_model.publicationStatus !== "blocked"
+      ) {
+        const document = renderStudentFirstTypst(state.study_model);
+        const validation = await validateGeneratedDocument(document, config);
+        if (!validation.ok) {
+          return {
+            final_document: document,
+            error_log: `Student-first Typst renderer failed:\n${validation.error}`,
+            retry_count: state.retry_count + 1,
+          };
+        }
+        await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
+        return {
+          final_document: document,
+          error_log: null,
+        };
+      }
       config.renderStrategyDecision = decision;
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
