@@ -118,6 +118,28 @@ describe("createRuntimeConfig", () => {
     expect(renderConfig.idleTimeoutMs).toBe(15 * 60_000);
   });
 
+  it("collects visuals inline by default for document artifact extraction", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-visuals-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+
+    const extractionConfig = createRuntimeConfig({
+      prompt: "Create a study guide for the MEL exam",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      stage: "extract",
+    });
+    const deferredConfig = createRuntimeConfig({
+      prompt: "Create a study guide for the MEL exam",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      stage: "extract",
+      visualMode: "deferred",
+    });
+
+    expect(extractionConfig.visualMode).toBe("inline");
+    expect(extractionConfig.visualsEnabled).toBe(true);
+    expect(deferredConfig.visualMode).toBe("deferred");
+    expect(deferredConfig.visualsEnabled).toBe(false);
+  });
+
   it("lets stage-specific runtime environment settings override artifact defaults", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-stage-timeout-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

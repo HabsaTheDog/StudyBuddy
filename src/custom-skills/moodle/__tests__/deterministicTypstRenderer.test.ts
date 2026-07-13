@@ -125,6 +125,47 @@ describe("deterministic Typst renderer", () => {
     ).resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("does not render unresolved Typst diagrams as generic block diagrams", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        visual_assets: [
+          {
+            id: "fig-missing",
+            kind: "typst_diagram",
+            title: "Toleranzfelder",
+            relative_path: null,
+            mime_type: null,
+            width_px: null,
+            height_px: null,
+            source_id: null,
+            source_url: "https://moodle.example/resource",
+            source_path: "/tmp/source.pdf",
+            source_page: 2,
+            confidence: 0.7,
+            caption_hint: "Toleranzfelder als didaktisches Diagramm",
+            relevance_reason: "No source image was available.",
+            generation_prompt: null,
+          },
+        ],
+        figures: [
+          {
+            asset_id: "fig-missing",
+            caption: "Toleranzfelder von Bohrung und Welle",
+            placement_hint: "overview",
+            source_ids: [],
+          },
+        ],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).not.toContain("#sb-block-diagram");
+    expect(source).toContain("Visualisierung nicht gerendert");
+    await expect(
+      validateTypst(source, await getStudyBuddyTypstSupportFiles()),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("normalizes analyzer double-dot derivative formulas into valid Typst math", async () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
