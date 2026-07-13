@@ -258,8 +258,8 @@ function renderFigure(
 ]`;
   }
   if (figure.kind === "typst_diagram") {
-    return `#sb-figure(label-text: ${typstString(`${labelPrefix} ${number}`)}, caption: ${caption})[
-  #sb-block-diagram(("Eingang", "Zusammenhang", "Ergebnis"))
+    return `#sb-callout(title: "Visualisierung nicht gerendert", tone: "warning")[
+  ${text(figure.generationPrompt || `Für "${figure.title}" wurde kein validiertes Quellenbild und keine konkrete Diagrammdefinition bereitgestellt.`)}
 ]`;
   }
   return `#sb-callout(title: "Vorgesehene Visualisierung", tone: "info")[
@@ -344,10 +344,43 @@ function stripMathDelimiters(value: string): string {
   const body = trimmed.startsWith("$") && trimmed.endsWith("$")
     ? trimmed.slice(1, -1).trim()
     : trimmed;
-  return body.replace(
+  return quoteBareMathText(body.replace(
     /_\(([A-Za-z][A-Za-z0-9 -]+)\)/g,
     (_, label: string) => `_"${label.trim()}"`,
-  );
+  ));
+}
+
+function quoteBareMathText(value: string): string {
+  const mathKeywords = new Set([
+    "and",
+    "cos",
+    "dif",
+    "div",
+    "dot",
+    "exp",
+    "frac",
+    "lim",
+    "ln",
+    "log",
+    "max",
+    "min",
+    "or",
+    "quad",
+    "sin",
+    "sqrt",
+    "sum",
+    "tan",
+    "times",
+  ]);
+  return value
+    .split(/("[^"]*")/)
+    .map((part) => {
+      if (part.startsWith('"') && part.endsWith('"')) return part;
+      return part.replace(/\b[A-Za-z]{2,}\b/g, (token) =>
+        mathKeywords.has(token) ? token : `"${token}"`
+      );
+    })
+    .join("");
 }
 
 function formatFormulaMath(value: string): string {

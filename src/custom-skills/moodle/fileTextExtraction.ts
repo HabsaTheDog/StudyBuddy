@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +17,35 @@ export async function extractReadableFileText(filePath: string): Promise<string>
     return extractOfficeText(filePath);
   }
   return "";
+}
+
+export async function assertReadableDownloadedFile(filePath: string): Promise<void> {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".pdf")) {
+    await assertPdfFile(filePath);
+  }
+}
+
+async function assertPdfFile(filePath: string): Promise<void> {
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(4096);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const sample = buffer.subarray(0, bytesRead);
+    const pdfOffset = sample.indexOf(Buffer.from("%PDF-"));
+    if (pdfOffset >= 0 && pdfOffset <= 1024) {
+      return;
+    }
+    const textSample = sample.toString("utf8").replace(/\s+/g, " ").trim().slice(0, 180);
+    const looksLikeHtml = /^\s*<!doctype html|^\s*<html[\s>]/i.test(sample.toString("utf8"));
+    throw new Error(
+      looksLikeHtml
+        ? `Downloaded file is not a PDF; Moodle returned an HTML page instead (${textSample}).`
+        : `Downloaded file is not a PDF; missing PDF header (${textSample || "binary content"}).`,
+    );
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function extractPdfText(pdfPath: string): Promise<string> {

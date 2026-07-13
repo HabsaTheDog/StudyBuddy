@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { assertReadableDownloadedFile } from "./fileTextExtraction.js";
 
 export const VISUAL_RETRIEVAL_PLAN_FILE = "visual-retrieval-plan.json";
 export const VISUAL_PAGE_INDEX_FILE = "visual-page-index.json";
@@ -87,6 +88,16 @@ export async function buildVisualPageIndex(
 
   for (const resource of resources) {
     const pdfPath = resource.localPath!;
+    const validPdf = await assertReadableDownloadedFile(pdfPath).then(
+      () => true,
+      (error) => {
+        warnings.push(`Skipped visual indexing for ${pdfPath}: ${errorMessage(error)}`);
+        return false;
+      },
+    );
+    if (!validPdf) {
+      continue;
+    }
     const pages = await readPdfPages(pdfPath).catch((error) => {
       warnings.push(`Could not read PDF page text for ${pdfPath}: ${errorMessage(error)}`);
       return [];
