@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { createAgentBrowserClient, type AgentBrowserClient, type AgentBrowserSnapshot } from "../agentBrowserClient.js";
@@ -10,7 +10,7 @@ import {
   looksLikeAgentBrowserLoginPage,
   looksLikeLoginPage,
 } from "../browserAuth.js";
-import { extractReadableFileText } from "../fileTextExtraction.js";
+import { assertReadableDownloadedFile, extractReadableFileText } from "../fileTextExtraction.js";
 import { safeFileName } from "../runDiagnostics.js";
 import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
@@ -495,7 +495,9 @@ async function captureAgentBrowserFileLinks(
         await config.diagnostics?.log("info", "moodle_download", `agent-browser download: ${link.href}`);
         await client.download(`@${link.ref}`, target);
         await assertNonEmptyFile(target);
+        await assertReadableDownloadedFile(target);
       } catch (error) {
+        await rm(target, { force: true }).catch(() => undefined);
         downloadError = error;
         await config.diagnostics?.log(
           "warn",
@@ -562,6 +564,10 @@ async function downloadResourceWithPlaywright(
     }
     await writeFile(target, await response.body());
     await assertNonEmptyFile(target);
+    await assertReadableDownloadedFile(target);
+  } catch (error) {
+    await rm(target, { force: true }).catch(() => undefined);
+    throw error;
   } finally {
     await browser.close().catch(() => undefined);
   }
@@ -819,13 +825,21 @@ async function captureFileLinks(
     }
 
     const body = await response.body();
-    await writeFile(target, body);
-    await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
-    const text = await extractReadableFileText(target).catch((error) => {
+    try {
+      await writeFile(target, body);
+      await assertNonEmptyFile(target);
+      await assertReadableDownloadedFile(target);
+      await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
+      const text = await extractReadableFileText(target).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        return `Readable text extraction failed: ${message}`;
+      });
+      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+    } catch (error) {
+      await rm(target, { force: true }).catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
-      return `Readable text extraction failed: ${message}`;
-    });
-    return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed: ${message}`;
+    }
   });
   const results = await runDownloadQueue(jobs, {
     concurrency: config.downloadConcurrency,

@@ -134,8 +134,8 @@ function renderFigures(data: ExtractedData): string[] {
     }
     if (asset.kind === "typst_diagram") {
       return [
-        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
-  #sb-block-diagram(("Eingang", "Verarbeitung", "Ausgang"))
+        `#sb-callout(title: "Visualisierung nicht gerendert", tone: "warning")[
+  #text(${typstString(asset.generation_prompt || asset.caption_hint || `Für "${asset.title}" wurde kein validiertes Quellenbild und keine konkrete Diagrammdefinition bereitgestellt.`)})
 ]
 `,
       ];

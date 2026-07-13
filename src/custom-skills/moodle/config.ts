@@ -211,7 +211,7 @@ function parseVisualMode(
   ) {
     return "inline";
   }
-  return artifactRequest ? "deferred" : "off";
+  return artifactRequest ? "inline" : "off";
 }
 
 function trimOptional(value: string | undefined): string | undefined {

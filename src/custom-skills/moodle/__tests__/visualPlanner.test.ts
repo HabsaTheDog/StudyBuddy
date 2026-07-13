@@ -1,11 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createVisualPlannerNode } from "../nodes/visualPlannerNode.js";
 import { RunDiagnostics } from "../runDiagnostics.js";
 import { ResourceManifestSchema } from "../examNavigatorContracts.js";
-import { readVisualRetrievalPlan } from "../visualPlanner.js";
+import { buildVisualPageIndex, readVisualRetrievalPlan } from "../visualPlanner.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 let runDir: string | null = null;
@@ -43,5 +43,39 @@ describe("visual planner node", () => {
       schemaVersion: "1.0",
       requests: [],
     });
+  });
+
+  it("skips files saved as PDFs when Moodle returned HTML", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-visual-planner-"));
+    const fakePdf = path.join(runDir, "login-page.pdf");
+    await writeFile(fakePdf, "<!doctype html><html><body>Please log in</body></html>", "utf8");
+    const config = moodleTestConfig({ runDir });
+
+    const index = await buildVisualPageIndex(config, moodleTestState({
+      resource_manifest: ResourceManifestSchema.parse({
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [{
+          id: "res-login",
+          parentId: null,
+          sectionPath: ["MEL"],
+          activityType: "resource",
+          title: "Angabe 7",
+          originUrl: "https://moodle.example/mod/resource/view.php?id=1953045",
+          resolvedUrl: null,
+          localPath: fakePdf,
+          previewPath: fakePdf,
+          status: "acquired",
+          checksum: null,
+          verifiedAt: new Date().toISOString(),
+          examRelevance: "unknown",
+          failureReason: null,
+        }],
+      }),
+    }));
+
+    expect(index.entries).toEqual([]);
+    expect(index.warnings.join("\n")).toContain("Moodle returned an HTML page");
   });
 });
