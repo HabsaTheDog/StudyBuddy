@@ -289,7 +289,7 @@ describe("student-centric exam navigator contracts", () => {
       }],
       formulas: [{
         name: "Passung",
-        typst: "P = I_B - I_W",
+        typst: "P_o = G_\"oB\" - G_\"uW\" = ES - ei",
         variables: ["P: Passung"],
         units: ["mm"],
         context: "Differenz der Istmaße.",
@@ -348,8 +348,77 @@ describe("student-centric exam navigator contracts", () => {
     expect(model.figures[0].chapterId).toBe(model.topics[0].chapterId);
     expect(typst).toContain('label-text: "Beispielbild 1"');
     expect(typst).toContain('#image("assets/visuals/toleranzfeld.png", width: 88%, height: 82mm, fit: "contain")');
+    expect(typst).toContain('$ P_o = G_"oB" - G_"uW" = "ES" - "ei" $');
     expect(typst.indexOf("A. Eigenstudium")).toBeLessThan(typst.indexOf("B. Eigenstudium"));
     expect(typst.indexOf("Formelwerkzeug")).toBeLessThan(typst.lastIndexOf("B. Eigenstudium"));
+  });
+
+  it("does not silently replace missing source visuals with generic diagrams", () => {
+    const sourceUrl = "https://moodle.example/mod/resource/view.php?id=10";
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [node("tolerances", sourceUrl, "resource", "acquired")],
+    });
+    const extracted = moodleExtractedData({
+      course: { title: "Maschinenelemente 1", url: courseUrl },
+      sources: [{
+        id: "src_tolerances",
+        title: "Angabe A",
+        kind: "pdf",
+        url: sourceUrl,
+        path: "/tmp/angabe-a.pdf",
+        page: 1,
+      }],
+      sections: [{
+        heading: "Toleranzen",
+        summary: "Toleranzfelder werden aus Grenzabmaßen bestimmt.",
+        key_concepts: ["Toleranzfelder lesen"],
+        source_ids: ["src_tolerances"],
+      }],
+      visual_assets: [{
+        id: "fig_missing_source_visual",
+        kind: "typst_diagram",
+        title: "Toleranzfelder bei H7/k6",
+        relative_path: null,
+        mime_type: null,
+        width_px: null,
+        height_px: null,
+        source_id: "src_tolerances",
+        source_url: sourceUrl,
+        source_path: "/tmp/angabe-a.pdf",
+        source_page: 1,
+        confidence: 0.7,
+        caption_hint: "Toleranzfelder als didaktisches Diagramm",
+        relevance_reason: "Source image extraction was unavailable.",
+        generation_prompt: null,
+      }],
+      figures: [{
+        asset_id: "fig_missing_source_visual",
+        caption: "Toleranzfelder von Bohrung und Welle",
+        placement_hint: "Toleranzen",
+        source_ids: ["src_tolerances"],
+      }],
+    });
+    const coverage = {
+      status: "complete" as const,
+      detail: "Alle Quellen verarbeitet.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 1,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 2,
+    };
+
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, coverage);
+    const typst = renderStudentFirstTypst(model);
+
+    expect(typst).not.toContain("#sb-block-diagram");
+    expect(typst).toContain("Visualisierung nicht gerendert");
+    expect(typst).toContain("Toleranzfelder bei H7/k6");
   });
 
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")(
