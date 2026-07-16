@@ -43,6 +43,8 @@ import {
   ReviewReportSchema,
   StudyModelSchema,
 } from "./examNavigatorContracts.js";
+import { ExecutionTelemetry } from "./executionTelemetry.js";
+import { STUDY_BUDDY_MODEL_POLICY_VERSION } from "./modelPolicy.js";
 import { buildResourceManifest } from "./resourceManifest.js";
 import { buildEvidencePackage } from "./evidencePackage.js";
 import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
@@ -79,10 +81,18 @@ export async function runMoodleGraph(
     initialCoverage,
   });
   await diagnostics.init();
+  const executionTelemetry = new ExecutionTelemetry({
+    runDir: baseConfig.runDir,
+    policyVersion: STUDY_BUDDY_MODEL_POLICY_VERSION,
+    profile: baseConfig.executionProfile,
+    configuredDownloadConcurrency: baseConfig.downloadConcurrency,
+  });
+  await executionTelemetry.init();
   const abortController = new AbortController();
   const config: MoodleRuntimeConfig = {
     ...baseConfig,
     diagnostics,
+    executionTelemetry,
     abortSignal: abortController.signal,
   };
   await writeRunProgress(config, { status: "running", phase: "planning_sources" });
@@ -203,8 +213,11 @@ export async function runMoodleGraph(
     stateHasDocument: hasDocument,
     extractedDataPath,
   });
+  const terminalStatus = ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed";
+  await executionTelemetry.transitionPhase("finalizing");
+  await executionTelemetry.complete(terminalStatus);
   await writeRunProgress(config, {
-    status: ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed",
+    status: terminalStatus,
     phase: "finalizing",
     error: state.error_log ? { message: state.error_log, retryable: !timedOut } : undefined,
     artifacts: {
@@ -214,7 +227,7 @@ export async function runMoodleGraph(
       answerPath: answerArtifactPath,
       answerJsonPath: answerDataArtifactPath,
     },
-  });
+  }, { transitionTelemetry: false });
 
   return {
     ok,
@@ -232,6 +245,7 @@ export async function runMoodleGraph(
     extractedDataPath,
     htmlPath,
     artifactBundle: state.artifact_bundle ?? undefined,
+    metricsPath: executionTelemetry.metricsPath,
   };
 }
 

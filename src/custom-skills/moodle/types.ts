@@ -13,6 +13,12 @@ import type {
   SourcePolicy,
 } from "./examNavigatorContracts.js";
 import type { ArtifactIntent } from "./studentFirstPolicy.js";
+import type { ExecutionTelemetry } from "./executionTelemetry.js";
+import type {
+  StudyBuddyExecutionProfile,
+  StudyBuddyModelPolicyOverrides,
+  StudyBuddyReasoningEffort,
+} from "./modelPolicy.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -55,6 +61,9 @@ export interface MoodleGraphInput {
   sourcePolicy?: SourcePolicy;
   linkPolicy?: LinkPolicy;
   codexModel?: string;
+  codexReasoningEffort?: StudyBuddyReasoningEffort;
+  executionProfile?: StudyBuddyExecutionProfile;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
 }
 
 export interface MoodleGraphResult {
@@ -73,6 +82,7 @@ export interface MoodleGraphResult {
   extractedDataPath?: string;
   htmlPath?: string;
   artifactBundle?: ArtifactBundle;
+  metricsPath: string;
 }
 
 export interface MoodleRuntimeConfig {
@@ -124,4 +134,8 @@ export interface MoodleRuntimeConfig {
   targetCourseUrls?: string[];
   calendarSelection?: CalendarSelection;
   codexModel?: string;
+  codexReasoningEffort?: StudyBuddyReasoningEffort;
+  executionProfile: StudyBuddyExecutionProfile;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
+  executionTelemetry?: ExecutionTelemetry;
 }

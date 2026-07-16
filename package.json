@@ -5,7 +5,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
+    "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
     "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

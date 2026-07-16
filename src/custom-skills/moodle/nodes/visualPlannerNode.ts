@@ -33,6 +33,8 @@ export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: Code
 
       const response = await codex.run(buildVisualPlannerPrompt(config, state, pageIndex), {
         outputSchema: visualRetrievalPlanJsonSchema,
+        task: "visual_planner",
+        attempt: state.retry_count + 1,
       });
       const parsed = VisualRetrievalPlanSchema.parse(parseJsonObjectOrArray(response));
       const allowedResourceIds = new Set(pageIndex.entries.map((entry) => entry.resourceId));

@@ -3,6 +3,7 @@ import path from "node:path";
 import type { RunEvent, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan, SourceTarget } from "./sourcePlanner.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import type { ExecutionMetricsSnapshot } from "./executionTelemetry.js";
 
 export type StudyBuddyRunStatus =
   | "queued"
@@ -61,6 +62,7 @@ export interface StudyBuddyRunProgress {
     message: string;
     retryable: boolean;
   };
+  execution?: ExecutionMetricsSnapshot;
 }
 
 export interface RunProgressUpdate {
@@ -136,6 +138,7 @@ const STARTED_AT = new Map<string, string>();
 export async function writeRunProgress(
   config: MoodleRuntimeConfig,
   update: RunProgressUpdate = {},
+  options: { transitionTelemetry?: boolean } = {},
 ): Promise<StudyBuddyRunProgress> {
   const previous = await readProgress(config.runDir);
   const startedAt = previous?.startedAt ?? STARTED_AT.get(config.runDir) ?? new Date().toISOString();
@@ -183,6 +186,9 @@ export async function writeRunProgress(
   const elapsedMs = Math.max(0, Date.now() - Date.parse(startedAt));
   const progressRatio = terminalStatus(status) ? 1 : PHASE_PROGRESS[phase] ?? null;
   const now = new Date().toISOString();
+  if (options.transitionTelemetry !== false) {
+    await config.executionTelemetry?.transitionPhase(phase, now);
+  }
   const artifacts = {
     extractedDataPath: update.artifacts?.extractedDataPath ?? previous?.artifacts.extractedDataPath,
     typstPath: update.artifacts?.typstPath ?? previous?.artifacts.typstPath,
@@ -210,6 +216,7 @@ export async function writeRunProgress(
     technicalEventsTail: await readEventsTail(config.runDir, 20),
     artifacts,
     error: update.error ?? previous?.error,
+    execution: config.executionTelemetry?.getSnapshot() ?? previous?.execution,
   };
   await atomicWriteJson(path.join(config.runDir, "run-progress.json"), progress);
   return progress;

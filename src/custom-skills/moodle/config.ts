@@ -16,6 +16,7 @@ import { clampConcurrency } from "./downloadQueue.js";
 import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
 import { classifyStudyBuddyIntent } from "./taskIntent.js";
 import { classifyArtifactIntent } from "./studentFirstPolicy.js";
+import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -134,6 +135,12 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     intentDecision,
     artifactIntent,
     codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
+    codexReasoningEffort:
+      input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT),
+    executionProfile: parseExecutionProfile(
+      input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
+    ),
+    modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
 
@@ -184,6 +191,9 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     visualMode: config.visualMode,
     artifactIntent: config.artifactIntent,
     codexModel: config.codexModel,
+    codexReasoningEffort: config.codexReasoningEffort,
+    executionProfile: config.executionProfile,
+    modelPolicyOverrides: config.modelPolicyOverrides,
   };
 }
 

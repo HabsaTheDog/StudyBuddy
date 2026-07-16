@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runMoodleGraph } from "./graph.js";
+import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
 
 const program = new Command()
   .name("moodle-agent")
@@ -35,6 +36,8 @@ const program = new Command()
   .option("--max-visual-assets <number>", "Maximum visual candidates to pass through; 0 means automatic budget", parseNumber)
   .option("--visual-min-confidence <number>", "Minimum visual candidate confidence from 0 to 1", parseConfidence)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
+  .option("--codex-reasoning-effort <effort>", "Global Codex effort override: none/minimal, low, medium, high, or xhigh", parseReasoningEffort)
+  .option("--execution-profile <profile>", "Execution profile: auto, fast, balanced, quality, or custom", parseExecutionProfile, "auto")
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
@@ -73,6 +76,8 @@ const options = program.opts<{
   maxVisualAssets?: number;
   visualMinConfidence?: number;
   codexModel?: string;
+  codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
 }>();
 
 const prompt = program.args.join(" ");
@@ -117,6 +122,8 @@ const result = await runMoodleGraph({
   maxVisualAssets: options.maxVisualAssets,
   visualMinConfidence: options.visualMinConfidence,
   codexModel: options.codexModel,
+  codexReasoningEffort: options.codexReasoningEffort,
+  executionProfile: options.executionProfile,
 });
 
 if (options.json) {
@@ -141,6 +148,7 @@ if (options.json) {
   if (result.htmlPath) {
     console.log(`Wrote HTML navigator: ${result.htmlPath}`);
   }
+  console.log(`Run metrics: ${result.metricsPath}`);
   console.log(`Run summary: ${result.runSummaryPath}`);
 } else {
   console.error(result.error || "Moodle graph failed.");
