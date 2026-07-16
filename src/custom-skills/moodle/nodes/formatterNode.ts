@@ -87,7 +87,10 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         };
       }
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
-      const typst = await codex.run(buildFormatterPrompt(config, state));
+      const typst = await codex.run(buildFormatterPrompt(config, state), {
+        task: "formatter",
+        attempt: state.retry_count + 1,
+      });
       const document = stripTypstFence(typst);
       const structureValidation = validateStudyBuddyDocumentStructure(document);
       if (!structureValidation.ok) {
