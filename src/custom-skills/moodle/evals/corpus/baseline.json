@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "study-buddy-baseline",
+  "version": "1.0.0",
+  "description": "Mutable reviewed corpus. Keep benchmark run snapshots immutable and enable only sanitized, reproducible cases.",
+  "cases": [
+    {
+      "id": "replace-with-reviewed-course-case",
+      "revision": 1,
+      "enabled": false,
+      "prompt": "Replace this with a reviewed Study Buddy document request.",
+      "tags": ["template"],
+      "expected": {
+        "requirePdf": true,
+        "requireCompleteCoverage": false,
+        "requiredTerms": []
+      }
+    }
+  ]
+}

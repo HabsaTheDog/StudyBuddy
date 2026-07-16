@@ -6,6 +6,13 @@ export { runDownloadQueue, clampConcurrency } from "./downloadQueue.js";
 export { decideRenderStrategy } from "./renderStrategy.js";
 export { writeRunProgress } from "./runProgress.js";
 export {
+  parseExecutionProfile,
+  parseReasoningEffort,
+  resolveTaskModelPolicy,
+  STUDY_BUDDY_MODEL_POLICY_VERSION,
+} from "./modelPolicy.js";
+export { ExecutionTelemetry } from "./executionTelemetry.js";
+export {
   assertQuizPolicyAllows,
   createQuizPolicy,
   detectQuizRestrictions,
@@ -21,6 +28,19 @@ export type { SourcePlan, SourceTarget } from "./sourcePlanner.js";
 export type { FollowUpAssessment } from "./sourceNeedAssessment.js";
 export type { DownloadQueueOptions } from "./downloadQueue.js";
 export type { RenderStrategy, RenderStrategyDecision } from "./renderStrategy.js";
+export type {
+  StudyBuddyExecutionProfile,
+  StudyBuddyModelPolicyOverrides,
+  StudyBuddyModelTask,
+  StudyBuddyReasoningEffort,
+  StudyBuddyTaskModelPolicy,
+} from "./modelPolicy.js";
+export type {
+  ExecutionMetricsSnapshot,
+  ModelCallMetric,
+  ModelTokenUsage,
+  PhaseMetric,
+} from "./executionTelemetry.js";
 export type {
   StudyBuddyPublicStep,
   StudyBuddyRunProgress,
