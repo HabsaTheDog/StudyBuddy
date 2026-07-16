@@ -96,6 +96,25 @@ describe("createRuntimeConfig", () => {
     expect(sanitizeConfig(config).codexModel).toBe("gpt-selected");
   });
 
+  it("reads execution profile and reasoning effort overrides", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-profile-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("STUDY_BUDDY_EXECUTION_PROFILE", "fast");
+    vi.stubEnv("STUDY_BUDDY_CODEX_REASONING_EFFORT", "none");
+
+    const config = createRuntimeConfig({
+      prompt: "make notes",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+    });
+
+    expect(config.executionProfile).toBe("fast");
+    expect(config.codexReasoningEffort).toBe("minimal");
+    expect(sanitizeConfig(config)).toMatchObject({
+      executionProfile: "fast",
+      codexReasoningEffort: "minimal",
+    });
+  });
+
   it("uses longer runtime budgets for staged document artifacts", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-timeout-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

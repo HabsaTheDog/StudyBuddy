@@ -54,6 +54,7 @@ export interface RunEvent {
     | "cis_download"
     | "calendar"
     | "answer"
+    | "model"
     | "analyzer"
     | "formatter"
     | "typst"
