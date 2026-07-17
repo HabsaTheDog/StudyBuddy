@@ -11,6 +11,13 @@ describe("courseTargeting", () => {
     expect(extractCourseTargetHint("MEL Prüfung morgen").requestedCodes).toContain("MEL");
   });
 
+  it("does not hard-code a generic math description to one course", () => {
+    expect(extractCourseTargetHint("Create a guide for my math exam")).toMatchObject({
+      requestedCodes: [],
+      requestedNames: [],
+    });
+  });
+
   it("resolves MEL to an MEL1 Moodle course label", () => {
     const result = resolveCourseTargetsFromLinks("MEL Prüfung", [
       {

@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type APIRequestContext, type Browser, type Page } from "playwright";
 import { createAgentBrowserClient, type AgentBrowserClient, type AgentBrowserSnapshot } from "../agentBrowserClient.js";
@@ -10,13 +10,23 @@ import {
   looksLikeAgentBrowserLoginPage,
   looksLikeLoginPage,
 } from "../browserAuth.js";
-import { assertReadableDownloadedFile, extractReadableFileText } from "../fileTextExtraction.js";
+import { assertReadableDownloadedFile, extractReadableFile, extractReadableFileText, type FileExtractionResult } from "../fileTextExtraction.js";
+import { recordExtractionResult } from "../extractionReport.js";
 import { safeFileName } from "../runDiagnostics.js";
 import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
+import { ResourceAttemptRecorder } from "../resourceAttemptRecorder.js";
+import {
+  planInitialResourceProbe,
+  planCourseResources,
+  writeResourcePlan,
+  type PlannedResource,
+  type ResourcePlanningCandidate,
+} from "../resourcePlanning.js";
 import { resolveTaskBudget } from "../taskBudget.js";
+import { writeRunProgress } from "../runProgress.js";
 import {
   formatResourceFailureBlock,
   inspectResourcePayload,
@@ -104,6 +114,14 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         if (!next || visited.has(next.url)) {
           continue;
         }
+        if (isOutsideResolvedCourseScope(next.url, configuredCourseScope(config))) {
+          await diagnostics?.log(
+            "info",
+            "moodle_crawl",
+            `Skipped cross-course Moodle URL outside the resolved course scope: ${next.url}`,
+          );
+          continue;
+        }
         const openViolation = quizUrlPolicyViolation(config, next.url);
         if (openViolation) {
           await recordQuizPolicyBlock(config, openViolation);
@@ -123,6 +141,14 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
 
         const title = await page.title().catch(() => next.url);
         const resolvedUrl = page.url() || next.url;
+        if (isOutsideResolvedCourseScope(resolvedUrl, configuredCourseScope(config))) {
+          await diagnostics?.log(
+            "warn",
+            "moodle_crawl",
+            `Ignored Moodle redirect outside the resolved course scope: ${next.url} -> ${resolvedUrl}`,
+          );
+          continue;
+        }
         const readViolation = quizReadPolicyViolation(config, resolvedUrl, title);
         if (readViolation) {
           await recordQuizPolicyBlock(config, readViolation);
@@ -250,6 +276,14 @@ async function scrapeWithAgentBrowser(
       if (!next || visited.has(next.url)) {
         continue;
       }
+      if (isOutsideResolvedCourseScope(next.url, configuredCourseScope(config))) {
+        await diagnostics?.log(
+          "info",
+          "moodle_crawl",
+          `Skipped cross-course Moodle URL outside the resolved course scope: ${next.url}`,
+        );
+        continue;
+      }
       const openViolation = quizUrlPolicyViolation(config, next.url);
       if (openViolation) {
         await recordQuizPolicyBlock(config, openViolation);
@@ -307,6 +341,14 @@ async function scrapeWithAgentBrowser(
       }
 
       const title = snapshot.origin || next.url;
+      if (isOutsideResolvedCourseScope(snapshot.origin || next.url, configuredCourseScope(config))) {
+        await diagnostics?.log(
+          "warn",
+          "moodle_crawl",
+          `Ignored agent-browser result outside the resolved course scope: ${next.url} -> ${snapshot.origin}`,
+        );
+        continue;
+      }
       const readViolation = quizReadPolicyViolation(config, snapshot.origin || next.url, title);
       if (readViolation) {
         await recordQuizPolicyBlock(config, readViolation);
@@ -479,7 +521,7 @@ async function captureOpenedAgentBrowserResource(
 }
 
 async function captureAgentBrowserFileLinks(
-  client: AgentBrowserClient,
+  _client: AgentBrowserClient,
   snapshot: AgentBrowserSnapshot,
   sourcesDir: string,
   chunks: string[],
@@ -490,14 +532,11 @@ async function captureAgentBrowserFileLinks(
   const remaining = Math.max(0, budget.maxDownloadedFiles - downloaded.size);
   if (remaining === 0) return;
   const scheduleLookup = isBoundedScheduleProbe(config);
-  const fileLinks = selectRelevantFileLinks(
-    extractSnapshotLinks(snapshot)
-      .filter(({ href }) => isReadableResourceLink(href))
-      .filter((link) => !scheduleLookup || isScheduleDocumentLink(link)),
-    config.prompt,
-    remaining,
-    config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
-  ).filter(({ href }) => {
+  const eligibleLinks = extractSnapshotLinks(snapshot)
+    .filter(({ href }) => isReadableResourceLink(href))
+    .filter((link) => !scheduleLookup || isScheduleDocumentLink(link));
+  const plannedLinks = await planFileLinks(eligibleLinks, config, remaining);
+  const fileLinks = plannedLinks.filter(({ candidate: { href } }) => {
     const normalized = normalizeMoodleUrl(href);
     if (downloaded.has(normalized)) {
       return false;
@@ -510,77 +549,100 @@ async function captureAgentBrowserFileLinks(
     sharedSessionPromise ??= createResourceDownloadSession(config);
     return sharedSessionPromise;
   };
-  const jobs = fileLinks.map((link, index) => async () => {
-    throwIfAborted(config.abortSignal);
+  const attemptRecorder = new ResourceAttemptRecorder(config.runDir);
+  await attemptRecorder.init();
+  const jobs = fileLinks.map((planned, index) => async ({ signal }: { signal: AbortSignal }) => {
+    const link = planned.candidate;
+    throwIfAborted(signal);
     const filename = readableFileName(
       `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
       link.href,
     );
     const target = path.join(sourcesDir, filename);
-    let downloadError: unknown = null;
-    let downloadMetadata: ResourceDownloadMetadata | null = null;
-    if (new URL(link.href).pathname.includes("/mod/resource/view.php")) {
-      try {
-        await config.diagnostics?.log(
-          "info",
-          "moodle_download",
-          `Authenticated Moodle resource download: ${link.href}`,
-        );
-        downloadMetadata = await (await sharedSession()).download(link.href, target);
-      } catch (error) {
-        downloadError = error;
-      }
-    } else {
-      try {
-        await config.diagnostics?.log("info", "moodle_download", `agent-browser download: ${link.href}`);
-        await client.download(`@${link.ref}`, target);
-        await assertNonEmptyFile(target);
-        await assertReadableDownloadedFile(target);
-      } catch (error) {
-        await rm(target, { force: true }).catch(() => undefined);
-        downloadError = error;
-        await config.diagnostics?.log(
-          "warn",
-          "moodle_download",
-          `agent-browser download failed; using authenticated Playwright fallback: ${link.href}`,
-        );
-        try {
-          downloadMetadata = await (await sharedSession()).download(link.href, target);
-          downloadError = null;
-        } catch (fallbackError) {
-          downloadError = fallbackError;
-        }
-      }
-    }
-    if (downloadError) {
-      return resourceFailureBlock(link.label || filename, link.href, downloadError);
-    }
-    const savedTarget = downloadMetadata?.localPath ?? target;
-    await config.diagnostics?.updateCoverage("moodle", { artifacts: [savedTarget] });
-    const text = await extractReadableFileText(savedTarget).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      return `Readable text extraction failed: ${message}`;
-    });
-    return formatResourceSuccessBlock({
+    const transport = isExternalResource(link.href) ? "external_request" : "authenticated_request";
+    const startedAt = Date.now();
+    await attemptRecorder.record({
+      resourceIndex: index,
       title: link.label || filename,
       url: link.href,
-      target: savedTarget,
-      text,
-      metadata: downloadMetadata,
+      status: "started",
+      transport,
+      attempt: 1,
     });
+    await config.executionTelemetry?.recordResourceAttempt("started");
+    try {
+      await config.diagnostics?.log(
+        "info",
+        "moodle_download",
+        `Authenticated resource download: ${link.href}`,
+      );
+      const downloadMetadata = await (await sharedSession()).download(link.href, target, signal);
+      throwIfAborted(signal);
+      const savedTarget = downloadMetadata.localPath;
+      await config.diagnostics?.updateCoverage("moodle", { artifacts: [savedTarget] });
+      const extraction = await extractReadableFile(savedTarget, { signal, commandTimeoutMs: 60_000 });
+      await recordExtractionResult(config.runDir, extraction);
+      await attemptRecorder.record({
+        resourceIndex: index,
+        title: link.label || filename,
+        url: link.href,
+        status: "completed",
+        transport,
+        attempt: 1,
+        durationMs: Date.now() - startedAt,
+        bytes: downloadMetadata.bytes,
+        resolvedUrl: downloadMetadata.resolvedUrl,
+        localPath: savedTarget,
+      });
+      await config.executionTelemetry?.recordResourceAttempt("completed", downloadMetadata.bytes);
+      return formatResourceSuccessBlock({
+        title: link.label || filename,
+        url: link.href,
+        target: savedTarget,
+        text: extraction.text || extractionFailureText(extraction),
+        metadata: downloadMetadata,
+        planned,
+        extraction,
+      });
+    } catch (error) {
+      await rm(target, { force: true }).catch(() => undefined);
+      const status = signal.aborted
+        ? /timed out/i.test(errorMessage(error)) ? "timed_out" : "canceled"
+        : "failed";
+      await attemptRecorder.record({
+        resourceIndex: index,
+        title: link.label || filename,
+        url: link.href,
+        status,
+        transport,
+        attempt: 1,
+        durationMs: Date.now() - startedAt,
+        error: errorMessage(error),
+      });
+      await config.executionTelemetry?.recordResourceAttempt(status);
+      return resourceFailureBlock(link.label || filename, link.href, error, planned, {
+        status,
+        transport,
+        attempts: 1,
+        durationMs: Date.now() - startedAt,
+      });
+    }
   });
   const results = await runClassifiedResourceJobs(
     fileLinks,
     jobs,
     config.downloadConcurrency,
+    config.abortSignal,
+    config.executionProfile,
   );
   for (const [index, result] of results.entries()) {
     chunks.push(result.status === "fulfilled"
       ? result.value
       : resourceFailureBlock(
-        fileLinks[index]?.label || `Ressource ${index + 1}`,
-        fileLinks[index]?.href || snapshot.origin,
+        fileLinks[index]?.candidate.label || `Ressource ${index + 1}`,
+        fileLinks[index]?.candidate.href || snapshot.origin,
         result.reason,
+        fileLinks[index],
       ));
   }
   const sessionToClose = sharedSessionPromise as Promise<ResourceDownloadSession> | null;
@@ -804,11 +866,18 @@ async function extractMoodleLinks(page: Page, config: MoodleRuntimeConfig): Prom
       seen.add(href);
       return true;
     });
-  const resolved = resolveCourseTargetsFromLinks(config.prompt, relevantLinks);
-  if (resolved.selectedUrls.length > 0) {
-    config.targetCourseUrls = resolved.selectedUrls;
+  let courseScope = configuredCourseScope(config);
+  if (courseScope.length === 0) {
+    const resolved = resolveCourseTargetsFromLinks(config.prompt, relevantLinks);
+    if (resolved.selectedUrls.length > 0) {
+      config.targetCourseUrls = resolved.selectedUrls;
+      courseScope = configuredCourseScope(config);
+    }
   }
-  return selectRelevantMoodleLinks(relevantLinks, config.prompt);
+  return selectRelevantMoodleLinks(
+    filterMoodleLinksToCourseScope(relevantLinks, courseScope),
+    config.prompt,
+  );
 }
 
 async function captureFileLinks(
@@ -832,14 +901,11 @@ async function captureFileLinks(
       ).trim(),
     })),
   );
-  const fileLinks = selectRelevantFileLinks(
-    hrefs
-      .filter(({ href }) => isReadableResourceLink(href))
-      .filter((link) => !scheduleLookup || isScheduleDocumentLink(link)),
-    config.prompt,
-    remaining,
-    config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
-  ).filter(({ href }) => {
+  const eligibleLinks = hrefs
+    .filter(({ href }) => isReadableResourceLink(href))
+    .filter((link) => !scheduleLookup || isScheduleDocumentLink(link));
+  const plannedLinks = await planFileLinks(eligibleLinks, config, remaining);
+  const fileLinks = plannedLinks.filter(({ candidate: { href } }) => {
     const normalized = normalizeMoodleUrl(href);
     if (downloaded.has(normalized)) {
       return false;
@@ -847,45 +913,94 @@ async function captureFileLinks(
     downloaded.add(normalized);
     return true;
   });
-  const jobs = fileLinks.map((link, index) => async () => {
-    throwIfAborted(config.abortSignal);
+  const attemptRecorder = new ResourceAttemptRecorder(config.runDir);
+  await attemptRecorder.init();
+  const jobs = fileLinks.map((planned, index) => async ({ signal }: { signal: AbortSignal }) => {
+    const link = planned.candidate;
+    throwIfAborted(signal);
     const filename = readableFileName(
       `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
       link.href,
     );
     const target = path.join(sourcesDir, filename);
-    await config.diagnostics?.log("info", "moodle_download", `Downloading Moodle file: ${link.href}`);
+    const transport = isExternalResource(link.href) ? "external_request" : "authenticated_request";
+    const startedAt = Date.now();
+    await attemptRecorder.record({
+      resourceIndex: index,
+      title: link.label || filename,
+      url: link.href,
+      status: "started",
+      transport,
+      attempt: 1,
+    });
+    await config.executionTelemetry?.recordResourceAttempt("started");
+    await config.diagnostics?.log("info", "moodle_download", `Authenticated resource download: ${link.href}`);
     try {
-      const metadata = await downloadResourceWithRequest(page.context().request, link.href, target);
+      const metadata = await downloadResourceWithRequest(page.context().request, link.href, target, signal);
       await config.diagnostics?.updateCoverage("moodle", { artifacts: [metadata.localPath] });
-      const text = await extractReadableFileText(metadata.localPath).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        return `Readable text extraction failed: ${message}`;
+      const extraction = await extractReadableFile(metadata.localPath, { signal, commandTimeoutMs: 60_000 });
+      await recordExtractionResult(config.runDir, extraction);
+      await attemptRecorder.record({
+        resourceIndex: index,
+        title: link.label || filename,
+        url: link.href,
+        status: "completed",
+        transport,
+        attempt: 1,
+        durationMs: Date.now() - startedAt,
+        bytes: metadata.bytes,
+        resolvedUrl: metadata.resolvedUrl,
+        localPath: metadata.localPath,
       });
+      await config.executionTelemetry?.recordResourceAttempt("completed", metadata.bytes);
       return formatResourceSuccessBlock({
         title: link.label || filename,
         url: link.href,
         target: metadata.localPath,
-        text,
+        text: extraction.text || extractionFailureText(extraction),
         metadata,
+        planned,
+        extraction,
       });
     } catch (error) {
       await rm(target, { force: true }).catch(() => undefined);
-      return resourceFailureBlock(link.label || filename, link.href, error);
+      const status = signal.aborted
+        ? /timed out/i.test(errorMessage(error)) ? "timed_out" : "canceled"
+        : "failed";
+      await attemptRecorder.record({
+        resourceIndex: index,
+        title: link.label || filename,
+        url: link.href,
+        status,
+        transport,
+        attempt: 1,
+        durationMs: Date.now() - startedAt,
+        error: errorMessage(error),
+      });
+      await config.executionTelemetry?.recordResourceAttempt(status);
+      return resourceFailureBlock(link.label || filename, link.href, error, planned, {
+        status,
+        transport,
+        attempts: 1,
+        durationMs: Date.now() - startedAt,
+      });
     }
   });
   const results = await runClassifiedResourceJobs(
     fileLinks,
     jobs,
     config.downloadConcurrency,
+    config.abortSignal,
+    config.executionProfile,
   );
   for (const [index, result] of results.entries()) {
     chunks.push(result.status === "fulfilled"
       ? result.value
       : resourceFailureBlock(
-        fileLinks[index]?.label || `Ressource ${index + 1}`,
-        fileLinks[index]?.href || page.url(),
+        fileLinks[index]?.candidate.label || `Ressource ${index + 1}`,
+        fileLinks[index]?.candidate.href || page.url(),
         result.reason,
+        fileLinks[index],
       ));
   }
 }
@@ -1111,11 +1226,66 @@ function extractMoodleLinksFromSnapshot(
       ({ href }) =>
         href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
     );
-  const resolved = resolveCourseTargetsFromLinks(config.prompt, links);
-  if (resolved.selectedUrls.length > 0) {
-    config.targetCourseUrls = resolved.selectedUrls;
+  let courseScope = configuredCourseScope(config);
+  if (courseScope.length === 0) {
+    const resolved = resolveCourseTargetsFromLinks(config.prompt, links);
+    if (resolved.selectedUrls.length > 0) {
+      config.targetCourseUrls = resolved.selectedUrls;
+      courseScope = configuredCourseScope(config);
+    }
   }
-  return selectRelevantMoodleLinks(links, config.prompt);
+  return selectRelevantMoodleLinks(
+    filterMoodleLinksToCourseScope(links, courseScope),
+    config.prompt,
+  );
+}
+
+function configuredCourseScope(config: MoodleRuntimeConfig): string[] {
+  const resolvedTargets = (config.targetCourseUrls ?? []).filter((url) => moodleCourseIdentity(url));
+  if (resolvedTargets.length > 0) {
+    return resolvedTargets;
+  }
+  return moodleCourseIdentity(config.moodleUrl) ? [config.moodleUrl] : [];
+}
+
+/**
+ * Once course resolution has selected one or more concrete Moodle courses, links
+ * to any other course are outside the crawl. Activity, section, and file links
+ * remain eligible because Moodle does not encode their owning course in the URL.
+ */
+export function filterMoodleLinksToCourseScope<T extends { href: string }>(
+  links: T[],
+  selectedCourseUrls: string[],
+): T[] {
+  if (selectedCourseUrls.length === 0) return links;
+  const allowedCourses = new Set(
+    selectedCourseUrls
+      .map((url) => moodleCourseIdentity(url))
+      .filter((identity): identity is string => Boolean(identity)),
+  );
+  if (allowedCourses.size === 0) return links;
+  return links.filter((link) => {
+    const identity = moodleCourseIdentity(link.href);
+    return !identity || allowedCourses.has(identity);
+  });
+}
+
+export function isOutsideResolvedCourseScope(
+  url: string,
+  selectedCourseUrls: string[],
+): boolean {
+  return filterMoodleLinksToCourseScope([{ href: url }], selectedCourseUrls).length === 0;
+}
+
+function moodleCourseIdentity(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.pathname.endsWith("/course/view.php")) return null;
+    const id = parsed.searchParams.get("id");
+    return id ? `${parsed.origin}${parsed.pathname}?id=${id}` : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractSnapshotLinks(
@@ -1320,6 +1490,39 @@ export function selectRelevantFileLinks<T extends { href: string; label: string 
     .map(({ link }) => link);
 }
 
+async function planFileLinks<T extends { href: string; label: string; sectionTitle?: string }>(
+  links: T[],
+  config: MoodleRuntimeConfig,
+  remaining: number,
+): Promise<Array<PlannedResource<T & ResourcePlanningCandidate>>> {
+  const minimumScore = config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90;
+  const relevant = selectRelevantFileLinks(links, config.prompt, links.length, minimumScore)
+    .map((link) => ({ ...link, score: scoreMoodleLink(link, config.prompt) }));
+  const profile = config.intentDecision?.needsCourseMaterial
+    ? config.executionProfile
+    : "fast";
+  const plan = config.intentDecision?.needsCourseMaterial
+    ? planInitialResourceProbe(relevant, profile, remaining)
+    : planCourseResources(relevant, profile, remaining);
+  await writeRunProgress(config, { phase: "downloading_sources" });
+  const planPath = await writeResourcePlan(config.runDir, plan);
+  const persistedPlan = await readFile(planPath, "utf8")
+    .then((text) => JSON.parse(text) as { discovered: number; selected: number })
+    .catch(() => ({ discovered: plan.discovered, selected: plan.selected }));
+  await config.executionTelemetry?.recordResourcePlan(
+    persistedPlan.discovered,
+    persistedPlan.selected,
+  );
+  await config.diagnostics?.updateCoverage("moodle", { artifacts: [planPath] });
+  await config.diagnostics?.log(
+    "info",
+    "moodle_download",
+    `Resource catalog discovered ${plan.discovered} candidate file(s); the initial probe selected ${plan.selected} for profile ${profile}.`,
+    { selected: plan.selected, discovered: plan.discovered, profile },
+  );
+  return plan.entries.filter((entry) => entry.selected);
+}
+
 function isReadableResourceLink(href: string): boolean {
   const url = new URL(href);
   return (
@@ -1381,11 +1584,135 @@ interface ResourceDownloadMetadata {
   resolvedUrl: string;
   contentType: string | null;
   localPath: string;
+  bytes: number;
+  durationMs: number;
 }
 
 interface ResourceDownloadSession {
-  download(url: string, target: string): Promise<ResourceDownloadMetadata>;
+  download(url: string, target: string, signal?: AbortSignal): Promise<ResourceDownloadMetadata>;
   close(): Promise<void>;
+}
+
+export interface TargetedResourceRequest {
+  href: string;
+  label: string;
+  role: PlannedResource<ResourcePlanningCandidate>["role"];
+  topic: string | null;
+  priority: number;
+  reason: string;
+}
+
+/** Acquire exact catalog entries selected by the source architect in one session. */
+export async function acquireTargetedResources(
+  config: MoodleRuntimeConfig,
+  requests: TargetedResourceRequest[],
+): Promise<string[]> {
+  if (requests.length === 0) return [];
+  const sourcesDir = path.join(config.runDir, "sources");
+  await mkdir(sourcesDir, { recursive: true });
+  const session = await createResourceDownloadSession(config);
+  const attemptRecorder = new ResourceAttemptRecorder(config.runDir);
+  await attemptRecorder.init();
+  try {
+    const planned = requests.map((request) => ({
+      candidate: {
+        href: request.href,
+        label: request.label,
+        score: 0,
+      },
+      selected: true,
+      role: request.role,
+      topic: request.topic,
+      priority: request.priority,
+      reason: request.reason,
+    } satisfies PlannedResource<ResourcePlanningCandidate>));
+    const jobs = planned.map((entry, index) => async ({ signal }: { signal: AbortSignal }) => {
+      const target = path.join(
+        sourcesDir,
+        readableFileName(`targeted-${index + 1}-${entry.candidate.label}`, entry.candidate.href),
+      );
+      const startedAt = Date.now();
+      const transport = isExternalResource(entry.candidate.href)
+        ? "external_request" as const
+        : "authenticated_request" as const;
+      await attemptRecorder.record({
+        resourceIndex: index,
+        title: entry.candidate.label,
+        url: entry.candidate.href,
+        status: "started",
+        transport,
+        attempt: 1,
+      });
+      await config.executionTelemetry?.recordResourceAttempt("started");
+      try {
+        const metadata = await session.download(entry.candidate.href, target, signal);
+        const extraction = await extractReadableFile(metadata.localPath, {
+          signal,
+          commandTimeoutMs: 60_000,
+        });
+        await recordExtractionResult(config.runDir, extraction);
+        await config.diagnostics?.updateCoverage("moodle", { artifacts: [metadata.localPath] });
+        await attemptRecorder.record({
+          resourceIndex: index,
+          title: entry.candidate.label,
+          url: entry.candidate.href,
+          status: "completed",
+          transport,
+          attempt: 1,
+          durationMs: Date.now() - startedAt,
+          bytes: metadata.bytes,
+          resolvedUrl: metadata.resolvedUrl,
+          localPath: metadata.localPath,
+        });
+        await config.executionTelemetry?.recordResourceAttempt("completed", metadata.bytes);
+        return formatResourceSuccessBlock({
+          title: entry.candidate.label,
+          url: entry.candidate.href,
+          target: metadata.localPath,
+          text: extraction.text || extractionFailureText(extraction),
+          metadata,
+          planned: entry,
+          extraction,
+        });
+      } catch (error) {
+        await rm(target, { force: true }).catch(() => undefined);
+        await attemptRecorder.record({
+          resourceIndex: index,
+          title: entry.candidate.label,
+          url: entry.candidate.href,
+          status: "failed",
+          transport,
+          attempt: 1,
+          durationMs: Date.now() - startedAt,
+          error: errorMessage(error),
+        });
+        await config.executionTelemetry?.recordResourceAttempt("failed");
+        return resourceFailureBlock(entry.candidate.label, entry.candidate.href, error, entry, {
+          status: "failed",
+          transport,
+          attempts: 1,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    });
+    const settled = await runClassifiedResourceJobs(
+      planned,
+      jobs,
+      config.downloadConcurrency,
+      config.abortSignal,
+      config.executionProfile,
+    );
+    return settled.map((result, index) => result.status === "fulfilled"
+      ? result.value
+      : resourceFailureBlock(
+        planned[index].candidate.label,
+        planned[index].candidate.href,
+        result.reason,
+        planned[index],
+      ));
+  } finally {
+    await session.close().catch(() => undefined);
+  }
 }
 
 async function createResourceDownloadSession(
@@ -1409,7 +1736,7 @@ async function createResourceDownloadSession(
       password: config.password,
     });
     return {
-      download: (url, target) => downloadResourceWithRequest(context.request, url, target),
+      download: (url, target, signal) => downloadResourceWithRequest(context.request, url, target, signal),
       close: async () => {
         config.abortSignal?.removeEventListener("abort", closeOnAbort);
         await browser.close().catch(() => undefined);
@@ -1450,11 +1777,15 @@ async function downloadResourceWithRequest(
   request: APIRequestContext,
   url: string,
   target: string,
+  signal?: AbortSignal,
 ): Promise<ResourceDownloadMetadata> {
+  throwIfAborted(signal);
+  const startedAt = Date.now();
   const response = await request.get(url, {
     failOnStatusCode: false,
-    timeout: 60_000,
+    timeout: 45_000,
   });
+  throwIfAborted(signal);
   const contentType = response.headers()["content-type"] ?? null;
   const contentDisposition = response.headers()["content-disposition"] ?? null;
   const resolvedUrl = response.url();
@@ -1465,6 +1796,7 @@ async function downloadResourceWithRequest(
     );
   }
   const body = await response.body();
+  throwIfAborted(signal);
   const inspection = inspectResourcePayload(body, contentType ?? undefined);
   const expectsPdf = isKnownPdfEndpoint(url);
   const isMoodleResource = new URL(url).pathname.includes("/mod/resource/view.php");
@@ -1489,15 +1821,41 @@ async function downloadResourceWithRequest(
       { resolvedUrl, contentType: inspection.contentType, httpStatus: response.status() },
     );
   }
-  await writeFile(localPath, body);
-  await assertNonEmptyFile(localPath);
-  await assertReadableDownloadedFile(localPath);
-  return { resolvedUrl, contentType: inspection.contentType, localPath };
+  const temporaryPath = `${localPath}.${process.pid}.${Date.now()}.part`;
+  try {
+    await writeFile(temporaryPath, body);
+    throwIfAborted(signal);
+    await rename(temporaryPath, localPath);
+    await assertNonEmptyFile(localPath);
+    await assertReadableDownloadedFile(localPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    await rm(localPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+  return {
+    resolvedUrl,
+    contentType: inspection.contentType,
+    localPath,
+    bytes: body.byteLength,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
-function resourceFailureBlock(title: string, url: string, error: unknown): string {
+function resourceFailureBlock(
+  title: string,
+  url: string,
+  error: unknown,
+  planned?: PlannedResource<ResourcePlanningCandidate>,
+  acquisition?: {
+    status: "completed" | "failed" | "timed_out" | "canceled" | "skipped";
+    transport: "authenticated_request" | "agent_browser" | "external_request";
+    attempts: number;
+    durationMs: number;
+  },
+): string {
   const failure = error instanceof ResourceDownloadFailure ? error : null;
-  return formatResourceFailureBlock({
+  return [formatResourceFailureBlock({
     title,
     url,
     message: errorMessage(error),
@@ -1505,7 +1863,13 @@ function resourceFailureBlock(title: string, url: string, error: unknown): strin
     contentType: failure?.contentType,
     htmlTitle: failure?.htmlTitle,
     httpStatus: failure?.httpStatus,
-  });
+  }),
+  ...selectionMetadata(planned),
+  `Acquisition status: ${acquisition?.status ?? (/timed out/i.test(errorMessage(error)) ? "timed_out" : "failed")}`,
+  `Acquisition transport: ${acquisition?.transport ?? (isExternalResource(url) ? "external_request" : "authenticated_request")}`,
+  `Acquisition attempts: ${acquisition?.attempts ?? 1}`,
+  `Acquisition duration ms: ${acquisition?.durationMs ?? 0}`,
+  ].join("\n");
 }
 
 function formatResourceSuccessBlock(input: {
@@ -1514,6 +1878,8 @@ function formatResourceSuccessBlock(input: {
   target: string;
   text: string;
   metadata: ResourceDownloadMetadata | null;
+  planned?: PlannedResource<ResourcePlanningCandidate>;
+  extraction?: FileExtractionResult;
 }): string {
   return [
     "[Linked file]",
@@ -1523,32 +1889,79 @@ function formatResourceSuccessBlock(input: {
     input.metadata?.contentType ? `Content-Type: ${input.metadata.contentType}` : null,
     "Resource status: acquired",
     `Saved path: ${input.target}`,
+    ...selectionMetadata(input.planned),
+    "Acquisition status: completed",
+    `Acquisition transport: ${isExternalResource(input.url) ? "external_request" : "authenticated_request"}`,
+    "Acquisition attempts: 1",
+    input.metadata ? `Acquisition bytes: ${input.metadata.bytes}` : null,
+    input.metadata ? `Acquisition duration ms: ${input.metadata.durationMs}` : null,
+    input.extraction ? `Extraction status: ${input.extraction.status}` : null,
+    input.extraction ? `Extraction method: ${input.extraction.method}` : null,
+    input.extraction ? `Extraction characters: ${input.extraction.characterCount}` : null,
+    input.extraction?.pageCount !== null && input.extraction?.pageCount !== undefined
+      ? `Extraction pages: ${input.extraction.pageCount}`
+      : null,
+    input.extraction ? `Extraction warnings: ${input.extraction.warnings.join(" | ") || "none"}` : null,
     "",
     input.text.trim(),
   ].filter((line): line is string => line !== null).join("\n");
 }
 
+function selectionMetadata(planned: PlannedResource<ResourcePlanningCandidate> | undefined): string[] {
+  if (!planned) return [];
+  return [
+    `Selection: ${planned.selected ? "selected" : "skipped"}`,
+    `Resource role: ${planned.role}`,
+    `Resource topic: ${planned.topic ?? "none"}`,
+    `Resource priority: ${planned.priority}`,
+    `Selection reason: ${planned.reason}`,
+  ];
+}
+
+function extractionFailureText(result: FileExtractionResult): string {
+  return `Readable text extraction failed: ${result.warnings.join(" ") || "No usable text was extracted."}`;
+}
+
 async function runClassifiedResourceJobs<T>(
-  links: Array<{ href: string }>,
-  jobs: Array<() => Promise<T>>,
+  links: Array<{ candidate: { href: string } }>,
+  jobs: Array<(context: { signal: AbortSignal }) => Promise<T>>,
   internalConcurrency: number,
+  signal?: AbortSignal,
+  profile: MoodleRuntimeConfig["executionProfile"] = "balanced",
 ): Promise<Array<PromiseSettledResult<T>>> {
-  const indexed = jobs.map((job, index) => ({ job, index, external: isExternalResource(links[index]?.href) }));
+  const indexed = jobs.map((job, index) => ({
+    job,
+    index,
+    external: isExternalResource(links[index]?.candidate.href),
+  }));
   const groups = [
     { entries: indexed.filter((entry) => !entry.external), concurrency: internalConcurrency },
     { entries: indexed.filter((entry) => entry.external), concurrency: 1 },
   ];
   const output = new Array<PromiseSettledResult<T>>(jobs.length);
+  const budgetSignal = AbortSignal.timeout(sourceAcquisitionBudgetMs(profile));
+  const queueSignal = signal ? AbortSignal.any([signal, budgetSignal]) : budgetSignal;
   await Promise.all(groups.map(async (group) => {
     const settled = await runDownloadQueue(
       group.entries.map((entry) => entry.job),
-      { concurrency: group.concurrency, timeoutMs: 90_000 },
+      {
+        concurrency: group.concurrency,
+        timeoutMs: 120_000,
+        cancellationGraceMs: 5_000,
+        signal: queueSignal,
+      },
     );
     settled.forEach((result, groupIndex) => {
       output[group.entries[groupIndex].index] = result;
     });
   }));
   return output;
+}
+
+function sourceAcquisitionBudgetMs(profile: MoodleRuntimeConfig["executionProfile"]): number {
+  if (profile === "fast") return 2 * 60_000;
+  if (profile === "quality") return 8 * 60_000;
+  return 5 * 60_000;
 }
 
 function isExternalResource(value: string | undefined): boolean {

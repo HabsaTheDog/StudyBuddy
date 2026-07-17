@@ -15,6 +15,7 @@ import { createCalendarNode } from "./nodes/calendarNode.js";
 import { createDiskWriterNode } from "./nodes/diskWriterNode.js";
 import { createFormatterNode } from "./nodes/formatterNode.js";
 import { createScraperNode } from "./nodes/scraperNode.js";
+import { createCourseResolverNode } from "./nodes/courseResolverNode.js";
 import { createVisualAssetResolverNode } from "./nodes/visualAssetResolverNode.js";
 import { createVisualDiscoveryNode } from "./nodes/visualDiscoveryNode.js";
 import { createVisualPlannerNode } from "./nodes/visualPlannerNode.js";
@@ -26,6 +27,11 @@ import { createReviewNode } from "./nodes/reviewNode.js";
 import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
 import { createBundleWriterNode } from "./nodes/bundleWriterNode.js";
 import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceOrchestrator.js";
+import {
+  createSourceArchitectNode,
+  createTargetedAcquisitionNode,
+  routeAfterSourceArchitect,
+} from "./sourceArchitect.js";
 import { typstPdfPath } from "./typstTemplate.js";
 import { getStudyBuddyTypstSupportFiles } from "./typstAssets.js";
 import { validateTypst } from "./validation.js";
@@ -56,6 +62,7 @@ import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
 import { buildStudyModel } from "./studyModel.js";
 import { reviewStudyModel } from "./studentFirstReview.js";
 import { resolveTaskBudget } from "./taskBudget.js";
+import { inspectExtractionTooling } from "./fileTextExtraction.js";
 import {
   CodexRuntimePreflightError,
   preflightCodexRuntime,
@@ -63,11 +70,16 @@ import {
 } from "./codexRuntime.js";
 
 const MAX_RETRIES = 3;
+// Source-architect rounds and analyzer/formatter/reviewer repair loops are each
+// independently bounded. The default LangGraph limit of 25 is too small for a
+// legitimate worst-case path through those bounded loops.
+const GRAPH_RECURSION_LIMIT = 60;
 let typstPreflightPromise: Promise<void> | null = null;
 
 export interface GraphDependencies {
   codex?: CodexClient;
   runtimePreflight?: (config: MoodleRuntimeConfig) => Promise<CodexRuntimeReport>;
+  courseResolverNode?: ReturnType<typeof createCourseResolverNode>;
   scraperNode?: ReturnType<typeof createScraperNode>;
   cisScraperNode?: ReturnType<typeof createCisScraperNode>;
   calendarNode?: ReturnType<typeof createCalendarNode>;
@@ -148,6 +160,18 @@ export async function runMoodleGraph(
           await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
         }
       }
+      if (config.stage !== "render" && config.intentDecision?.needsDownloadedFiles) {
+        const extractionTooling = await inspectExtractionTooling();
+        const toolingPath = path.join(config.runDir, "extraction-tooling.json");
+        await writeJson(toolingPath, extractionTooling);
+        await diagnostics.updateCoverage("moodle", { artifacts: [toolingPath] });
+        if (!extractionTooling.pdftotext) {
+          await diagnostics.log("warn", "analyzer", "pdftotext is unavailable; PDF text extraction may be incomplete.");
+        }
+        if (!extractionTooling.pdftoppm && config.visualsEnabled) {
+          await diagnostics.log("warn", "analyzer", "pdftoppm is unavailable; selected PDF pages cannot be rendered for the visual asset pipeline.");
+        }
+      }
       const initialStateForStage = config.stage === "render"
         ? await loadRenderState(config)
         : initialAgentState;
@@ -165,7 +189,7 @@ export async function runMoodleGraph(
       state = (await withRuntimeGuard(
         config,
         abortController,
-        () => graph.invoke(initialStateForStage),
+        () => graph.invoke(initialStateForStage, { recursionLimit: GRAPH_RECURSION_LIMIT }),
       )) as AgentState;
     }
   } catch (error) {
@@ -373,14 +397,29 @@ function typstPreflightDocument(): string {
 `;
 }
 
+function resolveCourseResolverNode(
+  config: MoodleRuntimeConfig,
+  codex: CodexClient,
+  dependencies: GraphDependencies,
+): ReturnType<typeof createCourseResolverNode> {
+  if (dependencies.courseResolverNode) return dependencies.courseResolverNode;
+  if (dependencies.scraperNode) {
+    return async () => ({ error_log: null });
+  }
+  return createCourseResolverNode(config, codex);
+}
+
 export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: GraphDependencies = {}) {
   const codex = dependencies.codex ?? createCodexClient(config);
 
   return new StateGraph(AgentStateAnnotation)
     .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("courseResolver", resolveCourseResolverNode(config, codex, dependencies))
     .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
     .addNode("resourceManifest", createResourceManifestNode(config))
     .addNode("evidence", createEvidenceNode(config))
+    .addNode("sourceArchitect", createSourceArchitectNode(config, codex))
+    .addNode("targetedAcquisition", createTargetedAcquisitionNode(config))
     .addNode("coverage", createCoverageNode(config))
     .addNode("sourceGate", createSourceGateNode(config))
     .addNode("visualPlanner", createVisualPlannerNode(config, codex))
@@ -393,10 +432,17 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addNode("diskWriter", createDiskWriterNode(config))
     .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "sourcePlanner")
-    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourcePlanner", "courseResolver")
+    .addEdge("courseResolver", "sourceOrchestrator")
     .addEdge("sourceOrchestrator", "resourceManifest")
     .addEdge("resourceManifest", "evidence")
-    .addEdge("evidence", "coverage")
+    .addEdge("evidence", "sourceArchitect")
+    .addConditionalEdges("sourceArchitect", routeAfterSourceArchitect, {
+      targetedAcquisition: "targetedAcquisition",
+      coverage: "coverage",
+      abort: END,
+    })
+    .addEdge("targetedAcquisition", "resourceManifest")
     .addConditionalEdges("coverage", routeAfterCoverage, {
       sourceGate: "sourceGate",
       abort: END,
@@ -430,6 +476,7 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     })
     .addConditionalEdges("qualityReviewer", routeAfterArtifactQualityReview, {
       artifactBuilder: "formatter",
+      qualityReviewer: "qualityReviewer",
       done: "diskWriter",
       abort: END,
     })
@@ -443,12 +490,14 @@ export function buildAnswerGraph(config: MoodleRuntimeConfig, dependencies: Grap
 
   return new StateGraph(AgentStateAnnotation)
     .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("courseResolver", resolveCourseResolverNode(config, codex, dependencies))
     .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
     .addNode("sourceGate", createSourceGateNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
     .addNode("answerWriter", createAnswerWriterNode(config))
     .addEdge(START, "sourcePlanner")
-    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourcePlanner", "courseResolver")
+    .addEdge("courseResolver", "sourceOrchestrator")
     .addEdge("sourceOrchestrator", "sourceGate")
     .addConditionalEdges("sourceGate", (state) => routeAfterAnswerSourceGate(config, state), {
       analyzer: "analyzer",
@@ -471,9 +520,12 @@ export function buildExtractionGraph(
   const codex = dependencies.codex ?? createCodexClient(config);
   return new StateGraph(AgentStateAnnotation)
     .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("courseResolver", resolveCourseResolverNode(config, codex, dependencies))
     .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
     .addNode("resourceManifest", createResourceManifestNode(config))
     .addNode("evidence", createEvidenceNode(config))
+    .addNode("sourceArchitect", createSourceArchitectNode(config, codex))
+    .addNode("targetedAcquisition", createTargetedAcquisitionNode(config))
     .addNode("coverage", createCoverageNode(config))
     .addNode("sourceGate", createSourceGateNode(config))
     .addNode("visualPlanner", createVisualPlannerNode(config, codex))
@@ -483,10 +535,17 @@ export function buildExtractionGraph(
     .addNode("review", createReviewNode(config))
     .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addEdge(START, "sourcePlanner")
-    .addEdge("sourcePlanner", "sourceOrchestrator")
+    .addEdge("sourcePlanner", "courseResolver")
+    .addEdge("courseResolver", "sourceOrchestrator")
     .addEdge("sourceOrchestrator", "resourceManifest")
     .addEdge("resourceManifest", "evidence")
-    .addEdge("evidence", "coverage")
+    .addEdge("evidence", "sourceArchitect")
+    .addConditionalEdges("sourceArchitect", routeAfterSourceArchitect, {
+      targetedAcquisition: "targetedAcquisition",
+      coverage: "coverage",
+      abort: END,
+    })
+    .addEdge("targetedAcquisition", "resourceManifest")
     .addConditionalEdges("coverage", routeAfterCoverage, {
       sourceGate: "sourceGate",
       abort: END,
@@ -515,6 +574,7 @@ export function buildExtractionGraph(
     })
     .addConditionalEdges("qualityReviewer", routeAfterExtractionQualityReview, {
       contentAnalyzer: "analyzer",
+      qualityReviewer: "qualityReviewer",
       done: END,
       abort: END,
     })
@@ -544,6 +604,7 @@ export function buildRenderGraph(
     })
     .addConditionalEdges("qualityReviewer", routeAfterArtifactQualityReview, {
       artifactBuilder: "formatter",
+      qualityReviewer: "qualityReviewer",
       done: "diskWriter",
       abort: END,
     })
@@ -717,16 +778,26 @@ function routeAfterFormatter(state: LangGraphAgentState): "formatter" | "diskWri
 
 function routeAfterArtifactQualityReview(
   state: LangGraphAgentState,
-): "artifactBuilder" | "done" | "abort" {
+): "artifactBuilder" | "qualityReviewer" | "done" | "abort" {
   if (!state.error_log) return "done";
-  return state.retry_count >= MAX_RETRIES ? "abort" : "artifactBuilder";
+  if (state.retry_count >= MAX_RETRIES) return "abort";
+  return isQualityReviewerExecutionFailure(state.error_log)
+    ? "qualityReviewer"
+    : "artifactBuilder";
 }
 
 function routeAfterExtractionQualityReview(
   state: LangGraphAgentState,
-): "contentAnalyzer" | "done" | "abort" {
+): "contentAnalyzer" | "qualityReviewer" | "done" | "abort" {
   if (!state.error_log) return "done";
-  return state.retry_count >= MAX_RETRIES ? "abort" : "contentAnalyzer";
+  if (state.retry_count >= MAX_RETRIES) return "abort";
+  return isQualityReviewerExecutionFailure(state.error_log)
+    ? "qualityReviewer"
+    : "contentAnalyzer";
+}
+
+function isQualityReviewerExecutionFailure(error: string): boolean {
+  return error.startsWith("Quality reviewer failed:");
 }
 
 function isCoverageComplete(

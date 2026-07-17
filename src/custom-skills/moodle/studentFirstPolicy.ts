@@ -5,7 +5,7 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.0";
+export const STUDENT_FIRST_POLICY_VERSION = "1.1";
 
 export const STUDENT_FIRST_POLICY = [
   "Optimize verified learning value per minute.",
@@ -14,7 +14,7 @@ export const STUDENT_FIRST_POLICY = [
   "Course-specific claims require primary evidence.",
   "Organizational metadata is not a subject-matter practice question.",
   "Renderers may arrange verified content but may not create new facts.",
-  "A study guide has one learning checklist and no practice bank.",
+  "A study guide has one learning checklist and no detached practice bank; worked examples belong inside the relevant chapter.",
   "Practice items require a concrete learning goal and source evidence.",
 ].join(" ");
 

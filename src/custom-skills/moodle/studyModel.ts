@@ -61,11 +61,13 @@ export function buildStudyModel(
     const topicIds = topics
       .filter((topic) => topic.chapterId === chapter.id)
       .map((topic) => topic.id);
+    const resourceIds = chapter.resourceIds.filter((resourceId) => sourceIds.has(resourceId));
     const chapterResources = manifest.resources.filter((resource) =>
-      chapter.resourceIds.includes(resource.id)
+      resourceIds.includes(resource.id)
     );
     return {
       ...chapter,
+      resourceIds,
       topicIds,
       status: topicIds.length === 0
         ? "missing" as const
@@ -116,6 +118,8 @@ export function buildStudyModel(
         manifest,
         courseChapters,
       ),
+      origin: example.origin,
+      learningGoal: example.learning_goal || inferExampleLearningGoal(example.prompt),
       prompt: example.prompt,
       steps: example.steps,
       result: example.result,
@@ -167,8 +171,14 @@ export function buildStudyModel(
       : [];
 
   const checklist = unique(
-    topics.map((topic) => `Ich kann ${checklistPhrase(topic.learningGoals[0], topic.title)}`),
+    topics.map((topic) => checklistItem(
+      extracted.language,
+      topic.learningGoals[0],
+      topic.title,
+    )),
   );
+
+  const english = extracted.language === "en";
 
   return StudyModelSchema.parse({
     schemaVersion: "1.0",
@@ -180,7 +190,9 @@ export function buildStudyModel(
     publicationStatus: coverage.status,
     scopeNote:
       coverage.status === "complete"
-        ? "Die dargestellten Inhalte sind durch die ausgewerteten Quellen belegt."
+        ? english
+          ? "The presented content is supported by the evaluated sources."
+          : "Die dargestellten Inhalte sind durch die ausgewerteten Quellen belegt."
         : coverage.detail,
     courseChapters,
     topics,
@@ -431,16 +443,26 @@ function firstSentence(summary: string): string {
   return summary.split(/(?<=[.!?])\s+/)[0].replace(/[.!?]+$/, "").trim();
 }
 
-function checklistPhrase(goal: string, title: string): string {
-  const normalized = goal.replace(/[.!?]+$/, "").trim();
+function checklistItem(language: "de" | "en", goal: string, title: string): string {
+  const normalized = goal
+    .replace(/^(?:ich kann|i can)\s+/i, "")
+    .replace(/[.!?]+$/, "")
+    .trim();
   if (normalized.length >= 12) {
-    return `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}.`;
+    const phrase = `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}.`;
+    return language === "en" ? `I can ${phrase}` : `Ich kann ${phrase}`;
   }
-  return `${title} anhand der belegten Quellen erklären und anwenden.`;
+  return language === "en"
+    ? `I can explain and apply ${title} using the cited sources.`
+    : `Ich kann ${title} anhand der belegten Quellen erklären und anwenden.`;
 }
 
 function inferPracticeLearningGoal(question: string): string {
   return `Die fachliche Fragestellung „${question.replace(/[?]+$/, "")}“ selbstständig beantworten.`;
+}
+
+function inferExampleLearningGoal(prompt: string): string {
+  return `Das Vorgehen für „${prompt.replace(/[?]+$/, "") }“ nachvollziehen und auf ähnliche Aufgaben übertragen.`;
 }
 
 function stableId(value: string, prefix: string): string {

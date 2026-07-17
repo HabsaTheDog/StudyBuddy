@@ -62,6 +62,16 @@ describe("single-file HTML validation", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("rejects sibling-file dependencies in a final artifact", () => {
+    const html = minimalValidStudyBuddyHtml({ title: "Reference", kind: "reference", language: "de" })
+      .replace("</main>", '<img src="assets/diagram.webp" alt="Diagram"></main>');
+
+    const report = validateSingleFileHtml(html, "reference");
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.code)).toContain("sibling-reference");
+  });
+
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")("passes browser validation", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-browser-"));
     tempDirs.push(runDir);

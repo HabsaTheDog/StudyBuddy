@@ -40,8 +40,11 @@ describe("external resource acquisition", () => {
       "Downloaded file is not a PDF; Moodle returned an HTML page instead (BMR SS2025).",
       { requestedUrl: "https://moodle.technikum-wien.at/mod/resource/view.php?id=1" },
     ).status).toBe("stale");
-    expect(classifyResourceFailure("Download job timed out after 90000ms.").status)
-      .toBe("transient_failure");
+    expect(classifyResourceFailure("Download job timed out after 90000ms.")).toMatchObject({
+      status: "transient_failure",
+      failureKind: "client_timeout",
+    });
+    expect(classifyResourceFailure("request ETIMEDOUT").failureKind).toBe("remote_timeout");
   });
 
   it("keeps title, URL, failure class, and suggested action in failure blocks", () => {
@@ -197,6 +200,86 @@ describe("external resource acquisition", () => {
     expect(coverage.resourceIssues?.map((issue) => issue.status))
       .toEqual(expect.arrayContaining(["stale", "tls_failure"]));
   });
+
+  it("assesses semantic coverage from the bounded plan instead of the raw 42-file catalog", () => {
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const targetId = stableResourceId(targetCourse);
+    const topics = [
+      "Punktkinematik",
+      "Vektorkinematik",
+      "Schwerpunktsatz",
+      "Drallsatz",
+      "Schwingungen",
+    ];
+    const selected = topics.map((topic, index) => plannedResource(topic, targetId, true, "acquired", index));
+    const skipped = Array.from({ length: 37 }, (_, index) =>
+      plannedResource(`Optional ${index}`, targetId, false, "skipped", index + selected.length)
+    );
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: targetCourse,
+      generatedAt: new Date().toISOString(),
+      resources: [resource(targetCourse, "course", "discovered", null, targetCourse), ...selected, ...skipped],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: selected.map((item, index) => ({
+        id: `ev-${index}`,
+        resourceId: item.id,
+        kind: "claim",
+        locator: {},
+        content: `Evidence for ${item.title}`,
+        confidence: 1,
+        pairId: null,
+        sourceUrl: item.originUrl,
+        localPath: item.localPath,
+      })),
+      warnings: [],
+    });
+
+    const coverage = assessExamNavigatorCoverage(studyGuideConfig(), manifest, evidence);
+
+    expect(coverage.status).toBe("complete");
+    expect(coverage.discoveredResources).toBe(5);
+    expect(coverage.acquiredResources).toBe(5);
+    expect(coverage.failedResources).toBe(0);
+  });
+
+  it("blocks only when a selected critical topic lacks usable evidence", () => {
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const targetId = stableResourceId(targetCourse);
+    const usable = plannedResource("Punktkinematik", targetId, true, "acquired", 0);
+    const missing = plannedResource("Drallsatz", targetId, true, "transient_failure", 1);
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: targetCourse,
+      generatedAt: new Date().toISOString(),
+      resources: [resource(targetCourse, "course", "discovered", null, targetCourse), usable, missing],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev-usable",
+        resourceId: usable.id,
+        kind: "claim",
+        locator: {},
+        content: "Usable evidence",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: usable.originUrl,
+        localPath: usable.localPath,
+      }],
+      warnings: [],
+    });
+
+    const coverage = assessExamNavigatorCoverage(studyGuideConfig(), manifest, evidence);
+
+    expect(coverage.status).toBe("blocked");
+    expect(coverage.criticalMissing.join(" ")).toContain("Drallsatz");
+    expect(coverage.retryActions.join(" ")).toContain("Primärquellen");
+  });
 });
 
 function resource(
@@ -222,4 +305,57 @@ function resource(
     examRelevance: "unknown",
     failureReason: status === "acquired" || status === "discovered" ? null : `${status} fixture`,
   };
+}
+
+function plannedResource(
+  topic: string,
+  parentId: string,
+  selected: boolean,
+  status: ResourceNode["status"],
+  index: number,
+): ResourceNode {
+  const originUrl = `https://moodle.technikum-wien.at/pluginfile.php/1/source-${index}.pdf`;
+  return {
+    ...resource(topic, "file", status, parentId, originUrl),
+    selection: {
+      selected,
+      role: selected ? "primary_lecture" : "supplementary",
+      topic: selected ? topic : null,
+      priority: selected ? 900 : 0,
+      reason: selected ? "Critical topic source" : "Outside bounded plan",
+    },
+    acquisition: {
+      status: status === "acquired" ? "completed" : status === "skipped" ? "skipped" : "failed",
+      transport: status === "skipped" ? null : "authenticated_request",
+      attempts: status === "skipped" ? 0 : 1,
+      bytes: status === "acquired" ? 1024 : null,
+      durationMs: status === "skipped" ? null : 25,
+    },
+    extraction: {
+      status: status === "acquired" ? "usable" : "not_attempted",
+      method: status === "acquired" ? "native_pdf_text" : "none",
+      characterCount: status === "acquired" ? 500 : 0,
+      pageCount: status === "acquired" ? 2 : null,
+      warnings: [],
+    },
+  };
+}
+
+function studyGuideConfig() {
+  return moodleTestConfig({
+    prompt: "Create a Dynamics study guide PDF",
+    intentDecision: {
+      intent: "study_pdf",
+      wantsPdf: true,
+      wantsTypstDocument: true,
+      wantsQuickAnswer: false,
+      wantsQuizAssistance: false,
+      needsMoodle: true,
+      needsCis: false,
+      needsCalendar: false,
+      needsCourseMaterial: true,
+      needsDownloadedFiles: true,
+      reason: "semantic coverage fixture",
+    },
+  });
 }

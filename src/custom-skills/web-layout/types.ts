@@ -23,12 +23,16 @@ export interface WebLayoutInput {
   runDir?: string;
   outputPath?: string;
   sourceFiles?: string[];
+  assetFiles?: string[];
   sourceRunDir?: string;
   language?: "de" | "en";
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   browserHeaded?: boolean;
   skipBrowserValidation?: boolean;
+  maxArtifactBytes?: number;
+  maxImageWidth?: number;
+  webpQuality?: number;
   codexModel?: string;
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   executionProfile?: StudyBuddyExecutionProfile;
@@ -53,6 +57,7 @@ export interface WebLayoutRuntimeConfig {
   runDir: string;
   outputPath: string;
   sourceFiles: string[];
+  assetFiles: string[];
   sourceRunDir?: string;
   sourceMode: WebLayoutSourceMode;
   language: "de" | "en";
@@ -60,6 +65,9 @@ export interface WebLayoutRuntimeConfig {
   idleTimeoutMs: number;
   browserHeaded: boolean;
   skipBrowserValidation: boolean;
+  maxArtifactBytes: number;
+  maxImageWidth: number;
+  webpQuality: number;
   codexModel?: string;
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   executionProfile: StudyBuddyExecutionProfile;
@@ -81,6 +89,8 @@ export type WebLayoutRunPhase =
   | "source"
   | "planner"
   | "generator"
+  | "assets"
+  | "bundle"
   | "validator"
   | "browser"
   | "disk"
@@ -92,6 +102,11 @@ export interface WebLayoutRunSummaryInput {
   outputPath?: string;
   validationReportPath?: string;
   screenshotPaths?: string[];
+  sourceBundlePath?: string;
+  mediaManifestPath?: string;
+  artifactBytes?: number;
+  embeddedAssetBytes?: number;
+  estimatedDecodedImageBytes?: number;
   error?: string;
   stateHasSource: boolean;
   stateHasLayoutSpec: boolean;

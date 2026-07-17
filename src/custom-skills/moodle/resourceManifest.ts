@@ -33,6 +33,7 @@ export async function buildResourceManifest(
     mergeResource(resources, resource);
   }
   applyAcquisitionResults(resources, rawText);
+  await applyResourcePlan(resources, runDir);
   await hydrateChecksums(resources);
 
   const values = [...resources.values()].sort(compareResources);
@@ -49,6 +50,47 @@ export async function buildResourceManifest(
     "utf8",
   );
   return manifest;
+}
+
+async function applyResourcePlan(resources: Map<string, ResourceNode>, runDir: string): Promise<void> {
+  const plan = await readFile(path.join(runDir, "resource-plan.json"), "utf8")
+    .then((text) => JSON.parse(text) as {
+      entries?: Array<{
+        href?: string;
+        selected?: boolean;
+        role?: string;
+        topic?: string | null;
+        priority?: number;
+        reason?: string;
+      }>;
+    })
+    .catch(() => null);
+  for (const entry of plan?.entries ?? []) {
+    if (!entry.href || typeof entry.selected !== "boolean" || !entry.role || !entry.reason) continue;
+    const id = stableResourceId(entry.href);
+    const current = resources.get(id);
+    if (!current) continue;
+    resources.set(id, {
+      ...current,
+      selection: {
+        selected: entry.selected,
+        role: entry.role as NonNullable<ResourceNode["selection"]>["role"],
+        topic: entry.topic ?? null,
+        priority: entry.priority ?? 0,
+        reason: entry.reason,
+      },
+      status: !entry.selected && current.status === "discovered" ? "skipped" : current.status,
+      acquisition: !entry.selected && !current.acquisition
+        ? {
+            status: "skipped",
+            transport: null,
+            attempts: 0,
+            bytes: null,
+            durationMs: null,
+          }
+        : current.acquisition,
+    });
+  }
 }
 
 async function hydrateChecksums(resources: Map<string, ResourceNode>): Promise<void> {
@@ -253,6 +295,16 @@ function applyAcquisitionResults(resources: Map<string, ResourceNode>, rawText: 
     const resolvedUrl = /^Resolved URL:\s*(\S+)$/m.exec(block)?.[1]?.trim() ?? null;
     const contentType = /^Content-Type:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? null;
     const recommendedAction = /^Suggested action:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? null;
+    const selectionStatus = /^Selection:\s*(selected|skipped)$/m.exec(block)?.[1]?.trim();
+    const selectionRole = /^Resource role:\s*(\S+)$/m.exec(block)?.[1]?.trim();
+    const selectionTopic = /^Resource topic:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? null;
+    const selectionPriority = numberMetadata(block, "Resource priority");
+    const selectionReason = /^Selection reason:\s*(.+)$/m.exec(block)?.[1]?.trim();
+    const acquisitionStatus = /^Acquisition status:\s*(\S+)$/m.exec(block)?.[1]?.trim();
+    const acquisitionTransport = /^Acquisition transport:\s*(\S+)$/m.exec(block)?.[1]?.trim();
+    const extractionStatus = /^Extraction status:\s*(\S+)$/m.exec(block)?.[1]?.trim();
+    const extractionMethod = /^Extraction method:\s*(\S+)$/m.exec(block)?.[1]?.trim();
+    const extractionWarnings = /^Extraction warnings:\s*(.+)$/m.exec(block)?.[1]?.trim();
     const failureReason =
       /^Download failed(?::\s*)?(.+)?$/m.exec(block)?.[1]?.trim() ??
       /Readable text extraction failed:\s*(.+)$/m.exec(block)?.[1]?.trim() ??
@@ -276,6 +328,37 @@ function applyAcquisitionResults(resources: Map<string, ResourceNode>, rawText: 
       failureKind: explicitFailureKind ?? classification?.failureKind ?? current.failureKind,
       recommendedAction:
         recommendedAction ?? classification?.recommendedAction ?? current.recommendedAction,
+      selection: selectionStatus && selectionRole && selectionReason
+        ? {
+            selected: selectionStatus === "selected",
+            role: selectionRole as NonNullable<ResourceNode["selection"]>["role"],
+            topic: selectionTopic === "none" ? null : selectionTopic,
+            priority: selectionPriority ?? 0,
+            reason: selectionReason,
+          }
+        : current.selection,
+      acquisition: acquisitionStatus
+        ? {
+            status: acquisitionStatus as NonNullable<ResourceNode["acquisition"]>["status"],
+            transport: acquisitionTransport && acquisitionTransport !== "none"
+              ? acquisitionTransport as NonNullable<ResourceNode["acquisition"]>["transport"]
+              : null,
+            attempts: numberMetadata(block, "Acquisition attempts") ?? 0,
+            bytes: numberMetadata(block, "Acquisition bytes"),
+            durationMs: numberMetadata(block, "Acquisition duration ms"),
+          }
+        : current.acquisition,
+      extraction: extractionStatus && extractionMethod
+        ? {
+            status: extractionStatus as NonNullable<ResourceNode["extraction"]>["status"],
+            method: extractionMethod as NonNullable<ResourceNode["extraction"]>["method"],
+            characterCount: numberMetadata(block, "Extraction characters") ?? 0,
+            pageCount: numberMetadata(block, "Extraction pages"),
+            warnings: extractionWarnings && extractionWarnings !== "none"
+              ? extractionWarnings.split(" | ").map((value) => value.trim()).filter(Boolean)
+              : [],
+          }
+        : current.extraction,
     });
   }
 }
@@ -367,7 +450,18 @@ function mergeResource(resources: Map<string, ResourceNode>, incoming: ResourceN
     contentType: incoming.contentType ?? current.contentType,
     failureKind: incoming.failureKind ?? current.failureKind,
     recommendedAction: incoming.recommendedAction ?? current.recommendedAction,
+    selection: incoming.selection ?? current.selection,
+    acquisition: incoming.acquisition ?? current.acquisition,
+    extraction: incoming.extraction ?? current.extraction,
   });
+}
+
+function numberMetadata(block: string, label: string): number | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`^${escaped}:\\s*(\\d+)$`, "m").exec(block);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function deduplicateResources(resources: ResourceNode[]): ResourceNode[] {

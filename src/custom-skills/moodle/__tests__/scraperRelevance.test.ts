@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   explicitCourseCodes,
+  filterMoodleLinksToCourseScope,
+  isOutsideResolvedCourseScope,
   isLowValueMoodleUtilityLink,
   scoreMoodleLink,
   scoreCourseFocus,
@@ -11,6 +13,44 @@ import {
 } from "../nodes/scraperNode.js";
 
 describe("Moodle crawl relevance", () => {
+  it("keeps a resolved course as an immutable crawl boundary", () => {
+    const selectedCourse = "https://moodle.example/course/view.php?id=20";
+    const links = [
+      { href: selectedCourse, label: "Selected course" },
+      { href: `${selectedCourse}#section-4`, label: "Selected course section" },
+      { href: "https://moodle.example/course/view.php?id=10", label: "Neighboring course" },
+      { href: "https://moodle.example/mod/resource/view.php?id=300", label: "Course resource" },
+      { href: "https://moodle.example/course/section.php?id=400", label: "Course section" },
+    ];
+
+    expect(filterMoodleLinksToCourseScope(links, [selectedCourse])).toEqual([
+      links[0],
+      links[1],
+      links[3],
+      links[4],
+    ]);
+    expect(isOutsideResolvedCourseScope(links[2].href, [selectedCourse])).toBe(true);
+    expect(isOutsideResolvedCourseScope(links[3].href, [selectedCourse])).toBe(false);
+    expect(selectRelevantMoodleLinks(
+      filterMoodleLinksToCourseScope(links, [selectedCourse]),
+      "Build a guide for the neighboring course",
+    )).not.toContain(links[2].href);
+  });
+
+  it("supports an intentional multi-course scope without admitting other courses", () => {
+    const selected = [
+      "https://moodle.example/course/view.php?id=20",
+      "https://moodle.example/course/view.php?id=21",
+    ];
+    const links = [
+      { href: "https://moodle.example/course/view.php?id=20", label: "First selected course" },
+      { href: "https://moodle.example/course/view.php?id=21", label: "Second selected course" },
+      { href: "https://moodle.example/course/view.php?id=22", label: "Unselected course" },
+    ];
+
+    expect(filterMoodleLinksToCourseScope(links, selected)).toEqual(links.slice(0, 2));
+  });
+
   it("limits broad dashboard discovery to a small course shortlist", () => {
     const links = Array.from({ length: 12 }, (_, index) => ({
       href: `https://moodle.example/course/view.php?id=${index + 1}`,

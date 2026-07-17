@@ -98,10 +98,26 @@ export function renderStudentFirstHtml(model: StudyModel, runDir: string): strin
     </section>`
     : "";
 
+  const workedExamples = model.workedExamples.length
+    ? `<section class="panel" id="worked-examples" aria-labelledby="worked-example-title" data-observe-section>
+      <div class="section-heading"><div><p class="eyebrow">Anwendung im Kapitel</p><h2 id="worked-example-title">Schritt für Schritt lösen</h2></div><span class="section-count">${model.workedExamples.length} Beispiele</span></div>
+      <div class="practice-list">${model.workedExamples.map((example, index) => `<details${index === 0 ? " open" : ""}>
+        <summary><span>${String(index + 1).padStart(2, "0")}</span>${escapeHtml(example.prompt)}</summary>
+        <div class="detail-answer">
+          <p><strong>${example.origin === "derived" ? "Didaktisches Übungsbeispiel" : "Kursbeispiel"}</strong> · ${escapeHtml(example.learningGoal)}</p>
+          <ol>${example.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          <p><strong>Ergebnis:</strong> ${escapeHtml(example.result)}</p>
+          <small>${sourceLinks(model, example.sourceIds)}</small>
+        </div>
+      </details>`).join("")}</div>
+    </section>`
+    : "";
+
   const navItems = [
     { id: "overview", label: "Überblick", visible: true },
     { id: "topics", label: "Lernstoff", visible: model.topics.length > 0 },
     { id: "formulas", label: "Formeln", visible: model.formulas.length > 0 },
+    { id: "worked-examples", label: "Beispiele", visible: model.workedExamples.length > 0 },
     { id: "checklist", label: "Lerncheck", visible: model.checklist.length > 0 },
     { id: "practice", label: "Training", visible: model.practiceItems.length > 0 },
     { id: "sources", label: "Quellen", visible: model.sources.length > 0 },
@@ -121,8 +137,11 @@ export function renderStudentFirstHtml(model: StudyModel, runDir: string): strin
     model.formulas.length
       ? routeStep("2", "Rechnen absichern", `${model.formulas.length} belegte Formeln`, "#formulas")
       : "",
+    model.workedExamples.length
+      ? routeStep("3", "Anwendung üben", `${model.workedExamples.length} vollständige Beispiele`, "#worked-examples")
+      : "",
     model.checklist.length
-      ? routeStep(model.formulas.length ? "3" : "2", "Verständnis prüfen", `${model.checklist.length} klare Lernziele`, "#checklist")
+      ? routeStep(model.workedExamples.length ? "4" : model.formulas.length ? "3" : "2", "Verständnis prüfen", `${model.checklist.length} klare Lernziele`, "#checklist")
       : "",
     model.sources.length
       ? routeStep("↗", "Bei Bedarf nachschlagen", `${model.sources.length} direkt nutzbare Quellen`, "#sources")
@@ -260,6 +279,7 @@ footer{padding:1.5rem;text-align:center;color:var(--sb-muted);font-size:.72rem}
       <div class="topic-list">${topics}</div>
     </section>` : ""}
     ${formulas}
+    ${workedExamples}
     ${checklist}
     ${practice}
     ${model.sources.length ? `<section class="panel source-panel" id="sources" aria-labelledby="sources-title" data-observe-section>

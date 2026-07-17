@@ -23,8 +23,22 @@ export function assessExamNavigatorCoverage(
       resource.activityType === "course" &&
       canonicalizeResourceUrl(resource.originUrl) === canonicalizeResourceUrl(manifest.courseUrl!),
   );
-  const deepResources = scopedResources.filter(isDeepContentResource);
+  const rawDeepResources = scopedResources.filter(isDeepContentResource);
+  const selectedResources = rawDeepResources.filter((resource) => resource.selection?.selected === true);
+  const plannedDeepResources = selectedResources.length > 0
+    ? selectedResources
+    : rawDeepResources.filter((resource) => resource.status !== "skipped");
+  const acquiredDirectResources = plannedDeepResources.filter((resource) => resource.status === "acquired");
+  const deepResources = plannedDeepResources.filter((resource) =>
+    !isSatisfiedDirectActivityAlias(config, manifest, resource, acquiredDirectResources)
+  );
   const acquired = deepResources.filter((resource) => resource.status === "acquired");
+  const usable = acquired.filter(isUsableResource);
+  const directResourceKnown = isDirectMoodleLearningResourceUrl(config.moodleUrl) &&
+    usable.length > 0 &&
+    evidence.records.some((record) =>
+      usable.some((resource) => resource.id === record.resourceId)
+    );
   const failed = deepResources.filter((resource) => isResourceFailureStatus(resource.status));
   const inaccessible = deepResources.filter((resource) => resource.status !== "acquired");
   const resourceIssues = buildResourceIssues(inaccessible);
@@ -39,7 +53,7 @@ export function assessExamNavigatorCoverage(
   const criticalMissing: string[] = [];
   const retryActions: string[] = [];
 
-  if (!courseKnown && manifest.resources.length > 0) {
+  if (!courseKnown && !directResourceKnown && manifest.resources.length > 0) {
     criticalMissing.push("Der Zielkurs konnte nicht eindeutig als Kursressource erfasst werden.");
     retryActions.push("Den direkten Moodle-Kurslink oder den exakten Kursalias angeben.");
   }
@@ -47,7 +61,7 @@ export function assessExamNavigatorCoverage(
     criticalMissing.push("Es wurde keine nutzbare fachliche Evidenz extrahiert.");
     retryActions.push("Moodle-Anmeldung, Dateizugriff und Extraktionswerkzeuge prüfen.");
   }
-  if (needsDeepMaterial && deepResources.length >= 3 && acquired.length === 0) {
+  if (needsDeepMaterial && deepResources.length >= 1 && usable.length === 0) {
     criticalMissing.push(
       "Es wurden mehrere Fachressourcen entdeckt, aber keine davon wurde erfolgreich geöffnet oder heruntergeladen.",
     );
@@ -55,23 +69,19 @@ export function assessExamNavigatorCoverage(
       "Den Run mit direktem Kurslink erneut starten und Download-/Proxy-Zugriff prüfen.",
     );
   }
-  if (
-    needsDeepMaterial &&
-    deepResources.length >= 4 &&
-    inaccessible.length / deepResources.length > 0.5 &&
-    acquired.length > 0
-  ) {
-    criticalMissing.push(
-      "Mehr als die Hälfte der für den Auftrag relevanten Fachressourcen ist nicht auswertbar.",
-    );
-    retryActions.push("Fehlgeschlagene Ressourcen gezielt über ihre Moodle-URLs erneut öffnen.");
+  const missingCriticalTopics = criticalTopics(deepResources).filter((topic) =>
+    !usable.some((resource) => resource.selection?.topic === topic)
+  );
+  if (needsDeepMaterial && missingCriticalTopics.length > 0) {
+    criticalMissing.push(`Für kritische Kursthemen fehlt nutzbare Evidenz: ${missingCriticalTopics.join(", ")}.`);
+    retryActions.push("Nur die fehlenden Primärquellen der betroffenen Themen gezielt erneut laden.");
   }
 
   const blocked = criticalMissing.length > 0;
   const partialReasons: string[] = [];
   if (!blocked && inaccessible.length > 0) {
     partialReasons.push(
-      `Der Run ist verwendbar: ${acquired.length}/${deepResources.length} Fachressourcen wurden lokal ausgewertet. ` +
+      `Der Run ist verwendbar: ${usable.length}/${deepResources.length} ausgewählte Fachressourcen liefern nutzbare Evidenz. ` +
       resourceIssues.map((issue) => issue.explanation).join(" "),
     );
   }
@@ -104,6 +114,27 @@ export function assessExamNavigatorCoverage(
     usableEvidenceRecords: evidence.records.length,
     resourceIssues,
   });
+}
+
+function isSatisfiedDirectActivityAlias(
+  config: MoodleRuntimeConfig,
+  manifest: ResourceManifest,
+  resource: ResourceManifest["resources"][number],
+  acquired: ResourceManifest["resources"],
+): boolean {
+  if (manifest.courseUrl || !isDirectMoodleLearningResourceUrl(config.moodleUrl)) return false;
+  if (resource.status !== "discovered" || acquired.length === 0) return false;
+  return canonicalizeResourceUrl(resource.originUrl) === canonicalizeResourceUrl(config.moodleUrl);
+}
+
+function isDirectMoodleLearningResourceUrl(value: string): boolean {
+  try {
+    const pathname = new URL(value).pathname;
+    return pathname.includes("/pluginfile.php/") ||
+      /\/mod\/(?:resource|page|book|folder|assign|lesson|url)\/view\.php$/i.test(pathname);
+  } catch {
+    return false;
+  }
 }
 
 function isDeepContentResource(resource: ResourceManifest["resources"][number]): boolean {
@@ -144,18 +175,25 @@ export function summarizeManifestAcquisition(manifest: ResourceManifest): {
   partial: boolean;
   data: Record<string, unknown>;
 } {
-  const resources = targetCourseResources(manifest).filter(isDeepContentResource);
+  const allResources = targetCourseResources(manifest).filter(isDeepContentResource);
+  const selected = allResources.filter((resource) => resource.selection?.selected === true);
+  const resources = selected.length > 0
+    ? selected
+    : allResources.filter((resource) => resource.status !== "skipped");
   const acquired = resources.filter((resource) => resource.status === "acquired");
+  const usable = acquired.filter(isUsableResource);
   const issues = buildResourceIssues(resources.filter((resource) => resource.status !== "acquired"));
   return {
     detail: issues.length === 0
-      ? `${acquired.length}/${resources.length} Fachressourcen wurden erfolgreich lokal ausgewertet.`
-      : `Moodle-Seitenzugriff erfolgreich; der Run bleibt verwendbar. ${acquired.length}/${resources.length} Fachressourcen wurden lokal ausgewertet. ${issues.map((issue) => issue.explanation).join(" ")}`,
+      ? `${usable.length}/${resources.length} ausgewählte Fachressourcen liefern nutzbare Evidenz.`
+      : `Moodle-Seitenzugriff erfolgreich; der Run bleibt verwendbar. ${usable.length}/${resources.length} ausgewählte Fachressourcen liefern nutzbare Evidenz. ${issues.map((issue) => issue.explanation).join(" ")}`,
     partial: issues.length > 0,
     data: {
       courseUrl: manifest.courseUrl,
       discoveredResources: resources.length,
       acquiredResources: acquired.length,
+      usableResources: usable.length,
+      skippedResources: allResources.filter((resource) => resource.status === "skipped").length,
       resourceIssues: issues,
     },
   };
@@ -164,24 +202,31 @@ export function summarizeManifestAcquisition(manifest: ResourceManifest): {
 function buildResourceIssues(
   resources: ResourceManifest["resources"],
 ): NonNullable<CoverageAssessment["resourceIssues"]> {
-  const groups = new Map<ResourceManifest["resources"][number]["status"], ResourceManifest["resources"]>();
+  const groups = new Map<string, ResourceManifest["resources"]>();
   for (const resource of resources) {
-    groups.set(resource.status, [...(groups.get(resource.status) ?? []), resource]);
+    const key = `${resource.status}:${resource.failureKind ?? "none"}`;
+    groups.set(key, [...(groups.get(key) ?? []), resource]);
   }
-  return [...groups.entries()].map(([status, grouped]) => ({
-    status,
+  return [...groups.values()].map((grouped) => ({
+    status: grouped[0].status,
+    failureKind: grouped[0].failureKind ?? null,
     count: grouped.length,
     titles: grouped.slice(0, 6).map((resource) => resource.title),
-    explanation: explainIssue(status, grouped.length),
-    retryable: ["transient_failure", "tls_failure"].includes(status),
+    explanation: explainIssue(grouped[0].status, grouped.length, grouped[0].failureKind),
+    retryable: ["transient_failure", "tls_failure"].includes(grouped[0].status),
   }));
 }
 
 function explainIssue(
   status: ResourceManifest["resources"][number]["status"],
   count: number,
+  failureKind?: ResourceManifest["resources"][number]["failureKind"],
 ): string {
   const noun = `${count} Ressource${count === 1 ? "" : "n"}`;
+  if (failureKind === "client_timeout") return `${noun} überschritten das lokale Download-Zeitbudget.`;
+  if (failureKind === "remote_timeout") return `${noun} erhielten innerhalb des Zeitbudgets keine Antwort von der Remote-Quelle.`;
+  if (failureKind === "canceled") return `${noun} wurden durch den übergeordneten Run abgebrochen.`;
+  if (failureKind === "extraction") return `${noun} wurden geladen, konnten aber nicht in nutzbaren Text extrahiert werden.`;
   switch (status) {
     case "tls_failure": return `${noun} konnten wegen einer TLS-/Zertifikatsprüfung nicht geladen werden.`;
     case "transient_failure": return `${noun} scheiterten vorübergehend an Timeout, Netzwerk oder Serverantwort.`;
@@ -224,7 +269,22 @@ function omittedTopics(resources: ResourceManifest["resources"]): string[] {
   return [...groups.entries()]
     .filter(([, topicResources]) =>
       topicResources.length > 0 &&
-      topicResources.every((resource) => resource.status !== "acquired")
+      topicResources.every((resource) => !isUsableResource(resource))
     )
     .map(([topic]) => topic);
+}
+
+function isUsableResource(resource: ResourceManifest["resources"][number]): boolean {
+  if (resource.status !== "acquired") return false;
+  return resource.extraction?.status !== "unusable";
+}
+
+function criticalTopics(resources: ResourceManifest["resources"]): string[] {
+  return unique(resources
+    .filter((resource) =>
+      resource.selection?.role === "primary_lecture" ||
+      resource.selection?.role === "external_reference"
+    )
+    .map((resource) => resource.selection?.topic ?? "")
+    .filter(Boolean));
 }

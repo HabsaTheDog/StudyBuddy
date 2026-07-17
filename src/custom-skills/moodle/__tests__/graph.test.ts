@@ -217,7 +217,17 @@ describe("moodle graph retry routing", () => {
         runDir,
         prompt: "make notes",
       }),
-      { codex },
+      {
+        codex,
+        scraperNode: async () => ({
+          moodle_raw_text: "local fixture text",
+          error_log: null,
+        }),
+        cisScraperNode: async (state) => ({
+          moodle_raw_text: state.moodle_raw_text,
+          error_log: null,
+        }),
+      },
     );
 
     const result = await graph.invoke({ ...initialAgentState, moodle_raw_text: "local fixture text" });
@@ -388,6 +398,58 @@ describe("moodle graph retry routing", () => {
     expect(result.error_log).toBeNull();
     expect(result.final_document).toBe("");
     await expect(readFile(path.join(runDir, "extracted-data.json"), "utf8")).resolves.toContain("DYN2");
+  });
+
+  it("retries a reviewer execution failure without rebuilding validated extraction data", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-extract-review-retry-"));
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      runDir,
+      outputPath: path.join(runDir, "document.typ"),
+      stage: "extract",
+      diagnostics,
+    });
+    let analyzerCalls = 0;
+    let reviewerCalls = 0;
+    const graph = buildExtractionGraph(config, {
+      codex: {
+        async run(_prompt, options) {
+          if (options?.task === "content_analyzer") {
+            analyzerCalls += 1;
+            return JSON.stringify(moodleExtractedData());
+          }
+          if (options?.task === "quality_reviewer") {
+            reviewerCalls += 1;
+            if (reviewerCalls === 1) throw new Error("temporary reviewer service issue");
+            return JSON.stringify({ ok: true, summary: "Reviewed", findings: [] });
+          }
+          throw new Error(`Unexpected task: ${options?.task}`);
+        },
+      },
+      scraperNode: async () => {
+        await diagnostics.markSuccess("moodle", {
+          detail: "Course extracted.",
+          urls: [config.moodleUrl],
+          pages: 1,
+        });
+        return {
+          moodle_raw_text: "Relevant course source",
+          error_log: null,
+        };
+      },
+      cisScraperNode: async (state) => ({
+        moodle_raw_text: state.moodle_raw_text,
+        error_log: null,
+      }),
+    });
+
+    const result = await graph.invoke(initialAgentState);
+
+    expect(result.error_log).toBeNull();
+    expect(analyzerCalls).toBe(1);
+    expect(reviewerCalls).toBe(2);
+    expect(result.retry_count).toBe(1);
   });
 
   it("renders from a successful extraction handoff without running scrapers", async () => {

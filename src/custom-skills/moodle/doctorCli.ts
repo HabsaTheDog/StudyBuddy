@@ -7,6 +7,7 @@ import {
   preflightCodexRuntime,
 } from "./codexRuntime.js";
 import { resolveTaskModelPolicy } from "./modelPolicy.js";
+import { inspectExtractionTooling } from "./fileTextExtraction.js";
 
 const program = new Command()
   .name("moodle-doctor")
@@ -36,6 +37,7 @@ const models = options.model.length > 0
     ]))];
 
 try {
+  const extractionTooling = await inspectExtractionTooling();
   const report = await preflightCodexRuntime({
     cacheDir: path.resolve("output", ".runtime-cache"),
     codexPath: options.codexPath ?? process.env.STUDY_BUDDY_CODEX_PATH,
@@ -47,9 +49,15 @@ try {
     bypassCache: !options.cache,
   });
   if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify({ runtime: report, extractionTooling }, null, 2));
   } else {
-    console.log(formatCodexRuntimeSummary(report).join("\n"));
+    console.log([
+      ...formatCodexRuntimeSummary(report),
+      `PDF text: ${extractionTooling.pdftotext ? "available" : "missing"}`,
+      `PDF rendering: ${extractionTooling.pdftoppm ? "available" : "missing"}`,
+      `Office conversion: ${extractionTooling.libreoffice ? "available" : "missing"}`,
+      "OCR: intentionally disabled (not a runtime dependency)",
+    ].join("\n"));
   }
 } catch (error) {
   if (options.json && error instanceof CodexRuntimePreflightError && error.report) {

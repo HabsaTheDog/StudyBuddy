@@ -12,6 +12,10 @@ import {
   type ReviewReport,
   type StudyModel,
 } from "./examNavigatorContracts.js";
+import {
+  emptySourceArchitectDecision,
+  type SourceArchitectDecision,
+} from "./sourceArchitect.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
@@ -32,6 +36,7 @@ export interface AgentState {
   study_model: StudyModel;
   review_report: ReviewReport;
   artifact_bundle: ArtifactBundle | null;
+  source_architect_decision: SourceArchitectDecision;
 }
 
 export const initialAgentState: AgentState = {
@@ -46,6 +51,7 @@ export const initialAgentState: AgentState = {
   study_model: emptyStudyModel(),
   review_report: emptyReviewReport(),
   artifact_bundle: null,
+  source_architect_decision: emptySourceArchitectDecision(),
 };
 
 export const AgentStateAnnotation = Annotation.Root({
@@ -92,6 +98,10 @@ export const AgentStateAnnotation = Annotation.Root({
   artifact_bundle: Annotation<ArtifactBundle | null>({
     reducer: (_current, update) => update,
     default: () => null,
+  }),
+  source_architect_decision: Annotation<SourceArchitectDecision>({
+    reducer: (_current, update) => update,
+    default: emptySourceArchitectDecision,
   }),
 });
 

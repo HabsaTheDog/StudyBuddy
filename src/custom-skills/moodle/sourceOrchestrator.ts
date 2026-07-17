@@ -51,7 +51,10 @@ export function createSourceOrchestratorNode(
           maxCisPages: Math.min(config.maxCisPages, budget.maxCisPages),
         }
       : config;
-    const scraperNode = dependencies.scraperNode ?? createScraperNode(boundedConfig);
+    const targetedMoodleConfig = config.targetCourseUrls?.[0]
+      ? { ...boundedConfig, moodleUrl: config.targetCourseUrls[0] }
+      : boundedConfig;
+    const scraperNode = dependencies.scraperNode ?? createScraperNode(targetedMoodleConfig);
     const cisScraperNode = dependencies.cisScraperNode ?? createCisScraperNode(boundedConfig);
     const calendarNode = dependencies.calendarNode ?? createCalendarNode(config);
 

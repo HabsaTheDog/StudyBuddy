@@ -77,7 +77,7 @@ export function resolveTaskBudget(intent: StudyBuddyIntentDecision | undefined):
         maxMoodlePages: 8,
         maxMoodleDepth: 2,
         maxCisPages: 4,
-        maxDownloadedFiles: 60,
+        maxDownloadedFiles: 24,
         maxModelInputChars: 150_000,
         allowModel: true,
       };

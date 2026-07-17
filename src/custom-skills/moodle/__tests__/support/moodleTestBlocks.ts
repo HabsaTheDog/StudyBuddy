@@ -9,6 +9,7 @@ import {
   emptyReviewReport,
   emptyStudyModel,
 } from "../../examNavigatorContracts.js";
+import { emptySourceArchitectDecision } from "../../sourceArchitect.js";
 import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
 
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
@@ -80,6 +81,7 @@ export function moodleTestState(overrides: Partial<LangGraphAgentState> = {}): L
     study_model: emptyStudyModel(),
     review_report: emptyReviewReport(),
     artifact_bundle: null,
+    source_architect_decision: emptySourceArchitectDecision(),
     ...overrides,
   };
 }

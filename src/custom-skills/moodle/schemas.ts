@@ -35,6 +35,8 @@ export const SectionSchema = z.object({
 });
 
 export const WorkedExampleSchema = z.object({
+  origin: z.enum(["source", "derived"]).default("source"),
+  learning_goal: z.string().default(""),
   prompt: z.string().min(1),
   steps: z.array(z.string()).default([]),
   result: z.string().default(""),
@@ -155,12 +157,14 @@ export const extractedDataJsonSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
+        origin: { type: "string", enum: ["source", "derived"] },
+        learning_goal: { type: "string" },
         prompt: { type: "string" },
         steps: { type: "array", items: { type: "string" } },
         result: { type: "string" },
         source_ids: { type: "array", items: { type: "string" } },
       },
-      required: ["prompt", "steps", "result", "source_ids"],
+      required: ["origin", "learning_goal", "prompt", "steps", "result", "source_ids"],
     },
     quiz_style_question: {
       type: "object",

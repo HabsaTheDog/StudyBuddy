@@ -15,6 +15,7 @@ const program = new Command()
   .argument("<prompt>", "User request for the web layout agent")
   .option("--kind <kind>", "Layout kind: auto, flashcards, concept-visualization, simulation, exam-practice, quiz, worksheet, reference", "auto")
   .option("--source-file <path>", "UTF-8 source text file; repeat for multiple files", collect, [])
+  .option("--asset <path>", "Local image asset; repeat for multiple files", collect, [])
   .option("--source-run-dir <path>", "Successful Moodle extraction run directory to consume")
   .option("--out <path>", "Output .html path")
   .option("--request-name <slug>", "Request-specific output directory name")
@@ -22,6 +23,9 @@ const program = new Command()
   .option("--language <language>", "Language: de or en", parseLanguage, "de")
   .option("--browser-headed", "Show browser window during Playwright validation")
   .option("--skip-browser-validation", "Skip Playwright validation")
+  .option("--max-artifact-mb <number>", "Maximum final HTML size in decimal MB (1-1000)", parseArtifactMegabytes, 1000)
+  .option("--max-image-width <number>", "Maximum optimized raster width in pixels", parseNumber, 2000)
+  .option("--webp-quality <number>", "Lossy WebP quality from 1 to 100", parseQuality, 84)
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
@@ -34,6 +38,7 @@ const program = new Command()
 const options = program.opts<{
   kind: WebLayoutKind;
   sourceFile: string[];
+  asset: string[];
   sourceRunDir?: string;
   out?: string;
   requestName?: string;
@@ -41,6 +46,9 @@ const options = program.opts<{
   language: "de" | "en";
   browserHeaded?: boolean;
   skipBrowserValidation?: boolean;
+  maxArtifactMb: number;
+  maxImageWidth: number;
+  webpQuality: number;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   codexModel?: string;
@@ -55,6 +63,7 @@ const result = await runWebLayoutGraph({
   prompt,
   kind: options.kind,
   sourceFiles: options.sourceFile,
+  assetFiles: options.asset,
   sourceRunDir: options.sourceRunDir,
   outputPath: options.out,
   requestName: options.requestName,
@@ -62,6 +71,9 @@ const result = await runWebLayoutGraph({
   language: options.language,
   browserHeaded: options.browserHeaded,
   skipBrowserValidation: options.skipBrowserValidation,
+  maxArtifactBytes: options.maxArtifactMb * 1_000_000,
+  maxImageWidth: options.maxImageWidth,
+  webpQuality: options.webpQuality,
   maxRuntimeMs: options.maxRuntimeMs,
   idleTimeoutMs: options.idleTimeoutMs,
   codexModel: options.codexModel,
@@ -91,6 +103,22 @@ function parseNumber(value: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new Error(`Expected a non-negative integer, got ${value}`);
+  }
+  return parsed;
+}
+
+function parseArtifactMegabytes(value: string): number {
+  const parsed = parseNumber(value);
+  if (parsed < 1 || parsed > 1000) {
+    throw new Error(`Expected artifact size from 1 to 1000 MB, got ${value}`);
+  }
+  return parsed;
+}
+
+function parseQuality(value: string): number {
+  const parsed = parseNumber(value);
+  if (parsed < 1 || parsed > 100) {
+    throw new Error(`Expected WebP quality from 1 to 100, got ${value}`);
   }
   return parsed;
 }

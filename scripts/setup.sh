@@ -162,6 +162,15 @@ else
   warn "  Windows: winget install typst"
 fi
 
+if command -v pdftotext &>/dev/null && command -v pdftoppm &>/dev/null; then
+  ok "Poppler PDF tools available (pdftotext, pdftoppm)"
+else
+  warn "Poppler PDF tools are incomplete — PDF text extraction or selected-page rendering will be limited"
+  warn "  Debian/Ubuntu: sudo apt install poppler-utils"
+  warn "  Fedora:        sudo dnf install poppler-utils"
+  warn "  macOS:         brew install poppler"
+fi
+
 if command -v npx &>/dev/null; then
   ok "npx available"
 else

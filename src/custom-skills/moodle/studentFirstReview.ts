@@ -39,6 +39,29 @@ export async function reviewStudyModel(
   if (model.profile === "study_guide" && model.practiceItems.length > 0) {
     findings.push(error("student_value", "study-guide-practice", "Study guides must not contain practice items."));
   }
+  if (model.profile === "study_guide") {
+    for (const chapter of model.courseChapters.filter((entry) => entry.status === "covered")) {
+      const topics = model.topics.filter((topic) => topic.chapterId === chapter.id);
+      const learningCharacters = topics.reduce(
+        (total, topic) => total + topic.summary.length + topic.learningGoals.join(" ").length,
+        0,
+      );
+      if (learningCharacters < 1_200) {
+        findings.push(error(
+          "student_value",
+          "chapter-too-shallow",
+          `Chapter is too shallow to learn from (${learningCharacters}/1200 learning characters): ${chapter.title}`,
+        ));
+      }
+      if (!model.workedExamples.some((example) => example.chapterId === chapter.id)) {
+        findings.push(error(
+          "student_value",
+          "chapter-example-missing",
+          `Covered technical chapter has no worked example: ${chapter.title}`,
+        ));
+      }
+    }
+  }
   if (new Set(model.checklist).size !== model.checklist.length) {
     findings.push(error("student_value", "duplicate-checklist", "The learning checklist contains duplicates."));
   }

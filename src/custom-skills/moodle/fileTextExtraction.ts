@@ -1,22 +1,50 @@
-import { access, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, open, readFile, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-export async function extractReadableFileText(filePath: string): Promise<string> {
+export type FileExtractionMethod = "plain_text" | "native_pdf_text" | "office_to_pdf" | "none";
+
+export interface FileExtractionResult {
+  filePath: string;
+  status: "usable" | "partial" | "unusable";
+  method: FileExtractionMethod;
+  text: string;
+  characterCount: number;
+  pageCount: number | null;
+  warnings: string[];
+}
+
+export interface ExtractionTooling {
+  pdftotext: boolean;
+  pdftoppm: boolean;
+  libreoffice: boolean;
+}
+
+export async function extractReadableFile(
+  filePath: string,
+  options: { signal?: AbortSignal; commandTimeoutMs?: number } = {},
+): Promise<FileExtractionResult> {
   const lower = filePath.toLowerCase();
   if (lower.endsWith(".txt") || lower.endsWith(".md")) {
-    const { readFile } = await import("node:fs/promises");
-    return readFile(filePath, "utf8");
+    const text = await readFile(filePath, "utf8");
+    return extractionResult(filePath, "plain_text", text, []);
   }
   if (lower.endsWith(".pdf")) {
-    return extractPdfText(filePath);
+    return extractPdfText(filePath, options);
   }
   if (/\.(?:docx?|pptx?|xlsx?)$/i.test(lower)) {
-    return extractOfficeText(filePath);
+    return extractOfficeText(filePath, options);
   }
-  return "";
+  return extractionResult(filePath, "none", "", ["Unsupported file type for text extraction."]);
+}
+
+export async function extractReadableFileText(filePath: string): Promise<string> {
+  const result = await extractReadableFile(filePath);
+  if (result.status === "unusable") {
+    throw new Error(result.warnings.join(" ") || "File contains no usable readable text.");
+  }
+  return result.text;
 }
 
 export async function assertReadableDownloadedFile(filePath: string): Promise<void> {
@@ -48,28 +76,38 @@ async function assertPdfFile(filePath: string): Promise<void> {
   }
 }
 
-export async function extractPdfText(pdfPath: string): Promise<string> {
+export async function extractPdfText(
+  pdfPath: string,
+  options: { signal?: AbortSignal; commandTimeoutMs?: number } = {},
+): Promise<FileExtractionResult> {
   const pdftotext = await findExecutable("pdftotext");
   if (!pdftotext) {
-    throw new Error("pdftotext executable was not found on PATH.");
+    return extractionResult(pdfPath, "none", "", ["pdftotext executable was not found on PATH."]);
   }
   const textPath = pdfPath.replace(/\.pdf$/i, ".txt");
-  const result = await runCommand(pdftotext, ["-layout", pdfPath, textPath]);
+  const result = await runCommand(pdftotext, ["-layout", pdfPath, textPath], options);
   if (result.code !== 0) {
-    throw new Error(result.stderr || result.stdout || `pdftotext exited with code ${result.code}`);
+    return extractionResult(pdfPath, "none", "", [
+      result.stderr || result.stdout || `pdftotext exited with code ${result.code}`,
+    ]);
   }
   const text = await readFile(textPath, "utf8");
   await writeFile(textPath, text, "utf8");
   if (text.replace(/\s+/g, "").length >= 80) {
-    return text;
+    return extractionResult(pdfPath, "native_pdf_text", text, []);
   }
-  return extractPdfOcr(pdfPath, text);
+  return extractionResult(pdfPath, "native_pdf_text", text, [
+    "PDF contains little embedded text. Automatic OCR is intentionally disabled; the catalog can still expose this resource and the visual pipeline can inspect selected pages.",
+  ]);
 }
 
-async function extractOfficeText(filePath: string): Promise<string> {
+async function extractOfficeText(
+  filePath: string,
+  options: { signal?: AbortSignal; commandTimeoutMs?: number },
+): Promise<FileExtractionResult> {
   const libreoffice = await findExecutable("libreoffice");
   if (!libreoffice) {
-    throw new Error("libreoffice executable was not found on PATH.");
+    return extractionResult(filePath, "none", "", ["libreoffice executable was not found on PATH."]);
   }
   const outputDir = path.dirname(filePath);
   const result = await runCommand(libreoffice, [
@@ -79,54 +117,28 @@ async function extractOfficeText(filePath: string): Promise<string> {
     "--outdir",
     outputDir,
     filePath,
-  ]);
+  ], options);
   if (result.code !== 0) {
-    throw new Error(result.stderr || result.stdout || `libreoffice exited with code ${result.code}`);
+    return extractionResult(filePath, "none", "", [
+      result.stderr || result.stdout || `libreoffice exited with code ${result.code}`,
+    ]);
   }
   const pdfPath = path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}.pdf`);
-  return extractPdfText(pdfPath);
+  const extracted = await extractPdfText(pdfPath, options);
+  return { ...extracted, filePath, method: extracted.method === "none" ? "none" : "office_to_pdf" };
 }
 
-async function extractPdfOcr(pdfPath: string, sparseText: string): Promise<string> {
-  const [pdftoppm, tesseract] = await Promise.all([
+export async function inspectExtractionTooling(): Promise<ExtractionTooling> {
+  const [pdftotext, pdftoppm, libreoffice] = await Promise.all([
+    findExecutable("pdftotext"),
     findExecutable("pdftoppm"),
-    findExecutable("tesseract"),
+    findExecutable("libreoffice"),
   ]);
-  if (!pdftoppm || !tesseract) {
-    throw new Error(
-      "PDF contains too little readable text and OCR is unavailable. Install pdftoppm and tesseract.",
-    );
-  }
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-ocr-"));
-  try {
-    const prefix = path.join(tempDir, "page");
-    const render = await runCommand(pdftoppm, ["-png", "-r", "180", pdfPath, prefix]);
-    if (render.code !== 0) {
-      throw new Error(render.stderr || render.stdout || "pdftoppm OCR render failed.");
-    }
-    const images = (await readdir(tempDir))
-      .filter((fileName) => /^page-\d+\.png$/i.test(fileName))
-      .sort();
-    const pages: string[] = [];
-    for (const image of images) {
-      const outputBase = path.join(tempDir, path.basename(image, ".png"));
-      const ocr = await runCommand(tesseract, [
-        path.join(tempDir, image),
-        outputBase,
-        "-l",
-        process.env.STUDY_BUDDY_OCR_LANG || "deu+eng",
-      ]);
-      if (ocr.code !== 0) {
-        throw new Error(ocr.stderr || ocr.stdout || `tesseract failed for ${image}`);
-      }
-      pages.push(await readFile(`${outputBase}.txt`, "utf8"));
-    }
-    const text = [sparseText, ...pages].filter((value) => value.trim()).join("\n\n");
-    await writeFile(pdfPath.replace(/\.pdf$/i, ".ocr.txt"), text, "utf8");
-    return text;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  return {
+    pdftotext: Boolean(pdftotext),
+    pdftoppm: Boolean(pdftoppm),
+    libreoffice: Boolean(libreoffice),
+  };
 }
 
 async function findExecutable(name: string): Promise<string | null> {
@@ -145,18 +157,76 @@ async function findExecutable(name: string): Promise<string | null> {
 function runCommand(
   command: string,
   args: string[],
+  options: { signal?: AbortSignal; commandTimeoutMs?: number } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let settled = false;
+    let killTimer: NodeJS.Timeout | null = null;
+    let commandTimer: NodeJS.Timeout | null = null;
     let stdout = "";
     let stderr = "";
+    const stop = (reason: Error) => {
+      if (settled) return;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+      settled = true;
+      reject(reason);
+    };
+    const abort = () => stop(options.signal?.reason instanceof Error
+      ? options.signal.reason
+      : new Error("File extraction canceled."));
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
+    options.signal?.addEventListener("abort", abort, { once: true });
+    const timeoutMs = options.commandTimeoutMs ?? 90_000;
+    if (timeoutMs > 0) {
+      commandTimer = setTimeout(() => stop(new Error(`${path.basename(command)} timed out after ${timeoutMs}ms.`)), timeoutMs);
+    }
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
     });
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
     });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (commandTimer) clearTimeout(commandTimer);
+      options.signal?.removeEventListener("abort", abort);
+      if (settled) return;
+      settled = true;
+      resolve({ code, stdout, stderr });
+    });
   });
+}
+
+function extractionResult(
+  filePath: string,
+  method: FileExtractionMethod,
+  text: string,
+  warnings: string[],
+  explicitPageCount?: number,
+): FileExtractionResult {
+  const characterCount = text.replace(/\s+/g, "").length;
+  const status = characterCount >= 80
+    ? "usable"
+    : characterCount >= 24
+      ? "partial"
+      : "unusable";
+  return {
+    filePath,
+    status,
+    method,
+    text,
+    characterCount,
+    pageCount: explicitPageCount ?? (text ? text.split("\f").length : null),
+    warnings,
+  };
 }

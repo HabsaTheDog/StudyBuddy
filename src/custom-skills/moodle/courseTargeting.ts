@@ -21,7 +21,7 @@ const COURSE_ALIASES: CourseAlias[] = [
   { code: "MEL", aliases: ["MEL", "MEL1", "Maschinenelemente", "Maschinenelemente 1"] },
   { code: "DYN2", aliases: ["DYN2", "Anwendungen der Dynamik"] },
   { code: "PHDYN", aliases: ["PHDYN", "Physikalische Grundlagen der Dynamik"] },
-  { code: "MAES2", aliases: ["MAES2", "Mathematik für Engineering Science 2", "Mathematik"] },
+  { code: "MAES2", aliases: ["MAES2", "Mathematik für Engineering Science 2"] },
   { code: "ETLB2", aliases: ["ETLB2", "Elektrotechnik Labor 2"] },
   { code: "TEZEI", aliases: ["TEZEI", "Technisches Zeichnen", "Grundlagen des technischen Zeichnens"] },
 ];

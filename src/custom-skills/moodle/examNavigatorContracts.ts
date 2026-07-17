@@ -26,6 +26,10 @@ export const RESOURCE_STATUSES = [
 export const RESOURCE_FAILURE_KINDS = [
   "tls",
   "timeout",
+  "client_timeout",
+  "remote_timeout",
+  "canceled",
+  "extraction",
   "auth",
   "not_found",
   "stale_resource",
@@ -34,6 +38,16 @@ export const RESOURCE_FAILURE_KINDS = [
   "network",
   "http",
   "unknown",
+] as const;
+export const RESOURCE_ROLES = [
+  "overview",
+  "formula",
+  "primary_lecture",
+  "worked_example",
+  "sample_exam",
+  "administrative",
+  "external_reference",
+  "supplementary",
 ] as const;
 
 export type ArtifactProfile = (typeof ARTIFACT_PROFILES)[number];
@@ -62,6 +76,27 @@ export const ResourceNodeSchema = z.object({
   contentType: z.string().nullable().optional(),
   failureKind: z.enum(RESOURCE_FAILURE_KINDS).nullable().optional(),
   recommendedAction: z.string().nullable().optional(),
+  selection: z.object({
+    selected: z.boolean(),
+    role: z.enum(RESOURCE_ROLES),
+    topic: z.string().nullable(),
+    priority: z.number(),
+    reason: z.string(),
+  }).optional(),
+  acquisition: z.object({
+    status: z.enum(["completed", "failed", "timed_out", "canceled", "skipped"]),
+    transport: z.enum(["authenticated_request", "agent_browser", "external_request"]).nullable(),
+    attempts: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative().nullable(),
+    durationMs: z.number().int().nonnegative().nullable(),
+  }).optional(),
+  extraction: z.object({
+    status: z.enum(["usable", "partial", "unusable", "not_attempted"]),
+    method: z.enum(["plain_text", "native_pdf_text", "ocr", "office_to_pdf", "none"]),
+    characterCount: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative().nullable(),
+    warnings: z.array(z.string()),
+  }).optional(),
 });
 
 export const ResourceManifestSchema = z.object({
@@ -114,6 +149,7 @@ export const CoverageAssessmentSchema = z.object({
   usableEvidenceRecords: z.number().int().nonnegative(),
   resourceIssues: z.array(z.object({
     status: z.enum(RESOURCE_STATUSES),
+    failureKind: z.enum(RESOURCE_FAILURE_KINDS).nullable().optional(),
     count: z.number().int().positive(),
     titles: z.array(z.string()),
     explanation: z.string(),
@@ -155,6 +191,8 @@ export const StudyFormulaSchema = z.object({
 export const StudyExampleSchema = z.object({
   id: z.string().min(1),
   chapterId: z.string().nullable().default(null),
+  origin: z.enum(["source", "derived"]),
+  learningGoal: z.string().min(1),
   prompt: z.string().min(1),
   steps: z.array(z.string().min(1)).min(1),
   result: z.string().min(1),

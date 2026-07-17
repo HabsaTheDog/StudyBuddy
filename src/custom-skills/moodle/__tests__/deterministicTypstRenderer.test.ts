@@ -52,6 +52,8 @@ describe("deterministic Typst renderer", () => {
         ],
         worked_examples: [
           {
+            origin: "derived",
+            learning_goal: "Den Tastgrad aus Ein- und Ausgangsspannung bestimmen.",
             prompt: "Berechne d.",
             steps: ["Werte einsetzen", "Quotient bilden"],
             result: "d = 0,5",
