@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { runMoodleGraph } from "./graph.js";
 import {
@@ -47,6 +50,15 @@ const program = new Command()
   .option("--codex-preflight <mode>", "Codex preflight: full, version-only, or off", parseCodexPreflightMode)
   .option("--execution-profile <profile>", "Execution profile: auto, fast, balanced, quality, or custom", parseExecutionProfile, "auto")
   .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
+  .option(
+    "--approve-quiz-request <path>",
+    "Resume the exact quiz described by a native Study Buddy permission request",
+  )
+  .option("--assignment-file <path>", "File to upload; repeat for multiple files", collect, [])
+  .option(
+    "--approve-assignment-request <path>",
+    "Submit the exact assignment and files described by a native permission request",
+  )
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
@@ -91,6 +103,9 @@ const options = program.opts<{
   codexPreflight?: "full" | "version-only" | "off";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   profileOverridesJson?: import("./modelPolicy.js").StudyBuddyModelPolicyOverrides;
+  approveQuizRequest?: string;
+  assignmentFile: string[];
+  approveAssignmentRequest?: string;
 }>();
 
 const prompt = program.args.join(" ");
@@ -103,6 +118,33 @@ const visualMode =
     : options.fastFirst
       ? "deferred"
       : undefined;
+
+if (
+  options.approveQuizRequest ||
+  options.approveAssignmentRequest ||
+  (options.autoAnswer && isQuizExecutionPrompt(prompt)) ||
+  isAssignmentExecutionPrompt(prompt)
+) {
+  runNativeQuizWorkflow({
+    prompt,
+    url: options.url,
+    runDir: options.runDir,
+    maxDepth: options.maxDepth,
+    maxPages: options.maxPages,
+    maxCisPages: options.maxCisPages,
+    browserBackend: options.browserBackend,
+    browserHeaded: options.browserHeaded,
+    autoAnswer: options.autoAnswer,
+    downloads: options.downloads,
+    codexModel: options.codexModel,
+    executionProfile: options.executionProfile,
+    codexReasoningEffort: options.codexReasoningEffort,
+    approveQuizRequest: options.approveQuizRequest,
+    assignmentFiles: options.assignmentFile,
+    approveAssignmentRequest: options.approveAssignmentRequest,
+  });
+}
+
 const result = await runMoodleGraph({
   prompt,
   moodleUrl: options.url,
@@ -252,4 +294,81 @@ function collectFormat(
     throw new Error(`Expected html or pdf, got ${value}`);
   }
   return [...previous, value];
+}
+
+function isQuizExecutionPrompt(value: string): boolean {
+  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selfcheck)\b/i.test(value);
+}
+
+function isAssignmentExecutionPrompt(value: string): boolean {
+  return (
+    (/\b(?:assignment|submission|abgabe|aufgabe|übungsabgabe|uebungsabgabe)\b/i.test(value) ||
+      /\/mod\/assign\//i.test(value)) &&
+    /\b(?:submit|turn in|upload|abgeben|einreichen|hochladen)\b/i.test(value)
+  );
+}
+
+function runNativeQuizWorkflow(input: {
+  prompt: string;
+  url: string;
+  runDir?: string;
+  maxDepth: number;
+  maxPages: number;
+  maxCisPages: number;
+  browserBackend?: "playwright" | "agent-browser";
+  browserHeaded?: boolean;
+  autoAnswer?: boolean;
+  downloads: boolean;
+  codexModel?: string;
+  executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
+  codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  approveQuizRequest?: string;
+  assignmentFiles: string[];
+  approveAssignmentRequest?: string;
+}): never {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const rootDir = path.resolve(moduleDir, "../../..");
+  const quizCli = path.join(
+    rootDir,
+    "t3code-fork/apps/server/src/custom-skills/moodle/cli.ts",
+  );
+  const args = [
+    quizCli,
+    input.prompt,
+    "--url",
+    input.url,
+    "--max-depth",
+    String(input.maxDepth),
+    "--max-pages",
+    String(input.maxPages),
+    "--max-cis-pages",
+    String(input.maxCisPages),
+    "--execution-profile",
+    input.executionProfile,
+  ];
+  if (input.runDir) args.push("--run-dir", input.runDir);
+  if (input.browserBackend) args.push("--browser-backend", input.browserBackend);
+  if (input.browserHeaded) args.push("--browser-headed");
+  if (input.autoAnswer) args.push("--auto-answer");
+  if (!input.downloads) args.push("--no-downloads");
+  if (input.codexModel) args.push("--codex-model", input.codexModel);
+  if (input.codexReasoningEffort) {
+    args.push("--codex-reasoning-effort", input.codexReasoningEffort);
+  }
+  if (input.approveQuizRequest) {
+    args.push("--approve-quiz-request", input.approveQuizRequest);
+  }
+  for (const assignmentFile of input.assignmentFiles) {
+    args.push("--assignment-file", assignmentFile);
+  }
+  if (input.approveAssignmentRequest) {
+    args.push("--approve-assignment-request", input.approveAssignmentRequest);
+  }
+  const result = spawnSync(process.env.BUN_PATH || "bun", args, {
+    cwd: rootDir,
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
 }
