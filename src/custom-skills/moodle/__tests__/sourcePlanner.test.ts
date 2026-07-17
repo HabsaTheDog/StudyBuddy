@@ -28,6 +28,28 @@ describe("sourcePlanner", () => {
     expect(plan.targets).toEqual(["calendar"]);
   });
 
+  it("does not crawl Moodle beside the calendar merely because Moodle is named as a fallback", () => {
+    const prompt = "Find the next TEZEI exam; check Moodle and CIS if the calendar is empty.";
+    const plan = planSources(moodleTestConfig({
+      prompt,
+      calendarUrl: "https://calendar.example/private",
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+        hasCalendarUrl: true,
+      }),
+    }));
+
+    expect(plan.targets).toEqual(["calendar"]);
+    expect(plan.needsCourseMaterial).toBe(false);
+  });
+
   it("routes attendance directly to CIS even when calendar is configured", () => {
     const plan = planSourcesForPrompt("Wie ist die Anwesenheit bei MEL1 geregelt?", {
       hasCisUrls: true,

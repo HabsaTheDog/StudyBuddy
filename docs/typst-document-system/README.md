@@ -1,51 +1,26 @@
-# Study Buddy Typst-Dokumentstandard
+# Study Buddy document standard
 
-Freigegebene Referenz für den produktiven Study-Buddy-Typst-Agenten.
+The canonical, production-facing Typst design system lives in:
 
-## Dateien
+`src/custom-skills/moodle/typst/study-buddy-components.typ`
 
-- `study-buddy-components.typ`: eigenständige Komponentenbibliothek
-- `showcase.typ`: Showcase aller Regeln und Komponenten
-- `showcase.pdf`: freigegebenes Referenzdokument
-- `geometry-audit.typ`: Bounding-Box-Debugansicht
-- `geometry-audit.pdf`: visuelle Geometrieprüfung
-- `GEOMETRY-AUDIT.md`: dokumentierte Prüfkriterien
+Every generated study document receives that component library and the real
+Study Buddy logo through `src/custom-skills/moodle/typstAssets.ts`. Generated
+documents must use the `sb-document` shell and must not replace or override its
+page branding.
 
-## Layout-Balance
+## Approved visual identity
 
-Lernunterlagen sollen zuerst als gut lesbarer Fließtext funktionieren.
-Info-Boxen, Callouts und Quellenboxen sind Akzente, keine Standardform für
-Absatzinhalt.
+- Navy (`#19254b`) is the primary structural color.
+- Blue (`#323a61`) and petrol (`#397f93`) establish hierarchy and technical
+  accents.
+- Gold (`#dfbb63`) is reserved for restrained Study Buddy brand details.
+- Amber and red are semantic colors for warnings and errors, not decoration.
+- The real Study Buddy logo appears at the top of the title page and in every
+  interior-page header.
+- The interior-page logo is vertically centered with the document and course
+  labels.
 
-- Jede fachliche Hauptsektion beginnt mit normalem Prosa-Text.
-- Callouts werden nur für wichtige Felder eingesetzt: Sicherheitswarnungen,
-  harte Randbedingungen, Prüfungstermine, zentrale Merksätze,
-  Quellenkonflikte oder ungewöhnliche Abdeckungsprobleme.
-- Quellenhinweise werden gruppiert. Wiederholte Routinequellen werden im
-  Fließtext genannt oder in einer kompakten Quellenlage zusammengefasst,
-  nicht nach jedem Abschnitt als eigene Box wiederholt.
-- Checklisten sind für kurze Aktions- oder Reviewpunkte reserviert. Lange
-  Vokabellisten, Abläufe, Vergleiche oder Datensammlungen gehören in Prosa
-  plus freigegebene Tabellen.
-- Visuelle Komponenten sollen nicht direkt hintereinander stehen, außer eine
-  fachliche Struktur erfordert es eindeutig.
-
-## Build
-
-```bash
-typst compile --package-path \
-  ../../src/custom-skills/moodle/typst/vendor \
-  showcase.typ showcase.pdf
-```
-
-Flowcharts und Blockdiagramme verwenden das fest gepinnte Paket
-`@preview/cetz:0.5.0`. Die Diagramme besitzen feste Geometrie, echte
-Knotenanker und Beschriftungslimits. CeTZ 0.5.0 und seine transitive
-Abhängigkeit Oxifmt 1.0.0 werden unter
-`src/custom-skills/moodle/typst/vendor/` mitgeliefert, damit produktive
-Builds ohne Netzwerk und ohne globalen Typst-Paketcache funktionieren.
-
-Der Showcase enthält außerdem einen geometrisch aufgebauten RC-Schaltplan
-ohne ASCII-Ersatzdarstellung sowie eine Mathematik-Stressprobe mit Matrizen,
-Matrixexponential, komplexen Größen, Integralen, verschachtelten Summen,
-Fallunterscheidungen und einer mehrzeilig ausgerichteten Herleitung.
+The files in this documentation directory are examples and audit fixtures. If
+an example conflicts with the production component library, the production
+component library is authoritative.

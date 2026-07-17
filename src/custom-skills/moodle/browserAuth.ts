@@ -57,9 +57,10 @@ export async function dismissCommonOverlays(page: Page): Promise<void> {
     "button:has-text('Weiter')",
   ]) {
     const target = page.locator(selector).first();
-    if (await target.count().catch(() => 0)) {
-      await target.click().catch(() => undefined);
-    }
+    if (!(await target.count().catch(() => 0))) continue;
+    if (!(await target.isVisible().catch(() => false))) continue;
+    if (!(await target.isEnabled().catch(() => false))) continue;
+    await target.click({ timeout: 750 }).catch(() => undefined);
   }
 }
 

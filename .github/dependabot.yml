@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Vienna
+    open-pull-requests-limit: 3
+    groups:
+      codex-runtime:
+        patterns:
+          - "@openai/codex-sdk"
+          - "@openai/codex"
+

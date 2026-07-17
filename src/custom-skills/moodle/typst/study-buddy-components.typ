@@ -1,22 +1,23 @@
-// Study Buddy 2.0 - corporate identity component library
+// Study Buddy 2.0 - canonical corporate identity component library
+// All generated study documents receive this shell through typstAssets.ts.
 // CeTZ is pinned so flowcharts use geometric anchors instead of text arrows.
 
 #import "@preview/cetz:0.5.0"
 
 #let sb-colors = (
-  navy: rgb("#111827"),
-  blue: rgb("#ff5f6d"),
-  gold: rgb("#ff8f5e"),
-  gold-dark: rgb("#ff5f6d"),
-  cyan: rgb("#f97316"),
-  green: rgb("#16a34a"),
-  amber: rgb("#f59e0b"),
-  red: rgb("#dc2626"),
-  ink: rgb("#111827"),
-  muted: rgb("#4b5563"),
-  line: rgb("#fed7aa"),
-  soft: rgb("#fff7ed"),
-  soft-2: rgb("#fff1f2"),
+  navy: rgb("#19254b"),
+  blue: rgb("#323a61"),
+  gold: rgb("#dfbb63"),
+  gold-dark: rgb("#c3994d"),
+  cyan: rgb("#397f93"),
+  green: rgb("#23805a"),
+  amber: rgb("#a66b1f"),
+  red: rgb("#b33a3a"),
+  ink: rgb("#20263f"),
+  muted: rgb("#66708f"),
+  line: rgb("#d9ddea"),
+  soft: rgb("#f6f7fb"),
+  soft-2: rgb("#eef2f8"),
   white: rgb("#FFFFFF"),
 )
 
@@ -46,27 +47,22 @@
   if tone == "success" {
     rgb("#EAF6F0")
   } else if tone == "warning" {
-    rgb("#FFFBEB")
+    rgb("#FBF5E9")
   } else if tone == "danger" {
-    rgb("#FEF2F2")
+    rgb("#FCECEC")
   } else if tone == "info" {
-    rgb("#FFF7ED")
+    rgb("#EAF4F7")
   } else {
-    rgb("#FFF1F2")
+    rgb("#EEF2F8")
   }
 }
 
-#let sb-logo-mark(size: 10mm, text-size: 6pt) = box(
+#let sb-logo(size: 10mm) = image(
+  "assets/study-buddy-logo.png",
   width: size,
   height: size,
-  fill: sb-colors.gold-dark,
-  radius: 2.5pt,
-  inset: 0pt,
-)[
-  #align(center + horizon)[
-    #text(text-size, weight: "bold", fill: sb-colors.white)[SB]
-  ]
-]
+  fit: "contain",
+)
 
 #let sb-chip(label, tone: "primary") = {
   let color = sb-tone-color(tone)
@@ -131,27 +127,26 @@
     height: 100%,
     inset: 0pt,
   )[
-    #rect(width: 100%, height: 4mm, fill: sb-colors.gold-dark)
-    #v(14mm)
     #grid(
-      columns: (1fr, auto),
-      align: (left, top),
+      columns: (28mm, 1fr, auto),
+      gutter: 9pt,
+      align: (left, horizon),
+      [#sb-logo(size: 26mm)],
       [
-        #grid(
-          columns: (auto, 1fr),
-          gutter: 6pt,
-          align: (left, horizon),
-          [#sb-logo-mark(size: 9mm, text-size: 5.2pt)],
-          [
-            #text(10pt, weight: "bold", tracking: 1.2pt, fill: sb-colors.gold-dark)[
-              STUDY BUDDY
-            ]
-            #linebreak()
-            #text(8.5pt, fill: sb-colors.muted)[FH Technikum Wien · Engineering Study Documents]
-          ],
-        )
+        #text(10pt, weight: "bold", tracking: 1.2pt, fill: sb-colors.navy)[
+          STUDY BUDDY
+        ]
+        #linebreak()
+        #text(8.5pt, fill: sb-colors.muted)[FH Technikum Wien · Engineering Study Documents]
       ],
-      [#sb-chip(kind, tone: "success")],
+      [#sb-chip(kind, tone: "primary")],
+    )
+    #v(5mm)
+    #grid(
+      columns: (28mm, 1fr),
+      gutter: 3mm,
+      [#rect(width: 100%, height: 1.4mm, fill: sb-colors.gold)],
+      [#rect(width: 100%, height: 1.4mm, fill: sb-colors.navy)],
     )
 
     #v(1fr)
@@ -161,7 +156,7 @@
       #text(13pt, fill: sb-colors.muted)[#subtitle]
     ]
     #v(8mm)
-    #line(length: 42mm, stroke: 2pt + sb-colors.gold-dark)
+    #line(length: 42mm, stroke: 2pt + sb-colors.cyan)
     #v(10mm)
 
     #block(
@@ -190,17 +185,7 @@
         Standardisiertes Study Buddy Dokument · Typst · Corporate Identity
       ]],
       [
-        #box(
-          width: 13mm,
-          height: 13mm,
-          fill: sb-colors.gold-dark,
-          radius: 2pt,
-          inset: 2pt,
-        )[
-          #align(center + horizon)[
-            #text(7pt, weight: "bold", fill: white)[SB 2.0]
-          ]
-        ]
+        #sb-logo(size: 13mm)
       ],
     )
   ]
@@ -210,15 +195,15 @@
   grid(
     columns: (auto, 1fr, auto),
     gutter: 5pt,
-    align: (left, bottom),
-    [#sb-logo-mark(size: 5mm, text-size: 3.5pt)],
+    align: (left, horizon),
+    [#sb-logo(size: 6mm)],
     [
       #text(8pt, weight: "medium", fill: sb-colors.navy)[#short-title]
       #if course != none [
         #text(8pt, fill: sb-colors.muted)[ · #course]
       ]
     ],
-    [#text(7.5pt, weight: "bold", fill: sb-colors.gold-dark)[STUDY BUDDY]],
+    [#text(7.5pt, weight: "bold", fill: sb-colors.blue)[STUDY BUDDY]],
   )
   v(2pt)
   line(length: 100%, stroke: 0.55pt + sb-colors.line)
@@ -281,12 +266,12 @@
   block(
     width: 100%,
     breakable: true,
-    fill: rgb("#fffaf7"),
-    stroke: (left: 2.2pt + sb-colors.gold-dark, rest: 0.5pt + sb-colors.line),
+    fill: sb-colors.soft,
+    stroke: (left: 2.2pt + sb-colors.cyan, rest: 0.5pt + sb-colors.line),
     radius: 3pt,
     inset: (x: 8pt, y: 8pt),
   )[
-    #text(8.6pt, weight: "bold", fill: sb-colors.gold-dark)[#name]
+    #text(8.6pt, weight: "bold", fill: sb-colors.cyan)[#name]
     #v(4pt)
     #align(center)[#text(11.5pt)[#body]]
     #if note != none [
@@ -324,7 +309,7 @@
     columns: (auto, 1fr),
     gutter: 7pt,
     align: (left, horizon),
-    [#text(8pt, weight: "bold", tracking: 0.6pt, fill: sb-colors.gold-dark)[FORMELN]],
+    [#text(8pt, weight: "bold", tracking: 0.6pt, fill: sb-colors.cyan)[FORMELN]],
     [#line(length: 100%, stroke: 0.55pt + sb-colors.line)],
   )
   #v(2pt)
@@ -361,7 +346,7 @@
       columns: (auto, 1fr),
       gutter: 5pt,
       align: (left, horizon),
-      [#box(width: 2.5mm, height: 2.5mm, fill: sb-colors.gold-dark, radius: 0.6pt)],
+      [#box(width: 2.5mm, height: 2.5mm, fill: sb-colors.cyan, radius: 0.6pt)],
       [#text(9pt, weight: "bold", fill: sb-colors.navy)[#title]],
     )
   ]
@@ -372,7 +357,7 @@
       fill: sb-colors.soft,
       inset: (x: 9pt, y: 7pt),
     )[
-      #text(8.5pt, weight: "bold", fill: sb-colors.gold-dark)[Ergebnis]
+      #text(8.5pt, weight: "bold", fill: sb-colors.cyan)[Ergebnis]
       #h(5pt)
       #text(9pt, weight: "semibold", fill: sb-colors.ink)[#result]
     ]
@@ -400,7 +385,7 @@
   #block(
     width: 100%,
     breakable: false,
-    fill: rgb("#fffdfb"),
+    fill: sb-colors.soft,
     stroke: 0.55pt + sb-colors.line,
     radius: 4pt,
     inset: 9pt,
@@ -940,11 +925,11 @@
       columns: (auto, 1fr),
       gutter: 7pt,
       align: (left, horizon),
-      [#sb-logo-mark(size: 6mm, text-size: 3.8pt)],
+      [#box(width: 2.5mm, height: 6mm, fill: sb-colors.cyan, radius: 1pt)],
       [#text(15pt, weight: "bold", fill: sb-colors.navy)[#it.body]],
     )
     #v(1.5mm)
-    #line(length: 100%, stroke: 1pt + sb-colors.gold-dark)
+    #line(length: 100%, stroke: 0.8pt + sb-colors.line)
     #v(3.5mm)
   ]
   #show heading.where(level: 2): it => [
@@ -953,7 +938,7 @@
       columns: (auto, 1fr),
       gutter: 6pt,
       align: (left, horizon),
-      [#text(10.5pt, weight: "bold", fill: sb-colors.gold-dark)[#it.body]],
+      [#text(10.5pt, weight: "bold", fill: sb-colors.blue)[#it.body]],
       [#line(length: 100%, stroke: 0.45pt + sb-colors.line)],
     )
     #v(1.5mm)
@@ -977,15 +962,20 @@
   date: datetime.today().display("[day].[month].[year]"),
   show-outline: true,
 ) = [
-  #rect(width: 100%, height: 3mm, fill: sb-colors.gold-dark)
-  #v(7mm)
+  #grid(
+    columns: (24mm, 1fr),
+    gutter: 3mm,
+    [#rect(width: 100%, height: 1.4mm, fill: sb-colors.gold)],
+    [#rect(width: 100%, height: 1.4mm, fill: sb-colors.navy)],
+  )
+  #v(5mm)
   #grid(
     columns: (auto, 1fr),
     gutter: 7pt,
     align: (left, horizon),
-    [#sb-logo-mark(size: 10mm, text-size: 5.8pt)],
+    [#sb-logo(size: 15mm)],
     [
-      #text(8pt, weight: "bold", tracking: 1pt, fill: sb-colors.gold-dark)[STUDY BUDDY · #kind]
+      #text(8pt, weight: "bold", tracking: 1pt, fill: sb-colors.blue)[STUDY BUDDY · #kind]
       #linebreak()
       #text(7.8pt, fill: sb-colors.muted)[Moodle-Struktur · quellengebunden · prüfungsnah]
     ],
@@ -1082,5 +1072,12 @@
       #pagebreak()
     ]
   ]
+  #set page(
+    header: sb-header(
+      if short-title == none { title } else { short-title },
+      course: course,
+    ),
+    footer: sb-footer(),
+  )
   #body
 ]

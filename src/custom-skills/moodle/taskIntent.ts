@@ -34,7 +34,6 @@ export function classifyStudyBuddyIntent(input: {
   hasCalendarUrl?: boolean;
 }): StudyBuddyIntentDecision {
   const prompt = input.prompt;
-  const normalized = prompt.toLowerCase();
   const cisAvailable = input.includeCis && input.hasCisUrls;
   const calendarAvailable = Boolean(input.hasCalendarUrl);
 
@@ -75,7 +74,8 @@ export function classifyStudyBuddyIntent(input: {
   const onlyShortAnswer = /\b(?:nenne nur|nur den termin|kurz|nur kurz|nur datum|nur die antwort)\b/i.test(prompt);
   const scheduleSignal = /\b(?:termin|prüfung|pruefung|test|klausur|raum|räume|raeume|uhrzeit|heute|morgen|deadline|frist|wann|wo|schedule|timetable|exam|room|today|tomorrow|anwesenheit|attendance|lv-info|administrativ)\b/i
     .test(prompt);
-  const courseMaterial = /\b(?:moodle|lernunterlagen|kursunterlagen|unterlagen|prüfungsrelevante|pruefungsrelevante|materialien|skript|folie|folien|pdf|datei|kursmaterial|fachlabor|laborinhalt)\b|was machen wir|what are we doing/i
+  const explicitMoodleSource = /\bmoodle\b|https:\/\/moodle\.technikum-wien\.at\//i.test(prompt);
+  const courseMaterial = /\b(?:lernunterlagen|kursunterlagen|unterlagen|prüfungsrelevante|pruefungsrelevante|materialien|skript|folie|folien|pdf|datei|kursmaterial|fachlabor|laborinhalt)\b|was machen wir|what are we doing/i
     .test(prompt);
   const needsDownloadedFiles = wantsPdf ||
     /\b(?:download|herunterlad\w*|pdfs?|dateien?|files?|folien?|slides?|skript|screenshots?)\b/i.test(prompt);
@@ -105,7 +105,7 @@ export function classifyStudyBuddyIntent(input: {
   if (scheduleSignal && !wantsPdf) {
     return decision("schedule_answer", "The prompt asks for schedule/date/room facts without a document request.", {
       wantsQuickAnswer: true,
-      needsMoodle: courseMaterial || normalized.includes("moodle"),
+      needsMoodle: courseMaterial || explicitMoodleSource,
       needsCis: cisAvailable,
       needsCalendar: calendarAvailable,
       needsCourseMaterial: courseMaterial,

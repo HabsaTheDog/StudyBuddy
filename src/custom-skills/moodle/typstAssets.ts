@@ -13,6 +13,8 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TYPST_ASSET_DIR = path.join(MODULE_DIR, "typst");
 const COMPONENT_LIBRARY_PATH = path.join(TYPST_ASSET_DIR, STUDY_BUDDY_COMPONENTS_FILE);
 const VENDORED_PACKAGE_PATH = path.join(TYPST_ASSET_DIR, "vendor");
+const STUDY_BUDDY_LOGO_PATH = path.resolve(MODULE_DIR, "../../../CI/logo.png");
+const STUDY_BUDDY_LOGO_FILE = "assets/study-buddy-logo.png";
 
 let supportFilesPromise: Promise<TypstSupportFile[]> | null = null;
 
@@ -27,6 +29,7 @@ export function studyBuddyTypstPackagePath(baseDir: string): string {
 
 async function loadStudyBuddyTypstSupportFiles(): Promise<TypstSupportFile[]> {
   const componentLibrary = await readFile(COMPONENT_LIBRARY_PATH);
+  const studyBuddyLogo = await readFile(STUDY_BUDDY_LOGO_PATH);
   const vendoredPackages = await readDirectoryFiles(
     VENDORED_PACKAGE_PATH,
     STUDY_BUDDY_PACKAGE_DIR,
@@ -39,6 +42,10 @@ async function loadStudyBuddyTypstSupportFiles(): Promise<TypstSupportFile[]> {
     {
       relativePath: STUDY_BUDDY_TEMPLATE_FILE,
       content: STUDY_BUDDY_TEMPLATE_COMPATIBILITY,
+    },
+    {
+      relativePath: STUDY_BUDDY_LOGO_FILE,
+      content: studyBuddyLogo,
     },
     ...vendoredPackages,
   ];

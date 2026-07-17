@@ -19,6 +19,7 @@ import type {
   StudyBuddyModelPolicyOverrides,
   StudyBuddyReasoningEffort,
 } from "./modelPolicy.js";
+import type { CodexPreflightMode, CodexRuntimeReport } from "./codexRuntime.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -62,6 +63,9 @@ export interface MoodleGraphInput {
   linkPolicy?: LinkPolicy;
   codexModel?: string;
   codexReasoningEffort?: StudyBuddyReasoningEffort;
+  codexPath?: string;
+  codexCompatibilityFallbackModel?: string;
+  codexPreflightMode?: CodexPreflightMode;
   executionProfile?: StudyBuddyExecutionProfile;
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
 }
@@ -83,6 +87,7 @@ export interface MoodleGraphResult {
   htmlPath?: string;
   artifactBundle?: ArtifactBundle;
   metricsPath: string;
+  codexRuntime?: CodexRuntimeReport;
 }
 
 export interface MoodleRuntimeConfig {
@@ -135,6 +140,11 @@ export interface MoodleRuntimeConfig {
   calendarSelection?: CalendarSelection;
   codexModel?: string;
   codexReasoningEffort?: StudyBuddyReasoningEffort;
+  codexPath?: string;
+  codexCompatibilityFallbackModel?: string;
+  codexPreflightMode: CodexPreflightMode;
+  codexModelExplicit: boolean;
+  runtimeCacheDir: string;
   executionProfile: StudyBuddyExecutionProfile;
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
   executionTelemetry?: ExecutionTelemetry;

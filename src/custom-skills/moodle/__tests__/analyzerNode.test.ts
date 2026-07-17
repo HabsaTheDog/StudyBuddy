@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { CodexClient } from "../codexClient.js";
+import {
+  NonRetryableCodexError,
+  classifyCodexError,
+  type CodexClient,
+} from "../codexClient.js";
 import { extractedDataJsonSchema } from "../schemas.js";
 import { createAnalyzerNode } from "../nodes/analyzerNode.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
@@ -54,5 +58,74 @@ describe("analyzerNode", () => {
     expect(result.extracted_data).toBeUndefined();
     expect(result.error_log).toMatch(/^Analyzer failed:/);
     expect(result.retry_count).toBe(2);
+  });
+
+  it("caps quick-answer source context before invoking Codex", async () => {
+    let receivedPrompt = "";
+    const codex: CodexClient = {
+      async run(prompt) {
+        receivedPrompt = prompt;
+        return '{"document_title":"Answer","course":{"title":"Course"}}';
+      },
+    };
+    const config = moodleTestConfig({
+      intentDecision: {
+        intent: "quick_answer",
+        wantsPdf: false,
+        wantsTypstDocument: false,
+        wantsQuickAnswer: true,
+        wantsQuizAssistance: false,
+        needsMoodle: true,
+        needsCis: false,
+        needsCalendar: false,
+        needsCourseMaterial: false,
+        needsDownloadedFiles: false,
+        reason: "test",
+      },
+    });
+
+    await createAnalyzerNode(config, codex)(
+      moodleTestState({ moodle_raw_text: "x".repeat(200_000) }),
+    );
+
+    expect(receivedPrompt.length).toBeLessThan(40_000);
+  });
+
+  it("exhausts the retry budget immediately for deterministic model errors", async () => {
+    const codex: CodexClient = {
+      async run() {
+        throw new NonRetryableCodexError(
+          "Model requires a newer version of Codex.",
+          "model_incompatible",
+        );
+      },
+    };
+
+    const result = await createAnalyzerNode(moodleTestConfig(), codex)(
+      moodleTestState({ retry_count: 0 }),
+    );
+
+    expect(result.error_log).toContain("Analyzer failed (non-retryable)");
+    expect(result.retry_count).toBe(3);
+  });
+
+  it.each([
+    [new Error("This model requires a newer version of Codex"), "model_incompatible"],
+    [new Error("Update your Codex version to use this model"), "model_incompatible"],
+    [new Error("Unsupported model: gpt-future"), "model_unavailable"],
+    [{ status: 404, error: { code: "model_not_found" } }, "model_unavailable"],
+    [{ statusCode: 401, message: "Unauthorized" }, "authentication"],
+    [new Error("Auth failed: not logged in"), "authentication"],
+    [{ response: { status: 400 }, message: "Invalid request" }, "invalid_request"],
+  ])("classifies deterministic SDK rejection %# as non-retryable", (error, category) => {
+    expect(classifyCodexError(error)).toEqual({ category, retryable: false });
+  });
+
+  it.each([
+    [new Error("rate limit exceeded"), "rate_limit"],
+    [new Error("network connection reset"), "network"],
+    [new Error("temporary service issue"), "unknown"],
+  ])("leaves transient/unknown error %# retryable", (error, category) => {
+    expect(classifyCodexError(error)).toEqual({ category, retryable: true });
   });
 });

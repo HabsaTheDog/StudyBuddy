@@ -50,6 +50,32 @@ function planSourcesForIntent(config: MoodleRuntimeConfig): SourcePlan {
       needsQuizOrAssignment: intent.wantsQuizAssistance,
     });
   }
+  if (intent.intent === "schedule_answer") {
+    const cisAllowed = config.includeCis && config.cisUrls.length > 0;
+    const calendarAllowed = Boolean(config.calendarUrl) && !requiresCisDirectly(config.prompt);
+    const targets: SourceTarget[] = [];
+    if (intent.needsCourseMaterial) targets.push("moodle");
+    if (calendarAllowed) {
+      targets.push("calendar");
+    } else if (requiresCisDirectly(config.prompt)) {
+      if (cisAllowed) targets.push("cis");
+    } else {
+      if (!targets.includes("moodle")) targets.push("moodle");
+      if (cisAllowed) targets.push("cis");
+    }
+    return {
+      targets,
+      confidence: "high",
+      reason: calendarAllowed
+        ? "Schedule lookup starts with the personal calendar and uses bounded Moodle/CIS fallbacks only when needed."
+        : "Schedule lookup uses bounded Moodle and CIS probes because no complete calendar source is available.",
+      needsCurrentScheduleData: true,
+      needsCourseMaterial: intent.needsCourseMaterial,
+      needsFiles: intent.needsDownloadedFiles,
+      needsQuizOrAssignment: false,
+      allowFollowUpCrawl: true,
+    };
+  }
   const targets: SourceTarget[] = [];
   if (intent.needsMoodle) targets.push("moodle");
   if (intent.needsCalendar && config.calendarUrl && !requiresCisDirectly(config.prompt)) {

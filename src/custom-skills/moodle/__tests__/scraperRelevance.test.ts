@@ -4,6 +4,8 @@ import {
   isLowValueMoodleUtilityLink,
   scoreMoodleLink,
   scoreCourseFocus,
+  scheduleSectionRefs,
+  scheduleSectionUrlsFromSnapshot,
   selectRelevantFileLinks,
   selectRelevantMoodleLinks,
 } from "../nodes/scraperNode.js";
@@ -50,6 +52,68 @@ describe("Moodle crawl relevance", () => {
     };
 
     expect(selectRelevantFileLinks([link, link], "DC-DC Wandler")).toEqual([link]);
+  });
+
+  it("selects HAN PDF endpoints even when the URL has no .pdf suffix", () => {
+    const link = {
+      href: "https://example.han.technikum-wien.at/content/pdf/10.1007%2F978-3-8348-9898-2",
+      label: "Seite E71 bis E73",
+    };
+
+    expect(selectRelevantFileLinks(
+      [link],
+      "Erstelle einen vollständigen Lernleitfaden aus allen Kursunterlagen",
+      5,
+      Number.NEGATIVE_INFINITY,
+    )).toEqual([link]);
+  });
+
+  it("ranks one administrative document ahead of lecture material for schedule probes", () => {
+    const lecture = {
+      href: "https://moodle.example/mod/resource/view.php?id=10",
+      label: "TEZEI Übungsblatt technische Zeichnung",
+    };
+    const courseInfo = {
+      href: "https://moodle.example/mod/resource/view.php?id=11",
+      label: "TEZEI Allgemeines und Prüfungstermine",
+    };
+
+    expect(selectRelevantFileLinks(
+      [lecture, courseInfo],
+      "Wann ist die TEZEI Prüfung?",
+      1,
+    )).toEqual([courseInfo]);
+  });
+
+  it("selects only collapsed exam and administrative sections for expansion", () => {
+    expect(scheduleSectionRefs({
+      origin: "https://moodle.example/course/view.php?id=1",
+      refs: {},
+      snapshot: [
+        '- button "Präsenz: Prüfung" [expanded=false, ref=e91]',
+        '- button "Wiederholungsprüfung" [expanded=false, ref=e92]',
+        '- button "Präsenz 2: Oberflächen" [expanded=false, ref=e93]',
+        '- button "Allgemeines" [expanded=true, ref=e94]',
+      ].join("\n"),
+    })).toEqual(["e91", "e92"]);
+  });
+
+  it("derives bounded direct URLs for collapsed exam sections", () => {
+    expect(scheduleSectionUrlsFromSnapshot({
+      origin: "https://moodle.example/course/view.php?id=1",
+      refs: {},
+      snapshot: [
+        '- link "Präsenz: Prüfung" [ref=e1, url=https://moodle.example/course/view.php?id=1#section-15]',
+        '- link "Datum setzen" [ref=e2, url=https://moodle.example/course/editsection.php?id=474]',
+        '- link "Wiederholungsprüfung" [ref=e3, url=https://moodle.example/course/view.php?id=1#section-16]',
+        '- link "Datum setzen" [ref=e4, url=https://moodle.example/course/editsection.php?id=475]',
+        '- link "Vorlesung" [ref=e5, url=https://moodle.example/course/view.php?id=1#section-3]',
+        '- link "Datum setzen" [ref=e6, url=https://moodle.example/course/editsection.php?id=333]',
+      ].join("\n"),
+    })).toEqual([
+      "https://moodle.example/course/section.php?id=474",
+      "https://moodle.example/course/section.php?id=475",
+    ]);
   });
 
   it("deduplicates course section anchors before applying the crawl limit", () => {

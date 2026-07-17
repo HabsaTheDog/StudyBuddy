@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "../courseTargeting.js";
 import { formatCalendarAnswer } from "../calendarAdapter.js";
+import { extractScheduleEvidence } from "../scheduleEvidence.js";
 import type { SourceCoverageEntry } from "../runDiagnostics.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
@@ -29,29 +30,30 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     const coverage = config.diagnostics?.getCoverage();
+    const scheduleEvidence = config.intentDecision?.intent === "schedule_answer"
+      ? extractScheduleEvidence(config.prompt, state.moodle_raw_text)
+      : null;
     const missing = config.calendarSelection?.complete
       ? []
-      : answerMissingItems(config, state.moodle_raw_text);
+      : scheduleEvidence?.missing ?? answerMissingItems(config, state.moodle_raw_text);
     const calendarAnswer = config.calendarSelection?.complete
       ? formatCalendarAnswer(config.calendarSelection.events)
       : "";
-    const extractedAnswer = calendarAnswer || extractAnswerText(state.extracted_data);
+    const extractedAnswer = calendarAnswer || scheduleEvidence?.answer || extractAnswerText(state.extracted_data);
     const fallbackAnswer = fallbackAnswerText(config, missing);
     const answer = extractedAnswer || fallbackAnswer;
     const status = extractedAnswer && missing.length === 0
       ? "answered"
       : extractedAnswer
         ? "partial"
-        : missing.length > 0
-          ? "partial"
-          : "not_found";
+        : "not_found";
     const artifact: QuickAnswerArtifact = {
       schemaVersion: 1,
       kind: config.intentDecision?.intent === "schedule_answer" ? "schedule_answer" : "quick_answer",
       prompt: config.prompt,
       answer,
       status,
-      confidence: status === "answered" ? "high" : missing.length > 0 ? "low" : "medium",
+      confidence: status === "answered" ? "high" : status === "partial" ? "low" : "medium",
       sources: coverage ? coverageSources(coverage.moodle, "moodle_page").concat(
         coverageSources(coverage.cis, "cis_page"),
         (config.calendarSelection?.events ?? []).map((event) => ({
@@ -136,16 +138,11 @@ function answerMissingItems(config: MoodleRuntimeConfig, rawText: string): strin
   if (
     config.intentDecision?.intent === "schedule_answer" &&
     /\b(?:prüfung|pruefung|exam)\b/i.test(config.prompt) &&
-    !hasConcreteScheduleDate(rawText)
+    !extractScheduleEvidence(config.prompt, rawText).answer
   ) {
     missing.push(`${targetLabel || "Target"} direct source did not expose a future Prüfungstermin`);
   }
   return missing;
-}
-
-function hasConcreteScheduleDate(text: string): boolean {
-  return /(?:\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}(?=\D)|\b\d{1,2}[.]\d{1,2}[.](?:20)?\d{2}\b)/.test(text) &&
-    /\b(?:\d{1,2}:\d{2}|uhr)\b/i.test(text);
 }
 
 function coverageSources(

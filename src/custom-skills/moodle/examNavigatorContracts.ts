@@ -10,6 +10,31 @@ export const ARTIFACT_PROFILES = [
 
 export const OUTPUT_FORMATS = ["html", "pdf"] as const;
 export const PUBLICATION_STATUSES = ["complete", "partial", "blocked"] as const;
+export const RESOURCE_STATUSES = [
+  "discovered",
+  "acquired",
+  "metadata_only",
+  "stale",
+  "unauthorized",
+  "not_found",
+  "unsupported",
+  "transient_failure",
+  "tls_failure",
+  "failed",
+  "skipped",
+] as const;
+export const RESOURCE_FAILURE_KINDS = [
+  "tls",
+  "timeout",
+  "auth",
+  "not_found",
+  "stale_resource",
+  "unexpected_content",
+  "unsupported",
+  "network",
+  "http",
+  "unknown",
+] as const;
 
 export type ArtifactProfile = (typeof ARTIFACT_PROFILES)[number];
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
@@ -27,11 +52,16 @@ export const ResourceNodeSchema = z.object({
   resolvedUrl: z.string().nullable(),
   localPath: z.string().nullable(),
   previewPath: z.string().nullable(),
-  status: z.enum(["discovered", "acquired", "failed", "skipped"]),
+  status: z.enum(RESOURCE_STATUSES),
   checksum: z.string().nullable(),
   verifiedAt: z.string().nullable(),
   examRelevance: z.enum(["confirmed", "inferred", "unknown"]),
   failureReason: z.string().nullable(),
+  canonicalUrl: z.string().nullable().optional(),
+  locators: z.array(z.string()).optional(),
+  contentType: z.string().nullable().optional(),
+  failureKind: z.enum(RESOURCE_FAILURE_KINDS).nullable().optional(),
+  recommendedAction: z.string().nullable().optional(),
 });
 
 export const ResourceManifestSchema = z.object({
@@ -82,6 +112,13 @@ export const CoverageAssessmentSchema = z.object({
   acquiredResources: z.number().int().nonnegative(),
   failedResources: z.number().int().nonnegative(),
   usableEvidenceRecords: z.number().int().nonnegative(),
+  resourceIssues: z.array(z.object({
+    status: z.enum(RESOURCE_STATUSES),
+    count: z.number().int().positive(),
+    titles: z.array(z.string()),
+    explanation: z.string(),
+    retryable: z.boolean(),
+  })).optional(),
 });
 
 export const StudySourceSchema = z.object({

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CodexClient } from "../codexClient.js";
+import { isNonRetryableCodexError, type CodexClient } from "../codexClient.js";
 import { extractedDataJsonSchema } from "../schemas.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
@@ -10,6 +10,9 @@ import {
   STUDENT_FIRST_POLICY,
   STUDENT_FIRST_POLICY_VERSION,
 } from "../studentFirstPolicy.js";
+import { resolveTaskBudget } from "../taskBudget.js";
+
+const ANALYZER_RETRY_LIMIT = 3;
 
 export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
@@ -38,9 +41,22 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
         error_log: null,
       };
     } catch (error) {
+      const nonRetryable = isNonRetryableCodexError(error);
+      if (nonRetryable) {
+        await config.diagnostics?.log(
+          "error",
+          "analyzer",
+          "Analyzer stopped after a non-retryable model error.",
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
       return {
-        error_log: `Analyzer failed: ${error instanceof Error ? error.message : String(error)}`,
-        retry_count: state.retry_count + 1,
+        error_log: `Analyzer failed${nonRetryable ? " (non-retryable)" : ""}: ${error instanceof Error ? error.message : String(error)}`,
+        retry_count: nonRetryable
+          ? Math.max(ANALYZER_RETRY_LIMIT, state.retry_count + 1)
+          : state.retry_count + 1,
       };
     }
   };
@@ -48,10 +64,13 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
 
 async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): Promise<string> {
   const visualManifest = await readVisualManifest(config.runDir);
+  const contextBudget = resolveTaskBudget(config.intentDecision).maxModelInputChars;
+  const evidenceBudget = Math.floor(contextBudget * 0.7);
+  const sourceBudget = Math.max(0, contextBudget - evidenceBudget);
   const evidenceView = compactEvidenceForAnalyzer(
     state.evidence_package,
     config.prompt,
-    125_000,
+    evidenceBudget,
   );
   const analyzerManifest = {
     schemaVersion: state.resource_manifest.schemaVersion,
@@ -87,8 +106,8 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
       }
     : null;
   const sourceOverview = state.evidence_package.records.length > 0
-    ? state.moodle_raw_text.slice(0, 24_000)
-    : state.moodle_raw_text;
+    ? state.moodle_raw_text.slice(0, Math.min(24_000, sourceBudget))
+    : state.moodle_raw_text.slice(0, contextBudget);
   const figureLimit = analyzerVisuals
     ? analyzerVisuals.candidates.length
     : config.maxVisualAssets > 0

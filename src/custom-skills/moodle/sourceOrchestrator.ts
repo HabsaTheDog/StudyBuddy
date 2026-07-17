@@ -6,6 +6,7 @@ import { createScraperNode } from "./nodes/scraperNode.js";
 import { assessFollowUpCrawl } from "./sourceNeedAssessment.js";
 import { planSources } from "./sourcePlanner.js";
 import type { SourceTarget } from "./sourcePlanner.js";
+import { resolveTaskBudget } from "./taskBudget.js";
 import { writeRunProgress } from "./runProgress.js";
 
 export type SourceNode = (state: LangGraphAgentState) => Promise<Partial<LangGraphAgentState>>;
@@ -41,8 +42,17 @@ export function createSourceOrchestratorNode(
   ): Promise<Partial<LangGraphAgentState>> {
     const initialPlan = config.sourcePlan ?? planSources(config);
     config.sourcePlan = initialPlan;
-    const scraperNode = dependencies.scraperNode ?? createScraperNode(config);
-    const cisScraperNode = dependencies.cisScraperNode ?? createCisScraperNode(config);
+    const budget = resolveTaskBudget(config.intentDecision);
+    const boundedConfig = config.intentDecision?.wantsQuickAnswer
+      ? {
+          ...config,
+          maxPages: Math.min(config.maxPages, budget.maxMoodlePages),
+          maxDepth: Math.min(config.maxDepth, budget.maxMoodleDepth),
+          maxCisPages: Math.min(config.maxCisPages, budget.maxCisPages),
+        }
+      : config;
+    const scraperNode = dependencies.scraperNode ?? createScraperNode(boundedConfig);
+    const cisScraperNode = dependencies.cisScraperNode ?? createCisScraperNode(boundedConfig);
     const calendarNode = dependencies.calendarNode ?? createCalendarNode(config);
 
     const initialResult = await runTargets({
@@ -60,39 +70,58 @@ export function createSourceOrchestratorNode(
       initialResult.calendarText,
       ...initialResult.warnings,
     ]);
-    if (
-      initialPlan.targets.includes("calendar") &&
-      config.calendarSelection?.needsCisFallback &&
-      config.includeCis &&
-      config.cisUrls.length > 0
-    ) {
+    const completedFollowUpTargets: SourceTarget[] = [];
+    if (initialPlan.targets.includes("calendar") && config.calendarSelection?.needsCisFallback) {
+      const fallbackTargets: SourceTarget[] = [];
+      const isScheduleLookup = config.intentDecision?.intent === "schedule_answer" ||
+        (initialPlan.needsCurrentScheduleData && !initialPlan.needsCourseMaterial);
+      if (
+        isScheduleLookup &&
+        !initialPlan.targets.includes("moodle")
+      ) {
+        fallbackTargets.push("moodle");
+      }
+      if (
+        config.includeCis &&
+        config.cisUrls.length > 0 &&
+        !initialPlan.targets.includes("cis")
+      ) {
+        fallbackTargets.push("cis");
+      }
       const reason = config.calendarSelection.status === "failed"
-        ? "Calendar unavailable; loading targeted CIS fallback."
+        ? "Calendar unavailable; loading bounded Moodle/CIS schedule fallbacks."
         : config.calendarSelection.events.length === 0
-          ? "No matching calendar event; loading targeted CIS fallback."
-          : `Calendar event is missing required fields (${config.calendarSelection.missingFields.join(", ")}); loading targeted CIS fallback.`;
+          ? "No matching calendar event; loading bounded Moodle/CIS schedule fallbacks."
+          : `Calendar event is missing required fields (${config.calendarSelection.missingFields.join(", ")}); loading bounded Moodle/CIS schedule fallbacks.`;
       await config.diagnostics?.log("info", "diagnostic", reason);
       await writeRunProgress(config, {
         phase: "checking_missing_sources",
-        followUpTargets: ["cis"],
+        followUpTargets: fallbackTargets,
       });
       const fallbackResult = await runTargets({
         config,
         state: { ...state, moodle_raw_text: mergedText },
-        targets: ["cis"],
+        targets: fallbackTargets,
         scraperNode,
         cisScraperNode,
         calendarNode,
         followUp: true,
         reasonCodes: ["missing_cis_schedule"],
       });
-      mergedText = mergeRawText([mergedText, fallbackResult.cisText, ...fallbackResult.warnings]);
+      completedFollowUpTargets.push(...fallbackTargets);
+      mergedText = mergeRawText([
+        mergedText,
+        fallbackResult.moodleText,
+        fallbackResult.cisText,
+        ...fallbackResult.warnings,
+      ]);
     }
     const followUp = assessFollowUpCrawl({
       prompt: config.prompt,
       plan: initialPlan,
       coverage: config.diagnostics?.getCoverage() ?? emptyCoverage(),
       rawText: mergedText,
+      completedTargets: completedFollowUpTargets,
     });
 
     if (followUp.targets.length > 0) {
@@ -163,7 +192,8 @@ async function runTargets(input: {
     ? createScraperNode({
         ...input.config,
         moodleUrl: input.config.targetCourseUrls[0],
-        maxDepth: Math.max(input.config.maxDepth, 1),
+        maxDepth: Math.min(input.config.maxDepth, resolveTaskBudget(input.config.intentDecision).maxMoodleDepth),
+        maxPages: Math.min(input.config.maxPages, resolveTaskBudget(input.config.intentDecision).maxMoodlePages),
       })
     : input.scraperNode;
   if (shouldRunMoodle && input.followUp && targetCourseFollowUp(input.reasonCodes) && !input.config.targetCourseUrls?.[0]) {

@@ -9,6 +9,7 @@ import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
 import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "../courseTargeting.js";
+import { resolveTaskBudget } from "../taskBudget.js";
 
 interface CrawlPage {
   url: string;
@@ -33,6 +34,12 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
     const successfulUrls = new Set<string>();
     const downloaded = new Set<string>();
     const chunks: string[] = [];
+    const scheduleLookup = config.intentDecision?.intent === "schedule_answer";
+    const taskBudget = resolveTaskBudget(config.intentDecision);
+    const maxCisPages = scheduleLookup
+      ? Math.min(config.maxCisPages, taskBudget.maxCisPages)
+      : config.maxCisPages;
+    const maxDownloadedFiles = scheduleLookup ? taskBudget.maxDownloadedFiles : undefined;
 
     try {
       await diagnostics?.log("info", "cis_login", "Opening CIS dashboard...");
@@ -52,9 +59,12 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
           : {}),
       });
       const page = await context.newPage();
+      const seedUrls = seedCisUrls(config, scheduleLookup);
       await ensureLoggedIn(page, {
         serviceName: "CIS",
-        targetUrl: config.cisDashboardUrl || config.cisUrls[0],
+        targetUrl: scheduleLookup
+          ? seedUrls[0] || config.cisDashboardUrl || config.cisUrls[0]
+          : config.cisDashboardUrl || config.cisUrls[0],
         username: config.cisUsername,
         password: config.cisPassword,
       });
@@ -62,9 +72,9 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
 
       const sourcesDir = path.join(config.runDir, "cis-sources");
       await mkdir(sourcesDir, { recursive: true });
-      const queue: CrawlPage[] = seedCisUrls(config).map((url) => ({ url, depth: 0 }));
+      const queue: CrawlPage[] = seedUrls.map((url) => ({ url, depth: 0 }));
 
-      while (queue.length > 0 && visited.size < config.maxCisPages) {
+      while (queue.length > 0 && visited.size < maxCisPages) {
         throwIfAborted(config.abortSignal);
         const next = queue.shift();
         if (!next || visited.has(normalizeCisUrl(next.url))) {
@@ -87,7 +97,10 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
         chunks.push(formatCisChunk({ title, url: resolvedUrl, text }));
 
         if (config.allowFileDownloads) {
-          await captureReadableFiles(page, sourcesDir, chunks, config, downloaded);
+          await captureReadableFiles(page, sourcesDir, chunks, config, downloaded, {
+            maxFiles: maxDownloadedFiles,
+            scheduleOnly: scheduleLookup && !config.intentDecision?.needsCourseMaterial,
+          });
         }
 
         if (next.depth < config.maxDepth) {
@@ -218,14 +231,26 @@ async function extractCisLinks(page: Page, baseUrl: string, prompt: string, page
     .slice(0, 12);
 }
 
-function seedCisUrls(config: MoodleRuntimeConfig): string[] {
+function seedCisUrls(config: MoodleRuntimeConfig, scheduleLookup: boolean): string[] {
   const base = config.cisBaseUrl.replace(/\/$/, "");
-  return [
-    ...config.cisUrls,
+  const directLvUrls = [
     `${base}/cis.php/Cis/MyLvPlan`,
     `${base}/cis.php/Cis/MyLv`,
-    `${base}/cis.php/Cis4`,
-  ].filter(isUsefulCisUrl);
+  ];
+  const urls = scheduleLookup
+    ? [...directLvUrls, ...config.cisUrls, `${base}/cis.php/Cis4`]
+    : [...config.cisUrls, ...directLvUrls, `${base}/cis.php/Cis4`];
+  return uniqueCisUrls(urls.filter(isUsefulCisUrl));
+}
+
+function uniqueCisUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  return urls.filter((url) => {
+    const normalized = normalizeCisUrl(url);
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
 }
 
 function uniqueLinks<T extends { href: string; label: string; context?: string }>(links: T[]): T[] {
@@ -280,7 +305,13 @@ async function captureReadableFiles(
   chunks: string[],
   config: MoodleRuntimeConfig,
   downloaded: Set<string>,
+  options: { maxFiles?: number; scheduleOnly: boolean },
 ): Promise<void> {
+  const remaining = options.maxFiles === undefined
+    ? 3
+    : Math.max(0, options.maxFiles - downloaded.size);
+  if (remaining === 0) return;
+
   const hrefs = await page.locator("a[href]").evaluateAll((anchors) =>
     anchors.map((anchor) => ({
       href: (anchor as HTMLAnchorElement).href,
@@ -293,6 +324,7 @@ async function captureReadableFiles(
   );
   const fileLinks = hrefs
     .filter(({ href }) => /\.(pdf|txt|md)$/i.test(new URL(href).pathname))
+    .filter((link) => !options.scheduleOnly || isScheduleDocument(link))
     .filter(({ href }) => {
       const normalized = normalizeCisUrl(href);
       if (downloaded.has(normalized)) {
@@ -301,7 +333,7 @@ async function captureReadableFiles(
       downloaded.add(normalized);
       return true;
     })
-    .slice(0, 3);
+    .slice(0, remaining);
   const jobs = fileLinks.map((link, index) => async () => {
     throwIfAborted(config.abortSignal);
     const filename = safeFileName(
@@ -334,6 +366,12 @@ async function captureReadableFiles(
       ? result.value
       : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
   }
+}
+
+function isScheduleDocument(link: { href: string; label: string }): boolean {
+  const text = `${link.label} ${decodeURIComponent(new URL(link.href).pathname)}`.toLowerCase();
+  return /(?:prüfung|pruefung|exam|termin|schedule|kurs.?info|course.?info|lv.?info|lehrveranstaltungsinfo|organisation|syllabus)/i
+    .test(text);
 }
 
 function formatCisChunk(input: { title: string; url: string; text: string }): string {

@@ -1,7 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import ICAL from "ical.js";
-import { extractCourseTargetHint } from "./courseTargeting.js";
+import {
+  extractCourseTargetHint,
+  hasUnrecognizedNamedCourseTarget,
+} from "./courseTargeting.js";
 
 export const CALENDAR_TIMEOUT_MS = 15_000;
 export const CALENDAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -43,6 +46,7 @@ const COURSE_ALIASES: Record<string, string[]> = {
   PHDYN: ["phdyn", "physikalische grundlagen der dynamik"],
   MAES2: ["maes2", "mathematik für engineering science 2", "mathematik"],
   ETLB2: ["etlb2", "elektrotechnik labor 2"],
+  TEZEI: ["tezei", "technisches zeichnen", "grundlagen des technischen zeichnens"],
 };
 
 const EXAM_SIGNAL = /\b(?:prüfung|pruefung|test|exam|klausur)\b/i;
@@ -239,6 +243,10 @@ export function filterCalendarEvents(
   const timeRange = requestedTimeRange(prompt, now);
   const courseTerms = requestedCourseTerms(prompt);
   const examOnly = EXAM_SIGNAL.test(prompt);
+
+  if (courseTerms.length === 0 && hasUnrecognizedNamedCourseTarget(prompt)) {
+    return [];
+  }
 
   return events
     .filter((event) => {

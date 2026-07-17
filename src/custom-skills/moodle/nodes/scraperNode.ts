@@ -1,6 +1,6 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type APIRequestContext, type Browser, type Page } from "playwright";
 import { createAgentBrowserClient, type AgentBrowserClient, type AgentBrowserSnapshot } from "../agentBrowserClient.js";
 import {
   dismissCommonOverlays,
@@ -16,6 +16,12 @@ import { throwIfAborted } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
+import { resolveTaskBudget } from "../taskBudget.js";
+import {
+  formatResourceFailureBlock,
+  inspectResourcePayload,
+  isKnownPdfEndpoint,
+} from "../resourceAcquisition.js";
 import {
   explicitCourseCodesFromText,
   extractCourseTargetHint,
@@ -63,6 +69,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
     const successfulUrls = new Set<string>();
     const downloaded = new Set<string>();
     const chunks: string[] = [];
+    const taskBudget = resolveTaskBudget(config.intentDecision);
 
     try {
       if (config.browserBackend === "agent-browser") {
@@ -112,6 +119,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
           continue;
         }
         await dismissCommonOverlays(page);
+        await expandPlaywrightScheduleSections(page, config);
 
         const title = await page.title().catch(() => next.url);
         const resolvedUrl = page.url() || next.url;
@@ -138,7 +146,11 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
           resolvedUrl,
         );
 
-        if (config.allowFileDownloads) {
+        if (
+          config.allowFileDownloads &&
+          taskBudget.maxDownloadedFiles > 0 &&
+          shouldCaptureFilesOnPage(config, resolvedUrl)
+        ) {
           await captureFileLinks(page, sourcesDir, chunks, config, downloaded);
         }
 
@@ -150,7 +162,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
               await recordQuizPolicyBlock(config, linkViolation);
               continue;
             }
-            if (config.allowFileDownloads && isReadableResourceLink(link)) {
+            if (config.allowFileDownloads && taskBudget.maxDownloadedFiles > 0 && isReadableResourceLink(link)) {
               continue;
             }
             if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
@@ -214,6 +226,7 @@ async function scrapeWithAgentBrowser(
   const successfulUrls = new Set<string>();
   const downloaded = new Set<string>();
   const chunks: string[] = [];
+  const taskBudget = resolveTaskBudget(config.intentDecision);
   const failures: PageFetchFailure[] = [];
   let recoveredPages = 0;
 
@@ -315,7 +328,11 @@ async function scrapeWithAgentBrowser(
       );
       chunks.push(formatSourceChunk({ title, url: next.url, text }));
 
-      if (config.allowFileDownloads) {
+      if (
+        config.allowFileDownloads &&
+        taskBudget.maxDownloadedFiles > 0 &&
+        shouldCaptureFilesOnPage(config, snapshot.origin || next.url)
+      ) {
         await captureOpenedAgentBrowserResource(
           snapshot.origin,
           next.url,
@@ -335,14 +352,17 @@ async function scrapeWithAgentBrowser(
       }
 
       if (next.depth < config.maxDepth) {
-        const links = extractMoodleLinksFromSnapshot(snapshot, config);
+        const links = [
+          ...(isBoundedScheduleProbe(config) ? scheduleSectionUrlsFromSnapshot(snapshot) : []),
+          ...extractMoodleLinksFromSnapshot(snapshot, config),
+        ];
         for (const link of links) {
           const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
           if (linkViolation) {
             await recordQuizPolicyBlock(config, linkViolation);
             continue;
           }
-          if (config.allowFileDownloads && isReadableResourceLink(link)) {
+          if (config.allowFileDownloads && taskBudget.maxDownloadedFiles > 0 && isReadableResourceLink(link)) {
             continue;
           }
           if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
@@ -413,6 +433,9 @@ async function captureOpenedAgentBrowserResource(
   config: MoodleRuntimeConfig,
   downloaded: Set<string>,
 ): Promise<void> {
+  if (downloaded.size >= resolveTaskBudget(config.intentDecision).maxDownloadedFiles) {
+    return;
+  }
   if (!isReadableResourceLink(origin)) {
     return;
   }
@@ -431,11 +454,18 @@ async function captureOpenedAgentBrowserResource(
       "moodle_download",
       `Downloading opened Moodle resource: ${origin}`,
     );
-    await downloadResourceWithPlaywright(config, origin, target);
-    await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
-    const text = await extractReadableFileText(target);
+    const metadata = await downloadResourceWithPlaywright(config, origin, target);
+    const savedTarget = metadata.localPath;
+    await config.diagnostics?.updateCoverage("moodle", { artifacts: [savedTarget] });
+    const text = await extractReadableFileText(savedTarget);
     chunks.push(
-      `[Linked file]\nTitle: ${basename}\nURL: ${origin}\nSaved path: ${target}\n\n${text.trim()}`,
+      formatResourceSuccessBlock({
+        title: basename,
+        url: origin,
+        target: savedTarget,
+        text,
+        metadata,
+      }),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -444,9 +474,7 @@ async function captureOpenedAgentBrowserResource(
       "moodle_download",
       `Opened Moodle resource download failed: ${message}`,
     );
-    chunks.push(
-      `[Linked file]\nTitle: ${basename}\nURL: ${origin}\nDownload failed: ${message}`,
-    );
+    chunks.push(resourceFailureBlock(basename, origin, error));
   }
 }
 
@@ -458,10 +486,16 @@ async function captureAgentBrowserFileLinks(
   config: MoodleRuntimeConfig,
   downloaded: Set<string>,
 ): Promise<void> {
+  const budget = resolveTaskBudget(config.intentDecision);
+  const remaining = Math.max(0, budget.maxDownloadedFiles - downloaded.size);
+  if (remaining === 0) return;
+  const scheduleLookup = isBoundedScheduleProbe(config);
   const fileLinks = selectRelevantFileLinks(
-    extractSnapshotLinks(snapshot).filter(({ href }) => isReadableResourceLink(href)),
+    extractSnapshotLinks(snapshot)
+      .filter(({ href }) => isReadableResourceLink(href))
+      .filter((link) => !scheduleLookup || isScheduleDocumentLink(link)),
     config.prompt,
-    config.intentDecision?.needsCourseMaterial ? 60 : 3,
+    remaining,
     config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
   ).filter(({ href }) => {
     const normalized = normalizeMoodleUrl(href);
@@ -471,6 +505,11 @@ async function captureAgentBrowserFileLinks(
     downloaded.add(normalized);
     return true;
   });
+  let sharedSessionPromise: Promise<ResourceDownloadSession> | null = null;
+  const sharedSession = () => {
+    sharedSessionPromise ??= createResourceDownloadSession(config);
+    return sharedSessionPromise;
+  };
   const jobs = fileLinks.map((link, index) => async () => {
     throwIfAborted(config.abortSignal);
     const filename = readableFileName(
@@ -479,6 +518,7 @@ async function captureAgentBrowserFileLinks(
     );
     const target = path.join(sourcesDir, filename);
     let downloadError: unknown = null;
+    let downloadMetadata: ResourceDownloadMetadata | null = null;
     if (new URL(link.href).pathname.includes("/mod/resource/view.php")) {
       try {
         await config.diagnostics?.log(
@@ -486,7 +526,7 @@ async function captureAgentBrowserFileLinks(
           "moodle_download",
           `Authenticated Moodle resource download: ${link.href}`,
         );
-        await downloadResourceWithPlaywright(config, link.href, target);
+        downloadMetadata = await (await sharedSession()).download(link.href, target);
       } catch (error) {
         downloadError = error;
       }
@@ -505,7 +545,7 @@ async function captureAgentBrowserFileLinks(
           `agent-browser download failed; using authenticated Playwright fallback: ${link.href}`,
         );
         try {
-          await downloadResourceWithPlaywright(config, link.href, target);
+          downloadMetadata = await (await sharedSession()).download(link.href, target);
           downloadError = null;
         } catch (fallbackError) {
           downloadError = fallbackError;
@@ -513,24 +553,39 @@ async function captureAgentBrowserFileLinks(
       }
     }
     if (downloadError) {
-      const message = downloadError instanceof Error ? downloadError.message : String(downloadError);
-      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed: ${message}`;
+      return resourceFailureBlock(link.label || filename, link.href, downloadError);
     }
-    await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
-    const text = await extractReadableFileText(target).catch((error) => {
+    const savedTarget = downloadMetadata?.localPath ?? target;
+    await config.diagnostics?.updateCoverage("moodle", { artifacts: [savedTarget] });
+    const text = await extractReadableFileText(savedTarget).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       return `Readable text extraction failed: ${message}`;
     });
-    return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+    return formatResourceSuccessBlock({
+      title: link.label || filename,
+      url: link.href,
+      target: savedTarget,
+      text,
+      metadata: downloadMetadata,
+    });
   });
-  const results = await runDownloadQueue(jobs, {
-    concurrency: config.downloadConcurrency,
-    timeoutMs: 90_000,
-  });
-  for (const result of results) {
+  const results = await runClassifiedResourceJobs(
+    fileLinks,
+    jobs,
+    config.downloadConcurrency,
+  );
+  for (const [index, result] of results.entries()) {
     chunks.push(result.status === "fulfilled"
       ? result.value
-      : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
+      : resourceFailureBlock(
+        fileLinks[index]?.label || `Ressource ${index + 1}`,
+        fileLinks[index]?.href || snapshot.origin,
+        result.reason,
+      ));
+  }
+  const sessionToClose = sharedSessionPromise as Promise<ResourceDownloadSession> | null;
+  if (sessionToClose) {
+    await sessionToClose.then((session) => session.close()).catch(() => undefined);
   }
 }
 
@@ -538,38 +593,16 @@ async function downloadResourceWithPlaywright(
   config: MoodleRuntimeConfig,
   url: string,
   target: string,
-): Promise<void> {
+): Promise<ResourceDownloadMetadata> {
   throwIfAborted(config.abortSignal);
-  const browser = await chromium.launch({ headless: config.headless });
-  config.abortSignal?.addEventListener("abort", () => {
-    void browser.close();
-  }, { once: true });
+  const session = await createResourceDownloadSession(config);
   try {
-    const context = await browser.newContext(
-      config.storageState ? { storageState: config.storageState } : undefined,
-    );
-    const page = await context.newPage();
-    await ensureLoggedIn(page, {
-      serviceName: "Moodle",
-      targetUrl: config.dashboardUrl || config.moodleUrl,
-      username: config.username,
-      password: config.password,
-    });
-    const response = await context.request.get(url, {
-      failOnStatusCode: false,
-      timeout: 60_000,
-    });
-    if (!response.ok()) {
-      throw new Error(`Moodle resource download returned HTTP ${response.status()}.`);
-    }
-    await writeFile(target, await response.body());
-    await assertNonEmptyFile(target);
-    await assertReadableDownloadedFile(target);
+    return await session.download(url, target);
   } catch (error) {
     await rm(target, { force: true }).catch(() => undefined);
     throw error;
   } finally {
-    await browser.close().catch(() => undefined);
+    await session.close();
   }
 }
 
@@ -785,6 +818,10 @@ async function captureFileLinks(
   config: MoodleRuntimeConfig,
   downloaded: Set<string>,
 ): Promise<void> {
+  const budget = resolveTaskBudget(config.intentDecision);
+  const remaining = Math.max(0, budget.maxDownloadedFiles - downloaded.size);
+  if (remaining === 0) return;
+  const scheduleLookup = isBoundedScheduleProbe(config);
   const hrefs = await page.locator("a[href]").evaluateAll((anchors) =>
     anchors.map((anchor) => ({
       href: (anchor as HTMLAnchorElement).href,
@@ -796,9 +833,11 @@ async function captureFileLinks(
     })),
   );
   const fileLinks = selectRelevantFileLinks(
-    hrefs.filter(({ href }) => isReadableResourceLink(href)),
+    hrefs
+      .filter(({ href }) => isReadableResourceLink(href))
+      .filter((link) => !scheduleLookup || isScheduleDocumentLink(link)),
     config.prompt,
-    config.intentDecision?.needsCourseMaterial ? 60 : 3,
+    remaining,
     config.intentDecision?.needsCourseMaterial ? Number.NEGATIVE_INFINITY : 90,
   ).filter(({ href }) => {
     const normalized = normalizeMoodleUrl(href);
@@ -816,39 +855,38 @@ async function captureFileLinks(
     );
     const target = path.join(sourcesDir, filename);
     await config.diagnostics?.log("info", "moodle_download", `Downloading Moodle file: ${link.href}`);
-    const response = await page
-      .context()
-      .request.get(link.href)
-      .catch(() => null);
-    if (!response?.ok()) {
-      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`;
-    }
-
-    const body = await response.body();
     try {
-      await writeFile(target, body);
-      await assertNonEmptyFile(target);
-      await assertReadableDownloadedFile(target);
-      await config.diagnostics?.updateCoverage("moodle", { artifacts: [target] });
-      const text = await extractReadableFileText(target).catch((error) => {
+      const metadata = await downloadResourceWithRequest(page.context().request, link.href, target);
+      await config.diagnostics?.updateCoverage("moodle", { artifacts: [metadata.localPath] });
+      const text = await extractReadableFileText(metadata.localPath).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         return `Readable text extraction failed: ${message}`;
       });
-      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nSaved path: ${target}\n\n${text.trim()}`;
+      return formatResourceSuccessBlock({
+        title: link.label || filename,
+        url: link.href,
+        target: metadata.localPath,
+        text,
+        metadata,
+      });
     } catch (error) {
       await rm(target, { force: true }).catch(() => undefined);
-      const message = error instanceof Error ? error.message : String(error);
-      return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed: ${message}`;
+      return resourceFailureBlock(link.label || filename, link.href, error);
     }
   });
-  const results = await runDownloadQueue(jobs, {
-    concurrency: config.downloadConcurrency,
-    timeoutMs: 90_000,
-  });
-  for (const result of results) {
+  const results = await runClassifiedResourceJobs(
+    fileLinks,
+    jobs,
+    config.downloadConcurrency,
+  );
+  for (const [index, result] of results.entries()) {
     chunks.push(result.status === "fulfilled"
       ? result.value
-      : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
+      : resourceFailureBlock(
+        fileLinks[index]?.label || `Ressource ${index + 1}`,
+        fileLinks[index]?.href || page.url(),
+        result.reason,
+      ));
   }
 }
 
@@ -993,6 +1031,75 @@ function snapshotToText(snapshot: string): string {
     .join("\n");
 }
 
+export function scheduleSectionRefs(snapshot: AgentBrowserSnapshot): string[] {
+  return scheduleSectionControls(snapshot).map((control) => control.ref);
+}
+
+function scheduleSectionControls(
+  snapshot: AgentBrowserSnapshot,
+): Array<{ ref: string; label: string }> {
+  return snapshot.snapshot
+    .split("\n")
+    .filter((line) => /expanded=false/i.test(line))
+    .filter((line) => SCHEDULE_SECTION_PATTERN.test(line))
+    .map((line) => ({
+      ref: /ref=([a-z0-9_-]+)/i.exec(line)?.[1] ?? "",
+      label: /"([^"]+)"/.exec(line)?.[1]?.trim() ?? line,
+    }))
+    .filter((control) => control.ref)
+    .slice(0, 4);
+}
+
+export function scheduleSectionUrlsFromSnapshot(
+  snapshot: AgentBrowserSnapshot,
+): string[] {
+  const urls: string[] = [];
+  let awaitingSectionId = false;
+  for (const line of snapshot.snapshot.split("\n")) {
+    const label = /"([^"]+)"/.exec(line)?.[1] ?? "";
+    if (
+      /url=https?:\/\/[^\]\s]+\/course\/view\.php[^\]\s]*#section-\d+/i.test(line)
+      && SCHEDULE_SECTION_PATTERN.test(label)
+    ) {
+      awaitingSectionId = true;
+      continue;
+    }
+    if (!awaitingSectionId) continue;
+    const editUrl = /url=(https?:\/\/[^\]\s]+\/course\/editsection\.php\?id=\d+)/i.exec(line)?.[1];
+    if (!editUrl) continue;
+    const directUrl = new URL(editUrl.replace(/&amp;/g, "&"));
+    directUrl.pathname = directUrl.pathname.replace(/\/editsection\.php$/i, "/section.php");
+    urls.push(directUrl.toString());
+    awaitingSectionId = false;
+  }
+  return [...new Set(urls)].slice(0, 3);
+}
+
+async function expandPlaywrightScheduleSections(
+  page: Page,
+  config: MoodleRuntimeConfig,
+): Promise<void> {
+  if (!isBoundedScheduleProbe(config)) return;
+  const controls = page.locator("button[aria-expanded='false'], [role='button'][aria-expanded='false']");
+  const count = Math.min(await controls.count().catch(() => 0), 40);
+  let expanded = 0;
+  for (let index = 0; index < count && expanded < 4; index += 1) {
+    const control = controls.nth(index);
+    const label = await control.innerText({ timeout: 300 }).catch(() => "");
+    if (!SCHEDULE_SECTION_PATTERN.test(label)) continue;
+    if (!(await control.isVisible().catch(() => false))) continue;
+    await control.click({ timeout: 1_000 }).catch(() => undefined);
+    expanded += 1;
+  }
+  if (expanded > 0) {
+    await config.diagnostics?.log(
+      "info",
+      "moodle_crawl",
+      `Expanded ${expanded} schedule-related Moodle section(s).`,
+    );
+  }
+}
+
 function extractMoodleLinksFromSnapshot(
   snapshot: AgentBrowserSnapshot,
   config: MoodleRuntimeConfig,
@@ -1052,6 +1159,9 @@ export function scoreMoodleLink(link: { href: string; label: string }, prompt: s
   }
   if (link.href.includes("/mod/forum/")) {
     score -= 50;
+  }
+  if (isSchedulePrompt(prompt) && isScheduleDocumentLink(link)) {
+    score += 500;
   }
   const linkId = new URL(link.href).searchParams.get("id");
   if (linkId && explicitMoodleIds(prompt).has(linkId)) {
@@ -1214,15 +1324,42 @@ function isReadableResourceLink(href: string): boolean {
   const url = new URL(href);
   return (
     /\.(pdf|txt|md)$/i.test(url.pathname) ||
+    isKnownPdfEndpoint(href) ||
     url.pathname.includes("/mod/resource/view.php") ||
     url.pathname.includes("/pluginfile.php")
   );
 }
 
+function isSchedulePrompt(prompt: string): boolean {
+  return /\b(?:termin|prüfung|pruefung|klausur|exam|datum|date|uhrzeit|time|raum|room|wann|wo)\b/i.test(prompt);
+}
+
+function isScheduleDocumentLink(link: { href: string; label: string }): boolean {
+  const text = `${link.label} ${decodeURIComponent(new URL(link.href).pathname)}`;
+  return /\b(?:prüfung|pruefung|klausur|exam|termin|semesterplan|zeitplan|schedule|allgemeines|administrativ|organisation|organisatorisch|kursinfo|kursinformation|course info|lv-info|lvinfo|syllabus)\b/i.test(text);
+}
+
+function isBoundedScheduleProbe(config: MoodleRuntimeConfig): boolean {
+  return config.intentDecision?.intent === "schedule_answer" &&
+    !config.intentDecision.needsCourseMaterial;
+}
+
+function shouldCaptureFilesOnPage(config: MoodleRuntimeConfig, url: string): boolean {
+  if (!isBoundedScheduleProbe(config)) return true;
+  try {
+    const pathname = new URL(url).pathname;
+    return pathname.includes("/course/view.php") || isReadableResourceLink(url);
+  } catch {
+    return false;
+  }
+}
+
+const SCHEDULE_SECTION_PATTERN = /(?:prüf|pruef|exam|klausur|termin|leistungsbeurteilung|beurteilungskriterien|organisation|allgemein|kursinfo|course info|lv-info)/i;
+
 function readableFileName(label: string, href: string): string {
   const urlPath = new URL(href).pathname;
   const extension = /\.(pdf|txt|md)$/i.exec(urlPath)?.[0]?.toLowerCase() ??
-    (urlPath.includes("/mod/resource/view.php") ? ".pdf" : "");
+    (urlPath.includes("/mod/resource/view.php") || isKnownPdfEndpoint(href) ? ".pdf" : "");
   const safe = safeFileName(label);
   return extension && !safe.toLowerCase().endsWith(extension) ? `${safe}${extension}` : safe;
 }
@@ -1238,6 +1375,224 @@ function normalizeMoodleUrl(url: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface ResourceDownloadMetadata {
+  resolvedUrl: string;
+  contentType: string | null;
+  localPath: string;
+}
+
+interface ResourceDownloadSession {
+  download(url: string, target: string): Promise<ResourceDownloadMetadata>;
+  close(): Promise<void>;
+}
+
+async function createResourceDownloadSession(
+  config: MoodleRuntimeConfig,
+): Promise<ResourceDownloadSession> {
+  throwIfAborted(config.abortSignal);
+  const browser = await chromium.launch({ headless: config.headless });
+  const closeOnAbort = () => {
+    void browser.close();
+  };
+  config.abortSignal?.addEventListener("abort", closeOnAbort, { once: true });
+  try {
+    const context = await browser.newContext(
+      config.storageState ? { storageState: config.storageState } : undefined,
+    );
+    const page = await context.newPage();
+    await ensureLoggedIn(page, {
+      serviceName: "Moodle",
+      targetUrl: config.dashboardUrl || config.moodleUrl,
+      username: config.username,
+      password: config.password,
+    });
+    return {
+      download: (url, target) => downloadResourceWithRequest(context.request, url, target),
+      close: async () => {
+        config.abortSignal?.removeEventListener("abort", closeOnAbort);
+        await browser.close().catch(() => undefined);
+      },
+    };
+  } catch (error) {
+    config.abortSignal?.removeEventListener("abort", closeOnAbort);
+    await browser.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+class ResourceDownloadFailure extends Error {
+  readonly resolvedUrl: string | null;
+  readonly contentType: string | null;
+  readonly htmlTitle: string | null;
+  readonly httpStatus: number | undefined;
+
+  constructor(
+    message: string,
+    input: {
+      resolvedUrl?: string | null;
+      contentType?: string | null;
+      htmlTitle?: string | null;
+      httpStatus?: number;
+    } = {},
+  ) {
+    super(message);
+    this.name = "ResourceDownloadFailure";
+    this.resolvedUrl = input.resolvedUrl ?? null;
+    this.contentType = input.contentType ?? null;
+    this.htmlTitle = input.htmlTitle ?? null;
+    this.httpStatus = input.httpStatus;
+  }
+}
+
+async function downloadResourceWithRequest(
+  request: APIRequestContext,
+  url: string,
+  target: string,
+): Promise<ResourceDownloadMetadata> {
+  const response = await request.get(url, {
+    failOnStatusCode: false,
+    timeout: 60_000,
+  });
+  const contentType = response.headers()["content-type"] ?? null;
+  const contentDisposition = response.headers()["content-disposition"] ?? null;
+  const resolvedUrl = response.url();
+  if (!response.ok()) {
+    throw new ResourceDownloadFailure(
+      `Resource download returned HTTP ${response.status()}.`,
+      { resolvedUrl, contentType, httpStatus: response.status() },
+    );
+  }
+  const body = await response.body();
+  const inspection = inspectResourcePayload(body, contentType ?? undefined);
+  const expectsPdf = isKnownPdfEndpoint(url);
+  const isMoodleResource = new URL(url).pathname.includes("/mod/resource/view.php");
+  if ((expectsPdf && inspection.kind !== "pdf") || (isMoodleResource && inspection.kind === "html")) {
+    const titleSuffix = inspection.title ? ` (${inspection.title})` : "";
+    throw new ResourceDownloadFailure(
+      inspection.kind === "html"
+        ? `Downloaded file is not a PDF; Moodle returned an HTML page instead${titleSuffix}.`
+        : `Downloaded resource has unexpected content type ${inspection.contentType ?? inspection.kind}.`,
+      {
+        resolvedUrl,
+        contentType: inspection.contentType,
+        htmlTitle: inspection.title,
+        httpStatus: response.status(),
+      },
+    );
+  }
+  const localPath = resolveDownloadedPath(target, inspection, contentDisposition);
+  if (inspection.kind === "binary" && localPath === target && target.toLowerCase().endsWith(".pdf")) {
+    throw new ResourceDownloadFailure(
+      `Downloaded resource has unsupported content type ${inspection.contentType ?? "binary"}.`,
+      { resolvedUrl, contentType: inspection.contentType, httpStatus: response.status() },
+    );
+  }
+  await writeFile(localPath, body);
+  await assertNonEmptyFile(localPath);
+  await assertReadableDownloadedFile(localPath);
+  return { resolvedUrl, contentType: inspection.contentType, localPath };
+}
+
+function resourceFailureBlock(title: string, url: string, error: unknown): string {
+  const failure = error instanceof ResourceDownloadFailure ? error : null;
+  return formatResourceFailureBlock({
+    title,
+    url,
+    message: errorMessage(error),
+    resolvedUrl: failure?.resolvedUrl,
+    contentType: failure?.contentType,
+    htmlTitle: failure?.htmlTitle,
+    httpStatus: failure?.httpStatus,
+  });
+}
+
+function formatResourceSuccessBlock(input: {
+  title: string;
+  url: string;
+  target: string;
+  text: string;
+  metadata: ResourceDownloadMetadata | null;
+}): string {
+  return [
+    "[Linked file]",
+    `Title: ${input.title}`,
+    `URL: ${input.url}`,
+    input.metadata?.resolvedUrl ? `Resolved URL: ${input.metadata.resolvedUrl}` : null,
+    input.metadata?.contentType ? `Content-Type: ${input.metadata.contentType}` : null,
+    "Resource status: acquired",
+    `Saved path: ${input.target}`,
+    "",
+    input.text.trim(),
+  ].filter((line): line is string => line !== null).join("\n");
+}
+
+async function runClassifiedResourceJobs<T>(
+  links: Array<{ href: string }>,
+  jobs: Array<() => Promise<T>>,
+  internalConcurrency: number,
+): Promise<Array<PromiseSettledResult<T>>> {
+  const indexed = jobs.map((job, index) => ({ job, index, external: isExternalResource(links[index]?.href) }));
+  const groups = [
+    { entries: indexed.filter((entry) => !entry.external), concurrency: internalConcurrency },
+    { entries: indexed.filter((entry) => entry.external), concurrency: 1 },
+  ];
+  const output = new Array<PromiseSettledResult<T>>(jobs.length);
+  await Promise.all(groups.map(async (group) => {
+    const settled = await runDownloadQueue(
+      group.entries.map((entry) => entry.job),
+      { concurrency: group.concurrency, timeoutMs: 90_000 },
+    );
+    settled.forEach((result, groupIndex) => {
+      output[group.entries[groupIndex].index] = result;
+    });
+  }));
+  return output;
+}
+
+function isExternalResource(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).hostname !== "moodle.technikum-wien.at";
+  } catch {
+    return false;
+  }
+}
+
+function resolveDownloadedPath(
+  target: string,
+  inspection: ReturnType<typeof inspectResourcePayload>,
+  contentDisposition: string | null,
+): string {
+  const dispositionName = contentDisposition
+    ? /filename\*?=(?:UTF-8''|["']?)([^"';]+)/i.exec(contentDisposition)?.[1]
+    : null;
+  const dispositionExtension = dispositionName
+    ? path.extname(decodeURIComponent(dispositionName.trim().replace(/["']+$/g, "")))
+    : "";
+  const contentTypeExtension = extensionForContentType(inspection.contentType);
+  const extension = inspection.kind === "pdf"
+    ? ".pdf"
+    : dispositionExtension || contentTypeExtension || (inspection.kind === "text" ? ".txt" : "");
+  if (!extension || path.extname(target).toLowerCase() === extension.toLowerCase()) return target;
+  return `${target.slice(0, target.length - path.extname(target).length)}${extension}`;
+}
+
+function extensionForContentType(contentType: string | null): string {
+  switch (contentType) {
+    case "application/pdf": return ".pdf";
+    case "text/plain": return ".txt";
+    case "text/markdown": return ".md";
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return ".docx";
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation": return ".pptx";
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return ".xlsx";
+    case "application/msword": return ".doc";
+    case "application/vnd.ms-powerpoint": return ".ppt";
+    case "application/vnd.ms-excel": return ".xls";
+    case "application/zip": return ".zip";
+    default: return "";
+  }
 }
 
 const PROMPT_TOKEN_STOPWORDS = new Set([

@@ -7,6 +7,7 @@ import {
   type ReviewReport,
   type StudyModel,
 } from "./examNavigatorContracts.js";
+import { isResourceFailureStatus } from "./resourceAcquisition.js";
 
 export async function reviewStudyModel(
   model: StudyModel,
@@ -62,7 +63,7 @@ export async function reviewStudyModel(
   }
   if (
     manifest.resources.some(
-      (resource) => resource.status === "failed" && !resource.failureReason,
+      (resource) => isResourceFailureStatus(resource.status) && !resource.failureReason,
     )
   ) {
     findings.push(warning("resource", "failure-without-reason", "A resource failed without a recorded reason."));

@@ -7,13 +7,20 @@ import {
   RESOURCE_MANIFEST_FILE,
   verifyResourceLinks,
 } from "../resourceManifest.js";
+import { summarizeManifestAcquisition } from "../coveragePolicy.js";
 
 export function createResourceManifestNode(config: MoodleRuntimeConfig) {
   return async function resourceManifestNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     try {
-      const discovered = await buildResourceManifest(config.runDir, state.moodle_raw_text);
+      const preferredCourseUrls = [
+        ...(config.targetCourseUrls ?? []),
+        ...(config.moodleUrl.includes("/course/") ? [config.moodleUrl] : []),
+      ];
+      const discovered = await buildResourceManifest(config.runDir, state.moodle_raw_text, {
+        preferredCourseUrls,
+      });
       const resourceManifest = await verifyResourceLinks(discovered, {
         enabled: process.env.STUDY_BUDDY_VERIFY_LINKS !== "false",
       });
@@ -26,6 +33,29 @@ export function createResourceManifestNode(config: MoodleRuntimeConfig) {
         "info",
         "analyzer",
         `Built resource graph with ${resourceManifest.resources.length} node(s).`,
+      );
+      const acquisition = summarizeManifestAcquisition(resourceManifest);
+      const currentCoverage = config.diagnostics?.getCoverage().moodle;
+      const sourceFailed = currentCoverage && [
+        "failed",
+        "failed_auth",
+        "timeout",
+      ].includes(currentCoverage.status);
+      if (!sourceFailed) {
+        await config.diagnostics?.updateCoverage("moodle", {
+          status: acquisition.partial
+            ? "partial"
+            : currentCoverage?.status === "partial"
+              ? "partial"
+              : "success",
+          detail: acquisition.detail,
+        });
+      }
+      await config.diagnostics?.log(
+        acquisition.partial ? "warn" : "info",
+        "analyzer",
+        acquisition.detail,
+        acquisition.data,
       );
       return { resource_manifest: resourceManifest, error_log: null };
     } catch (error) {

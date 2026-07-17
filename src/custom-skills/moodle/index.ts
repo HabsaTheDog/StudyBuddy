@@ -13,6 +13,12 @@ export {
 } from "./modelPolicy.js";
 export { ExecutionTelemetry } from "./executionTelemetry.js";
 export {
+  CodexRuntimePreflightError,
+  formatCodexRuntimeSummary,
+  invalidateCodexRuntimeCache,
+  preflightCodexRuntime,
+} from "./codexRuntime.js";
+export {
   assertQuizPolicyAllows,
   createQuizPolicy,
   detectQuizRestrictions,
@@ -48,3 +54,11 @@ export type {
   StudyBuddyUserPhase,
 } from "./runProgress.js";
 export type { QuizContext, QuizPolicy, QuizPolicyAction } from "./quizPolicy.js";
+export type {
+  CodexBinarySource,
+  CodexDoctorCheck,
+  CodexModelProbe,
+  CodexPreflightMode,
+  CodexRuntimePreflightInput,
+  CodexRuntimeReport,
+} from "./codexRuntime.js";

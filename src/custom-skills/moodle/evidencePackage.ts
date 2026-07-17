@@ -8,6 +8,7 @@ import {
   type ResourceManifest,
 } from "./examNavigatorContracts.js";
 import { stableResourceId } from "./resourceManifest.js";
+import { isResourceFailureStatus } from "./resourceAcquisition.js";
 
 export const EVIDENCE_PACKAGE_FILE = "evidence-package.json";
 
@@ -21,6 +22,7 @@ export async function buildEvidencePackage(
   const blocks = rawText.split(/\n(?=\[(?:Moodle page|Linked file|Calendar|CIS))/g);
 
   for (const block of blocks) {
+    if (/^Download failed(?::|$)/m.test(block)) continue;
     const sourceUrl = /^URL:\s*(\S+)/m.exec(block)?.[1] ?? null;
     const localPath = /^Saved path:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? null;
     const title = /^Title:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? "Source";
@@ -50,7 +52,7 @@ export async function buildEvidencePackage(
     }
   }
 
-  if (manifest.resources.some((resource) => resource.status === "failed")) {
+  if (manifest.resources.some((resource) => isResourceFailureStatus(resource.status))) {
     warnings.push("Einzelne entdeckte Ressourcen konnten nicht geladen werden und wurden nicht als Evidenz verwendet.");
   }
   if (records.length === 0) {
@@ -77,6 +79,11 @@ function stripBlockMetadata(block: string): string {
     .replace(/^Title:\s*.+$/m, "")
     .replace(/^URL:\s*.+$/m, "")
     .replace(/^Saved path:\s*.+$/m, "")
+    .replace(/^Resolved URL:\s*.+$/m, "")
+    .replace(/^Content-Type:\s*.+$/m, "")
+    .replace(/^Resource status:\s*.+$/m, "")
+    .replace(/^Failure kind:\s*.+$/m, "")
+    .replace(/^Suggested action:\s*.+$/m, "")
     .replace(/^Download failed.*$/m, "")
     .trim();
 }
