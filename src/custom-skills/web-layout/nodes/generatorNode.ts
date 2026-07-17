@@ -7,7 +7,10 @@ import type { CodexClient } from "../codexClient.js";
 export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function generatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      const response = await codex.run(buildGeneratorPrompt(config, state));
+      const response = await codex.run(buildGeneratorPrompt(config, state), {
+        task: "artifact_builder",
+        attempt: state.retry_count + 1,
+      });
       const html = stripHtmlFence(response);
       await config.diagnostics?.log("info", "generator", `Generated HTML (${html.length} chars).`);
       return {

@@ -208,7 +208,7 @@ describe("moodle graph retry routing", () => {
     const codex = sequenceCodex([
       "not json",
       JSON.stringify(moodleExtractedData()),
-      studyBuddyTypstDocument(),
+      JSON.stringify({ ok: true, summary: "Reviewed", findings: [] }),
     ]);
 
     const graph = buildMoodleGraph(
@@ -362,7 +362,10 @@ describe("moodle graph retry routing", () => {
       diagnostics,
     });
     const graph = buildExtractionGraph(config, {
-      codex: sequenceCodex([JSON.stringify(moodleExtractedData())]),
+      codex: sequenceCodex([
+        JSON.stringify(moodleExtractedData()),
+        JSON.stringify({ ok: true, summary: "Reviewed", findings: [] }),
+      ]),
       scraperNode: async () => {
         await diagnostics.markSuccess("moodle", {
           detail: "Course extracted.",
@@ -468,7 +471,10 @@ describe("moodle graph retry routing", () => {
           scraperCalls += 1;
           return {};
         },
-        codex: sequenceCodex([studyBuddyTypstDocument()]),
+        codex: sequenceCodex([
+          studyBuddyTypstDocument(),
+          JSON.stringify({ ok: true, summary: "Reviewed", findings: [] }),
+        ]),
       },
     );
 

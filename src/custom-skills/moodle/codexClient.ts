@@ -46,7 +46,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
 
   return {
     async run(prompt, options) {
-      const task = options?.task ?? "analyzer";
+      const task = options?.task ?? "content_analyzer";
       const attempt = Math.max(1, options?.attempt ?? 1);
       const policy = resolveTaskModelPolicy({
         profile: config.executionProfile,

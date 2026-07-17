@@ -11,6 +11,7 @@ import { createGeneratorNode } from "./nodes/generatorNode.js";
 import { createPlannerNode } from "./nodes/plannerNode.js";
 import { createSourceNode } from "./nodes/sourceNode.js";
 import { createValidatorNode } from "./nodes/validatorNode.js";
+import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
 
 const MAX_RETRIES = 3;
 
@@ -20,6 +21,7 @@ export interface WebLayoutGraphDependencies {
   plannerNode?: ReturnType<typeof createPlannerNode>;
   generatorNode?: ReturnType<typeof createGeneratorNode>;
   validatorNode?: ReturnType<typeof createValidatorNode>;
+  qualityReviewerNode?: ReturnType<typeof createQualityReviewerNode>;
   diskWriterNode?: ReturnType<typeof createDiskWriterNode>;
 }
 
@@ -97,12 +99,22 @@ export function buildWebLayoutGraph(
   config: WebLayoutRuntimeConfig,
   dependencies: WebLayoutGraphDependencies = {},
 ) {
-  const codex = dependencies.codex ?? (!dependencies.plannerNode || !dependencies.generatorNode ? createCodexClient(config) : undefined);
+  const codex =
+    dependencies.codex ??
+    (!dependencies.plannerNode ||
+    !dependencies.generatorNode ||
+    !dependencies.qualityReviewerNode
+      ? createCodexClient(config)
+      : undefined);
   return new StateGraph(WebLayoutStateAnnotation)
     .addNode("source", dependencies.sourceNode ?? createSourceNode(config))
     .addNode("planner", dependencies.plannerNode ?? createPlannerNode(config, codex!))
     .addNode("generator", dependencies.generatorNode ?? createGeneratorNode(config, codex!))
     .addNode("validator", dependencies.validatorNode ?? createValidatorNode(config))
+    .addNode(
+      "qualityReviewer",
+      dependencies.qualityReviewerNode ?? createQualityReviewerNode(config, codex!),
+    )
     .addNode("diskWriter", dependencies.diskWriterNode ?? createDiskWriterNode(config))
     .addEdge(START, "source")
     .addConditionalEdges("source", routeAfterSource, {
@@ -120,6 +132,11 @@ export function buildWebLayoutGraph(
       abort: END,
     })
     .addConditionalEdges("validator", routeAfterValidator, {
+      generator: "generator",
+      diskWriter: "qualityReviewer",
+      abort: END,
+    })
+    .addConditionalEdges("qualityReviewer", routeAfterQualityReview, {
       generator: "generator",
       diskWriter: "diskWriter",
       abort: END,
@@ -150,6 +167,13 @@ function routeAfterValidator(state: LangGraphWebLayoutState): "generator" | "dis
   if (!state.error_log) {
     return "diskWriter";
   }
+  return state.retry_count >= MAX_RETRIES ? "abort" : "generator";
+}
+
+function routeAfterQualityReview(
+  state: LangGraphWebLayoutState,
+): "generator" | "diskWriter" | "abort" {
+  if (!state.error_log) return "diskWriter";
   return state.retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 

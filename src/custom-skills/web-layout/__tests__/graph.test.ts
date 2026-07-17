@@ -37,6 +37,7 @@ describe("web layout graph", () => {
             error_log: null,
           };
         },
+        qualityReviewerNode: async () => ({ error_log: null }),
       },
     );
 
@@ -61,6 +62,7 @@ describe("web layout graph", () => {
           html_document: "<!doctype html><html><body>broken</body></html>",
           error_log: null,
         }),
+        qualityReviewerNode: async () => ({ error_log: null }),
       },
     );
 

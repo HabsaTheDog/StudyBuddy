@@ -1,4 +1,8 @@
 import type { WebLayoutState } from "./state.js";
+import type {
+  StudyBuddyExecutionProfile,
+  StudyBuddyModelPolicyOverrides,
+} from "../shared/modelPolicy.js";
 
 export type WebLayoutKind =
   | "auto"
@@ -26,6 +30,9 @@ export interface WebLayoutInput {
   browserHeaded?: boolean;
   skipBrowserValidation?: boolean;
   codexModel?: string;
+  codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  executionProfile?: StudyBuddyExecutionProfile;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
 }
 
 export interface WebLayoutResult {
@@ -54,6 +61,9 @@ export interface WebLayoutRuntimeConfig {
   browserHeaded: boolean;
   skipBrowserValidation: boolean;
   codexModel?: string;
+  codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  executionProfile: StudyBuddyExecutionProfile;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
   abortSignal?: AbortSignal;
   diagnostics?: WebLayoutDiagnosticsLike;
 }

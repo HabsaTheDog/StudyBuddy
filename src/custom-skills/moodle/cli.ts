@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runMoodleGraph } from "./graph.js";
-import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
+import {
+  parseExecutionProfile,
+  parseModelPolicyOverrides,
+  parseReasoningEffort,
+} from "./modelPolicy.js";
 import { parseCodexPreflightMode } from "./config.js";
 
 const program = new Command()
@@ -42,6 +46,7 @@ const program = new Command()
   .option("--codex-fallback-model <model>", "Compatibility fallback for policy-selected models")
   .option("--codex-preflight <mode>", "Codex preflight: full, version-only, or off", parseCodexPreflightMode)
   .option("--execution-profile <profile>", "Execution profile: auto, fast, balanced, quality, or custom", parseExecutionProfile, "auto")
+  .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
   .option("--json", "Print machine-readable JSON result")
@@ -85,6 +90,7 @@ const options = program.opts<{
   codexFallbackModel?: string;
   codexPreflight?: "full" | "version-only" | "off";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
+  profileOverridesJson?: import("./modelPolicy.js").StudyBuddyModelPolicyOverrides;
 }>();
 
 const prompt = program.args.join(" ");
@@ -134,6 +140,7 @@ const result = await runMoodleGraph({
   codexCompatibilityFallbackModel: options.codexFallbackModel,
   codexPreflightMode: options.codexPreflight,
   executionProfile: options.executionProfile,
+  modelPolicyOverrides: options.profileOverridesJson,
 });
 
 if (options.json) {
