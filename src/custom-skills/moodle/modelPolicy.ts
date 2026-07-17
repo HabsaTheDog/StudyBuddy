@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-17.1";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-17.2";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 

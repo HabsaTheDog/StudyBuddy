@@ -32,7 +32,25 @@ export async function validateWebLayoutHtml(
   if (!staticReport.ok || options.skip) {
     return staticReport;
   }
-  const browserReport = await validateHtmlInBrowser(html, options);
+  const previewPath = path.join(options.runDir, "validation-preview.html");
+  await writeFile(previewPath, html, "utf8");
+  const browserReport = await validateHtmlFileInBrowser(previewPath, options);
+  return {
+    ok: browserReport.ok,
+    issues: [...staticReport.issues, ...browserReport.issues],
+    screenshotPaths: browserReport.screenshotPaths,
+  };
+}
+
+export async function validateWebLayoutFile(
+  validationHtml: string,
+  filePath: string,
+  kind: WebLayoutKind,
+  options: BrowserValidationOptions,
+): Promise<HtmlValidationReport> {
+  const staticReport = validateSingleFileHtml(validationHtml, kind);
+  if (!staticReport.ok || options.skip) return staticReport;
+  const browserReport = await validateHtmlFileInBrowser(filePath, options);
   return {
     ok: browserReport.ok,
     issues: [...staticReport.issues, ...browserReport.issues],
@@ -78,6 +96,9 @@ export function validateSingleFileHtml(html: string, kind: WebLayoutKind = "auto
   for (const ref of externalRefs) {
     issues.push(issue("external-reference", `External reference is not allowed: ${ref}`));
   }
+  for (const ref of findSiblingReferences(trimmed)) {
+    issues.push(issue("sibling-reference", `Final HTML must not depend on a sibling file: ${ref}`));
+  }
   if (/```/.test(trimmed)) {
     issues.push(issue("markdown-fence", "HTML output must not contain Markdown code fences."));
   }
@@ -118,12 +139,10 @@ export function validationReportToJson(report: HtmlValidationReport): JsonObject
   };
 }
 
-async function validateHtmlInBrowser(html: string, options: BrowserValidationOptions): Promise<HtmlValidationReport> {
+async function validateHtmlFileInBrowser(filePath: string, options: BrowserValidationOptions): Promise<HtmlValidationReport> {
   const issues: HtmlValidationIssue[] = [];
   const screenshotsDir = path.join(options.runDir, "screenshots");
   await mkdir(screenshotsDir, { recursive: true });
-  const previewPath = path.join(options.runDir, "validation-preview.html");
-  await writeFile(previewPath, html, "utf8");
   const screenshotPaths = [
     path.join(screenshotsDir, "desktop.png"),
     path.join(screenshotsDir, "mobile.png"),
@@ -141,7 +160,9 @@ async function validateHtmlInBrowser(html: string, options: BrowserValidationOpt
         externalRequests.push(url);
       }
     });
-    await page.goto(pathToFileURL(previewPath).toString(), { waitUntil: "load", timeout: 20_000 });
+    const fileStat = await stat(filePath);
+    const loadTimeout = fileStat.size >= 100_000_000 ? 120_000 : 20_000;
+    await page.goto(pathToFileURL(filePath).toString(), { waitUntil: "load", timeout: loadTimeout });
 
     const viewports = [
       { width: 1440, height: 900, path: screenshotPaths[0] },
@@ -214,6 +235,39 @@ function findExternalReferences(html: string): string[] {
     }
   }
   return refs;
+}
+
+function findSiblingReferences(html: string): string[] {
+  const refs: string[] = [];
+  const attributePattern = /\b(?:src|poster|data)\s*=\s*["']([^"']+)["']/gi;
+  for (const match of html.matchAll(attributePattern)) {
+    const value = match[1].trim();
+    if (isSiblingReference(value)) refs.push(value);
+  }
+  const hrefPattern = /\bhref\s*=\s*["']([^"']+)["']/gi;
+  for (const match of html.matchAll(hrefPattern)) {
+    const value = match[1].trim();
+    if (isSiblingReference(value)) refs.push(value);
+  }
+  const srcsetPattern = /\bsrcset\s*=\s*["']([^"']+)["']/gi;
+  for (const match of html.matchAll(srcsetPattern)) {
+    for (const candidate of match[1].split(",")) {
+      const value = candidate.trim().split(/\s+/, 1)[0];
+      if (isSiblingReference(value)) refs.push(value);
+    }
+  }
+  const cssUrlPattern = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+  for (const match of html.matchAll(cssUrlPattern)) {
+    const value = match[1].trim();
+    if (isSiblingReference(value)) refs.push(value);
+  }
+  return [...new Set(refs)];
+}
+
+function isSiblingReference(value: string): boolean {
+  if (!value || value.startsWith("#") || value.startsWith("data:")) return false;
+  if (/^(?:https?:|mailto:|tel:|sms:|ftp:|blob:|javascript:|\/\/)/i.test(value)) return false;
+  return true;
 }
 
 function isSafeRelativeReference(value: string): boolean {

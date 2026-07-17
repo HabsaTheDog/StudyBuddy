@@ -62,6 +62,11 @@ function buildQualityReviewPrompt(
   return [
     "Review this Study Buddy artifact for factual grounding, mathematical consistency, pedagogical usefulness, and alignment with the requested output.",
     "Do not rewrite the artifact. Return JSON only. Mark ok=false only for concrete issues that require a new analysis or build attempt.",
+    "Review only the supplied artifact and deterministic review. Do not claim that omitted source material contains facts, formulas, or examples that are not present in this review input.",
+    "Formula strings in structured study data use Typst math syntax, not TeX. Typst functions such as frac and dot intentionally have no leading backslash; do not flag that syntax as malformed TeX.",
+    "Worked examples with origin='derived' are explicitly didactic examples. They are allowed when their method and result are reproducible from the cited source-backed rules or formulas; do not reject them merely because their numeric values were newly chosen.",
+    "For a study guide, reject chapter-sized content that functions only as a short overview. A learner needs explanations, conditions, methods, and worked application—not just one paragraph and a few bullets.",
+    "A missing optional formula or worked example is not a defect unless the user explicitly required it and the supplied artifact itself demonstrates that suitable source-backed material was available.",
     `User request:\n${config.prompt}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,

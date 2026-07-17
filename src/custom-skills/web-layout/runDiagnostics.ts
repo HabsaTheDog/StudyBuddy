@@ -74,6 +74,11 @@ export class WebLayoutRunDiagnostics {
       input.outputPath ? `- HTML: ${input.outputPath}` : "- HTML: none",
       input.validationReportPath ? `- Validation report: ${input.validationReportPath}` : "- Validation report: none",
       input.screenshotPaths?.length ? `- Screenshots: ${input.screenshotPaths.join(", ")}` : "- Screenshots: none",
+      input.sourceBundlePath ? `- Editable source: ${input.sourceBundlePath}` : "- Editable source: none",
+      input.mediaManifestPath ? `- Media manifest: ${input.mediaManifestPath}` : "- Media manifest: none",
+      input.artifactBytes !== undefined ? `- Final HTML size: ${formatBytes(input.artifactBytes)}` : "- Final HTML size: unknown",
+      input.embeddedAssetBytes !== undefined ? `- Embedded media before Base64: ${formatBytes(input.embeddedAssetBytes)}` : "- Embedded media before Base64: unknown",
+      input.estimatedDecodedImageBytes !== undefined ? `- Estimated decoded raster memory: ${formatBytes(input.estimatedDecodedImageBytes)}` : "- Estimated decoded raster memory: unknown",
       "",
       "## State",
       `- Source text: ${input.stateHasSource ? "yes" : "no"}`,
@@ -86,4 +91,11 @@ export class WebLayoutRunDiagnostics {
     ];
     await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  return `${bytes} bytes`;
 }

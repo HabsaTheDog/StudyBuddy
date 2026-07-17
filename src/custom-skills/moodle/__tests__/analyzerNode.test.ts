@@ -30,6 +30,8 @@ describe("analyzerNode", () => {
 
     expect(receivedPrompt).toContain("Previous validation error to repair:\nPrevious schema error");
     expect(receivedPrompt).toContain("Feder-Daempfer-System");
+    expect(receivedPrompt).toContain("A study guide must teach the material");
+    expect(receivedPrompt).toContain("origin='derived'");
     expect(receivedSchema).toBe(extractedDataJsonSchema);
     expect(result.error_log).toBeNull();
     expect(result.retry_count).toBeUndefined();
@@ -122,6 +124,7 @@ describe("analyzerNode", () => {
   });
 
   it.each([
+    [new Error("Selected model is at capacity. Please try a different model."), "model_capacity"],
     [new Error("rate limit exceeded"), "rate_limit"],
     [new Error("network connection reset"), "network"],
     [new Error("temporary service issue"), "unknown"],

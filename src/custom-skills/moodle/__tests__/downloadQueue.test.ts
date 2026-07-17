@@ -23,4 +23,51 @@ describe("downloadQueue", () => {
     expect(clampConcurrency(12)).toBe(4);
     expect(clampConcurrency(0)).toBe(1);
   });
+
+  it("aborts the underlying job before returning a timeout result", async () => {
+    let aborted = false;
+    let lateMutation = false;
+    const jobs = [async ({ signal }: { signal: AbortSignal }) =>
+      new Promise<string>((resolve, reject) => {
+        const lateTimer = setTimeout(() => {
+          lateMutation = true;
+          resolve("late");
+        }, 80);
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          clearTimeout(lateTimer);
+          reject(signal.reason);
+        }, { once: true });
+      })];
+
+    const results = await runDownloadQueue(jobs, {
+      concurrency: 1,
+      timeoutMs: 10,
+      cancellationGraceMs: 100,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 90));
+
+    expect(results[0].status).toBe("rejected");
+    expect(aborted).toBe(true);
+    expect(lateMutation).toBe(false);
+  });
+
+  it("propagates parent cancellation to active jobs", async () => {
+    const controller = new AbortController();
+    let observedAbort = false;
+    const run = runDownloadQueue([
+      async ({ signal }) => new Promise<void>((resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          observedAbort = true;
+          reject(signal.reason);
+        }, { once: true });
+      }),
+    ], { concurrency: 1, timeoutMs: 1_000, signal: controller.signal });
+
+    controller.abort(new Error("test cancellation"));
+    const results = await run;
+
+    expect(observedAbort).toBe(true);
+    expect(results[0].status).toBe("rejected");
+  });
 });

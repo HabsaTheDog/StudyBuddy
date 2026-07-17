@@ -18,6 +18,7 @@ export type CodexErrorCategory =
   | "authentication"
   | "invalid_request"
   | "model_incompatible"
+  | "model_capacity"
   | "model_unavailable"
   | "network"
   | "rate_limit"
@@ -48,93 +49,144 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
     async run(prompt, options) {
       const task = options?.task ?? "content_analyzer";
       const attempt = Math.max(1, options?.attempt ?? 1);
-      const policy = resolveTaskModelPolicy({
+      const policyInput = {
         profile: config.executionProfile,
         task,
         attempt,
         globalModel: config.codexModel,
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
-      });
-      const startedAt = new Date().toISOString();
-      const startedMs = Date.now();
-      const callId = `${task}-${attempt}-${startedMs}`;
-      const timeoutController = new AbortController();
-      const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
-      const signal = combineSignals(config.abortSignal, timeoutController.signal);
-      const thread = codex.startThread({
-        workingDirectory: config.runDir,
-        skipGitRepoCheck: true,
-        model: policy.model,
-        modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
-      });
-      await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
-        callId,
-        task,
-        attempt,
-        model: policy.model,
-        reasoningEffort: policy.reasoningEffort,
-        timeoutMs: policy.timeoutMs,
-      });
-      try {
-        const turn = await thread.run(prompt, {
-          outputSchema: options?.outputSchema,
-          signal,
+      } as const;
+      const selectedPolicy = resolveTaskModelPolicy(policyInput);
+      const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
+      const escalationPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 2 });
+      const policies = uniqueModelPolicies([
+        selectedPolicy,
+        selectedPolicy.model === primaryPolicy.model ? escalationPolicy : primaryPolicy,
+      ]);
+
+      for (const [candidateIndex, policy] of policies.entries()) {
+        const startedAt = new Date().toISOString();
+        const startedMs = Date.now();
+        const callId = `${task}-${attempt}-${startedMs}`;
+        const timeoutController = new AbortController();
+        const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
+        const signal = combineSignals(config.abortSignal, timeoutController.signal);
+        const thread = codex.startThread({
+          workingDirectory: config.runDir,
+          skipGitRepoCheck: true,
+          model: policy.model,
+          modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
         });
-        await recordCall({
-          config,
+        await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
           callId,
           task,
           attempt,
           model: policy.model,
           reasoningEffort: policy.reasoningEffort,
-          startedAt,
-          startedMs,
-          status: "completed",
-          usage: turn.usage,
+          timeoutMs: policy.timeoutMs,
         });
-        return turn.finalResponse;
-      } catch (error) {
-        const timeoutReached = timeoutController.signal.aborted && !config.abortSignal?.aborted;
-        const status = timeoutReached ? "timeout" : config.abortSignal?.aborted ? "canceled" : "failed";
-        const classification = status === "failed" ? classifyCodexError(error) : null;
-        await recordCall({
-          config,
-          callId,
-          task,
-          attempt,
-          model: policy.model,
-          reasoningEffort: policy.reasoningEffort,
-          startedAt,
-          startedMs,
-          status,
-          usage: null,
-          errorCategory: classification?.category ?? status,
-        });
-        if (timeoutReached) {
-          throw new Error(`${task} model call timed out after ${policy.timeoutMs}ms.`);
-        }
-        if (classification && !classification.retryable) {
+        try {
+          const turn = await thread.run(prompt, {
+            outputSchema: options?.outputSchema,
+            signal,
+          });
+          await recordCall({
+            config,
+            callId,
+            task,
+            attempt,
+            model: policy.model,
+            reasoningEffort: policy.reasoningEffort,
+            startedAt,
+            startedMs,
+            status: "completed",
+            usage: turn.usage,
+          });
+          return turn.finalResponse;
+        } catch (error) {
+          const timeoutReached = timeoutController.signal.aborted && !config.abortSignal?.aborted;
+          const status = timeoutReached ? "timeout" : config.abortSignal?.aborted ? "canceled" : "failed";
+          const classification = status === "failed" ? classifyCodexError(error) : null;
+          await recordCall({
+            config,
+            callId,
+            task,
+            attempt,
+            model: policy.model,
+            reasoningEffort: policy.reasoningEffort,
+            startedAt,
+            startedMs,
+            status,
+            usage: null,
+            errorCategory: classification?.category ?? status,
+          });
+          const fallback = policies[candidateIndex + 1];
           if (
-            classification.category === "model_incompatible" ||
-            classification.category === "model_unavailable" ||
-            classification.category === "authentication"
+            fallback &&
+            !config.abortSignal?.aborted &&
+            shouldTryModelFallback(status, classification)
           ) {
-            await invalidateCodexRuntimeCache(config.runtimeCacheDir).catch(() => undefined);
+            await config.diagnostics?.log(
+              "warn",
+              "model",
+              `${task} model call could not complete; retrying the same stage with ${fallback.model}.`,
+              {
+                task,
+                attempt,
+                failedModel: policy.model,
+                fallbackModel: fallback.model,
+                reason: classification?.category ?? status,
+              },
+            );
+            continue;
           }
-          if (error instanceof NonRetryableCodexError) throw error;
-          throw new NonRetryableCodexError(
-            error instanceof Error ? error.message : String(error),
-            classification.category,
-            { cause: error },
-          );
+          if (timeoutReached) {
+            throw new Error(`${task} model call timed out after ${policy.timeoutMs}ms.`);
+          }
+          if (classification && !classification.retryable) {
+            if (
+              classification.category === "model_incompatible" ||
+              classification.category === "model_unavailable" ||
+              classification.category === "authentication"
+            ) {
+              await invalidateCodexRuntimeCache(config.runtimeCacheDir).catch(() => undefined);
+            }
+            if (error instanceof NonRetryableCodexError) throw error;
+            throw new NonRetryableCodexError(
+              error instanceof Error ? error.message : String(error),
+              classification.category,
+              { cause: error },
+            );
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
         }
-        throw error;
-      } finally {
-        clearTimeout(timeout);
       }
+
+      throw new Error(`${task} model call failed without a usable model response.`);
     },
   };
+}
+
+function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
+  const seen = new Set<string>();
+  return policies.filter((policy) => {
+    if (seen.has(policy.model)) return false;
+    seen.add(policy.model);
+    return true;
+  });
+}
+
+function shouldTryModelFallback(
+  status: "completed" | "failed" | "timeout" | "canceled",
+  classification: CodexErrorClassification | null,
+): boolean {
+  if (status === "timeout") return true;
+  return classification?.category === "model_capacity" ||
+    classification?.category === "model_unavailable" ||
+    classification?.category === "rate_limit";
 }
 
 async function recordCall(input: {
@@ -214,6 +266,15 @@ export function classifyCodexError(error: unknown): CodexErrorClassification {
       (details.includes("update") || details.includes("upgrade")))
   ) {
     return { category: "model_incompatible", retryable: false };
+  }
+  if (
+    details.includes("selected model is at capacity") ||
+    details.includes("model is at capacity") ||
+    details.includes("model capacity") ||
+    details.includes("model overloaded") ||
+    details.includes("overloaded model")
+  ) {
+    return { category: "model_capacity", retryable: true };
   }
   if (
     (details.includes("model") &&

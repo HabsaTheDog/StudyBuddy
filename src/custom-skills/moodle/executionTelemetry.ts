@@ -47,6 +47,16 @@ export interface ExecutionMetricsSnapshot {
   };
   phases: PhaseMetric[];
   modelCalls: ModelCallMetric[];
+  resources: {
+    discovered: number;
+    selected: number;
+    started: number;
+    completed: number;
+    failed: number;
+    timedOut: number;
+    canceled: number;
+    bytes: number;
+  };
 }
 
 export class ExecutionTelemetry {
@@ -87,6 +97,16 @@ export class ExecutionTelemetry {
       },
       phases: [],
       modelCalls: [],
+      resources: {
+        discovered: 0,
+        selected: 0,
+        started: 0,
+        completed: 0,
+        failed: 0,
+        timedOut: 0,
+        canceled: 0,
+        bytes: 0,
+      },
     };
   }
 
@@ -124,6 +144,29 @@ export class ExecutionTelemetry {
       this.snapshot.totals.modelDurationMs += metric.durationMs;
       if (metric.attempt > 1) this.snapshot.totals.retries += 1;
       await this.appendSpan({ type: "model_call", ...metric });
+      await this.persist();
+    });
+  }
+
+  async recordResourcePlan(discovered: number, selected: number): Promise<void> {
+    return this.enqueue(async () => {
+      this.snapshot.resources.discovered = Math.max(this.snapshot.resources.discovered, discovered);
+      this.snapshot.resources.selected = Math.max(this.snapshot.resources.selected, selected);
+      await this.persist();
+    });
+  }
+
+  async recordResourceAttempt(
+    status: "started" | "completed" | "failed" | "timed_out" | "canceled",
+    bytes = 0,
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      if (status === "started") this.snapshot.resources.started += 1;
+      if (status === "completed") this.snapshot.resources.completed += 1;
+      if (status === "failed") this.snapshot.resources.failed += 1;
+      if (status === "timed_out") this.snapshot.resources.timedOut += 1;
+      if (status === "canceled") this.snapshot.resources.canceled += 1;
+      if (status === "completed") this.snapshot.resources.bytes += Math.max(0, bytes);
       await this.persist();
     });
   }

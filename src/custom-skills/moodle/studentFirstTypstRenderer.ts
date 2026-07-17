@@ -2,9 +2,10 @@ import type { StudyModel } from "./examNavigatorContracts.js";
 
 export function renderStudentFirstTypst(model: StudyModel): string {
   const body: string[] = [];
+  const labels = documentLabels(model.language);
 
   if (model.courseChapters.length === 0 && model.scopeNote) {
-    body.push(`#sb-source-note("Quellenlage", coverage: ${typstString(model.scopeNote)})`);
+    body.push(`#sb-source-note(${typstString(labels.sourceCoverage)}, coverage: ${typstString(model.scopeNote)})`);
   }
 
   const renderedTopicIds = new Set<string>();
@@ -16,8 +17,8 @@ export function renderStudentFirstTypst(model: StudyModel): string {
     body.push(heading(1, chapter.title));
     const topics = model.topics.filter((topic) => topic.chapterId === chapter.id);
     if (topics.length === 0) {
-      body.push(`#sb-callout(title: "Noch nicht abgedeckt", tone: "warning")[
-  Dieses Moodle-Kapitel wurde erkannt, aber aus den lokal ausgewerteten Kursdateien konnte noch kein belastbarer Lerninhalt übernommen werden.
+      body.push(`#sb-callout(title: ${typstString(labels.notCoveredTitle)}, tone: "warning")[
+  ${text(labels.notCoveredBody)}
 ]`);
       continue;
     }
@@ -31,7 +32,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
         sourceLine(model, topic.sourceIds),
       );
       if (topic.learningGoals.length > 0) {
-        body.push(heading(2, "Kernwissen"), bulletList(topic.learningGoals));
+        body.push(heading(3, labels.keyTakeaways), bulletList(topic.learningGoals));
       }
     }
 
@@ -44,7 +45,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
     );
     const overviewFigures = figures.filter((figure) => !exampleFigureIds.has(figure.id));
     if (overviewFigures.length > 0) {
-      body.push(heading(2, "Aus der Kursunterlage"));
+      body.push(heading(2, labels.fromCourseMaterial));
       for (const figure of overviewFigures.slice(0, 2)) {
         renderedFigureIds.add(figure.id);
         figureNumber += 1;
@@ -60,13 +61,13 @@ export function renderStudentFirstTypst(model: StudyModel): string {
         formulaBody.push(renderFormula(model, formula));
       }
       body.push(
-        heading(2, "Formelwerkzeug"),
+        heading(2, labels.formulaToolkit),
         `#sb-formula-group()[\n${indent(formulaBody.join("\n"), 2)}\n]`,
       );
     }
 
     if (examples.length > 0) {
-      body.push(heading(2, "Schritt für Schritt anwenden"));
+      body.push(heading(2, labels.applyStepByStep));
       for (const example of examples) {
         renderedExampleIds.add(example.id);
         const figureBlocks = figuresForExample(figures, example, 1)
@@ -74,7 +75,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
           .map((figure) => {
             renderedFigureIds.add(figure.id);
             figureNumber += 1;
-            return renderFigure(model, figure, figureNumber, "Beispielbild");
+            return renderFigure(model, figure, figureNumber, labels.exampleFigure);
           });
         body.push(renderExample(model, example, renderedExampleIds.size, figureBlocks));
       }
@@ -83,13 +84,13 @@ export function renderStudentFirstTypst(model: StudyModel): string {
 
   const remainingTopics = model.topics.filter((topic) => !renderedTopicIds.has(topic.id));
   if (remainingTopics.length > 0) {
-    body.push(heading(1, model.courseChapters.length ? "Weitere belegte Themen" : "Lernstoff"));
+    body.push(heading(1, model.courseChapters.length ? labels.moreSupportedTopics : labels.learningContent));
     for (const topic of remainingTopics) {
       body.push(
         heading(2, topic.title),
         text(topic.summary),
         sourceLine(model, topic.sourceIds),
-        heading(3, "Kernwissen"),
+        heading(3, labels.coreKnowledge),
         bulletList(topic.learningGoals),
       );
     }
@@ -97,7 +98,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
 
   const remainingFigures = model.figures.filter((figure) => !renderedFigureIds.has(figure.id));
   if (remainingFigures.length > 0) {
-    body.push(heading(1, "Weitere Abbildungen und Tabellen"));
+    body.push(heading(1, labels.moreFiguresAndTables));
     for (const figure of remainingFigures) {
       renderedFigureIds.add(figure.id);
       figureNumber += 1;
@@ -112,14 +113,14 @@ export function renderStudentFirstTypst(model: StudyModel): string {
       formulaBody.push(renderFormula(model, formula));
     }
     body.push(
-      heading(1, "Weitere belegte Formeln"),
+      heading(1, labels.moreSupportedFormulas),
       `#sb-formula-group()[\n${indent(formulaBody.join("\n"), 2)}\n]`,
     );
   }
 
   const remainingExamples = model.workedExamples.filter((example) => !renderedExampleIds.has(example.id));
   if (remainingExamples.length > 0) {
-    body.push("#sb-divider(label: \"Anwenden\")", heading(1, "Weitere Rechenbeispiele"));
+    body.push(`#sb-divider(label: ${typstString(labels.apply)})`, heading(1, labels.moreWorkedExamples));
     for (const example of remainingExamples) {
       renderedExampleIds.add(example.id);
       const figureBlocks = figuresForExample(model.figures, example, 1)
@@ -127,7 +128,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
         .map((figure) => {
           renderedFigureIds.add(figure.id);
           figureNumber += 1;
-          return renderFigure(model, figure, figureNumber, "Beispielbild");
+          return renderFigure(model, figure, figureNumber, labels.exampleFigure);
         });
       body.push(renderExample(model, example, renderedExampleIds.size, figureBlocks));
     }
@@ -135,26 +136,26 @@ export function renderStudentFirstTypst(model: StudyModel): string {
 
   if (model.checklist.length > 0) {
     body.push(
-      "#sb-divider(label: \"Lerncheck\")",
-      heading(1, "Prüfungs-Checkliste"),
-      text("Nutze diese Checkliste als Abschlusskontrolle."),
+      `#sb-divider(label: ${typstString(labels.learningCheck)})`,
+      heading(1, labels.examChecklist),
+      text(labels.checklistIntro),
       `#sb-checklist((${model.checklist.map((item) => `\n  [${text(item)}],`).join("")}\n))`,
     );
   }
 
   if (model.practiceItems.length > 0) {
-    body.push("#sb-divider(label: \"Training\")", heading(1, "Quellengebundenes Training"));
+    body.push(`#sb-divider(label: ${typstString(labels.training)})`, heading(1, labels.sourceGroundedTraining));
     for (const [index, item] of model.practiceItems.entries()) {
       body.push(
-        heading(2, `Aufgabe ${index + 1}`),
+        heading(2, `${labels.task} ${index + 1}`),
         text(item.prompt),
         sourceLine(model, item.sourceIds),
-        `#text(weight: "bold")[Lösung:] ${text(item.answer)}`,
+        `#text(weight: "bold")[${text(labels.solution)}] ${text(item.answer)}`,
       );
     }
   }
 
-  body.push("#sb-divider(label: \"Nachweise\")", heading(1, "Quellen und Direktlinks"));
+  body.push(`#sb-divider(label: ${typstString(labels.references)})`, heading(1, labels.sourcesAndLinks));
   body.push("#columns(2, gutter: 10pt)[");
   const citedSourceIds = new Set([
     ...model.topics.flatMap((topic) => topic.sourceIds),
@@ -181,7 +182,7 @@ export function renderStudentFirstTypst(model: StudyModel): string {
   body.push("]");
   if (model.warnings.length > 0) {
     body.push(
-      heading(1, "Offene Quellenhinweise"),
+      heading(1, labels.openSourceNotes),
       bulletList(model.warnings),
     );
   }
@@ -192,10 +193,10 @@ export function renderStudentFirstTypst(model: StudyModel): string {
   title: ${typstString(model.title)},
   short-title: ${typstString(shortTitle(model.title))},
   course: ${typstString(model.courseTitle)},
-  kind: ${typstString(kindLabel(model.profile))},
+  kind: ${typstString(kindLabel(model.profile, model.language))},
   semester: ${typstString(currentSemester())},
-  status: ${typstString(statusLabel(model.publicationStatus))},
-  date: ${typstString(currentDate())},
+  status: ${typstString(statusLabel(model.publicationStatus, model.language))},
+  date: ${typstString(currentDate(model.language))},
   compact: true,
   body: [
 ${body.map((entry) => indent(entry, 4)).join("\n\n")}
@@ -222,14 +223,17 @@ function renderExample(
   number: number,
   figureBlocks: string[] = [],
 ): string {
+  const labels = documentLabels(model.language);
   const visuals = figureBlocks.length > 0
     ? `\n  #v(6pt)\n  ${figureBlocks.join("\n  #v(5pt)\n  ")}`
     : "";
   return `#sb-example(
-  title: ${typstString(`Beispiel ${number}`)},
+  title: ${typstString(`${example.origin === "derived" ? labels.derivedExample : labels.sourceExample} ${number}`)},
   result: [${text(example.result)}],
 )[
-  #text(weight: "bold")[Aufgabe:] ${text(example.prompt)}
+  #text(weight: "bold")[${text(labels.learningGoal)}] ${text(example.learningGoal)}
+  #v(4pt)
+  #text(weight: "bold")[${text(labels.task)}] ${text(example.prompt)}
   ${sourceLine(model, example.sourceIds)}
   ${visuals}
   #v(5pt)
@@ -241,9 +245,10 @@ function renderFigure(
   model: StudyModel,
   figure: StudyModel["figures"][number],
   number: number,
-  labelPrefix = "Abb.",
+  labelPrefix = model.language === "en" ? "Fig." : "Abb.",
 ): string {
-  const page = figure.sourcePage ? `, Seite ${figure.sourcePage}` : "";
+  const labels = documentLabels(model.language);
+  const page = figure.sourcePage ? `, ${labels.page} ${figure.sourcePage}` : "";
   const caption = `[${text(`${figure.caption}${page}`)} #h(3pt) ${sourceReferences(model, figure.sourceIds)}]`;
   if (figure.relativePath) {
     const portrait = Boolean(
@@ -258,11 +263,11 @@ function renderFigure(
 ]`;
   }
   if (figure.kind === "typst_diagram") {
-    return `#sb-callout(title: "Visualisierung nicht gerendert", tone: "warning")[
-  ${text(figure.generationPrompt || `Für "${figure.title}" wurde kein validiertes Quellenbild und keine konkrete Diagrammdefinition bereitgestellt.`)}
+    return `#sb-callout(title: ${typstString(labels.visualNotRendered)}, tone: "warning")[
+  ${text(figure.generationPrompt || labels.missingVisual(figure.title))}
 ]`;
   }
-  return `#sb-callout(title: "Vorgesehene Visualisierung", tone: "info")[
+  return `#sb-callout(title: ${typstString(labels.plannedVisual)}, tone: "info")[
   ${text(figure.generationPrompt || figure.caption)}
 ]`;
 }
@@ -301,7 +306,8 @@ function sameSubject(left: string, right: string): boolean {
 }
 
 function sourceLine(model: StudyModel, ids: string[]): string {
-  return `#text(7.2pt, fill: rgb("#66708f"))[Belegt durch ${sourceReferences(model, ids, 4)}]`;
+  const prefix = model.language === "en" ? "Supported by" : "Belegt durch";
+  return `#text(7.2pt, fill: rgb("#66708f"))[${prefix} ${sourceReferences(model, ids, 4)}]`;
 }
 
 function sourceReferences(model: StudyModel, ids: string[], limit = Number.POSITIVE_INFINITY): string {
@@ -404,26 +410,111 @@ function shortTitle(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
 }
 
-function kindLabel(profile: StudyModel["profile"]): string {
-  return {
+function kindLabel(profile: StudyModel["profile"], language: StudyModel["language"]): string {
+  const german = {
     study_guide: "Study Guide",
     exam_navigator: "Exam Navigator",
     interactive_learning: "Interaktives Lernsystem",
     practice_pack: "Practice Pack",
     source_audit: "Quellenaudit",
-  }[profile];
+  };
+  const english = {
+    study_guide: "Study Guide",
+    exam_navigator: "Exam Navigator",
+    interactive_learning: "Interactive Learning System",
+    practice_pack: "Practice Pack",
+    source_audit: "Source Audit",
+  };
+  return (language === "en" ? english : german)[profile];
 }
 
-function statusLabel(status: StudyModel["publicationStatus"]): string {
-  return { complete: "Vollständig belegt", partial: "Teilweise belegt", blocked: "Blockiert" }[status];
+function statusLabel(status: StudyModel["publicationStatus"], language: StudyModel["language"]): string {
+  return language === "en"
+    ? { complete: "Fully supported", partial: "Partially supported", blocked: "Blocked" }[status]
+    : { complete: "Vollständig belegt", partial: "Teilweise belegt", blocked: "Blockiert" }[status];
 }
 
-function currentDate(): string {
-  return new Intl.DateTimeFormat("de-AT", {
+function currentDate(language: StudyModel["language"]): string {
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "de-AT", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   }).format(new Date());
+}
+
+function documentLabels(language: StudyModel["language"]) {
+  if (language === "en") {
+    return {
+      sourceCoverage: "Source coverage",
+      notCoveredTitle: "Not yet covered",
+      notCoveredBody: "This Moodle chapter was identified, but the locally evaluated course files did not provide sufficiently reliable learning content.",
+      coreKnowledge: "Core knowledge",
+      keyTakeaways: "Key takeaways and learning goals",
+      fromCourseMaterial: "From the course material",
+      formulaToolkit: "Formula toolkit",
+      applyStepByStep: "Apply step by step",
+      exampleFigure: "Example figure",
+      moreSupportedTopics: "More supported topics",
+      learningContent: "Learning content",
+      moreFiguresAndTables: "More figures and tables",
+      moreSupportedFormulas: "More supported formulas",
+      apply: "Apply",
+      moreWorkedExamples: "More worked examples",
+      learningCheck: "Learning check",
+      examChecklist: "Exam checklist",
+      checklistIntro: "Use this checklist as a final self-check.",
+      training: "Training",
+      sourceGroundedTraining: "Source-grounded training",
+      task: "Task:",
+      solution: "Solution:",
+      references: "References",
+      sourcesAndLinks: "Sources and direct links",
+      openSourceNotes: "Open source notes",
+      example: "Example",
+      sourceExample: "Course example",
+      derivedExample: "Didactic practice example",
+      learningGoal: "Learning goal:",
+      page: "page",
+      visualNotRendered: "Visualization not rendered",
+      plannedVisual: "Planned visualization",
+      missingVisual: (title: string) => `No validated source image or concrete diagram definition was provided for "${title}".`,
+    };
+  }
+  return {
+    sourceCoverage: "Quellenlage",
+    notCoveredTitle: "Noch nicht abgedeckt",
+    notCoveredBody: "Dieses Moodle-Kapitel wurde erkannt, aber aus den lokal ausgewerteten Kursdateien konnte noch kein belastbarer Lerninhalt übernommen werden.",
+    coreKnowledge: "Kernwissen",
+    keyTakeaways: "Merksätze und Lernziele",
+    fromCourseMaterial: "Aus der Kursunterlage",
+    formulaToolkit: "Formelwerkzeug",
+    applyStepByStep: "Schritt für Schritt anwenden",
+    exampleFigure: "Beispielbild",
+    moreSupportedTopics: "Weitere belegte Themen",
+    learningContent: "Lernstoff",
+    moreFiguresAndTables: "Weitere Abbildungen und Tabellen",
+    moreSupportedFormulas: "Weitere belegte Formeln",
+    apply: "Anwenden",
+    moreWorkedExamples: "Weitere Rechenbeispiele",
+    learningCheck: "Lerncheck",
+    examChecklist: "Prüfungs-Checkliste",
+    checklistIntro: "Nutze diese Checkliste als Abschlusskontrolle.",
+    training: "Training",
+    sourceGroundedTraining: "Quellengebundenes Training",
+    task: "Aufgabe:",
+    solution: "Lösung:",
+    references: "Nachweise",
+    sourcesAndLinks: "Quellen und Direktlinks",
+    openSourceNotes: "Offene Quellenhinweise",
+    example: "Beispiel",
+    sourceExample: "Kursbeispiel",
+    derivedExample: "Didaktisches Übungsbeispiel",
+    learningGoal: "Lernziel:",
+    page: "Seite",
+    visualNotRendered: "Visualisierung nicht gerendert",
+    plannedVisual: "Vorgesehene Visualisierung",
+    missingVisual: (title: string) => `Für "${title}" wurde kein validiertes Quellenbild und keine konkrete Diagrammdefinition bereitgestellt.`,
+  };
 }
 
 function currentSemester(): string {

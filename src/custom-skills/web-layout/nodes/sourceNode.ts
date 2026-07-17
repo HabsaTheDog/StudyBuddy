@@ -6,12 +6,28 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 export function createSourceNode(config: WebLayoutRuntimeConfig) {
   return async function sourceNode(): Promise<Partial<LangGraphWebLayoutState>> {
     try {
+      if (config.sourceMode === "prompt" && requestsMoodleSources(config.prompt)) {
+        throw new Error(
+          "Moodle-derived web layouts require a successful extraction handoff. " +
+          "Run study_buddy_task.sh extract first, then retry with --source-run-dir <extraction-run>.",
+        );
+      }
       const chunks = [`# User prompt\n${config.prompt.trim()}`];
       if (config.sourceRunDir) {
         chunks.push(await readMoodleHandoff(config.sourceRunDir));
+        chunks.push(
+          `# Local Moodle artifact root\n${config.sourceRunDir}\n` +
+          "Visual assets may be referenced only by a validated visual_assets.relative_path from the extraction handoff.",
+        );
       }
       for (const filePath of config.sourceFiles) {
         chunks.push(await readTextSourceFile(filePath));
+      }
+      if (config.assetFiles.length) {
+        chunks.push([
+          "# Approved local image assets",
+          ...config.assetFiles.map((filePath) => `- assets/${path.basename(filePath)} (${filePath})`),
+        ].join("\n"));
       }
       const sourceText = chunks.join("\n\n---\n\n");
       await config.diagnostics?.log("info", "source", `Prepared source text (${sourceText.length} chars).`);
@@ -25,6 +41,10 @@ export function createSourceNode(config: WebLayoutRuntimeConfig) {
       };
     }
   };
+}
+
+function requestsMoodleSources(prompt: string): boolean {
+  return /\bmoodle\b/i.test(prompt);
 }
 
 async function readTextSourceFile(filePath: string): Promise<string> {

@@ -81,7 +81,10 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
       activityType: resource.activityType,
       title: resource.title,
       originUrl: resource.originUrl,
+      localPath: resource.localPath,
       status: resource.status,
+      selection: resource.selection,
+      extraction: resource.extraction,
     })),
   };
   const analyzerVisuals = visualManifest
@@ -146,6 +149,17 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
     "- Generated or placeholder visuals are didactic visualizations, not original Moodle/CIS sources.",
     "Use the source coverage JSON as a hard boundary: failed or empty sources can only support warnings, not factual claims.",
     "Use the evidence package as the factual input. Resource titles alone prove that a resource exists, not its subject content.",
+    "The resource manifest includes localPath for the small selected source set. When embedded text is sparse or an exercise depends on a diagram/table, inspect that already-downloaded PDF or its listed visual candidate directly before omitting the material.",
+    "Inspect only selected local resources needed for the requested guide. Do not crawl, download, or OCR the remaining catalog from inside the analyzer.",
+    "Visual-candidate metadata is not itself factual evidence; use the actual local image/PDF when its content is needed.",
+    "Learning-depth policy:",
+    "- A study guide must teach the material; it is not an executive summary or a one-paragraph syllabus overview.",
+    "- Split each Moodle chapter into multiple meaningful subject sections when the evidence contains definitions, classifications, procedures, boundary conditions, calculations, or applications.",
+    "- Explain why concepts work, how related quantities interact, when a method applies, and how a student recognizes the correct method. Preserve source-supported detail instead of compressing a whole slide deck into a few bullets.",
+    "- For every covered technical chapter, include at least one complete worked example with a concrete learning_goal, problem, ordered method, intermediate reasoning, result, and source IDs.",
+    "- Prefer an acquired exercise/solution pair and set origin='source'. If no source example exists but a source-backed rule or formula supports one, create a clearly didactic example with origin='derived'; vary only values or a simple application and do not add unsupported engineering claims.",
+    "- A derived example must remain reproducible from its cited definitions, rules, or formulas. Never disguise it as an original Moodle exercise.",
+    "- Use key_concepts for concise, testable takeaways; put the actual explanation in section.summary, using multiple paragraphs where useful.",
     "Course structure policy:",
     "- Treat resource_manifest.sectionPath as the authoritative Moodle chapter structure.",
     "- Emit subject sections in the same order and with the same subject boundaries as the Moodle course; do not reorganize them into generic theory/formula/example buckets.",
@@ -154,7 +168,7 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
     config.artifactIntent.profile === "study_guide" || config.artifactIntent.profile === "exam_navigator"
       ? "Set quiz_style_questions to an empty array. These profiles use one learning checklist and no practice bank."
       : "Practice questions must test subject knowledge, have a concrete learning purpose, and cite subject evidence. Never ask about alias, date, time, room, teacher, or source-page metadata.",
-    "Do not invent common mistakes, formulas, definitions, worked examples, or diagram relationships.",
+    "Do not invent source claims, common mistakes, formulas, definitions, or diagram relationships. Derived examples are allowed only under the learning-depth policy above.",
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
     `Source coverage JSON:\n${JSON.stringify(config.diagnostics?.getCoverage() ?? {}, null, 2)}`,

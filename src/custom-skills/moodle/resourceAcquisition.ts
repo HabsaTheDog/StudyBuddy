@@ -103,11 +103,25 @@ export function classifyResourceFailure(
       recommendedAction: "FHTW/HAN-CA-Zertifikat konfigurieren und diese Ressource gezielt erneut laden.",
     };
   }
+  if (/Download job timed out|queue deadline|client-side deadline/i.test(text)) {
+    return {
+      status: "transient_failure",
+      failureKind: "client_timeout",
+      recommendedAction: "Lokales Zeitbudget prüfen und nur diese Ressource mit niedrigerer Parallelität erneut laden.",
+    };
+  }
+  if (/operation was aborted|download job canceled|cancelled|canceled/i.test(text)) {
+    return {
+      status: "transient_failure",
+      failureKind: "canceled",
+      recommendedAction: "Nur erneut laden, wenn der übergeordnete Run nicht absichtlich abgebrochen wurde.",
+    };
+  }
   if (/time(?:d\s*out|out)|ETIMEDOUT/i.test(text)) {
     return {
       status: "transient_failure",
-      failureKind: "timeout",
-      recommendedAction: "Ressource mit niedrigerer Parallelität gezielt erneut laden.",
+      failureKind: "remote_timeout",
+      recommendedAction: "Remote-Quelle mit Backoff und niedrigerer Parallelität gezielt erneut laden.",
     };
   }
   if (input.httpStatus === 401 || input.httpStatus === 403 || /login required|access denied|forbidden|unauthori[sz]ed/i.test(text)) {
@@ -139,6 +153,13 @@ export function classifyResourceFailure(
       status: "unsupported",
       failureKind: "unexpected_content",
       recommendedAction: "Ressource anhand des tatsächlichen Inhaltstyps als HTML/Text statt als PDF verarbeiten.",
+    };
+  }
+  if (/pdftotext|tesseract|OCR|text extraction|extract(?:ion|ing) failed/i.test(text)) {
+    return {
+      status: "unsupported",
+      failureKind: "extraction",
+      recommendedAction: "Extraktionswerkzeuge installieren oder die betroffene Datei mit OCR erneut verarbeiten.",
     };
   }
   if (input.httpStatus && input.httpStatus >= 500) {

@@ -62,6 +62,7 @@ export async function runWebLayoutGraph(
   const validationReportPath = path.join(config.runDir, "validation-report.json");
   const validationReportExists = await fileExistsAndNonEmpty(validationReportPath);
   const screenshotPaths = extractScreenshotPaths(state);
+  const artifactSummary = extractArtifactSummary(state);
   if (!state.error_log && state.html_document.trim() && !outputExists) {
     state = {
       ...state,
@@ -77,6 +78,11 @@ export async function runWebLayoutGraph(
     outputPath: ok ? config.outputPath : undefined,
     validationReportPath: validationReportExists ? validationReportPath : undefined,
     screenshotPaths,
+    sourceBundlePath: artifactSummary?.sourceBundlePath,
+    mediaManifestPath: artifactSummary?.mediaManifestPath,
+    artifactBytes: artifactSummary?.artifactBytes,
+    embeddedAssetBytes: artifactSummary?.embeddedAssetBytes,
+    estimatedDecodedImageBytes: artifactSummary?.estimatedDecodedImageBytes,
     error: state.error_log ?? undefined,
     stateHasSource: Boolean(state.source_text.trim()),
     stateHasLayoutSpec: Object.keys(state.layout_spec).length > 0,
@@ -186,7 +192,7 @@ async function persistRunArtifacts(config: WebLayoutRuntimeConfig, state: WebLay
     writeJson(path.join(config.runDir, "state.json"), {
       ...state,
       source_text: state.source_text ? "[see source.txt]" : "",
-      html_document: state.html_document ? "[see document.html]" : "",
+      html_document: state.html_document ? "[see source/index.html and document.html]" : "",
     }),
     writeFile(path.join(config.runDir, "error.log"), state.error_log ?? "", "utf8"),
   ]);
@@ -204,6 +210,25 @@ async function fileExistsAndNonEmpty(filePath: string): Promise<boolean> {
 function extractScreenshotPaths(state: WebLayoutState): string[] {
   const value = state.validation_report.screenshotPaths;
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function extractArtifactSummary(state: WebLayoutState): {
+  sourceBundlePath?: string;
+  mediaManifestPath?: string;
+  artifactBytes?: number;
+  embeddedAssetBytes?: number;
+  estimatedDecodedImageBytes?: number;
+} | null {
+  const value = state.validation_report.artifact;
+  if (!value || Array.isArray(value) || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return {
+    sourceBundlePath: typeof record.sourceBundlePath === "string" ? record.sourceBundlePath : undefined,
+    mediaManifestPath: typeof record.mediaManifestPath === "string" ? record.mediaManifestPath : undefined,
+    artifactBytes: typeof record.artifactBytes === "number" ? record.artifactBytes : undefined,
+    embeddedAssetBytes: typeof record.embeddedAssetBytes === "number" ? record.embeddedAssetBytes : undefined,
+    estimatedDecodedImageBytes: typeof record.estimatedDecodedImageBytes === "number" ? record.estimatedDecodedImageBytes : undefined,
+  };
 }
 
 async function withRuntimeGuard<T>(

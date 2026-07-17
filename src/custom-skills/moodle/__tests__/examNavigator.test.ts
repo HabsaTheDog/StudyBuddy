@@ -155,6 +155,233 @@ describe("student-centric exam navigator contracts", () => {
     expect(coverage.status).toBe("partial");
   });
 
+  it("accepts an acquired direct Moodle resource with usable evidence without a course page", () => {
+    const resourceUrl = "https://moodle.example/mod/resource/view.php?id=2186227";
+    const acquired = {
+      ...node("slides", resourceUrl, "resource", "acquired"),
+      localPath: "/tmp/tolerances.pdf",
+    };
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: null,
+      generatedAt: new Date().toISOString(),
+      resources: [acquired],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev_direct_resource",
+        resourceId: acquired.id,
+        kind: "claim",
+        locator: { page: 1 },
+        content: "A tolerance is the difference between the upper and lower limit sizes.",
+        confidence: 0.98,
+        pairId: null,
+        sourceUrl: resourceUrl,
+        localPath: acquired.localPath,
+      }],
+      warnings: [],
+    });
+    const config = moodleTestConfig({
+      moodleUrl: resourceUrl,
+      prompt: "Create a study guide from this exact Moodle lecture resource",
+      intentDecision: {
+        intent: "extraction",
+        wantsPdf: false,
+        wantsTypstDocument: false,
+        wantsQuickAnswer: false,
+        wantsQuizAssistance: false,
+        needsMoodle: true,
+        needsCis: false,
+        needsCalendar: false,
+        needsCourseMaterial: true,
+        needsDownloadedFiles: true,
+        reason: "fixture",
+      },
+    });
+
+    const coverage = assessExamNavigatorCoverage(config, manifest, evidence);
+
+    expect(coverage.status).toBe("complete");
+    expect(coverage.criticalMissing).toEqual([]);
+  });
+
+  it("does not count a resolved direct activity and its downloaded file as two resources", () => {
+    const activityUrl = "https://moodle.example/mod/resource/view.php?id=2186227";
+    const fileUrl = "https://moodle.example/pluginfile.php/1/mod_resource/content/1/slides.pdf";
+    const activity = node("activity", activityUrl, "resource", "discovered");
+    const acquired = {
+      ...node("slides", fileUrl, "resource", "acquired"),
+      localPath: "/tmp/slides.pdf",
+    };
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: null,
+      generatedAt: new Date().toISOString(),
+      resources: [activity, acquired],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev_file",
+        resourceId: acquired.id,
+        kind: "claim",
+        locator: { page: 1 },
+        content: "Source-backed lecture content.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: fileUrl,
+        localPath: acquired.localPath,
+      }],
+      warnings: [],
+    });
+
+    const coverage = assessExamNavigatorCoverage(
+      moodleTestConfig({ moodleUrl: activityUrl }),
+      manifest,
+      evidence,
+    );
+
+    expect(coverage.status).toBe("complete");
+    expect(coverage.discoveredResources).toBe(1);
+    expect(coverage.acquiredResources).toBe(1);
+  });
+
+  it("renders English checklist and document labels for an English study model", () => {
+    const resourceUrl = "https://moodle.example/mod/resource/view.php?id=2186227";
+    const resource = node("slides", resourceUrl, "resource", "acquired");
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: null,
+      generatedAt: new Date().toISOString(),
+      resources: [resource],
+    });
+    const extracted = moodleExtractedData({
+      language: "en",
+      document_title: "MEL Tolerances",
+      course: { title: "Machine Elements 1", url: resourceUrl },
+      sources: [{
+        id: "src_slides",
+        title: "Tolerance slides",
+        kind: "pdf",
+        url: resourceUrl,
+        path: "/tmp/tolerances.pdf",
+        page: 1,
+      }],
+      sections: [{
+        heading: "Tolerances",
+        summary: "Tolerances define permitted variation.",
+        key_concepts: ["Explain upper and lower deviations"],
+        source_ids: ["src_slides"],
+      }],
+    });
+    const coverage = {
+      status: "complete" as const,
+      detail: "Complete.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 1,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 1,
+    };
+
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, coverage);
+    const typst = renderStudentFirstTypst(model);
+
+    expect(model.checklist).toEqual(["I can explain upper and lower deviations."]);
+    expect(typst).toContain("Exam checklist");
+    expect(typst).toContain("Sources and direct links");
+    expect(typst).not.toContain("Ich kann");
+    expect(typst).not.toContain("Prüfungs-Checkliste");
+  });
+
+  it("keeps chapter references resolvable and does not duplicate checklist prefixes", () => {
+    const sourceUrl = "https://moodle.example/mod/resource/view.php?id=1";
+    const source = {
+      ...node("source", sourceUrl, "resource", "acquired"),
+      sectionPath: ["A. Eigenstudium - Toleranzen"],
+    };
+    const structuralLabel = {
+      ...node("label", "https://moodle.example/mod/label/view.php?id=2", "label", "metadata_only"),
+      sectionPath: ["A. Eigenstudium - Toleranzen"],
+    };
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [source, structuralLabel],
+    });
+    const extracted = moodleExtractedData({
+      sources: [{ id: source.id, title: "Source", kind: "pdf", url: sourceUrl, path: "/tmp/source.pdf", page: 1 }],
+      sections: [{
+        heading: "Toleranzen",
+        summary: "Toleranzen begrenzen Abweichungen.",
+        key_concepts: ["Ich kann obere und untere Abmaße unterscheiden."],
+        source_ids: [source.id],
+      }],
+    });
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, {
+      status: "complete",
+      detail: "Complete.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 2,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 1,
+    });
+
+    expect(model.courseChapters[0].resourceIds).toEqual([source.id]);
+    expect(model.checklist).toEqual(["Ich kann obere und untere Abmaße unterscheiden."]);
+  });
+
+  it("rejects a study guide chapter that is only a shallow overview without an example", async () => {
+    const sourceUrl = "https://moodle.example/mod/resource/view.php?id=20";
+    const source = {
+      ...node("thin", sourceUrl, "resource", "acquired"),
+      sectionPath: ["A. Eigenstudium - Klebeverbindungen"],
+    };
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [source],
+    });
+    const extracted = moodleExtractedData({
+      sources: [{ id: source.id, title: "Kleben", kind: "pdf", url: sourceUrl, path: "/tmp/kleben.pdf", page: 1 }],
+      sections: [{
+        heading: "Klebeverbindungen",
+        summary: "Kleben verbindet Bauteile.",
+        key_concepts: ["Verbindungsarten unterscheiden"],
+        source_ids: [source.id],
+      }],
+    });
+    const coverage = {
+      status: "complete" as const,
+      detail: "Complete.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 1,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 1,
+    };
+
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, coverage);
+    const review = await reviewStudyModel(model, coverage, manifest);
+
+    expect(review.ok).toBe(false);
+    expect(review.findings.map((finding) => finding.code)).toEqual(
+      expect.arrayContaining(["chapter-too-shallow", "chapter-example-missing"]),
+    );
+  });
+
   it("removes organizational questions and renders one shared checklist", async () => {
     const config = moodleTestConfig({
       prompt: "Erstelle eine interaktive Lernseite mit Karteikarten",
@@ -296,6 +523,8 @@ describe("student-centric exam navigator contracts", () => {
         source_ids: ["src_tolerances"],
       }],
       worked_examples: [{
+        origin: "source",
+        learning_goal: "Passungen aus Toleranzfeldern bestimmen.",
         prompt: "Bestimme die Passung aus den Toleranzfeldern.",
         steps: ["Grenzmaße aus der Tabelle ablesen", "Bohrung minus Welle bilden"],
         result: "P = I_B - I_W",
@@ -347,6 +576,8 @@ describe("student-centric exam navigator contracts", () => {
     expect(model.formulas[0].chapterId).toBe(model.topics[0].chapterId);
     expect(model.figures[0].chapterId).toBe(model.topics[0].chapterId);
     expect(typst).toContain('label-text: "Beispielbild 1"');
+    expect(typst).toContain("Kursbeispiel 1");
+    expect(typst).toContain("Passungen aus Toleranzfeldern bestimmen");
     expect(typst).toContain('#image("assets/visuals/toleranzfeld.png", width: 88%, height: 82mm, fit: "contain")');
     expect(typst).toContain('$ P_o = G_"oB" - G_"uW" = "ES" - "ei" $');
     expect(typst.indexOf("A. Eigenstudium")).toBeLessThan(typst.indexOf("B. Eigenstudium"));

@@ -4,6 +4,10 @@ import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
 import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
 
+export const ABSOLUTE_MAX_ARTIFACT_BYTES = 1_000_000_000;
+export const DEFAULT_MAX_IMAGE_WIDTH = 2_000;
+export const DEFAULT_WEBP_QUALITY = 84;
+
 export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRuntimeConfig {
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
@@ -25,6 +29,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     runDir,
     outputPath,
     sourceFiles: (input.sourceFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot)),
+    assetFiles: (input.assetFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot)),
     sourceRunDir: input.sourceRunDir ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot) : undefined,
     sourceMode: inferSourceMode(input),
     language: input.language ?? "de",
@@ -32,6 +37,21 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     idleTimeoutMs: input.idleTimeoutMs ?? 5 * 60_000,
     browserHeaded: input.browserHeaded ?? false,
     skipBrowserValidation: input.skipBrowserValidation ?? false,
+    maxArtifactBytes: boundedInteger(
+      input.maxArtifactBytes,
+      ABSOLUTE_MAX_ARTIFACT_BYTES,
+      1,
+      ABSOLUTE_MAX_ARTIFACT_BYTES,
+      "maxArtifactBytes",
+    ),
+    maxImageWidth: boundedInteger(
+      input.maxImageWidth,
+      DEFAULT_MAX_IMAGE_WIDTH,
+      320,
+      8_192,
+      "maxImageWidth",
+    ),
+    webpQuality: boundedInteger(input.webpQuality, DEFAULT_WEBP_QUALITY, 1, 100, "webpQuality"),
     codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
     codexReasoningEffort:
       input.codexReasoningEffort ??
@@ -51,6 +71,7 @@ export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
     runDir: config.runDir,
     outputPath: config.outputPath,
     sourceFiles: config.sourceFiles,
+    assetFiles: config.assetFiles,
     sourceRunDir: config.sourceRunDir,
     sourceMode: config.sourceMode,
     language: config.language,
@@ -58,11 +79,28 @@ export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
     idleTimeoutMs: config.idleTimeoutMs,
     browserHeaded: config.browserHeaded,
     skipBrowserValidation: config.skipBrowserValidation,
+    maxArtifactBytes: config.maxArtifactBytes,
+    maxImageWidth: config.maxImageWidth,
+    webpQuality: config.webpQuality,
     codexModel: config.codexModel,
     codexReasoningEffort: config.codexReasoningEffort,
     executionProfile: config.executionProfile,
     modelPolicyOverrides: config.modelPolicyOverrides,
   };
+}
+
+function boundedInteger(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < minimum || resolved > maximum) {
+    throw new Error(`${label} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return resolved;
 }
 
 function trimOptional(value: string | undefined): string | undefined {

@@ -60,6 +60,18 @@ describe("web layout source node", () => {
 
     expect(result.error_log).toContain("not a successful extraction run");
   });
+
+  it("rejects an explicitly Moodle-derived prompt without an extraction handoff", async () => {
+    await tempWorkspace();
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Use my Moodle math course materials to build an interactive exam guide",
+    });
+
+    const result = await createSourceNode(config)();
+
+    expect(result.error_log).toContain("require a successful extraction handoff");
+    expect(result.error_log).toContain("--source-run-dir");
+  });
 });
 
 async function tempWorkspace(): Promise<string> {

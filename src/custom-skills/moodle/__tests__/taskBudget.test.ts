@@ -33,7 +33,7 @@ describe("task budgets", () => {
   it("preserves broader retrieval only for artifact extraction", () => {
     const budget = resolveTaskBudget(decision("study_pdf"));
     expect(budget.maxMoodlePages).toBe(8);
-    expect(budget.maxDownloadedFiles).toBe(60);
+    expect(budget.maxDownloadedFiles).toBe(24);
     expect(budget.allowModel).toBe(true);
   });
 

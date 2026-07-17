@@ -10,10 +10,9 @@ AI-powered study assistant that extracts content from Moodle and CIS, generates 
 | **npm** | bundled with Node | — |
 | **Typst** | latest | Linux: `sudo snap install typst` · macOS: `brew install typst` · Windows: `winget install typst` |
 | **Playwright browsers** | matches `package.json` | `npx playwright install` (run after `npm install`) |
+| **Poppler tools** | current | Debian/Ubuntu: `sudo apt install poppler-utils` · Fedora: `sudo dnf install poppler-utils` · macOS: `brew install poppler` |
 
-### Optional
-
-- **Tesseract OCR** — for PDF text extraction via OCR (`sudo apt install tesseract-ocr tesseract-ocr-deu` on Debian/Ubuntu)
+Tesseract is not a Study Buddy runtime dependency. Text-layer PDFs use Poppler's `pdftotext`; image extraction and selected-page rendering are a separate Poppler-based visual path. Sparse scanned PDFs are reported explicitly instead of triggering an automatic multi-page OCR pass.
 
 ## Quick Start
 

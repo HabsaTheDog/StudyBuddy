@@ -25,7 +25,7 @@ export function studyBuddyCssTokenBlock(): string {
 export function studyBuddyDesignGuidelines(): string {
   return [
     "Study Buddy HTML design guidelines:",
-    "- Produce one complete offline HTML file with inline CSS and inline JavaScript only.",
+    "- Produce readable source HTML; the official Study Buddy bundler creates one complete offline HTML file with inline CSS, JavaScript, and selected media.",
     "- Include the visible text mark STUDY BUDDY 2.0 in the first viewport and a compact inline SB 2.0 badge.",
     "- Define these exact CSS variables in :root:",
     studyBuddyCssTokenBlock(),
@@ -65,8 +65,9 @@ export function offlineHtmlRules(): string {
     "- No CSS @import.",
     "- No fetch, XMLHttpRequest, WebSocket, EventSource, or dynamic remote import().",
     "- No remote images, fonts, videos, iframes, or stylesheets.",
-    "- No dependency on sibling files.",
-    "- Embed all app state and source data in inline JavaScript.",
+    "- The final document.html must have no dependency on sibling files.",
+    "- Do not emit Base64 or data-URI image payloads in generated source. Reference only approved local visual paths; the official bundler optimizes and embeds them.",
+    "- Embed all app state and non-binary source data in inline JavaScript.",
     "- The file must work when opened via file:// on desktop and mobile browsers.",
   ].join("\n");
 }
