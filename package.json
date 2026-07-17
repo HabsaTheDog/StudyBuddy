@@ -7,6 +7,7 @@
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
+    "moodle:doctor": "tsx src/custom-skills/moodle/doctorCli.ts",
     "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
     "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "typecheck": "tsc --noEmit",
@@ -14,7 +15,7 @@
   },
   "dependencies": {
     "@langchain/langgraph": "^1.3.2",
-    "@openai/codex-sdk": "^0.142.2",
+    "@openai/codex-sdk": "0.144.5",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ical.js": "^2.2.1",

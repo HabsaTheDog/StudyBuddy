@@ -84,6 +84,27 @@ describe("Study Buddy task intent", () => {
     expect(intent.wantsQuizAssistance).toBe(false);
   });
 
+  it("treats Moodle as a requested schedule source without enabling course-material ingestion", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Find the next TEZEI exam date and check Moodle and CIS if the calendar is empty.",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "schedule_answer",
+      needsMoodle: true,
+      needsCis: true,
+      needsCalendar: true,
+      needsCourseMaterial: false,
+      needsDownloadedFiles: false,
+    });
+  });
+
   it("preserves course-material and download requirements in the extraction stage", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: "Erstelle einen Study Guide als PDF aus allen Moodle-Folien und Rechenaufgaben",

@@ -6,6 +6,7 @@ import { buildAnswerGraph, buildExtractionGraph, buildMoodleGraph, runMoodleGrap
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
 import { classifyStudyBuddyIntent } from "../taskIntent.js";
+import { CodexRuntimePreflightError } from "../codexRuntime.js";
 import {
   moodleExtractedData,
   moodleTestConfig,
@@ -500,4 +501,34 @@ describe("moodle graph retry routing", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Study Buddy run timed out after 50ms");
   }, 10_000);
+
+  it("stops before source access when the Codex runtime preflight fails", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-runtime-preflight-"));
+    let scraperCalls = 0;
+
+    const result = await runMoodleGraph(
+      {
+        prompt: "make notes",
+        moodleUrl: "https://moodle.example/course",
+        runDir,
+      },
+      {
+        runtimePreflight: async () => {
+          throw new CodexRuntimePreflightError(
+            "Codex runtime preflight failed before source access. Run: npm install --save-exact @openai/codex-sdk@latest",
+          );
+        },
+        scraperNode: async () => {
+          scraperCalls += 1;
+          return {};
+        },
+        codex: sequenceCodex([]),
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Codex runtime preflight failed before source access");
+    expect(scraperCalls).toBe(0);
+    expect(result.sourceCoverage.moodle.status).toBe("not_requested");
+  });
 });

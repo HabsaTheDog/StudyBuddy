@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { runMoodleGraph } from "./graph.js";
 import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
+import { parseCodexPreflightMode } from "./config.js";
 
 const program = new Command()
   .name("moodle-agent")
@@ -37,6 +38,9 @@ const program = new Command()
   .option("--visual-min-confidence <number>", "Minimum visual candidate confidence from 0 to 1", parseConfidence)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
   .option("--codex-reasoning-effort <effort>", "Global Codex effort override: none/minimal, low, medium, high, or xhigh", parseReasoningEffort)
+  .option("--codex-path <path>", "Explicit Codex executable override; bundled runtime is the default")
+  .option("--codex-fallback-model <model>", "Compatibility fallback for policy-selected models")
+  .option("--codex-preflight <mode>", "Codex preflight: full, version-only, or off", parseCodexPreflightMode)
   .option("--execution-profile <profile>", "Execution profile: auto, fast, balanced, quality, or custom", parseExecutionProfile, "auto")
   .option("--no-cis", "Disable CIS for this run even when CIS_URLS is configured")
   .option("--no-downloads", "Do not capture linked files as run artifacts")
@@ -77,6 +81,9 @@ const options = program.opts<{
   visualMinConfidence?: number;
   codexModel?: string;
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  codexPath?: string;
+  codexFallbackModel?: string;
+  codexPreflight?: "full" | "version-only" | "off";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
 }>();
 
@@ -123,6 +130,9 @@ const result = await runMoodleGraph({
   visualMinConfidence: options.visualMinConfidence,
   codexModel: options.codexModel,
   codexReasoningEffort: options.codexReasoningEffort,
+  codexPath: options.codexPath,
+  codexCompatibilityFallbackModel: options.codexFallbackModel,
+  codexPreflightMode: options.codexPreflight,
   executionProfile: options.executionProfile,
 });
 

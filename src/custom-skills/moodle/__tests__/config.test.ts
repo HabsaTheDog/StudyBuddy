@@ -115,6 +115,31 @@ describe("createRuntimeConfig", () => {
     });
   });
 
+  it("keeps Codex executable overrides explicit and sanitizes the path", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-codex-runtime-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("STUDY_BUDDY_CODEX_PATH", "/opt/codex-preview/bin/codex");
+    vi.stubEnv("STUDY_BUDDY_CODEX_COMPATIBILITY_FALLBACK_MODEL", "gpt-compatible");
+    vi.stubEnv("STUDY_BUDDY_CODEX_PREFLIGHT", "version-only");
+
+    const config = createRuntimeConfig({
+      prompt: "make notes",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+    });
+    const sanitized = sanitizeConfig(config);
+
+    expect(config.codexPath).toBe("/opt/codex-preview/bin/codex");
+    expect(config.codexCompatibilityFallbackModel).toBe("gpt-compatible");
+    expect(config.codexPreflightMode).toBe("version-only");
+    expect(config.codexModelExplicit).toBe(false);
+    expect(sanitized).toMatchObject({
+      codexBinarySource: "override",
+      codexCompatibilityFallbackModel: "gpt-compatible",
+      codexPreflightMode: "version-only",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("/opt/codex-preview/bin/codex");
+  });
+
   it("uses longer runtime budgets for staged document artifacts", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-timeout-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

@@ -59,6 +59,9 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     maxVisualAssets: 3,
     visualMinConfidence: 0.65,
     artifactIntent: classifyArtifactIntent("make compact notes"),
+    codexPreflightMode: "off",
+    codexModelExplicit: false,
+    runtimeCacheDir: "/tmp/study-buddy-runtime-cache",
     executionProfile: "auto",
     ...overrides,
   };

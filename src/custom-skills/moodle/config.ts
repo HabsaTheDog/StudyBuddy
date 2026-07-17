@@ -17,6 +17,8 @@ import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
 import { classifyStudyBuddyIntent } from "./taskIntent.js";
 import { classifyArtifactIntent } from "./studentFirstPolicy.js";
 import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
+import { resolveTaskBudget } from "./taskBudget.js";
+import type { CodexPreflightMode } from "./codexRuntime.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -84,6 +86,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     !intentDecision.wantsQuickAnswer,
   );
   const visualsEnabled = visualMode === "inline" || (stage === "render" && visualMode === "deferred");
+  const codexModel = trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL);
 
   return {
     prompt: input.prompt,
@@ -134,9 +137,18 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       parseConfidence(process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE, 0.65),
     intentDecision,
     artifactIntent,
-    codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
+    codexModel,
     codexReasoningEffort:
       input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT),
+    codexPath: trimOptional(input.codexPath) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_PATH),
+    codexCompatibilityFallbackModel:
+      trimOptional(input.codexCompatibilityFallbackModel) ??
+      trimOptional(process.env.STUDY_BUDDY_CODEX_COMPATIBILITY_FALLBACK_MODEL),
+    codexPreflightMode: parseCodexPreflightMode(
+      input.codexPreflightMode ?? process.env.STUDY_BUDDY_CODEX_PREFLIGHT,
+    ),
+    codexModelExplicit: Boolean(codexModel),
+    runtimeCacheDir: path.join(workspaceRoot, "output", ".runtime-cache"),
     executionProfile: parseExecutionProfile(
       input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
     ),
@@ -184,6 +196,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     sourcePlan: config.sourcePlan,
     renderStrategyDecision: config.renderStrategyDecision,
     intentDecision: config.intentDecision,
+    taskBudget: resolveTaskBudget(config.intentDecision),
     targetCourseUrls: config.targetCourseUrls,
     visualsEnabled: config.visualsEnabled,
     maxVisualAssets: config.maxVisualAssets,
@@ -192,9 +205,20 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     artifactIntent: config.artifactIntent,
     codexModel: config.codexModel,
     codexReasoningEffort: config.codexReasoningEffort,
+    codexBinarySource: config.codexPath ? "override" : "bundled",
+    codexCompatibilityFallbackModel: config.codexCompatibilityFallbackModel,
+    codexPreflightMode: config.codexPreflightMode,
+    codexModelExplicit: config.codexModelExplicit,
     executionProfile: config.executionProfile,
     modelPolicyOverrides: config.modelPolicyOverrides,
   };
+}
+
+export function parseCodexPreflightMode(value: string | undefined): CodexPreflightMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "full") return "full";
+  if (normalized === "version-only" || normalized === "off") return normalized;
+  throw new Error(`Expected Codex preflight mode full, version-only, or off, got ${value}`);
 }
 
 function parseVisualMode(

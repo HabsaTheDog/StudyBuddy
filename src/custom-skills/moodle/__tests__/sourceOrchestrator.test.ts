@@ -135,6 +135,7 @@ describe("sourceOrchestrator", () => {
     });
     await createSourcePlannerNode(config)();
     let cisCalls = 0;
+    let moodleCalls = 0;
     const result = await createSourceOrchestratorNode(config, {
       calendarNode: async () => {
         config.calendarSelection = {
@@ -153,6 +154,15 @@ describe("sourceOrchestrator", () => {
         });
         return { moodle_raw_text: "", error_log: null };
       },
+      scraperNode: async () => {
+        moodleCalls += 1;
+        await diagnostics.markSuccess("moodle", {
+          detail: "No exam on the bounded course page.",
+          urls: [config.moodleUrl],
+          pages: 1,
+        });
+        return { moodle_raw_text: "MOODLE_NO_EXAM", error_log: null };
+      },
       cisScraperNode: async () => {
         cisCalls += 1;
         await diagnostics.markSuccess("cis", {
@@ -165,6 +175,69 @@ describe("sourceOrchestrator", () => {
     })(initialAgentState);
 
     expect(cisCalls).toBe(1);
+    expect(moodleCalls).toBe(1);
     expect(result.moodle_raw_text).toContain("CIS_MEL_EXAM");
+    expect(result.moodle_raw_text).toContain("MOODLE_NO_EXAM");
+  });
+
+  it("runs bounded Moodle and CIS fallbacks concurrently after an empty calendar", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "source-orchestrator-"));
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const prompt = "Wann ist die TEZEI Prüfung?";
+    const config = moodleTestConfig({
+      runDir,
+      prompt,
+      calendarUrl: "https://calendar.example/private-token",
+      cisUrls: ["https://cis.example/cis.php/Cis/MyLv"],
+      includeCis: true,
+      diagnostics,
+      intentDecision: {
+        intent: "schedule_answer",
+        wantsPdf: false,
+        wantsTypstDocument: false,
+        wantsQuickAnswer: true,
+        wantsQuizAssistance: false,
+        needsMoodle: false,
+        needsCis: true,
+        needsCalendar: true,
+        needsCourseMaterial: false,
+        needsDownloadedFiles: false,
+        reason: "test",
+      },
+    });
+    await createSourcePlannerNode(config)();
+    const starts: Record<string, number> = {};
+    await createSourceOrchestratorNode(config, {
+      calendarNode: async () => {
+        config.calendarSelection = {
+          status: "empty",
+          events: [],
+          complete: false,
+          missingFields: [],
+          needsCisFallback: true,
+          detail: "No matching event.",
+        };
+        await diagnostics.markSuccess("calendar", {
+          detail: "No matching event.",
+          urls: [],
+          pages: 0,
+          partial: true,
+        });
+        return { moodle_raw_text: "", error_log: null };
+      },
+      scraperNode: async () => {
+        starts.moodle = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        return { moodle_raw_text: "MOODLE", error_log: null };
+      },
+      cisScraperNode: async () => {
+        starts.cis = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        return { moodle_raw_text: "CIS", error_log: null };
+      },
+    })(initialAgentState);
+
+    expect(Math.abs(starts.moodle - starts.cis)).toBeLessThan(25);
   });
 });

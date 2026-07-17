@@ -23,6 +23,7 @@ const COURSE_ALIASES: CourseAlias[] = [
   { code: "PHDYN", aliases: ["PHDYN", "Physikalische Grundlagen der Dynamik"] },
   { code: "MAES2", aliases: ["MAES2", "Mathematik für Engineering Science 2", "Mathematik"] },
   { code: "ETLB2", aliases: ["ETLB2", "Elektrotechnik Labor 2"] },
+  { code: "TEZEI", aliases: ["TEZEI", "Technisches Zeichnen", "Grundlagen des technischen Zeichnens"] },
 ];
 
 const GENERIC_CODE_STOPWORDS = new Set(["PDF", "CIS", "URL", "FH", "LV", "SS", "WS", "DC"]);
@@ -119,6 +120,24 @@ export function rawTextContainsRequestedCourse(prompt: string, rawText: string):
 export function explicitCourseCodesFromText(text: string): string[] {
   const codes = text.match(/\b[A-ZÄÖÜ]{2,8}\d{0,3}\b/g) ?? [];
   return [...new Set(codes.filter((code) => !GENERIC_CODE_STOPWORDS.has(code)))];
+}
+
+/**
+ * Identifies prompts that explicitly name a course but whose name/code is not
+ * known yet. Calendar callers use this to avoid treating an unresolved course
+ * request as a request for every upcoming exam.
+ */
+export function hasUnrecognizedNamedCourseTarget(prompt: string): boolean {
+  const hint = extractCourseTargetHint(prompt);
+  if (hint.requestedCodes.length > 0 || hint.requestedNames.length > 0) {
+    return false;
+  }
+
+  return [
+    /\b(?:kurs|course|lehrveranstaltung|fach)\s+(?:namens\s+)?["“”']?[\p{L}\p{N}]/iu,
+    /\b(?:prüfung|pruefung|klausur|exam|test)\s+(?:für|fuer|zu|in|of|for)\s+(?:den\s+|die\s+|das\s+)?["“”']?[\p{L}\p{N}]/iu,
+    /\b(?:für|fuer|for)\s+(?:den\s+|die\s+|das\s+)?(?:kurs|course|lehrveranstaltung|fach)\s+["“”']?[\p{L}\p{N}]/iu,
+  ].some((pattern) => pattern.test(prompt));
 }
 
 export function scoreCourseTargetLabel(label: string, requested: CourseTargetHint): number {

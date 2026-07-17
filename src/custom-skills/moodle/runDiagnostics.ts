@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import type { AgentBrowserClient } from "./agentBrowserClient.js";
+import { formatCodexRuntimeSummary, type CodexRuntimeReport } from "./codexRuntime.js";
 
 export type SourceName = "moodle" | "cis" | "calendar";
 
@@ -54,6 +55,7 @@ export interface RunEvent {
     | "cis_download"
     | "calendar"
     | "answer"
+    | "runtime"
     | "model"
     | "analyzer"
     | "formatter"
@@ -76,6 +78,7 @@ export interface RunSummaryInput {
   stateHasRawText: boolean;
   stateHasDocument: boolean;
   extractedDataPath?: string;
+  codexRuntime?: CodexRuntimeReport;
 }
 
 export const initialSourceCoverage: SourceCoverage = {
@@ -315,6 +318,9 @@ export class RunDiagnostics {
       "## Calendar coverage",
       formatCoverage(coverage.calendar),
       "",
+      "## Codex runtime",
+      ...formatCodexRuntimeSummary(input.codexRuntime),
+      "",
       "## Generated artifacts",
       input.extractedDataPath ? `- Extracted data: ${input.extractedDataPath}` : "- Extracted data: none",
       input.answerPath ? `- Answer: ${input.answerPath}` : "- Answer: none",
@@ -328,7 +334,7 @@ export class RunDiagnostics {
       input.error ? this.redact(input.error) : "None.",
       "",
       "## Recommended next attempt",
-      recommendation(input.status, coverage),
+      recommendation(input, coverage),
       "",
     ];
     await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
@@ -396,9 +402,15 @@ function latestSuccessfulStep(coverage: SourceCoverage): string {
     "none";
 }
 
-function recommendation(status: RunSummaryInput["status"], coverage: SourceCoverage): string {
-  if (status === "success") {
+function recommendation(input: RunSummaryInput, coverage: SourceCoverage): string {
+  if (input.status === "success") {
     return "No retry needed.";
+  }
+  if (
+    input.error?.startsWith("Codex runtime preflight failed") ||
+    input.error?.toLowerCase().includes("requires a newer version of codex")
+  ) {
+    return `Update the pinned Study Buddy runtime with \`${input.codexRuntime?.updateCommand ?? "npm install --save-exact @openai/codex-sdk@latest"}\`, run \`npm run moodle:doctor -- --no-cache\`, then retry the same request. No source crawl is needed to diagnose this failure.`;
   }
   if (coverage.moodle.status === "timeout") {
     return "Retry with diagnostic mode or browser-headed mode, then inspect diagnostics/* for the timed-out Moodle page.";

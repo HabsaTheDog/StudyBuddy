@@ -36,6 +36,9 @@ describe("diskWriterNode", () => {
     await expect(
       readFile(path.join(runDir, "study-buddy-components.typ"), "utf8"),
     ).resolves.toContain("#let sb-document");
+    await expect(stat(path.join(runDir, "assets", "study-buddy-logo.png"))).resolves.toMatchObject({
+      size: expect.any(Number),
+    });
     await expect(
       readFile(
         path.join(

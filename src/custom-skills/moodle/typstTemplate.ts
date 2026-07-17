@@ -13,6 +13,8 @@ export function studyBuddyTemplatePromptReference(): string {
     "Wrap all output in exactly one #sb-document(...) call.",
     "Required shell fields: title, short-title, course, kind, semester, status, date, and body.",
     "The shell creates the standardized A4 title page, metadata panel, header, footer, page numbering, typography, colors, margins, and heading hierarchy.",
+    "The shell owns the Study Buddy brand treatment: use its bundled real logo, cool navy/blue/petrol palette, restrained gold accent, and vertically centered interior-page header exactly as provided.",
+    "Do not recreate, replace, recolor, reposition, or hide the Study Buddy logo, header, title-page branding, palette, or page furniture in generated document content.",
     "The shell also creates a standardized table of contents. Do not add a second outline.",
     "",
     "Approved content components:",

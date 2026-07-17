@@ -15,6 +15,7 @@ export type StudyBuddyRunStatus =
   | "canceled";
 
 export type StudyBuddyUserPhase =
+  | "checking_runtime"
   | "planning_sources"
   | "reading_sources"
   | "reading_moodle"
@@ -92,6 +93,7 @@ const DEFAULT_SOURCE_PLAN: SourcePlan = {
 };
 
 const PHASE_PROGRESS: Record<StudyBuddyUserPhase, number> = {
+  checking_runtime: 0.03,
   planning_sources: 0.08,
   reading_sources: 0.22,
   reading_moodle: 0.22,
@@ -106,6 +108,7 @@ const PHASE_PROGRESS: Record<StudyBuddyUserPhase, number> = {
 };
 
 const PHASE_LABELS: Record<StudyBuddyUserPhase, string> = {
+  checking_runtime: "Codex-Laufzeit wird geprüft",
   planning_sources: "Quellen werden geplant",
   reading_sources: "Moodle und CIS werden gelesen",
   reading_moodle: "Moodle-Unterlagen werden gelesen",
@@ -120,6 +123,7 @@ const PHASE_LABELS: Record<StudyBuddyUserPhase, string> = {
 };
 
 const STUDENT_MESSAGES: Record<StudyBuddyUserPhase, string> = {
+  checking_runtime: "Ich prüfe die gebündelte Codex-Version und die benötigten Modelle.",
   planning_sources: "Ich entscheide, welche Quellen für deine Anfrage nötig sind.",
   reading_sources: "Ich lese Moodle und CIS parallel und grenze die relevanten Kurse ein.",
   reading_moodle: "Ich lese die relevanten Moodle-Unterlagen.",
@@ -230,7 +234,16 @@ function buildPublicSteps(
   followUpTargets: SourceTarget[],
 ): StudyBuddyPublicStep[] {
   const steps: StudyBuddyPublicStep[] = [
-    { id: "plan", label: "Quellen planen", status: stepStatus(phase, ["planning_sources"], true) },
+    {
+      id: "runtime",
+      label: "Codex prüfen",
+      status: stepStatus(phase, ["checking_runtime"], hasReached(phase, "planning_sources")),
+    },
+    {
+      id: "plan",
+      label: "Quellen planen",
+      status: stepStatus(phase, ["planning_sources"], hasReached(phase, "reading_calendar")),
+    },
     {
       id: "calendar",
       label: "Kalender prüfen",

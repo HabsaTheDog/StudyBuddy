@@ -44,18 +44,29 @@ import {
   StudyModelSchema,
 } from "./examNavigatorContracts.js";
 import { ExecutionTelemetry } from "./executionTelemetry.js";
-import { STUDY_BUDDY_MODEL_POLICY_VERSION } from "./modelPolicy.js";
+import {
+  resolveTaskModelPolicy,
+  STUDY_BUDDY_MODEL_POLICY_VERSION,
+  type StudyBuddyModelTask,
+} from "./modelPolicy.js";
 import { buildResourceManifest } from "./resourceManifest.js";
 import { buildEvidencePackage } from "./evidencePackage.js";
 import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
 import { buildStudyModel } from "./studyModel.js";
 import { reviewStudyModel } from "./studentFirstReview.js";
+import { resolveTaskBudget } from "./taskBudget.js";
+import {
+  CodexRuntimePreflightError,
+  preflightCodexRuntime,
+  type CodexRuntimeReport,
+} from "./codexRuntime.js";
 
 const MAX_RETRIES = 3;
 let typstPreflightPromise: Promise<void> | null = null;
 
 export interface GraphDependencies {
   codex?: CodexClient;
+  runtimePreflight?: (config: MoodleRuntimeConfig) => Promise<CodexRuntimeReport>;
   scraperNode?: ReturnType<typeof createScraperNode>;
   cisScraperNode?: ReturnType<typeof createCisScraperNode>;
   calendarNode?: ReturnType<typeof createCalendarNode>;
@@ -95,12 +106,17 @@ export async function runMoodleGraph(
     executionTelemetry,
     abortSignal: abortController.signal,
   };
-  await writeRunProgress(config, { status: "running", phase: "planning_sources" });
+  const needsRuntimePreflight = !config.diagnosticOnly && Boolean(dependencies.runtimePreflight || !dependencies.codex);
+  await writeRunProgress(config, {
+    status: "running",
+    phase: needsRuntimePreflight ? "checking_runtime" : "planning_sources",
+  });
   await diagnostics.log("info", "config", `Run directory: ${config.runDir}`);
   await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
   await writeJson(path.join(config.runDir, "schema.json"), extractedDataJsonSchema);
 
   let state: AgentState = initialAgentState;
+  let codexRuntime: CodexRuntimeReport | undefined;
   let route: StudyBuddyIntent = baseConfig.intentDecision?.intent ?? (
     baseConfig.stage === "extract"
       ? "extraction"
@@ -113,6 +129,24 @@ export async function runMoodleGraph(
       route = "diagnostic";
       state = await runDiagnosticOnly(config);
     } else {
+      if (needsRuntimePreflight) {
+        const runtimePreflight = dependencies.runtimePreflight ?? ((runtimeConfig) =>
+          preflightCodexRuntime({
+            runDir: runtimeConfig.runDir,
+            cacheDir: runtimeConfig.runtimeCacheDir,
+            codexPath: runtimeConfig.codexPath,
+            models: resolvePreflightModels(runtimeConfig),
+            explicitModel: runtimeConfig.codexModelExplicit,
+            fallbackModel: runtimeConfig.codexCompatibilityFallbackModel,
+            mode: runtimeConfig.codexPreflightMode,
+            diagnostics: runtimeConfig.diagnostics,
+          }));
+        codexRuntime = await runtimePreflight(config);
+        if (codexRuntime.fallbackApplied) {
+          config.codexModel = codexRuntime.fallbackApplied;
+          await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
+        }
+      }
       const initialStateForStage = config.stage === "render"
         ? await loadRenderState(config)
         : initialAgentState;
@@ -134,6 +168,13 @@ export async function runMoodleGraph(
       )) as AgentState;
     }
   } catch (error) {
+    if (error instanceof CodexRuntimePreflightError) {
+      codexRuntime = error.report ?? codexRuntime;
+      await diagnostics.log("error", "runtime", error.message, {
+        updateCommand: error.updateCommand,
+        effectiveCliVersion: error.report?.effectiveCliVersion,
+      });
+    }
     const message = error instanceof Error ? error.message : String(error);
     state = {
       ...state,
@@ -142,6 +183,7 @@ export async function runMoodleGraph(
     const coverage = diagnostics.getCoverage();
     if (
       !message.startsWith("Study Buddy Typst toolchain preflight failed") &&
+      !(error instanceof CodexRuntimePreflightError) &&
       (coverage.moodle.status === "not_requested" || coverage.moodle.status === "attempted")
     ) {
       await diagnostics.markFailure("moodle", {
@@ -212,6 +254,7 @@ export async function runMoodleGraph(
     stateHasRawText: Boolean(state.moodle_raw_text.trim()),
     stateHasDocument: hasDocument,
     extractedDataPath,
+    codexRuntime,
   });
   const terminalStatus = ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed";
   await executionTelemetry.transitionPhase("finalizing");
@@ -219,7 +262,12 @@ export async function runMoodleGraph(
   await writeRunProgress(config, {
     status: terminalStatus,
     phase: "finalizing",
-    error: state.error_log ? { message: state.error_log, retryable: !timedOut } : undefined,
+    error: state.error_log
+      ? {
+          message: state.error_log,
+          retryable: !timedOut && !state.error_log.startsWith("Codex runtime preflight failed"),
+        }
+      : undefined,
     artifacts: {
       extractedDataPath,
       typstPath: ok && hasDocument && !config.intentDecision?.wantsQuickAnswer ? config.outputPath : undefined,
@@ -246,7 +294,37 @@ export async function runMoodleGraph(
     htmlPath,
     artifactBundle: state.artifact_bundle ?? undefined,
     metricsPath: executionTelemetry.metricsPath,
+    codexRuntime,
   };
+}
+
+function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
+  const tasks: StudyBuddyModelTask[] = config.stage === "render"
+    ? ["formatter"]
+    : config.stage === "extract"
+      ? [...(config.visualsEnabled ? ["visual_planner" as const] : []), "analyzer"]
+      : config.intentDecision?.wantsQuickAnswer
+        ? ["analyzer"]
+        : [...(config.visualsEnabled ? ["visual_planner" as const] : []), "analyzer", "formatter"];
+  return [...new Set(tasks.flatMap((task) => {
+    const primary = resolveTaskModelPolicy({
+      profile: config.executionProfile,
+      task,
+      attempt: 1,
+      globalModel: config.codexModel,
+      globalReasoningEffort: config.codexReasoningEffort,
+      overrides: config.modelPolicyOverrides,
+    });
+    const escalation = resolveTaskModelPolicy({
+      profile: config.executionProfile,
+      task,
+      attempt: 2,
+      globalModel: config.codexModel,
+      globalReasoningEffort: config.codexReasoningEffort,
+      overrides: config.modelPolicyOverrides,
+    });
+    return [primary.model, escalation.model];
+  }))];
 }
 
 async function ensureTypstPreflight(): Promise<void> {
@@ -532,9 +610,7 @@ function routeAfterAnswerSourceGate(
 ): "analyzer" | "answerWriter" | "abort" {
   if (state.error_log) return "abort";
   if (
-    config.intentDecision?.intent === "schedule_answer" &&
-    !config.intentDecision.needsCourseMaterial &&
-    config.calendarSelection?.complete
+    !resolveTaskBudget(config.intentDecision).allowModel
   ) {
     return "answerWriter";
   }

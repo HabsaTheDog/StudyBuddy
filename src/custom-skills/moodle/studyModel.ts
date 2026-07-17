@@ -7,6 +7,7 @@ import {
   type ResourceManifest,
   type StudyModel,
 } from "./examNavigatorContracts.js";
+import { isResourceFailureStatus } from "./resourceAcquisition.js";
 import {
   isGenericLearningGoal,
   isOrganizationalPracticeQuestion,
@@ -68,7 +69,7 @@ export function buildStudyModel(
       topicIds,
       status: topicIds.length === 0
         ? "missing" as const
-        : chapterResources.some((resource) => resource.status === "failed")
+        : chapterResources.some((resource) => isResourceFailureStatus(resource.status))
           ? "partial" as const
           : "covered" as const,
     };

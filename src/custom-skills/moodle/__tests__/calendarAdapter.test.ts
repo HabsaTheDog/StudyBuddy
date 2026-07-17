@@ -113,6 +113,28 @@ describe("calendar adapter", () => {
     expect(filterCalendarEvents(events, "MEL1 heute", NOW)).toHaveLength(0);
   });
 
+  it("filters TEZEI requests by both German course names", () => {
+    const events = [
+      calendarEvent("tezei", "TEZEI Prüfung", "2026-07-01T07:00:00.000Z"),
+      calendarEvent("mel", "MEL1 Prüfung", "2026-07-02T07:00:00.000Z"),
+    ];
+
+    expect(filterCalendarEvents(events, "Nächste Prüfung Technisches Zeichnen", NOW))
+      .toEqual([events[0]]);
+    expect(filterCalendarEvents(events, "Prüfung Grundlagen des technischen Zeichnens", NOW))
+      .toEqual([events[0]]);
+  });
+
+  it("returns no unrelated exams for an unrecognized named course", () => {
+    const events = [
+      calendarEvent("mel", "MEL1 Prüfung", "2026-07-01T07:00:00.000Z"),
+      calendarEvent("dyn2", "DYN2 Prüfung", "2026-07-02T07:00:00.000Z"),
+    ];
+
+    expect(filterCalendarEvents(events, "Wann ist die Prüfung für Thermodynamik?", NOW)).toEqual([]);
+    expect(filterCalendarEvents(events, "Welche Prüfung habe ich als Nächstes?", NOW)).toEqual(events);
+  });
+
   it("rejects invalid, oversized, and unreachable feeds without exposing their URL", async () => {
     await expect(fetchCalendarText("http://calendar.example/token")).rejects.toThrow("HTTPS");
     const invalid = await readCalendarEvents("https://calendar.example/token", "MEL Prüfung", {
@@ -145,6 +167,18 @@ function response(
   init: { status?: number; headers?: Record<string, string> } = {},
 ): Response {
   return new Response(body, { status: init.status ?? 200, headers: init.headers });
+}
+
+function calendarEvent(uid: string, title: string, start: string) {
+  return {
+    source: "calendar_event" as const,
+    uid,
+    title,
+    start,
+    end: new Date(new Date(start).getTime() + 60 * 60 * 1000).toISOString(),
+    allDay: false,
+    recurring: false,
+  };
 }
 
 function event(input: {

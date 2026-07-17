@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+import path from "node:path";
+import { Command } from "commander";
+import {
+  CodexRuntimePreflightError,
+  formatCodexRuntimeSummary,
+  preflightCodexRuntime,
+} from "./codexRuntime.js";
+import { resolveTaskModelPolicy } from "./modelPolicy.js";
+
+const program = new Command()
+  .name("moodle-doctor")
+  .description("Verify the Codex runtime used by Study Buddy without accessing Moodle or CIS.")
+  .option("--model <model>", "Model to verify; repeat for multiple models", collect, [])
+  .option("--fallback-model <model>", "Compatibility fallback for policy-selected models")
+  .option("--codex-path <path>", "Explicit Codex executable override")
+  .option("--version-only", "Check SDK and CLI version pairing without auth or model calls")
+  .option("--no-cache", "Ignore successful cached checks")
+  .option("--json", "Print machine-readable JSON")
+  .parse(process.argv);
+
+const options = program.opts<{
+  model: string[];
+  fallbackModel?: string;
+  codexPath?: string;
+  versionOnly?: boolean;
+  cache: boolean;
+  json?: boolean;
+}>();
+
+const models = options.model.length > 0
+  ? options.model
+  : [...new Set((["visual_planner", "analyzer", "formatter"] as const).flatMap((task) => [
+      resolveTaskModelPolicy({ profile: "balanced", task, attempt: 1 }).model,
+      resolveTaskModelPolicy({ profile: "balanced", task, attempt: 2 }).model,
+    ]))];
+
+try {
+  const report = await preflightCodexRuntime({
+    cacheDir: path.resolve("output", ".runtime-cache"),
+    codexPath: options.codexPath ?? process.env.STUDY_BUDDY_CODEX_PATH,
+    models,
+    explicitModel: options.model.length > 0,
+    fallbackModel:
+      options.fallbackModel ?? process.env.STUDY_BUDDY_CODEX_COMPATIBILITY_FALLBACK_MODEL,
+    mode: options.versionOnly ? "version-only" : "full",
+    bypassCache: !options.cache,
+  });
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(formatCodexRuntimeSummary(report).join("\n"));
+  }
+} catch (error) {
+  if (options.json && error instanceof CodexRuntimePreflightError && error.report) {
+    console.error(JSON.stringify({ error: error.message, runtime: error.report }, null, 2));
+  } else {
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+  process.exitCode = 1;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}

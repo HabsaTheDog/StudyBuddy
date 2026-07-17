@@ -97,4 +97,82 @@ describe("calendar graph routing", () => {
     expect(answerJson).toContain('"missing": []');
     expect(answerJson).not.toContain("private-token");
   });
+
+  it("answers an empty-calendar schedule lookup from bounded Moodle/CIS evidence without an analyzer", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "calendar-answer-"));
+    const prompt = "Find the next TEZEI exam date, time, and room.";
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const config = moodleTestConfig({
+      prompt,
+      runDir,
+      calendarUrl: "https://calendar.example/private-token",
+      includeCis: true,
+      cisUrls: ["https://cis.example/cis.php"],
+      diagnostics,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+        hasCalendarUrl: true,
+      }),
+    });
+    let analyzerCalls = 0;
+    const graph = buildAnswerGraph(config, {
+      calendarNode: async () => {
+        config.calendarSelection = {
+          status: "empty",
+          complete: false,
+          missingFields: [],
+          needsCisFallback: true,
+          detail: "No matching event.",
+          events: [],
+        };
+        await diagnostics.markSuccess("calendar", {
+          detail: "No matching event.",
+          urls: [],
+          pages: 0,
+          partial: true,
+        });
+        return { moodle_raw_text: "", error_log: null };
+      },
+      scraperNode: async () => {
+        await diagnostics.markSuccess("moodle", {
+          detail: "Target course page opened.",
+          urls: ["https://moodle.example/course/view.php?id=32838"],
+          pages: 1,
+        });
+        return {
+          moodle_raw_text: "[Moodle page]\nTitle: Grundlagen des technischen Zeichnens\nPrüfungstermin 02.09.2026 08:00 Uhr\nRaum HS_A3.13",
+          error_log: null,
+        };
+      },
+      cisScraperNode: async () => {
+        await diagnostics.markSuccess("cis", {
+          detail: "No target exam in CIS.",
+          urls: ["https://cis.example/cis.php/Cis/MyLv"],
+          pages: 1,
+          partial: true,
+        });
+        return { moodle_raw_text: "[CIS page]\nTitle: MyLv\nNo TEZEI exam listed", error_log: null };
+      },
+      codex: {
+        async run() {
+          analyzerCalls += 1;
+          throw new Error("Analyzer must not run for a schedule lookup");
+        },
+      },
+    });
+
+    const result = await graph.invoke(initialAgentState);
+    const answer = await readFile(path.join(runDir, "answer.md"), "utf8");
+
+    expect(result.error_log).toBeNull();
+    expect(analyzerCalls).toBe(0);
+    expect(answer).toContain("02.09.2026");
+    expect(answer).toContain("HS_A3.13");
+  });
 });
