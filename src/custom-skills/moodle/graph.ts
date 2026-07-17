@@ -23,6 +23,7 @@ import { createEvidenceNode } from "./nodes/evidenceNode.js";
 import { createCoverageNode } from "./nodes/coverageNode.js";
 import { createStudyModelNode } from "./nodes/studyModelNode.js";
 import { createReviewNode } from "./nodes/reviewNode.js";
+import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
 import { createBundleWriterNode } from "./nodes/bundleWriterNode.js";
 import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceOrchestrator.js";
 import { typstPdfPath } from "./typstTemplate.js";
@@ -300,12 +301,21 @@ export async function runMoodleGraph(
 
 function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
   const tasks: StudyBuddyModelTask[] = config.stage === "render"
-    ? ["formatter"]
+    ? ["artifact_builder", "quality_reviewer"]
     : config.stage === "extract"
-      ? [...(config.visualsEnabled ? ["visual_planner" as const] : []), "analyzer"]
+      ? [
+          ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
+          "content_analyzer",
+          "quality_reviewer",
+        ]
       : config.intentDecision?.wantsQuickAnswer
-        ? ["analyzer"]
-        : [...(config.visualsEnabled ? ["visual_planner" as const] : []), "analyzer", "formatter"];
+        ? ["content_analyzer"]
+        : [
+            ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
+            "content_analyzer",
+            "artifact_builder",
+            "quality_reviewer",
+          ];
   return [...new Set(tasks.flatMap((task) => {
     const primary = resolveTaskModelPolicy({
       profile: config.executionProfile,
@@ -377,6 +387,7 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
     .addNode("formatter", createFormatterNode(config, codex))
+    .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addNode("studyModel", createStudyModelNode(config))
     .addNode("review", createReviewNode(config))
     .addNode("diskWriter", createDiskWriterNode(config))
@@ -414,7 +425,12 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     })
     .addConditionalEdges("formatter", routeAfterFormatter, {
       formatter: "formatter",
-      diskWriter: "diskWriter",
+      diskWriter: "qualityReviewer",
+      abort: END,
+    })
+    .addConditionalEdges("qualityReviewer", routeAfterArtifactQualityReview, {
+      artifactBuilder: "formatter",
+      done: "diskWriter",
       abort: END,
     })
     .addEdge("diskWriter", "bundleWriter")
@@ -465,6 +481,7 @@ export function buildExtractionGraph(
     .addNode("analyzer", createAnalyzerNode(config, codex))
     .addNode("studyModel", createStudyModelNode(config))
     .addNode("review", createReviewNode(config))
+    .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "sourceOrchestrator")
     .addEdge("sourceOrchestrator", "resourceManifest")
@@ -492,7 +509,12 @@ export function buildExtractionGraph(
     })
     .addConditionalEdges("review", routeAfterReview, {
       analyzer: "analyzer",
-      formatter: END,
+      formatter: "qualityReviewer",
+      done: END,
+      abort: END,
+    })
+    .addConditionalEdges("qualityReviewer", routeAfterExtractionQualityReview, {
+      contentAnalyzer: "analyzer",
       done: END,
       abort: END,
     })
@@ -507,6 +529,7 @@ export function buildRenderGraph(
   return new StateGraph(AgentStateAnnotation)
     .addNode("visualAssetResolver", createVisualAssetResolverNode(config))
     .addNode("formatter", createFormatterNode(config, codex))
+    .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addNode("diskWriter", createDiskWriterNode(config))
     .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "visualAssetResolver")
@@ -516,7 +539,12 @@ export function buildRenderGraph(
     })
     .addConditionalEdges("formatter", routeAfterFormatter, {
       formatter: "formatter",
-      diskWriter: "diskWriter",
+      diskWriter: "qualityReviewer",
+      abort: END,
+    })
+    .addConditionalEdges("qualityReviewer", routeAfterArtifactQualityReview, {
+      artifactBuilder: "formatter",
+      done: "diskWriter",
       abort: END,
     })
     .addEdge("diskWriter", "bundleWriter")
@@ -685,6 +713,20 @@ function routeAfterFormatter(state: LangGraphAgentState): "formatter" | "diskWri
     return "diskWriter";
   }
   return state.retry_count >= MAX_RETRIES ? "abort" : "formatter";
+}
+
+function routeAfterArtifactQualityReview(
+  state: LangGraphAgentState,
+): "artifactBuilder" | "done" | "abort" {
+  if (!state.error_log) return "done";
+  return state.retry_count >= MAX_RETRIES ? "abort" : "artifactBuilder";
+}
+
+function routeAfterExtractionQualityReview(
+  state: LangGraphAgentState,
+): "contentAnalyzer" | "done" | "abort" {
+  if (!state.error_log) return "done";
+  return state.retry_count >= MAX_RETRIES ? "abort" : "contentAnalyzer";
 }
 
 function isCoverageComplete(

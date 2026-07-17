@@ -2,6 +2,12 @@
 import { Command } from "commander";
 import { runWebLayoutGraph } from "./graph.js";
 import type { WebLayoutKind } from "./types.js";
+import {
+  parseExecutionProfile,
+  parseModelPolicyOverrides,
+  parseReasoningEffort,
+  type StudyBuddyModelPolicyOverrides,
+} from "../shared/modelPolicy.js";
 
 const program = new Command()
   .name("web-layout-agent")
@@ -19,6 +25,9 @@ const program = new Command()
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
+  .option("--codex-reasoning-effort <effort>", "Global Codex reasoning effort", parseReasoningEffort)
+  .option("--execution-profile <profile>", "Execution profile: fast, balanced, quality, or custom", parseExecutionProfile, "balanced")
+  .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
   .option("--json", "Print machine-readable JSON result")
   .parse(process.argv);
 
@@ -35,6 +44,9 @@ const options = program.opts<{
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   codexModel?: string;
+  codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
+  profileOverridesJson?: StudyBuddyModelPolicyOverrides;
   json?: boolean;
 }>();
 
@@ -53,6 +65,9 @@ const result = await runWebLayoutGraph({
   maxRuntimeMs: options.maxRuntimeMs,
   idleTimeoutMs: options.idleTimeoutMs,
   codexModel: options.codexModel,
+  codexReasoningEffort: options.codexReasoningEffort,
+  executionProfile: options.executionProfile,
+  modelPolicyOverrides: options.profileOverridesJson,
 });
 
 if (options.json) {

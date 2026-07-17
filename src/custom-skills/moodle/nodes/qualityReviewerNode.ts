@@ -1,0 +1,91 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { CodexClient } from "../codexClient.js";
+import type { LangGraphAgentState } from "../state.js";
+import type { MoodleRuntimeConfig } from "../types.js";
+import { parseJsonObjectOrArray } from "../validation.js";
+
+const qualityReviewSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ok", "summary", "findings"],
+  properties: {
+    ok: { type: "boolean" },
+    summary: { type: "string" },
+    findings: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 12,
+    },
+  },
+} as const;
+
+export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: CodexClient) {
+  return async function qualityReviewerNode(
+    state: LangGraphAgentState,
+  ): Promise<Partial<LangGraphAgentState>> {
+    try {
+      const response = await codex.run(buildQualityReviewPrompt(config, state), {
+        outputSchema: qualityReviewSchema,
+        task: "quality_reviewer",
+        attempt: state.retry_count + 1,
+      });
+      const parsed = validateQualityReview(parseJsonObjectOrArray(response));
+      await writeFile(
+        path.join(config.runDir, "quality-review.json"),
+        `${JSON.stringify(parsed, null, 2)}\n`,
+        "utf8",
+      );
+      if (parsed.ok) {
+        await config.diagnostics?.log("info", "analyzer", "Semantic quality review passed.");
+        return { error_log: null };
+      }
+      const message = `Semantic quality review failed:\n- ${parsed.findings.join("\n- ")}`;
+      await config.diagnostics?.log("warn", "analyzer", message);
+      return { error_log: message, retry_count: state.retry_count + 1 };
+    } catch (error) {
+      return {
+        error_log: `Quality reviewer failed: ${error instanceof Error ? error.message : String(error)}`,
+        retry_count: state.retry_count + 1,
+      };
+    }
+  };
+}
+
+function buildQualityReviewPrompt(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+): string {
+  const artifact = state.final_document.trim()
+    ? `Generated artifact:\n${state.final_document.slice(0, 90_000)}`
+    : `Structured study model:\n${JSON.stringify(state.study_model).slice(0, 90_000)}`;
+  return [
+    "Review this Study Buddy artifact for factual grounding, mathematical consistency, pedagogical usefulness, and alignment with the requested output.",
+    "Do not rewrite the artifact. Return JSON only. Mark ok=false only for concrete issues that require a new analysis or build attempt.",
+    `User request:\n${config.prompt}`,
+    `Deterministic review:\n${JSON.stringify(state.review_report)}`,
+    artifact,
+  ].join("\n\n");
+}
+
+function validateQualityReview(value: unknown): {
+  ok: boolean;
+  summary: string;
+  findings: string[];
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Quality reviewer returned a non-object response.");
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.ok !== "boolean" || typeof record.summary !== "string") {
+    throw new Error("Quality reviewer response is missing ok or summary.");
+  }
+  if (!Array.isArray(record.findings) || !record.findings.every((item) => typeof item === "string")) {
+    throw new Error("Quality reviewer findings must be a string array.");
+  }
+  return {
+    ok: record.ok,
+    summary: record.summary,
+    findings: record.findings.slice(0, 12),
+  };
+}

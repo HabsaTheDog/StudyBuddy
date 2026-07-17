@@ -25,7 +25,7 @@ describe("ExecutionTelemetry", () => {
     await telemetry.transitionPhase("analyzing", "2026-07-14T00:00:01.000Z");
     await telemetry.recordModelCall({
       id: "analyzer-1",
-      task: "analyzer",
+      task: "content_analyzer",
       attempt: 1,
       model: "gpt-5.6-luna",
       reasoningEffort: "low",

@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
+import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
 
 export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRuntimeConfig {
   if (!input.prompt.trim()) {
@@ -32,6 +33,13 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     browserHeaded: input.browserHeaded ?? false,
     skipBrowserValidation: input.skipBrowserValidation ?? false,
     codexModel: trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL),
+    codexReasoningEffort:
+      input.codexReasoningEffort ??
+      parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT),
+    executionProfile: parseExecutionProfile(
+      input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
+    ),
+    modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
 
@@ -51,6 +59,9 @@ export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
     browserHeaded: config.browserHeaded,
     skipBrowserValidation: config.skipBrowserValidation,
     codexModel: config.codexModel,
+    codexReasoningEffort: config.codexReasoningEffort,
+    executionProfile: config.executionProfile,
+    modelPolicyOverrides: config.modelPolicyOverrides,
   };
 }
 

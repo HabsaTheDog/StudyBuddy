@@ -6,7 +6,11 @@ import type { CodexClient } from "../codexClient.js";
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      const response = await codex.run(buildPlannerPrompt(config, state), { outputSchema: layoutSpecJsonSchema });
+      const response = await codex.run(buildPlannerPrompt(config, state), {
+        outputSchema: layoutSpecJsonSchema,
+        task: "artifact_planner",
+        attempt: state.retry_count + 1,
+      });
       const parsed = layoutSpecSchema.parse(JSON.parse(stripJsonFence(response))) as JsonObject;
       await config.diagnostics?.log("info", "planner", "Validated layout spec.");
       return {

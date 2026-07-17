@@ -1,8 +1,12 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-14.1";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-17.1";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
-export type StudyBuddyModelTask = "visual_planner" | "analyzer" | "formatter";
+export type StudyBuddyModelTask =
+  | "content_analyzer"
+  | "artifact_planner"
+  | "artifact_builder"
+  | "quality_reviewer";
 
 export type StudyBuddyReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -32,93 +36,120 @@ const PROFILE_POLICIES: Record<
   Record<StudyBuddyModelTask, StudyBuddyTaskModelPolicy>
 > = {
   auto: {
-    visual_planner: {
+    artifact_planner: {
       model: "gpt-5.6-luna",
       reasoningEffort: "low",
       timeoutMs: 90_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "medium",
     },
-    analyzer: {
+    content_analyzer: {
       model: "gpt-5.6-terra",
       reasoningEffort: "medium",
       timeoutMs: 6 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
     },
-    formatter: {
+    artifact_builder: {
       model: "gpt-5.6-terra",
       reasoningEffort: "low",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
     },
+    quality_reviewer: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "high",
+    },
   },
   fast: {
-    visual_planner: {
+    artifact_planner: {
       model: "gpt-5.6-luna",
       reasoningEffort: "minimal",
       timeoutMs: 60_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "low",
     },
-    analyzer: {
+    content_analyzer: {
       model: "gpt-5.6-luna",
       reasoningEffort: "low",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "medium",
     },
-    formatter: {
+    artifact_builder: {
       model: "gpt-5.6-luna",
       reasoningEffort: "minimal",
       timeoutMs: 2 * 60_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "low",
     },
+    quality_reviewer: {
+      model: "gpt-5.6-luna",
+      reasoningEffort: "low",
+      timeoutMs: 2 * 60_000,
+      escalationModel: "gpt-5.6-terra",
+      escalationEffort: "medium",
+    },
   },
   balanced: {
-    visual_planner: {
+    artifact_planner: {
       model: "gpt-5.6-luna",
       reasoningEffort: "low",
       timeoutMs: 90_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "medium",
     },
-    analyzer: {
+    content_analyzer: {
       model: "gpt-5.6-terra",
       reasoningEffort: "medium",
       timeoutMs: 6 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
     },
-    formatter: {
+    artifact_builder: {
       model: "gpt-5.6-terra",
       reasoningEffort: "low",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
     },
+    quality_reviewer: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "high",
+    },
   },
   quality: {
-    visual_planner: {
+    artifact_planner: {
       model: "gpt-5.6-terra",
       reasoningEffort: "medium",
       timeoutMs: 2 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
     },
-    analyzer: {
+    content_analyzer: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
       timeoutMs: 8 * 60_000,
       escalationEffort: "xhigh",
     },
-    formatter: {
+    artifact_builder: {
       model: "gpt-5.6-sol",
       reasoningEffort: "medium",
       timeoutMs: 6 * 60_000,
       escalationEffort: "high",
+    },
+    quality_reviewer: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      timeoutMs: 6 * 60_000,
+      escalationEffort: "xhigh",
     },
   },
 };
@@ -180,6 +211,75 @@ export function parseReasoningEffort(value: string | undefined): StudyBuddyReaso
     return normalized;
   }
   throw new Error(`Expected reasoning effort none/minimal, low, medium, high, or xhigh, got ${value}`);
+}
+
+export function parseModelPolicyOverrides(
+  value: string | undefined,
+): StudyBuddyModelPolicyOverrides | undefined {
+  if (!value?.trim()) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(
+      `Expected profile overrides to be valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Expected profile overrides to be a JSON object.");
+  }
+
+  const tasks: StudyBuddyModelTask[] = [
+    "content_analyzer",
+    "artifact_planner",
+    "artifact_builder",
+    "quality_reviewer",
+  ];
+  const result: StudyBuddyModelPolicyOverrides = {};
+  for (const task of tasks) {
+    const raw = (parsed as Record<string, unknown>)[task];
+    if (raw === undefined) continue;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`Expected ${task} profile override to be an object.`);
+    }
+    const record = raw as Record<string, unknown>;
+    const model = requiredModel(record.model, `${task}.model`);
+    const escalationModel = requiredModel(
+      record.escalationModel ?? record.retryModel,
+      `${task}.retryModel`,
+    );
+    const reasoningEffort = parseReasoningEffort(
+      requiredString(record.reasoningEffort, `${task}.reasoningEffort`),
+    );
+    const escalationEffort = parseReasoningEffort(
+      requiredString(
+        record.escalationEffort ?? record.retryReasoningEffort,
+        `${task}.retryReasoningEffort`,
+      ),
+    );
+    result[task] = {
+      model,
+      reasoningEffort,
+      escalationModel,
+      escalationEffort,
+    };
+  }
+  return result;
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Expected ${field} to be a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function requiredModel(value: unknown, field: string): string {
+  const model = requiredString(value, field);
+  if (!/^[a-zA-Z0-9._:/-]{1,160}$/.test(model)) {
+    throw new Error(`Expected ${field} to be a valid model slug.`);
+  }
+  return model;
 }
 
 function nextReasoningEffort(value: StudyBuddyReasoningEffort): StudyBuddyReasoningEffort {

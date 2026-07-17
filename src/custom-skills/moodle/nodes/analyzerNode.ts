@@ -19,7 +19,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
     try {
       const response = await codex.run(await buildAnalyzerPrompt(config, state), {
         outputSchema: extractedDataJsonSchema,
-        task: "analyzer",
+        task: "content_analyzer",
         attempt: state.retry_count + 1,
       });
       const parsed = parseJsonObjectOrArray(response);
