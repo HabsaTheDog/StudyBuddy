@@ -1321,6 +1321,9 @@ export function scoreMoodleLink(link: { href: string; label: string }, prompt: s
   if (link.href.includes("/mod/assign/")) {
     score += 25;
   }
+  if (isQuizDiscoveryPrompt(prompt) && isQuizDiscoveryActivityLink(link)) {
+    score += link.href.includes("/mod/quiz/") ? 1_000 : 700;
+  }
   if (link.href.includes("/mod/page/")) {
     score += 20;
   }
@@ -1388,6 +1391,16 @@ export function selectRelevantMoodleLinks(
   }
   const scored = [...unique.values()]
     .sort((left, right) => right.score - left.score);
+  if (isQuizDiscoveryPrompt(prompt)) {
+    const activities = scored.filter(isQuizDiscoveryActivityLink);
+    if (activities.length > 0) {
+      return activities.slice(0, 20).map(({ href }) => normalizeMoodleUrl(href));
+    }
+    return scored
+      .filter((link) => link.href.includes("/course/view.php"))
+      .slice(0, 8)
+      .map(({ href }) => normalizeMoodleUrl(href));
+  }
   const focusedCourses = selectFocusedCourseLinks(scored, prompt);
   if (focusedCourses.length > 0) {
     return focusedCourses;
@@ -1397,6 +1410,16 @@ export function selectRelevantMoodleLinks(
     ? relevant
     : scored.filter((link) => link.href.includes("/course/view.php"));
   return selected.slice(0, 4).map(({ href }) => normalizeMoodleUrl(href));
+}
+
+function isQuizDiscoveryPrompt(prompt: string): boolean {
+  return /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|self[ -]?checks?|selbsttests?|selbstkontrollen?)\b/i.test(prompt) &&
+    /\b(?:find|list|scan|look through|show|search|discover|available|attemptable|still open|currently open|offen|verfügbar|verfuegbar|durchsuch|auflist|anzeig|finde|suche)\w*\b/i.test(prompt);
+}
+
+function isQuizDiscoveryActivityLink(link: { href: string; label: string }): boolean {
+  return /\/mod\/(?:quiz|hotquestion|questionnaire|feedback|choice)\/view\.php/i.test(link.href) ||
+    /\b(?:quiz|test|minitest|kurztest|testblock|self[ -]?check|selbsttest|selbstkontrolle)\b/i.test(link.label);
 }
 
 function selectFocusedCourseLinks(

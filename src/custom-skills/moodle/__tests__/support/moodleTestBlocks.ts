@@ -57,6 +57,7 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     renderStrategy: "auto",
     visualsEnabled: true,
     visualMode: "inline",
+    visualCropMode: "auto",
     maxVisualAssets: 3,
     visualMinConfidence: 0.65,
     artifactIntent: classifyArtifactIntent("make compact notes"),

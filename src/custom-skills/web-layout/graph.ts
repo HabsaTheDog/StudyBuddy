@@ -159,28 +159,28 @@ function routeAfterPlanner(state: LangGraphWebLayoutState): "planner" | "generat
   if (!state.error_log) {
     return "generator";
   }
-  return state.retry_count >= MAX_RETRIES ? "abort" : "planner";
+  return state.planner_retry_count >= MAX_RETRIES ? "abort" : "planner";
 }
 
 function routeAfterGenerator(state: LangGraphWebLayoutState): "generator" | "validator" | "abort" {
   if (!state.error_log) {
     return "validator";
   }
-  return state.retry_count >= MAX_RETRIES ? "abort" : "generator";
+  return state.generator_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 
 function routeAfterValidator(state: LangGraphWebLayoutState): "generator" | "diskWriter" | "abort" {
   if (!state.error_log) {
     return "diskWriter";
   }
-  return state.retry_count >= MAX_RETRIES ? "abort" : "generator";
+  return state.validator_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 
 function routeAfterQualityReview(
   state: LangGraphWebLayoutState,
 ): "generator" | "diskWriter" | "abort" {
   if (!state.error_log) return "diskWriter";
-  return state.retry_count >= MAX_RETRIES ? "abort" : "generator";
+  return state.quality_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 
 async function persistRunArtifacts(config: WebLayoutRuntimeConfig, state: WebLayoutState): Promise<void> {

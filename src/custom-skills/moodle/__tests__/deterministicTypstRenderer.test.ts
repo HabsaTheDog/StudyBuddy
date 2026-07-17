@@ -162,7 +162,8 @@ describe("deterministic Typst renderer", () => {
     );
 
     expect(source).not.toContain("#sb-block-diagram");
-    expect(source).toContain("Visualisierung nicht gerendert");
+    expect(source).not.toContain("Visualisierung nicht gerendert");
+    expect(source).not.toContain("Visualisierungsprompt");
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles()),
     ).resolves.toEqual({ ok: true });

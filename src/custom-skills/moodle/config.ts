@@ -9,6 +9,7 @@ import type {
   RenderStrategyMode,
   SourceMode,
   TypstValidationMode,
+  VisualCropMode,
   VisualMode,
 } from "./types.js";
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
@@ -62,7 +63,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     : requestedMoodleUrl;
   const moodleUrl = resolveVerifiedMoodleSource(input.prompt, selectedMoodleUrl);
   const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
-  const quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
+  let quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
   const stage = input.stage ?? "all";
   const intentDecision = classifyStudyBuddyIntent({
     prompt: input.prompt,
@@ -73,6 +74,18 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     hasCisUrls: cisUrls.length > 0,
     hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
+  if (intentDecision.wantsQuizDiscovery) {
+    quizPolicy = {
+      ...quizPolicy,
+      requestedAutoAnswer: false,
+      allowAttemptOpen: false,
+      allowTimedQuiz: false,
+      allowLimitedAttemptQuiz: false,
+      allowAnswerFill: false,
+      allowAnswerChange: false,
+      allowSaveOrMovePage: false,
+    };
+  }
   const calendarUrl = input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim() || undefined;
   const artifactIntent = classifyArtifactIntent(input.prompt, {
     profile: input.artifactProfile,
@@ -132,6 +145,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     renderStrategy: parseRenderStrategy(input.renderStrategy || process.env.STUDY_BUDDY_RENDER_STRATEGY),
     visualsEnabled,
     visualMode,
+    visualCropMode: parseVisualCropMode(
+      input.visualCropMode || process.env.STUDY_BUDDY_VISUAL_CROP_MODE,
+    ),
     maxVisualAssets: input.maxVisualAssets ?? parseNonNegativeInteger(process.env.STUDY_BUDDY_VISUALS_MAX, 0),
     visualMinConfidence: input.visualMinConfidence ??
       parseConfidence(process.env.STUDY_BUDDY_VISUALS_MIN_CONFIDENCE, 0.65),
@@ -202,6 +218,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     maxVisualAssets: config.maxVisualAssets,
     visualMinConfidence: config.visualMinConfidence,
     visualMode: config.visualMode,
+    visualCropMode: config.visualCropMode,
     artifactIntent: config.artifactIntent,
     codexModel: config.codexModel,
     codexReasoningEffort: config.codexReasoningEffort,
@@ -246,6 +263,20 @@ function parseVisualMode(
     return "inline";
   }
   return artifactRequest ? "inline" : "off";
+}
+
+export function parseVisualCropMode(value: string | undefined): VisualCropMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return "auto";
+  if (
+    normalized === "auto" ||
+    normalized === "focused" ||
+    normalized === "context" ||
+    normalized === "original"
+  ) {
+    return normalized;
+  }
+  throw new Error(`Expected visual crop mode auto, focused, context, or original, got ${value}`);
 }
 
 function trimOptional(value: string | undefined): string | undefined {

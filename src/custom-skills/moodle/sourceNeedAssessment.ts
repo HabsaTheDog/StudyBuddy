@@ -95,7 +95,7 @@ function isUsable(status: SourceCoverage["moodle"]["status"]): boolean {
 }
 
 function scheduleSignal(prompt: string): boolean {
-  return /(?:heute|morgen|diese woche|stundenplan|raum|räume|prüfung|pruefung|termin|deadline|frist|anwesenheit|fachlabor|laborslot|nächste einheit|naechste einheit)/i.test(prompt);
+  return /\b(?:heute|morgen|diese woche|stundenplan|raum|räume|prüfung|pruefung|test|klausur|termin|deadline|frist|wann|wo|anwesenheit|fachlabor|laborslot|nächste einheit|naechste einheit)\b/i.test(prompt);
 }
 
 function materialSignal(prompt: string): boolean {

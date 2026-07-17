@@ -170,7 +170,11 @@ async function validateHtmlFileInBrowser(filePath: string, options: BrowserValid
     ];
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await page.screenshot({ path: viewport.path, fullPage: true });
+      await page.screenshot({ path: viewport.path, fullPage: true }).catch(async () => {
+        // Chromium can reject extremely tall full-page captures even when the page is valid.
+        // Layout metrics below still inspect the complete document, so a viewport fallback is sufficient.
+        await page.screenshot({ path: viewport.path, fullPage: false });
+      });
       const metrics = await page.evaluate(() => ({
         bodyWidth: document.body.scrollWidth,
         bodyHeight: document.body.scrollHeight,
@@ -212,15 +216,16 @@ async function validateHtmlFileInBrowser(filePath: string, options: BrowserValid
 
 function findExternalReferences(html: string): string[] {
   const refs: string[] = [];
+  const markup = withoutScriptAndStyleContents(html);
   const attrPattern = /\b(?:src|poster|data)\s*=\s*["']([^"']+)["']/gi;
-  for (const match of html.matchAll(attrPattern)) {
+  for (const match of markup.matchAll(attrPattern)) {
     const value = match[1];
     if (isExternalReference(value)) {
       refs.push(value);
     }
   }
   const hrefPattern = /\bhref\s*=\s*["']([^"']+)["']/gi;
-  for (const match of html.matchAll(hrefPattern)) {
+  for (const match of markup.matchAll(hrefPattern)) {
     const value = match[1];
     if (/^https?:/i.test(value) || value.startsWith("#") || isSafeRelativeReference(value)) {
       continue;
@@ -239,18 +244,19 @@ function findExternalReferences(html: string): string[] {
 
 function findSiblingReferences(html: string): string[] {
   const refs: string[] = [];
+  const markup = withoutScriptAndStyleContents(html);
   const attributePattern = /\b(?:src|poster|data)\s*=\s*["']([^"']+)["']/gi;
-  for (const match of html.matchAll(attributePattern)) {
+  for (const match of markup.matchAll(attributePattern)) {
     const value = match[1].trim();
     if (isSiblingReference(value)) refs.push(value);
   }
   const hrefPattern = /\bhref\s*=\s*["']([^"']+)["']/gi;
-  for (const match of html.matchAll(hrefPattern)) {
+  for (const match of markup.matchAll(hrefPattern)) {
     const value = match[1].trim();
     if (isSiblingReference(value)) refs.push(value);
   }
   const srcsetPattern = /\bsrcset\s*=\s*["']([^"']+)["']/gi;
-  for (const match of html.matchAll(srcsetPattern)) {
+  for (const match of markup.matchAll(srcsetPattern)) {
     for (const candidate of match[1].split(",")) {
       const value = candidate.trim().split(/\s+/, 1)[0];
       if (isSiblingReference(value)) refs.push(value);
@@ -262,6 +268,14 @@ function findSiblingReferences(html: string): string[] {
     if (isSiblingReference(value)) refs.push(value);
   }
   return [...new Set(refs)];
+}
+
+function withoutScriptAndStyleContents(html: string): string {
+  return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, (block) => {
+    const openingTag = block.match(/^<[^>]+>/)?.[0] ?? "";
+    const closingTag = block.match(/<\/[^>]+>$/)?.[0] ?? "";
+    return `${openingTag}${closingTag}`;
+  });
 }
 
 function isSiblingReference(value: string): boolean {

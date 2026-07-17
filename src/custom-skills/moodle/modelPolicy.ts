@@ -1,9 +1,10 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-17.2";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.2";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
 export type StudyBuddyModelTask =
   | "content_analyzer"
+  | "quiz_solver"
   | "artifact_planner"
   | "artifact_builder"
   | "quality_reviewer";
@@ -16,6 +17,7 @@ export interface StudyBuddyTaskModelPolicy {
   timeoutMs: number;
   escalationModel?: string;
   escalationEffort?: StudyBuddyReasoningEffort;
+  escalationTimeoutMs?: number;
 }
 
 export type StudyBuddyModelPolicyOverrides = Partial<
@@ -37,119 +39,166 @@ const PROFILE_POLICIES: Record<
 > = {
   auto: {
     artifact_planner: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "low",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
+      escalationTimeoutMs: 3 * 60_000,
     },
     content_analyzer: {
       model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       timeoutMs: 6 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
+      escalationTimeoutMs: 10 * 60_000,
+    },
+    quiz_solver: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+      timeoutMs: 6 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 8 * 60_000,
     },
     artifact_builder: {
-      model: "gpt-5.6-terra",
-      reasoningEffort: "low",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "medium",
-    },
-    quality_reviewer: {
-      model: "gpt-5.6-terra",
+      model: "gpt-5.6-sol",
       reasoningEffort: "medium",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    quality_reviewer: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 6 * 60_000,
     },
   },
   fast: {
     artifact_planner: {
       model: "gpt-5.6-luna",
-      reasoningEffort: "minimal",
-      timeoutMs: 60_000,
+      reasoningEffort: "high",
+      timeoutMs: 90_000,
       escalationModel: "gpt-5.6-terra",
-      escalationEffort: "low",
+      escalationEffort: "high",
+      escalationTimeoutMs: 2 * 60_000,
     },
     content_analyzer: {
       model: "gpt-5.6-luna",
-      reasoningEffort: "low",
+      reasoningEffort: "high",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-terra",
-      escalationEffort: "medium",
+      escalationEffort: "high",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    quiz_solver: {
+      model: "gpt-5.6-luna",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-terra",
+      escalationEffort: "high",
+      escalationTimeoutMs: 6 * 60_000,
     },
     artifact_builder: {
       model: "gpt-5.6-luna",
-      reasoningEffort: "minimal",
+      reasoningEffort: "high",
       timeoutMs: 2 * 60_000,
       escalationModel: "gpt-5.6-terra",
-      escalationEffort: "low",
+      escalationEffort: "high",
+      escalationTimeoutMs: 4 * 60_000,
     },
     quality_reviewer: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "low",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
       timeoutMs: 2 * 60_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
+      escalationTimeoutMs: 4 * 60_000,
     },
   },
   balanced: {
     artifact_planner: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "low",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
+      escalationTimeoutMs: 3 * 60_000,
     },
     content_analyzer: {
       model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       timeoutMs: 6 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
+      escalationTimeoutMs: 10 * 60_000,
+    },
+    quiz_solver: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+      timeoutMs: 6 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 8 * 60_000,
     },
     artifact_builder: {
-      model: "gpt-5.6-terra",
-      reasoningEffort: "low",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "medium",
-    },
-    quality_reviewer: {
-      model: "gpt-5.6-terra",
+      model: "gpt-5.6-sol",
       reasoningEffort: "medium",
       timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "high",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    quality_reviewer: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 6 * 60_000,
     },
   },
   quality: {
     artifact_planner: {
-      model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
-      timeoutMs: 2 * 60_000,
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
       escalationModel: "gpt-5.6-sol",
-      escalationEffort: "high",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 6 * 60_000,
     },
     content_analyzer: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
       timeoutMs: 8 * 60_000,
       escalationEffort: "xhigh",
+      escalationTimeoutMs: 12 * 60_000,
+    },
+    quiz_solver: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      timeoutMs: 8 * 60_000,
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 10 * 60_000,
     },
     artifact_builder: {
       model: "gpt-5.6-sol",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       timeoutMs: 6 * 60_000,
-      escalationEffort: "high",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 8 * 60_000,
     },
     quality_reviewer: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
       timeoutMs: 6 * 60_000,
       escalationEffort: "xhigh",
+      escalationTimeoutMs: 8 * 60_000,
     },
   },
 };
@@ -179,6 +228,7 @@ export function resolveTaskModelPolicy(
       input.globalReasoningEffort ??
       configured.escalationEffort ??
       nextReasoningEffort(configured.reasoningEffort),
+    timeoutMs: configured.escalationTimeoutMs ?? configured.timeoutMs,
   };
 }
 
@@ -231,6 +281,7 @@ export function parseModelPolicyOverrides(
 
   const tasks: StudyBuddyModelTask[] = [
     "content_analyzer",
+    "quiz_solver",
     "artifact_planner",
     "artifact_builder",
     "quality_reviewer",

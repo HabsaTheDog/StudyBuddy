@@ -33,6 +33,14 @@ describe("source architect", () => {
     }));
     const acquiredId = stableResourceId(acquiredUrl);
     const state = moodleTestState({
+      source_architect_decision: {
+        round: 1,
+        status: "request_more",
+        coverageSummary: "A second planned acquisition round is needed.",
+        requestedUrls: [],
+        remainingAvailable: 1,
+        reasons: [],
+      },
       resource_manifest: {
         schemaVersion: "1.0",
         courseUrl: "https://moodle.technikum-wien.at/course/view.php?id=1",
@@ -96,12 +104,17 @@ describe("source architect", () => {
     const result = await createSourceArchitectNode(config, codex)(state);
 
     expect(result.source_architect_decision).toMatchObject({
+      round: 2,
       status: "request_more",
       requestedUrls: [requestedUrl],
       remainingAvailable: 1,
     });
     expect(codex.run.mock.calls[0][0]).toContain("Chapter one - tolerances");
     expect(codex.run.mock.calls[0][0]).toContain("authoritative scope boundary");
+    expect(codex.run.mock.calls[0][1]).toMatchObject({
+      task: "artifact_planner",
+      attempt: 1,
+    });
     expect(routeAfterSourceArchitect({ ...state, ...result })).toBe("targetedAcquisition");
     const briefs = JSON.parse(await readFile(path.join(runDir, "document-briefs.json"), "utf8"));
     expect(briefs.briefs[0]).toMatchObject({ checksum: "abc", evidenceRecords: 1 });

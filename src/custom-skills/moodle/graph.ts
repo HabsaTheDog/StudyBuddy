@@ -50,6 +50,7 @@ import {
   ReviewReportSchema,
   StudyModelSchema,
 } from "./examNavigatorContracts.js";
+import { hydrateExtractedVisualAssets } from "./visualAssets.js";
 import { ExecutionTelemetry } from "./executionTelemetry.js";
 import {
   resolveTaskModelPolicy,
@@ -919,7 +920,11 @@ async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState>
   if (!/^Run status:\s*(?:success|partial)$/m.test(summary) || errorLog.trim()) {
     throw new Error(`Render source is not a successful extraction run: ${sourceRunDir}`);
   }
-  const extractedData = validateExtractedData(JSON.parse(extractedText));
+  const extractedData = await hydrateExtractedVisualAssets(
+    sourceRunDir,
+    validateExtractedData(JSON.parse(extractedText)),
+    config.visualCropMode,
+  );
   const resourceManifest = manifestText
     ? ResourceManifestSchema.parse(JSON.parse(manifestText))
     : await buildResourceManifest(sourceRunDir, rawText);

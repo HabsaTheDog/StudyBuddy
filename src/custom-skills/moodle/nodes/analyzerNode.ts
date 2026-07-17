@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isNonRetryableCodexError, type CodexClient } from "../codexClient.js";
 import { extractedDataJsonSchema } from "../schemas.js";
@@ -13,28 +14,19 @@ import {
 import { resolveTaskBudget } from "../taskBudget.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
+const CHAPTER_ANALYZER_VERSION = "2026-07-18.1";
+const FOCUSED_CONTEXT_BUDGET = 45_000;
+const FOCUSED_EVIDENCE_BUDGET = 34_000;
+const FOCUSED_SOURCE_OVERVIEW_BUDGET = 8_000;
+const FOCUSED_VISUAL_CANDIDATE_LIMIT = 14;
 
 export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
-      const response = await codex.run(await buildAnalyzerPrompt(config, state), {
-        outputSchema: extractedDataJsonSchema,
-        task: "content_analyzer",
-        attempt: state.retry_count + 1,
-      });
-      const parsed = parseJsonObjectOrArray(response);
-      const validated = validateExtractedData(parsed);
-      await mkdir(path.join(config.runDir, "extraction"), { recursive: true });
-      await writeFile(
-        path.join(config.runDir, "extracted-data.json"),
-        `${JSON.stringify(validated, null, 2)}\n`,
-        "utf8",
-      );
-      await writeFile(
-        path.join(config.runDir, "extraction", "extracted-data.json"),
-        `${JSON.stringify(validated, null, 2)}\n`,
-        "utf8",
-      );
+      const validated = shouldAnalyzeByChapter(config, state)
+        ? await analyzeCourseChapters(config, state, codex)
+        : await analyzeWholeRequest(config, state, codex);
+      await persistExtractedData(config.runDir, validated);
       await config.diagnostics?.log("info", "analyzer", "Validated and persisted extracted study data.");
       return {
         extracted_data: validated,
@@ -62,20 +54,284 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   };
 }
 
-async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): Promise<string> {
+async function analyzeWholeRequest(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  codex: CodexClient,
+) {
+  const response = await codex.run(await buildAnalyzerPrompt(config, state), {
+    outputSchema: extractedDataJsonSchema,
+    task: "content_analyzer",
+    attempt: state.retry_count + 1,
+  });
+  return validateExtractedData(parseJsonObjectOrArray(response));
+}
+
+interface ChapterFocus {
+  key: string;
+  title: string;
+  resourceIds: string[];
+  matchTerms: string[];
+}
+
+interface CachedChapterHandoff {
+  fingerprint: string;
+  data: ReturnType<typeof validateExtractedData>;
+}
+
+function shouldAnalyzeByChapter(config: MoodleRuntimeConfig, state: LangGraphAgentState): boolean {
+  return config.artifactIntent.profile === "study_guide" && chapterFocuses(state).length > 1;
+}
+
+async function analyzeCourseChapters(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  codex: CodexClient,
+) {
+  const focuses = chapterFocuses(state);
+  const cacheDir = path.join(config.runDir, "chapter-handoffs");
+  const sharedCacheDir = path.join(config.runtimeCacheDir, "chapter-handoffs");
+  await Promise.all([
+    mkdir(cacheDir, { recursive: true }),
+    mkdir(sharedCacheDir, { recursive: true }),
+  ]);
+  const mentioned = focuses.filter((focus) =>
+    focusMatchesError(focus, state.error_log)
+  );
+  const invalidKeys = new Set(
+    state.error_log && mentioned.length === 0
+      ? focuses.map((focus) => focus.key)
+      : mentioned.map((focus) => focus.key),
+  );
+  const results = new Array<ReturnType<typeof validateExtractedData>>(focuses.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < focuses.length) {
+      const index = cursor++;
+      const focus = focuses[index];
+      const fingerprint = chapterFingerprint(config, state, focus);
+      const cachePath = path.join(cacheDir, `${focus.key}.json`);
+      const sharedCachePath = path.join(sharedCacheDir, `${fingerprint}.json`);
+      const cached = invalidKeys.has(focus.key)
+        ? null
+        : await readChapterCache(cachePath, fingerprint) ??
+          await readChapterCache(sharedCachePath, fingerprint);
+      if (cached) {
+        results[index] = cached.data;
+        await writeFile(cachePath, `${JSON.stringify(cached, null, 2)}\n`, "utf8");
+        await config.diagnostics?.log("info", "analyzer", `Reused validated chapter handoff: ${focus.title}`);
+        continue;
+      }
+      await config.diagnostics?.log("info", "analyzer", `Analyzing chapter independently: ${focus.title}`);
+      const response = await codex.run(await buildAnalyzerPrompt(config, state, focus), {
+        outputSchema: extractedDataJsonSchema,
+        task: "content_analyzer",
+        attempt: state.retry_count + 1,
+      });
+      const data = validateExtractedData(parseJsonObjectOrArray(response));
+      assertChapterHandoff(data, focus);
+      const serialized = `${JSON.stringify({ fingerprint, data }, null, 2)}\n`;
+      await Promise.all([
+        writeFile(cachePath, serialized, "utf8"),
+        writeFile(sharedCachePath, serialized, "utf8"),
+      ]);
+      results[index] = data;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, focuses.length) }, () => worker()));
+  return mergeChapterHandoffs(results, focuses);
+}
+
+function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
+  const groups = new Map<string, ChapterFocus>();
+  for (const resource of state.resource_manifest.resources) {
+    if (!resource.localPath || resource.sectionPath.length === 0) continue;
+    const title = resource.sectionPath.join(" > ");
+    const key = safeChapterKey(title);
+    const group = groups.get(key) ?? { key, title, resourceIds: [], matchTerms: [] };
+    if (!group.resourceIds.includes(resource.id)) group.resourceIds.push(resource.id);
+    group.matchTerms = [...new Set([...group.matchTerms, ...matchTerms(resource.title)])];
+    if (resource.selection?.role === "primary_lecture") {
+      group.title = `${title} — ${resource.title}`;
+    }
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
+  if (!errorLog) return false;
+  const normalized = errorLog.toLowerCase();
+  return focus.matchTerms.some((term) => normalized.includes(term));
+}
+
+function matchTerms(value: string): string[] {
+  return (value.toLowerCase().match(/[a-z0-9äöüß]{4,}/gi) ?? [])
+    .filter((token) => !/^(?:foliensatz|angabe|lösung|loesung|resource|moodle)$/.test(token))
+    .flatMap((token) => [
+      token,
+      token.replace(/(?:ungen|ung|en|e|n)$/i, ""),
+      token.replace(/(?:verbindungen?|verbindung)$/i, ""),
+    ])
+    .filter((token) => token.length >= 3);
+}
+
+export function resourceTitleMatchesAnalyzerError(title: string, errorLog: string): boolean {
+  const normalized = errorLog.toLowerCase();
+  return matchTerms(title).some((term) => normalized.includes(term));
+}
+
+async function readChapterCache(
+  cachePath: string,
+  fingerprint: string,
+): Promise<CachedChapterHandoff | null> {
+  return readFile(cachePath, "utf8")
+    .then((text) => JSON.parse(text) as CachedChapterHandoff)
+    .then((cached) => cached.fingerprint === fingerprint ? cached : null)
+    .catch(() => null);
+}
+
+function chapterFingerprint(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+): string {
+  const resources = state.resource_manifest.resources
+    .filter((resource) => focus.resourceIds.includes(resource.id))
+    .map((resource) => ({ id: resource.id, checksum: resource.checksum, status: resource.status }));
+  return createHash("sha256").update(JSON.stringify({
+    analyzerVersion: CHAPTER_ANALYZER_VERSION,
+    prompt: config.prompt,
+    policy: STUDENT_FIRST_POLICY_VERSION,
+    profile: config.artifactIntent.profile,
+    focus,
+    resources,
+  })).digest("hex");
+}
+
+function assertChapterHandoff(
+  data: ReturnType<typeof validateExtractedData>,
+  focus: ChapterFocus,
+): void {
+  if (data.sections.length === 0) {
+    throw new Error(`Chapter analyzer returned no subject sections for ${focus.title}.`);
+  }
+  if (data.worked_examples.length === 0) {
+    throw new Error(`Chapter analyzer returned no worked example for ${focus.title}.`);
+  }
+}
+
+function mergeChapterHandoffs(
+  handoffs: Array<ReturnType<typeof validateExtractedData>>,
+  focuses: ChapterFocus[],
+): ReturnType<typeof validateExtractedData> {
+  const namespaced = handoffs.map((handoff, index) => namespaceChapterHandoff(
+    handoff,
+    `ch${index + 1}_${focuses[index].key}`,
+  ));
+  const first = namespaced[0];
+  return validateExtractedData({
+    document_title: first.document_title,
+    language: first.language,
+    course: first.course,
+    sources: uniqueBy(namespaced.flatMap((data) => data.sources), (source) => source.id),
+    sections: namespaced.flatMap((data) => data.sections),
+    formulas: namespaced.flatMap((data) => data.formulas),
+    worked_examples: namespaced.flatMap((data) => data.worked_examples),
+    quiz_style_questions: [],
+    visual_assets: uniqueBy(namespaced.flatMap((data) => data.visual_assets), (asset) => asset.id),
+    figures: namespaced.flatMap((data) => data.figures),
+    warnings: [...new Set(namespaced.flatMap((data) => data.warnings))],
+  });
+}
+
+function namespaceChapterHandoff(
+  data: ReturnType<typeof validateExtractedData>,
+  prefix: string,
+): ReturnType<typeof validateExtractedData> {
+  const sourceIds = new Map(data.sources.map((source) => [source.id, `${prefix}_${source.id}`]));
+  const assetIds = new Map(data.visual_assets.map((asset) => [asset.id, `${prefix}_${asset.id}`]));
+  const mapSources = (ids: string[]) => ids.map((id) => sourceIds.get(id)).filter((id): id is string => Boolean(id));
+  return validateExtractedData({
+    ...data,
+    sources: data.sources.map((source) => ({ ...source, id: sourceIds.get(source.id)! })),
+    sections: data.sections.map((section) => ({ ...section, source_ids: mapSources(section.source_ids) })),
+    formulas: data.formulas.map((formula) => ({ ...formula, source_ids: mapSources(formula.source_ids) })),
+    worked_examples: data.worked_examples.map((example) => ({ ...example, source_ids: mapSources(example.source_ids) })),
+    quiz_style_questions: [],
+    visual_assets: data.visual_assets.map((asset) => ({
+      ...asset,
+      id: assetIds.get(asset.id)!,
+      source_id: asset.source_id ? sourceIds.get(asset.source_id) ?? null : null,
+    })),
+    figures: data.figures
+      .filter((figure) => assetIds.has(figure.asset_id))
+      .map((figure) => ({
+        ...figure,
+        asset_id: assetIds.get(figure.asset_id)!,
+        source_ids: mapSources(figure.source_ids),
+      })),
+  });
+}
+
+async function persistExtractedData(
+  runDir: string,
+  data: ReturnType<typeof validateExtractedData>,
+): Promise<void> {
+  await mkdir(path.join(runDir, "extraction"), { recursive: true });
+  const text = `${JSON.stringify(data, null, 2)}\n`;
+  await Promise.all([
+    writeFile(path.join(runDir, "extracted-data.json"), text, "utf8"),
+    writeFile(path.join(runDir, "extraction", "extracted-data.json"), text, "utf8"),
+  ]);
+}
+
+function safeChapterKey(value: string): string {
+  return value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "chapter";
+}
+
+function uniqueBy<T>(values: T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const id = key(value);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+async function buildAnalyzerPrompt(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  focus?: ChapterFocus,
+): Promise<string> {
   const visualManifest = await readVisualManifest(config.runDir);
-  const contextBudget = resolveTaskBudget(config.intentDecision).maxModelInputChars;
-  const evidenceBudget = Math.floor(contextBudget * 0.7);
+  const contextBudget = focus
+    ? FOCUSED_CONTEXT_BUDGET
+    : resolveTaskBudget(config.intentDecision).maxModelInputChars;
+  const evidenceBudget = focus
+    ? FOCUSED_EVIDENCE_BUDGET
+    : Math.floor(contextBudget * 0.7);
   const sourceBudget = Math.max(0, contextBudget - evidenceBudget);
+  const focusedEvidence = focus
+    ? {
+        ...state.evidence_package,
+        records: state.evidence_package.records.filter((record) =>
+          focus.resourceIds.includes(record.resourceId)
+        ),
+      }
+    : state.evidence_package;
   const evidenceView = compactEvidenceForAnalyzer(
-    state.evidence_package,
+    focusedEvidence,
     config.prompt,
     evidenceBudget,
   );
   const analyzerManifest = {
     schemaVersion: state.resource_manifest.schemaVersion,
     courseUrl: state.resource_manifest.courseUrl,
-    resources: state.resource_manifest.resources.map((resource) => ({
+    resources: state.resource_manifest.resources
+      .filter((resource) => !focus || focus.resourceIds.includes(resource.id))
+      .map((resource) => ({
       id: resource.id,
       sectionPath: resource.sectionPath,
       activityType: resource.activityType,
@@ -91,7 +347,10 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
     ? {
         tooling: visualManifest.tooling,
         warnings: visualManifest.warnings,
-        candidates: visualManifest.candidates.map((candidate) => ({
+        candidates: visualManifest.candidates
+          .filter((candidate) => !focus || (candidate.source_id && focus.resourceIds.includes(candidate.source_id)))
+          .slice(0, focus ? FOCUSED_VISUAL_CANDIDATE_LIMIT : undefined)
+          .map((candidate) => ({
           id: candidate.id,
           kind: candidate.kind,
           title: candidate.title,
@@ -108,9 +367,10 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
         })),
       }
     : null;
-  const sourceOverview = state.evidence_package.records.length > 0
-    ? state.moodle_raw_text.slice(0, Math.min(24_000, sourceBudget))
-    : state.moodle_raw_text.slice(0, contextBudget);
+  const rawSource = focus ? focusedRawSource(state.moodle_raw_text, analyzerManifest.resources) : state.moodle_raw_text;
+  const sourceOverview = focusedEvidence.records.length > 0
+    ? rawSource.slice(0, Math.min(focus ? FOCUSED_SOURCE_OVERVIEW_BUDGET : 24_000, sourceBudget))
+    : rawSource.slice(0, contextBudget);
   const figureLimit = analyzerVisuals
     ? analyzerVisuals.candidates.length
     : config.maxVisualAssets > 0
@@ -120,6 +380,9 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
     "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a mechatronics/engineering student.",
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     `Artifact profile: ${config.artifactIntent.profile}.`,
+    focus
+      ? `Chapter handoff: analyze only "${focus.title}". Return complete learning material for this chapter and do not summarize or mention other chapters.`
+      : "Analyze the complete requested scope.",
     "Return only JSON matching the requested schema. Do not include Markdown fences.",
     "Preserve German source language unless the user asks otherwise.",
     "Represent formulas in Typst math syntax where possible.",
@@ -157,8 +420,11 @@ async function buildAnalyzerPrompt(config: MoodleRuntimeConfig, state: LangGraph
     "- Split each Moodle chapter into multiple meaningful subject sections when the evidence contains definitions, classifications, procedures, boundary conditions, calculations, or applications.",
     "- Explain why concepts work, how related quantities interact, when a method applies, and how a student recognizes the correct method. Preserve source-supported detail instead of compressing a whole slide deck into a few bullets.",
     "- For every covered technical chapter, include at least one complete worked example with a concrete learning_goal, problem, ordered method, intermediate reasoning, result, and source IDs.",
-    "- Prefer an acquired exercise/solution pair and set origin='source'. If no source example exists but a source-backed rule or formula supports one, create a clearly didactic example with origin='derived'; vary only values or a simple application and do not add unsupported engineering claims.",
-    "- A derived example must remain reproducible from its cited definitions, rules, or formulas. Never disguise it as an original Moodle exercise.",
+    "- Prefer an acquired exercise/solution pair and set origin='source' only when the supplied evidence contains enough givens, substitutions, and intermediate steps to reproduce the result.",
+    "- If a source exercise or solution is incomplete, ambiguous, diagram-dependent, or only states an end result, do not pretend it is fully solved. Instead create one clearly marked origin='derived' example using a source-backed rule or formula and simple explicitly chosen values.",
+    "- Every example must be self-contained: state all givens and assumptions, show the formula selection, substitute values with units, show meaningful intermediate results, and finish with a result plus a short plausibility or unit check.",
+    "- A derived example must remain reproducible from its cited definitions, rules, or formulas. Chosen didactic values are allowed when identified as assumptions; never present them as course facts or disguise the example as an original Moodle exercise.",
+    "- One complete representative example per chapter is required. It need not exercise every formula or proof method in that chapter.",
     "- Use key_concepts for concise, testable takeaways; put the actual explanation in section.summary, using multiple paragraphs where useful.",
     "Course structure policy:",
     "- Treat resource_manifest.sectionPath as the authoritative Moodle chapter structure.",
@@ -222,4 +488,15 @@ function compactEvidenceForAnalyzer(
         : []),
     ],
   };
+}
+
+function focusedRawSource(rawText: string, resources: Array<{ originUrl: string }>): string {
+  const urls = new Set(resources.map((resource) => resource.originUrl));
+  return rawText
+    .split(/\n(?=\[(?:Moodle page|Linked file|Calendar|CIS))/g)
+    .filter((block) => {
+      const url = /^URL:\s*(\S+)/m.exec(block)?.[1];
+      return url ? urls.has(url) : false;
+    })
+    .join("\n\n");
 }

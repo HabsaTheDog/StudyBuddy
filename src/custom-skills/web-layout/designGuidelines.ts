@@ -14,7 +14,7 @@ export const STUDY_BUDDY_HTML_TOKENS = {
   "--sb-white": "#FFFFFF",
 } as const;
 
-export const STUDY_BUDDY_HTML_MARKS = ["STUDY BUDDY 2.0", "SB 2.0"] as const;
+export const STUDY_BUDDY_HTML_MARKS = ["Study Buddy"] as const;
 
 export function studyBuddyCssTokenBlock(): string {
   return Object.entries(STUDY_BUDDY_HTML_TOKENS)
@@ -26,11 +26,12 @@ export function studyBuddyDesignGuidelines(): string {
   return [
     "Study Buddy HTML design guidelines:",
     "- Produce readable source HTML; the official Study Buddy bundler creates one complete offline HTML file with inline CSS, JavaScript, and selected media.",
-    "- Include the visible text mark STUDY BUDDY 2.0 in the first viewport and a compact inline SB 2.0 badge.",
+    "- Use the canonical Study Buddy logo from assets/logo.png in the first viewport when it is listed as an approved local asset. Give it alt=\"Study Buddy\" and data-study-buddy-logo.",
+    "- Do not display legacy prototype marks such as STUDY BUDDY 2.0 or SB 2.0. The real logo replaces those text badges.",
     "- Define these exact CSS variables in :root:",
     studyBuddyCssTokenBlock(),
     "- Use the Study Buddy corporate identity: blue is the primary color; gold is reserved for highlights and objects of interest.",
-    "- Use a restrained technical study aesthetic: clear hierarchy, dense but readable learning UI, precise spacing, strong contrast.",
+    "- Follow CI/corporate-identity.md: clear hierarchy, precise spacing, strong contrast, primary blue structure, and restrained gold emphasis.",
     "- Treat the page as a learning cockpit, not a long document: the user must always know which section they are in and where the next useful action is.",
     "- Start with a compact orientation area that answers three questions: What is covered? What should I do first? Where can I find the evidence?",
     "- Give recurring information types stable, predictable locations: learning content, formulas, progress check, practice, sources, and coverage notes.",

@@ -37,11 +37,16 @@ export function createQualityReviewerNode(config: WebLayoutRuntimeConfig, codex:
       }
       const message = `Semantic quality review failed:\n- ${review.findings.join("\n- ")}`;
       await config.diagnostics?.log("warn", "validator", message);
-      return { error_log: message, retry_count: state.retry_count + 1 };
+      return {
+        error_log: message,
+        retry_count: state.retry_count + 1,
+        quality_retry_count: state.quality_retry_count + 1,
+      };
     } catch (error) {
       return {
         error_log: `Quality reviewer failed: ${error instanceof Error ? error.message : String(error)}`,
         retry_count: state.retry_count + 1,
+        quality_retry_count: state.quality_retry_count + 1,
       };
     }
   };
@@ -51,6 +56,7 @@ function buildPrompt(config: WebLayoutRuntimeConfig, state: LangGraphWebLayoutSt
   return [
     "Review this offline interactive Study Buddy page for source fidelity, mathematical correctness, pedagogy, usability, and appropriate interaction design.",
     "Do not rewrite it. Return JSON only. Mark ok=false only for concrete issues the HTML generator must repair.",
+    "Do not reject a clearly labelled unsourced demo merely because course materials were not supplied. Reject only unsupported claims that present themselves as real course facts.",
     `Requested kind: ${config.kind}`,
     `User request:\n${config.prompt}`,
     `Browser and static validation:\n${JSON.stringify(state.validation_report)}`,

@@ -31,6 +31,9 @@ describe("generator prompt", () => {
     expect(prompt).toContain("--sb-navy: #19254b");
     expect(prompt).toContain("--sb-gold: #dfbb63");
     expect(prompt).toContain("No <script src>");
-    expect(prompt).toContain("STUDY BUDDY 2.0");
+    expect(prompt).toContain("assets/logo.png");
+    expect(prompt).toContain("Do not display legacy prototype marks");
+    expect(prompt).toContain("one coherent primary learning interaction");
+    expect(prompt).toContain("do not build citations or source-management controls");
   });
 });

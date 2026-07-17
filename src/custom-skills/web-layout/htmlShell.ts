@@ -50,8 +50,7 @@ ${studyBuddyCssTokenBlock()}
     }
     main { max-width: 980px; margin: 0 auto; padding: 18px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-    .mark { color: var(--sb-blue); font-weight: 800; letter-spacing: .04em; }
-    .badge { background: var(--sb-navy); color: var(--sb-white); border-radius: 6px; padding: 8px 10px; font-weight: 800; }
+    .mark { color: var(--sb-blue); font-weight: 800; letter-spacing: .01em; }
     .tool { background: var(--sb-white); border: 1px solid var(--sb-line); border-top: 4px solid var(--sb-gold); border-radius: 8px; padding: 16px; }
     [data-card] { min-height: 180px; display: grid; place-items: center; border: 1px solid var(--sb-line); border-radius: 8px; padding: 20px; }
     [data-card].is-flipped .front { display: none; }
@@ -71,8 +70,7 @@ ${studyBuddyCssTokenBlock()}
 <body>
   <main>
     <header>
-      <div class="mark">STUDY BUDDY 2.0</div>
-      <div class="badge">SB 2.0</div>
+      <div class="mark">Study Buddy</div>
     </header>
     <section class="tool" aria-labelledby="title">
       <h1 id="title">${escapeHtml(input.title)}</h1>

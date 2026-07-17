@@ -8,15 +8,17 @@ rendering starts.
 
 ## Profiles
 
-| Profile | Visual planning | Analysis | Formatting | Use when |
-|---|---|---|---|---|
-| `fast` | Luna / minimal | Luna / low | Luna / minimal | drafts and latency-sensitive runs |
-| `balanced` | Luna / low | Terra / medium | Terra / low | normal study documents |
-| `quality` | Terra / medium | Sol / high | Sol / medium | final or difficult documents |
-| `auto` | current balanced policy | current balanced policy | current balanced policy | default policy alias |
-| `custom` | explicit overrides | explicit overrides | explicit overrides | controlled experiments |
+| Profile | Coordinator | Analysis + quiz | Planning | Building | Review | Use when |
+|---|---|---|---|---|---|---|
+| `fast` | Terra / low | Luna / high → Terra / high | Luna / high → Terra / high | Luna / high → Terra / high | Terra / high → Sol / medium | drafts and latency-sensitive runs |
+| `balanced` | Terra / medium | Terra / high → Sol / high | Terra / medium → Sol / medium | Sol / medium → Sol / high | Sol / high → Sol / xhigh | normal study documents |
+| `quality` | Sol / high | Sol / high → Sol / xhigh | Sol / high → Sol / xhigh | Sol / high → Sol / xhigh | Sol / high → Sol / xhigh | final or difficult documents |
+| `auto` | current balanced policy | current balanced policy | current balanced policy | current balanced policy | current balanced policy | default policy alias |
+| `custom` | explicit overrides | explicit overrides | explicit overrides | explicit overrides | explicit overrides | controlled experiments |
 
-Validator retries escalate one tier in model or reasoning effort. Global
+Validator retries escalate one tier in model or reasoning effort and use a
+role-specific retry timeout sized for the stronger model. Planned source-
+acquisition rounds remain on the primary planner policy; they are not retries. Global
 `--codex-model` and `--codex-reasoning-effort` overrides remain fixed across
 retries so a model-specific experiment stays reproducible.
 

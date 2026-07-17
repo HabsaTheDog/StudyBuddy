@@ -31,7 +31,7 @@ const options = program.opts<{
 
 const models = options.model.length > 0
   ? options.model
-  : [...new Set((["artifact_planner", "content_analyzer", "artifact_builder", "quality_reviewer"] as const).flatMap((task) => [
+  : [...new Set((["artifact_planner", "content_analyzer", "quiz_solver", "artifact_builder", "quality_reviewer"] as const).flatMap((task) => [
       resolveTaskModelPolicy({ profile: "balanced", task, attempt: 1 }).model,
       resolveTaskModelPolicy({ profile: "balanced", task, attempt: 2 }).model,
     ]))];

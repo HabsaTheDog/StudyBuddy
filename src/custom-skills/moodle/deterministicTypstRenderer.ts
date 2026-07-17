@@ -1,5 +1,10 @@
 import type { ExtractedData } from "./schemas.js";
 import type { SourceCoverage } from "./runDiagnostics.js";
+import {
+  cleanVisibleMathText,
+  normalizeInlineMathSource,
+  renderTypstInlineText,
+} from "./typstInlineMath.js";
 
 export function renderDeterministicStudyDocument(
   data: ExtractedData,
@@ -49,7 +54,7 @@ export function renderDeterministicStudyDocument(
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
   source: ${sourceReferenceList(data, formula.source_ids) ?? typstString("Allgemeine Fachtheorie")},
-  note: ${typstString(formula.context)},
+  note: [${text(formula.context)}],
 )[
   ${math(formula.typst)}
 ]
@@ -132,24 +137,8 @@ function renderFigures(data: ExtractedData): string[] {
 `,
       ];
     }
-    if (asset.kind === "typst_diagram") {
-      return [
-        `#sb-callout(title: "Visualisierung nicht gerendert", tone: "warning")[
-  #text(${typstString(asset.generation_prompt || asset.caption_hint || `Für "${asset.title}" wurde kein validiertes Quellenbild und keine konkrete Diagrammdefinition bereitgestellt.`)})
-]
-`,
-      ];
-    }
-    if (asset.kind === "placeholder_prompt") {
-      return [
-        `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
-  #sb-callout(title: "Visualisierungsprompt", tone: "info")[
-    #text(${typstString(asset.generation_prompt || asset.caption_hint || "Didaktische Visualisierung generieren.")})
-  ]
-]
-`,
-      ];
-    }
+    // Planned diagrams and generation prompts are workflow metadata, not
+    // student-facing figures. Omit them until a validated visual file exists.
     return [];
   });
 }
@@ -167,7 +156,7 @@ function paragraph(value: string): string {
 }
 
 function text(value: string): string {
-  return `#text(${typstString(value)})`;
+  return renderTypstInlineText(value, (mathValue) => normalizeTypstMath(stripMathDelimiters(mathValue)));
 }
 
 function math(value: string): string {
@@ -187,8 +176,12 @@ function stripMathDelimiters(value: string): string {
 
 function normalizeTypstMath(value: string): string {
   return replaceTypstMathFunctionCalls(
-    value
+    normalizeInlineMathSource(value)
+      .replace(/µm/g, '"µm"')
+      .replace(/°C/g, '"°C"')
       .replace(/_\(([A-Za-z][A-Za-z0-9 -]+)\)/g, (_, label: string) => `_"${label.trim()}"`)
+      .replace(/([\p{Script=Greek}])(?=[A-Za-z])/gu, "$1 ")
+      .replace(/([A-Za-z])(?=[\p{Script=Greek}])/gu, "$1 ")
       .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
       .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)"),
     "ddot",
@@ -379,7 +372,7 @@ function stringTuple(values: string[]): string {
   if (values.length === 0) {
     return "()";
   }
-  return `(${values.map((value) => typstString(value)).join(", ")},)`;
+  return `(${values.map((value) => typstString(cleanVisibleMathText(value))).join(", ")},)`;
 }
 
 function typstString(value: string): string {

@@ -27,6 +27,7 @@ export type SourceMode = "auto" | "moodle" | "cis" | "both";
 export type TypstValidationMode = "strict" | "balanced";
 export type RenderStrategyMode = "auto" | "deterministic" | "llm_formatter";
 export type VisualMode = "off" | "deferred" | "inline";
+export type VisualCropMode = "auto" | "focused" | "context" | "original";
 
 export interface MoodleGraphInput {
   prompt: string;
@@ -55,6 +56,7 @@ export interface MoodleGraphInput {
   renderStrategy?: RenderStrategyMode;
   visualsEnabled?: boolean;
   visualMode?: VisualMode;
+  visualCropMode?: VisualCropMode;
   maxVisualAssets?: number;
   visualMinConfidence?: number;
   artifactProfile?: ArtifactProfile;
@@ -128,6 +130,7 @@ export interface MoodleRuntimeConfig {
   renderStrategy: RenderStrategyMode;
   visualsEnabled: boolean;
   visualMode: VisualMode;
+  visualCropMode: VisualCropMode;
   maxVisualAssets: number;
   visualMinConfidence: number;
   artifactIntent: ArtifactIntent;

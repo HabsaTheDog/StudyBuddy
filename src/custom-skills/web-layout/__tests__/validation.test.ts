@@ -62,6 +62,18 @@ describe("single-file HTML validation", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("does not mistake JavaScript href assignments for file dependencies", () => {
+    const html = minimalValidStudyBuddyHtml({ title: "Reference", kind: "reference", language: "de" })
+      .replace(
+        "</script>",
+        "const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({ok:true},null,2)]));</script>",
+      );
+
+    const report = validateSingleFileHtml(html, "reference");
+
+    expect(report.ok).toBe(true);
+  });
+
   it("rejects sibling-file dependencies in a final artifact", () => {
     const html = minimalValidStudyBuddyHtml({ title: "Reference", kind: "reference", language: "de" })
       .replace("</main>", '<img src="assets/diagram.webp" alt="Diagram"></main>');

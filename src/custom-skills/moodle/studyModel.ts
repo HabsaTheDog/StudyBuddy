@@ -71,6 +71,8 @@ export function buildStudyModel(
       topicIds,
       status: topicIds.length === 0
         ? "missing" as const
+        : hasExplicitChapterGap(chapter.subject, extracted.warnings)
+          ? "partial" as const
         : chapterResources.some((resource) => isResourceFailureStatus(resource.status))
           ? "partial" as const
           : "covered" as const,
@@ -179,21 +181,27 @@ export function buildStudyModel(
   );
 
   const english = extracted.language === "en";
+  const publicationStatus = coverage.status === "complete" &&
+      courseChapters.some((chapter) => chapter.status !== "covered")
+    ? "partial" as const
+    : coverage.status;
 
   return StudyModelSchema.parse({
     schemaVersion: "1.0",
     profile,
     language: extracted.language,
-    title: extracted.document_title,
+    title: profile === "study_guide" && courseChapters.length > 1
+      ? `${extracted.course.title || "Kurs"} – Study Guide`
+      : extracted.document_title,
     courseTitle: extracted.course.title || "Unbekannter Kurs",
     courseUrl: extracted.course.url || manifest.courseUrl,
-    publicationStatus: coverage.status,
+    publicationStatus,
     scopeNote:
-      coverage.status === "complete"
+      publicationStatus === "complete"
         ? english
           ? "The presented content is supported by the evaluated sources."
           : "Die dargestellten Inhalte sind durch die ausgewerteten Quellen belegt."
-        : coverage.detail,
+        : extracted.warnings.find((warning) => /\b(?:fehlt|keine|nicht|missing|unavailable|no usable)\b/i.test(warning)) ?? coverage.detail,
     courseChapters,
     topics,
     formulas,
@@ -203,6 +211,18 @@ export function buildStudyModel(
     practiceItems,
     sources,
     warnings: unique([...extracted.warnings, ...coverage.criticalMissing]),
+  });
+}
+
+function hasExplicitChapterGap(subject: string, warnings: string[]): boolean {
+  const terms = normalizeSubject(subject)
+    .split(" ")
+    .map(stemSubjectToken)
+    .filter((term) => term.length >= 5);
+  return warnings.some((warning) => {
+    const normalized = normalizeSubject(warning);
+    const describesGap = /\b(?:fehlt|fehlend|keine|nicht|missing|unavailable|no usable)\b/i.test(warning);
+    return describesGap && terms.some((term) => normalized.includes(term));
   });
 }
 

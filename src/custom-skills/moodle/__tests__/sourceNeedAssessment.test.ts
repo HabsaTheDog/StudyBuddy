@@ -55,4 +55,26 @@ describe("sourceNeedAssessment", () => {
     });
     expect(assessment.targets).toEqual([]);
   });
+
+  it("does not add CIS for exam-ready study-guide wording", () => {
+    const plan = planSourcesForPrompt("Erstelle einen prüfungstauglichen Study Guide als PDF", {
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+    const assessment = assessFollowUpCrawl({
+      prompt: "Erstelle einen prüfungstauglichen Study Guide als PDF",
+      plan,
+      coverage: {
+        ...initialSourceCoverage,
+        moodle: {
+          ...initialSourceCoverage.moodle,
+          status: "success",
+          detail: "ok",
+          pages: 1,
+        },
+      },
+      rawText: "Moodle notes",
+    });
+    expect(assessment.targets).not.toContain("cis");
+  });
 });

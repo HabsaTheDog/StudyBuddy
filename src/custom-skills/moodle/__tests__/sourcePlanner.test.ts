@@ -12,6 +12,15 @@ describe("sourcePlanner", () => {
     expect(plan.needsFiles).toBe(true);
   });
 
+  it("keeps exam-ready study guides on Moodle without CIS", () => {
+    const plan = planSourcesForPrompt("Erstelle einen ausführlichen prüfungstauglichen Study Guide für MEL als PDF", {
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+    expect(plan.targets).toEqual(["moodle"]);
+    expect(plan.needsCurrentScheduleData).toBe(false);
+  });
+
   it("routes schedule, room, and exam prompts to CIS only", () => {
     const plan = planSourcesForPrompt("Wo ist morgen die Prüfung und in welchem Raum?", {
       hasCisUrls: true,

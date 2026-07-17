@@ -154,6 +154,28 @@ describe("courseResolverNode", () => {
     expect(reader.dashboardReads).toBe(0);
     expect(config.targetCourseUrls).toBeUndefined();
   });
+
+  it("keeps the dashboard scope for cross-course quiz discovery", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const reader = fakeReader([
+      candidate("C1", 10, "DYN2 Anwendungen der Dynamik"),
+      candidate("C2", 20, "MAES2 Mathematik"),
+    ], {});
+    const config = resolverConfig("Find open quizzes and self-checks across all Moodle courses");
+    config.intentDecision = {
+      ...config.intentDecision!,
+      intent: "quiz_assist",
+      wantsQuizAssistance: true,
+      wantsQuizDiscovery: true,
+      wantsQuickAnswer: true,
+    };
+
+    const result = await createCourseResolverNode(config, sequenceCodex([]), { reader })();
+
+    expect(result).toEqual({ error_log: null });
+    expect(reader.dashboardReads).toBe(0);
+    expect(config.targetCourseUrls).toBeUndefined();
+  });
 });
 
 function resolverConfig(prompt: string) {

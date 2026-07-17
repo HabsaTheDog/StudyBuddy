@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
@@ -21,6 +21,11 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     ? resolveWorkspacePath(input.outputPath, workspaceRoot)
     : path.join(runDir, "document.html");
   mkdirSync(runDir, { recursive: true });
+  const canonicalLogoPath = path.join(workspaceRoot, "CI", "logo.png");
+  const assetFiles = [...(input.assetFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot))];
+  if (existsSync(canonicalLogoPath) && !assetFiles.some((file) => path.resolve(file) === canonicalLogoPath)) {
+    assetFiles.unshift(canonicalLogoPath);
+  }
 
   return {
     prompt: input.prompt,
@@ -29,11 +34,11 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     runDir,
     outputPath,
     sourceFiles: (input.sourceFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot)),
-    assetFiles: (input.assetFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot)),
+    assetFiles,
     sourceRunDir: input.sourceRunDir ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot) : undefined,
     sourceMode: inferSourceMode(input),
     language: input.language ?? "de",
-    maxRuntimeMs: input.maxRuntimeMs ?? 10 * 60_000,
+    maxRuntimeMs: input.maxRuntimeMs ?? 20 * 60_000,
     idleTimeoutMs: input.idleTimeoutMs ?? 5 * 60_000,
     browserHeaded: input.browserHeaded ?? false,
     skipBrowserValidation: input.skipBrowserValidation ?? false,
