@@ -70,6 +70,50 @@ describe("web layout graph", () => {
     expect(result.state.retry_count).toBe(3);
     expect(result.error).toContain("HTML validation failed");
   });
+
+  it("keeps validator and semantic quality retry budgets independent", async () => {
+    await tempWorkspace();
+    let generatorCalls = 0;
+    let qualityCalls = 0;
+    const result = await runWebLayoutGraph(
+      {
+        prompt: "Build a resilient interactive guide",
+        kind: "flashcards",
+        requestName: "independent-retry-test",
+        skipBrowserValidation: true,
+      },
+      {
+        sourceNode: async () => ({ source_text: "source", error_log: null }),
+        plannerNode: async () => ({ layout_spec: validLayoutSpec(), error_log: null }),
+        generatorNode: async () => {
+          generatorCalls += 1;
+          return {
+            html_document: generatorCalls <= 2
+              ? "<!doctype html><html><body>broken</body></html>"
+              : minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" }),
+            error_log: null,
+          };
+        },
+        qualityReviewerNode: async (state) => {
+          qualityCalls += 1;
+          return qualityCalls === 1
+            ? {
+                error_log: "Semantic quality review failed: repair this",
+                retry_count: state.retry_count + 1,
+                quality_retry_count: state.quality_retry_count + 1,
+              }
+            : { error_log: null };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(generatorCalls).toBe(4);
+    expect(qualityCalls).toBe(2);
+    expect(result.state.validator_retry_count).toBe(2);
+    expect(result.state.quality_retry_count).toBe(1);
+    expect(result.state.retry_count).toBe(3);
+  });
 });
 
 async function tempWorkspace(): Promise<string> {

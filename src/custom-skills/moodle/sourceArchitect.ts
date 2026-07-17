@@ -108,7 +108,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
       const response = await codex.run(buildArchitectPrompt(config, state, available, briefs, round), {
         outputSchema: decisionSchema,
         task: "artifact_planner",
-        attempt: round,
+        attempt: 1,
       });
       decision = validateDecision(response, available, round, config.executionProfile);
     } catch (error) {

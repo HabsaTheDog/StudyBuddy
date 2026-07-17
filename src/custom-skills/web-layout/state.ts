@@ -14,6 +14,10 @@ export interface WebLayoutState {
   validation_report: JsonObject;
   error_log: string | null;
   retry_count: number;
+  planner_retry_count: number;
+  generator_retry_count: number;
+  validator_retry_count: number;
+  quality_retry_count: number;
 }
 
 export const initialWebLayoutState: WebLayoutState = {
@@ -23,6 +27,10 @@ export const initialWebLayoutState: WebLayoutState = {
   validation_report: {},
   error_log: null,
   retry_count: 0,
+  planner_retry_count: 0,
+  generator_retry_count: 0,
+  validator_retry_count: 0,
+  quality_retry_count: 0,
 };
 
 export const WebLayoutStateAnnotation = Annotation.Root({
@@ -47,6 +55,22 @@ export const WebLayoutStateAnnotation = Annotation.Root({
     default: () => null,
   }),
   retry_count: Annotation<number>({
+    reducer: (_current, update) => update,
+    default: () => 0,
+  }),
+  planner_retry_count: Annotation<number>({
+    reducer: (_current, update) => update,
+    default: () => 0,
+  }),
+  generator_retry_count: Annotation<number>({
+    reducer: (_current, update) => update,
+    default: () => 0,
+  }),
+  validator_retry_count: Annotation<number>({
+    reducer: (_current, update) => update,
+    default: () => 0,
+  }),
+  quality_retry_count: Annotation<number>({
     reducer: (_current, update) => update,
     default: () => 0,
   }),

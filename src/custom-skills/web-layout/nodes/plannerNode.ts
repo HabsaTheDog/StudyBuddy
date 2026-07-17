@@ -23,6 +23,7 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
       return {
         error_log: message,
         retry_count: state.retry_count + 1,
+        planner_retry_count: state.planner_retry_count + 1,
       };
     }
   };
@@ -33,6 +34,11 @@ export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<L
     "Create a JSON-only implementation plan for a Study Buddy offline interactive HTML learning tool.",
     `Requested kind: ${config.kind}`,
     `Language: ${config.language}`,
+    "Keep scope proportional to the request. Choose one primary learning interaction and only add supporting interactions that directly serve it.",
+    "Do not invent authoring systems, editable content builders, imports, exports, source search/filter interfaces, or modal source browsers unless the user explicitly requested them.",
+    config.sourceMode === "prompt"
+      ? "Only the user prompt is available. Plan a clearly labelled demo without course-specific factual claims, citations, or source-management UI."
+      : "Plan source-aware citations only for sources actually present in the supplied handoff or files.",
     "Return exactly this schema with no Markdown fences and no prose:",
     JSON.stringify(layoutSpecJsonSchema, null, 2),
     state.error_log ? `Previous error to repair:\n${state.error_log}` : "",

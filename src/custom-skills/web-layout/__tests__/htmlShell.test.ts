@@ -9,8 +9,9 @@ describe("HTML shell helpers", () => {
   it("includes Study Buddy branding and tokens", () => {
     const html = minimalValidStudyBuddyHtml({ title: "Demo", kind: "flashcards", language: "de" });
 
-    expect(html).toContain("STUDY BUDDY 2.0");
-    expect(html).toContain("SB 2.0");
+    expect(html).toContain("Study Buddy");
+    expect(html).not.toContain("STUDY BUDDY 2.0");
+    expect(html).not.toContain("SB 2.0");
     expect(html).toContain("--sb-navy");
     expect(html).toContain("--sb-gold");
   });

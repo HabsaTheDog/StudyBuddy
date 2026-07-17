@@ -6,6 +6,7 @@ import type { ExtractedData } from "./schemas.js";
 import { safeFileName, type SourceCoverage } from "./runDiagnostics.js";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import type { VisualCropMode } from "./types.js";
 import { ensureInside } from "./validation.js";
 import { plannedPagesByResource, readVisualRetrievalPlan } from "./visualPlanner.js";
 
@@ -118,6 +119,7 @@ export async function discoverVisualCandidates(
       const extracted = tooling.pdfimages
         ? await extractEmbeddedPdfImages({
             pdfPath: visualPath,
+            resourceId: artifact.resourceId,
             sourceName: artifact.sourceName,
             sourceUrl: artifact.sourceUrl,
             visualDir,
@@ -134,6 +136,7 @@ export async function discoverVisualCandidates(
       const rendered = await renderRelevantPdfPages({
         config,
         pdfPath: visualPath,
+        resourceId: artifact.resourceId,
         sourceName: artifact.sourceName,
         sourceUrl: artifact.sourceUrl,
         visualDir,
@@ -153,6 +156,7 @@ export async function discoverVisualCandidates(
       const copied = await copyImageArtifact({
         config,
         imagePath: visualPath,
+        resourceId: artifact.resourceId,
         sourceName: artifact.sourceName,
         sourceUrl: artifact.sourceUrl,
         visualDir,
@@ -225,10 +229,109 @@ export async function readVisualManifest(runDir: string): Promise<VisualManifest
   return text ? JSON.parse(text) as VisualManifest : null;
 }
 
+export async function hydrateExtractedVisualAssets(
+  sourceRunDir: string,
+  data: ExtractedData,
+  cropMode: VisualCropMode = "auto",
+): Promise<ExtractedData> {
+  const manifest = await readVisualManifest(sourceRunDir);
+  if (!manifest) return data;
+  return {
+    ...data,
+    visual_assets: data.visual_assets.map((asset) => {
+      if (asset.relative_path) return asset;
+      if (
+        cropMode !== "original" &&
+        (asset.kind === "typst_diagram" || asset.kind === "placeholder_prompt")
+      ) {
+        return asset;
+      }
+      const match = bestVisualCandidate(asset, manifest.candidates, cropMode);
+      if (!match) return asset;
+      return {
+        ...asset,
+        kind: match.kind,
+        relative_path: match.relative_path,
+        mime_type: match.mime_type,
+        width_px: match.width_px,
+        height_px: match.height_px,
+        source_url: match.source_url ?? asset.source_url,
+        source_path: match.source_path ?? asset.source_path,
+        source_page: match.source_page ?? asset.source_page,
+      };
+    }),
+  };
+}
+
+function bestVisualCandidate(
+  asset: ExtractedData["visual_assets"][number],
+  candidates: VisualCandidate[],
+  cropMode: VisualCropMode,
+): VisualCandidate | null {
+  const assetFile = asset.source_path ? path.basename(asset.source_path).toLocaleLowerCase("de") : null;
+  const titleTokens = visualMatchTokens(`${asset.title} ${asset.caption_hint}`);
+  const ranked = candidates
+    .map((candidate) => {
+      const candidateFile = candidate.source_path
+        ? path.basename(candidate.source_path).toLocaleLowerCase("de")
+        : null;
+      const sameFile = Boolean(assetFile && candidateFile && assetFile === candidateFile);
+      const sameUrl = Boolean(asset.source_url && candidate.source_url === asset.source_url);
+      const samePage = Boolean(asset.source_page && candidate.source_page === asset.source_page);
+      const pageMismatch = Boolean(
+        asset.source_page &&
+        candidate.source_page &&
+        asset.source_page !== candidate.source_page
+      );
+      const tokenOverlap = titleTokens.filter((token) =>
+        `${candidate.title} ${candidate.caption_hint}`.toLocaleLowerCase("de").includes(token)
+      ).length;
+      const kindScore = visualCandidateKindScore(candidate, asset, cropMode);
+      return {
+        candidate,
+        eligible: (sameFile || sameUrl) && !pageMismatch,
+        score: (sameFile ? 8 : 0) + (sameUrl ? 4 : 0) + (samePage ? 6 : 0) + kindScore + Math.min(tokenOverlap, 4),
+      };
+    })
+    .filter((entry) => entry.eligible)
+    .sort((left, right) => right.score - left.score || right.candidate.confidence - left.candidate.confidence);
+  const best = ranked[0];
+  return best && best.score >= 8 ? best.candidate : null;
+}
+
+function visualCandidateKindScore(
+  candidate: VisualCandidate,
+  asset: ExtractedData["visual_assets"][number],
+  cropMode: VisualCropMode,
+): number {
+  const page = candidate.kind === "moodle_pdf_page";
+  const embedded = candidate.kind === "moodle_pdf_image";
+  if (cropMode === "original") return page ? 14 : embedded ? 1 : 0;
+  if (cropMode === "context") return page ? 12 : embedded ? 2 : 0;
+  if (!embedded) return page ? (cropMode === "focused" ? 2 : 4) : 0;
+
+  const width = candidate.width_px ?? 0;
+  const height = candidate.height_px ?? 0;
+  const aspect = width > 0 && height > 0 ? Math.max(width / height, height / width) : 1;
+  const wantsDrawing = /(?:skizze|zeichnung|diagramm|schema|geometr|kontakt|verbindung|schnitt)/i.test(
+    `${asset.title} ${asset.caption_hint}`,
+  );
+  const overlyStripLike = aspect > 3 && wantsDrawing;
+  const usefulSize = width * height >= 100_000;
+  if (!usefulSize || overlyStripLike) return cropMode === "focused" ? -2 : -4;
+  return cropMode === "focused" ? 14 : 10;
+}
+
+function visualMatchTokens(value: string): string[] {
+  return [...new Set(value.toLocaleLowerCase("de").match(/[a-z0-9äöüß]{4,}/gi) ?? [])]
+    .filter((token) => !/^(?:abbildung|beispiel|seite|quelle|visualisierung)$/.test(token));
+}
+
 export async function copyRenderVisualAssets(
   sourceRunDir: string,
   renderRunDir: string,
   data: ExtractedData,
+  cropMode: VisualCropMode = "auto",
 ): Promise<void> {
   const referenced = new Map(
     data.visual_assets
@@ -236,6 +339,7 @@ export async function copyRenderVisualAssets(
       .map((asset) => [asset.relative_path, asset]),
   );
   const canCrop = Boolean(await findExecutable("magick"));
+  const resolutionLog: Array<Record<string, unknown>> = [];
   for (const [relativePath, asset] of referenced) {
     assertVisualRelativePath(relativePath);
     const sourcePath = ensureInside(sourceRunDir, path.join(sourceRunDir, relativePath));
@@ -246,14 +350,107 @@ export async function copyRenderVisualAssets(
     }
     await mkdir(path.dirname(targetPath), { recursive: true });
     await copyFile(sourcePath, targetPath);
+    const before = canCrop && /\.(?:png|jpe?g)$/i.test(targetPath)
+      ? await imageDimensions(targetPath).catch(() => null)
+      : null;
+    let cropApplied = false;
     if (
       canCrop &&
       asset.kind === "moodle_pdf_page" &&
+      cropMode !== "original" &&
       /\.(?:png|jpe?g)$/i.test(targetPath)
     ) {
-      await trimRasterWhitespace(targetPath).catch(() => false);
+      cropApplied = await cropPdfPageVisual(targetPath, asset, cropMode).catch(() => false);
     }
+    const after = canCrop && /\.(?:png|jpe?g)$/i.test(targetPath)
+      ? await imageDimensions(targetPath).catch(() => null)
+      : null;
+    if (after) {
+      asset.width_px = after.width;
+      asset.height_px = after.height;
+    }
+    resolutionLog.push({
+      asset_id: asset.id,
+      strategy: cropMode,
+      selected_kind: asset.kind,
+      relative_path: relativePath,
+      source_page: asset.source_page,
+      crop_applied: cropApplied,
+      dimensions_before: before,
+      dimensions_after: after,
+    });
   }
+  await writeFile(
+    path.join(renderRunDir, "visual-resolution.json"),
+    `${JSON.stringify({ strategy: cropMode, assets: resolutionLog }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function cropPdfPageVisual(
+  imagePath: string,
+  asset: ExtractedData["visual_assets"][number],
+  cropMode: Exclude<VisualCropMode, "original">,
+): Promise<boolean> {
+  const dimensions = await imageDimensions(imagePath);
+  const portrait = dimensions.height / dimensions.width > 1.18;
+  const descriptor = `${asset.title} ${asset.caption_hint}`;
+  const tableLike = /(?:tabelle|klassifikation|belastungsverlauf|kennwerte|formelübersicht)/i.test(descriptor);
+  const drawingLike = /(?:skizze|zeichnung|diagramm|schema|geometr|kontakt|verbindung|schnitt)/i.test(descriptor);
+
+  let region: { x: number; y: number; width: number; height: number };
+  if (portrait) {
+    region = cropMode === "context"
+      ? { x: 0.055, y: 0.105, width: 0.89, height: 0.79 }
+      : cropMode === "focused" && drawingLike
+        ? { x: 0.075, y: 0.16, width: 0.85, height: 0.57 }
+        : { x: 0.06, y: 0.13, width: 0.88, height: 0.68 };
+  } else if (cropMode === "context") {
+    region = { x: 0.018, y: 0.16, width: 0.964, height: 0.78 };
+  } else if (cropMode === "focused") {
+    region = tableLike
+      ? { x: 0.018, y: 0.19, width: 0.964, height: 0.72 }
+      : { x: 0.035, y: 0.20, width: 0.93, height: drawingLike ? 0.68 : 0.7 };
+  } else {
+    region = tableLike
+      ? { x: 0.018, y: 0.18, width: 0.964, height: 0.74 }
+      : { x: 0.025, y: 0.17, width: 0.95, height: 0.74 };
+  }
+
+  const x = Math.max(0, Math.floor(dimensions.width * region.x));
+  const y = Math.max(0, Math.floor(dimensions.height * region.y));
+  const width = Math.min(dimensions.width - x, Math.ceil(dimensions.width * region.width));
+  const height = Math.min(dimensions.height - y, Math.ceil(dimensions.height * region.height));
+  if (width < 180 || height < 120) return false;
+
+  const extension = path.extname(imagePath);
+  const temporaryPath = `${imagePath.slice(0, -extension.length)}.focused${extension}`;
+  const result = await runCommand("magick", [
+    imagePath,
+    "-crop",
+    `${width}x${height}+${x}+${y}`,
+    "+repage",
+    "-fuzz",
+    "4%",
+    "-trim",
+    "+repage",
+    "-bordercolor",
+    "white",
+    "-border",
+    "16x16",
+    temporaryPath,
+  ]);
+  if (result.code !== 0) {
+    await rm(temporaryPath, { force: true });
+    throw new Error(result.stderr || result.stdout || "ImageMagick page crop failed.");
+  }
+  const cropped = await imageDimensions(temporaryPath);
+  if (cropped.width < 180 || cropped.height < 120) {
+    await rm(temporaryPath, { force: true });
+    return false;
+  }
+  await rename(temporaryPath, imagePath);
+  return true;
 }
 
 export function assertVisualRelativePath(relativePath: string): void {
@@ -472,6 +669,7 @@ async function resolveVisualArtifactPath(filePath: string): Promise<string> {
 
 async function extractEmbeddedPdfImages(input: {
   pdfPath: string;
+  resourceId: string | null;
   sourceName: "moodle" | "cis";
   sourceUrl: string | null;
   visualDir: string;
@@ -566,7 +764,7 @@ async function extractEmbeddedPdfImages(input: {
         mime_type: extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : "image/png",
         width_px: image.width,
         height_px: image.height,
-        source_id: null,
+        source_id: input.resourceId,
         source_url: input.sourceUrl,
         source_path: input.pdfPath,
         source_page: image.page,
@@ -581,6 +779,7 @@ async function extractEmbeddedPdfImages(input: {
 async function renderRelevantPdfPages(input: {
   config: MoodleRuntimeConfig;
   pdfPath: string;
+  resourceId: string | null;
   sourceName: "moodle" | "cis";
   sourceUrl: string | null;
   visualDir: string;
@@ -641,7 +840,7 @@ async function renderRelevantPdfPages(input: {
       mime_type: "image/png",
       width_px: dimensions?.width ?? null,
       height_px: dimensions?.height ?? null,
-      source_id: null,
+      source_id: input.resourceId,
       source_url: input.sourceUrl,
       source_path: input.pdfPath,
       source_page: rankedPage.page,
@@ -659,6 +858,7 @@ async function renderRelevantPdfPages(input: {
 async function copyImageArtifact(input: {
   config: MoodleRuntimeConfig;
   imagePath: string;
+  resourceId: string | null;
   sourceName: "moodle" | "cis";
   sourceUrl: string | null;
   visualDir: string;
@@ -684,7 +884,7 @@ async function copyImageArtifact(input: {
     mime_type: extension === ".svg" ? "image/svg+xml" : extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : "image/png",
     width_px: raster.width,
     height_px: raster.height,
-    source_id: null,
+    source_id: input.resourceId,
     source_url: input.sourceUrl,
     source_path: input.imagePath,
     source_page: null,

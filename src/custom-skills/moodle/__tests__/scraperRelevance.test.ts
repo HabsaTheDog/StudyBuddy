@@ -13,6 +13,20 @@ import {
 } from "../nodes/scraperNode.js";
 
 describe("Moodle crawl relevance", () => {
+  it("prioritizes activity pages for read-only quiz discovery", () => {
+    const links = [
+      { href: "https://moodle.example/mod/page/view.php?id=1", label: "Lecture notes" },
+      { href: "https://moodle.example/mod/quiz/view.php?id=2", label: "Minitest 4" },
+      { href: "https://moodle.example/mod/hotquestion/view.php?id=3", label: "Self-check questions" },
+      { href: "https://moodle.example/course/view.php?id=4", label: "Course" },
+    ];
+
+    expect(selectRelevantMoodleLinks(links, "Find quizzes and self-checks that are still open")).toEqual([
+      "https://moodle.example/mod/quiz/view.php?id=2",
+      "https://moodle.example/mod/hotquestion/view.php?id=3",
+    ]);
+  });
+
   it("keeps a resolved course as an immutable crawl boundary", () => {
     const selectedCourse = "https://moodle.example/course/view.php?id=20";
     const links = [

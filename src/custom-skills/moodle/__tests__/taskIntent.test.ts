@@ -41,6 +41,22 @@ describe("Study Buddy task intent", () => {
     expect(intent.wantsPdf).toBe(true);
   });
 
+  it("does not treat exam-ready wording as a schedule or CIS request", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Erstelle einen ausführlichen prüfungstauglichen Study Guide für MEL als PDF",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+
+    expect(intent.intent).toBe("study_pdf");
+    expect(intent.needsCis).toBe(false);
+    expect(intent.needsCalendar).toBe(false);
+  });
+
   it("classifies explicit minitest prompts as quiz assistance", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: "Bearbeite den nächsten MEL Minitest",
@@ -82,6 +98,28 @@ describe("Study Buddy task intent", () => {
     expect(intent.intent).toBe("schedule_answer");
     expect(intent.needsCalendar).toBe(true);
     expect(intent.wantsQuizAssistance).toBe(false);
+  });
+
+  it("keeps open quiz discovery on the Moodle quiz route despite availability and time-limit words", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Scan my Moodle courses for quizzes and self-checks that are still open today. Include time limits and rank harder options.",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "quiz_assist",
+      wantsQuizAssistance: true,
+      wantsQuizDiscovery: true,
+      wantsQuickAnswer: true,
+      needsMoodle: true,
+      needsCis: false,
+      needsCalendar: false,
+    });
   });
 
   it("treats Moodle as a requested schedule source without enabling course-material ingestion", () => {

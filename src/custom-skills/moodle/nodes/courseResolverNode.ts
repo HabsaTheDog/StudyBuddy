@@ -143,6 +143,10 @@ function shouldResolveCourse(
 ): boolean {
   if (state?.moodle_raw_text.trim()) return false;
   if (config.targetCourseUrls?.length) return false;
+  // Cross-course quiz discovery must retain the dashboard as its crawl root.
+  // Selecting one semantically plausible course here silently destroys the
+  // requested enrolled-course scope.
+  if (config.intentDecision?.wantsQuizDiscovery) return false;
   if (!config.sourcePlan?.targets.includes("moodle") || !config.sourcePlan.needsCourseMaterial) return false;
   try {
     const pathname = new URL(config.moodleUrl).pathname.replace(/\/+$/, "") || "/";

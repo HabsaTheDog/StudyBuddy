@@ -15,12 +15,17 @@ export function createVisualAssetResolverNode(config: MoodleRuntimeConfig) {
     }
     try {
       const data = validateExtractedData(state.extracted_data);
-      await copyRenderVisualAssets(config.sourceRunDir, config.runDir, data);
+      await copyRenderVisualAssets(
+        config.sourceRunDir,
+        config.runDir,
+        data,
+        config.visualCropMode,
+      );
       const assetCount = data.visual_assets.filter((asset) => asset.relative_path).length;
       if (assetCount > 0) {
         await config.diagnostics?.log("info", "diagnostic", `Copied ${assetCount} visual asset(s) into render run.`);
       }
-      return { error_log: null };
+      return { extracted_data: data, error_log: null };
     } catch (error) {
       return {
         error_log: `Visual asset resolver failed: ${error instanceof Error ? error.message : String(error)}`,

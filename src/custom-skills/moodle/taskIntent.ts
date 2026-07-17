@@ -16,6 +16,7 @@ export interface StudyBuddyIntentDecision {
   wantsTypstDocument: boolean;
   wantsQuickAnswer: boolean;
   wantsQuizAssistance: boolean;
+  wantsQuizDiscovery?: boolean;
   needsMoodle: boolean;
   needsCis: boolean;
   needsCalendar: boolean;
@@ -65,6 +66,7 @@ export function classifyStudyBuddyIntent(input: {
     });
   }
 
+  const wantsQuizDiscovery = isQuizDiscoveryIntent(prompt);
   const hasQuizIntent = explicitQuizIntent(prompt);
   const wantsPdf = /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/i
     .test(prompt);
@@ -83,6 +85,8 @@ export function classifyStudyBuddyIntent(input: {
   if (hasQuizIntent) {
     return decision("quiz_assist", "The prompt explicitly asks for quiz/test assistance.", {
       wantsQuizAssistance: true,
+      wantsQuizDiscovery,
+      wantsQuickAnswer: wantsQuizDiscovery,
       needsMoodle: true,
       needsCis: false,
       needsCourseMaterial: true,
@@ -135,6 +139,12 @@ export function classifyStudyBuddyIntent(input: {
 }
 
 function explicitQuizIntent(prompt: string): boolean {
+  // Discovery is a Moodle activity lookup even when the user also asks for
+  // availability, dates, or time limits. Those words must not demote the
+  // request to the schedule/calendar route.
+  if (isQuizDiscoveryIntent(prompt)) {
+    return true;
+  }
   if (
     /\b(?:wann|wo|termin|uhrzeit|raum|schedule|date|time)\b/i.test(prompt) &&
     !/\b(?:bearbeite|mach|starte|fülle|fuelle|ausfüllen|ausfuellen|solve|fill|answer)\b/i.test(prompt)
@@ -150,6 +160,12 @@ function explicitQuizIntent(prompt: string): boolean {
   );
 }
 
+function isQuizDiscoveryIntent(prompt: string): boolean {
+  const quizNoun = /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|self[ -]?checks?|selbsttests?|selbstkontrollen?)\b/i;
+  const discoveryAction = /\b(?:find|list|scan|look through|show|search|discover|available|attemptable|still open|currently open|offen|verfügbar|verfuegbar|durchsuch|auflist|anzeig|finde|suche)\w*\b/i;
+  return quizNoun.test(prompt) && discoveryAction.test(prompt);
+}
+
 function decision(
   intent: StudyBuddyIntent,
   reason: string,
@@ -161,6 +177,7 @@ function decision(
     wantsTypstDocument: false,
     wantsQuickAnswer: false,
     wantsQuizAssistance: false,
+    wantsQuizDiscovery: false,
     needsMoodle: true,
     needsCis: false,
     needsCalendar: false,

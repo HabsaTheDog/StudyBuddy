@@ -14,7 +14,7 @@ import { buildStudyModel } from "../studyModel.js";
 import { classifyArtifactIntent } from "../studentFirstPolicy.js";
 import { reviewStudyModel } from "../studentFirstReview.js";
 import { renderStudentFirstHtml } from "../studentFirstHtmlRenderer.js";
-import { renderStudentFirstTypst } from "../studentFirstTypstRenderer.js";
+import { formatFormulaMath, renderStudentFirstTypst } from "../studentFirstTypstRenderer.js";
 import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
 import { validateTypst } from "../validation.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
@@ -51,6 +51,9 @@ const melSnapshot = {
 };
 
 describe("student-centric exam navigator contracts", () => {
+  it("separates adjacent Greek and Latin formula symbols for Typst", () => {
+    expect(formatFormulaMath("A_(net) = A - ΔA")).toBe('A_"net" = A - Δ A');
+  });
   it("discovers the MEL resource map, including calculations, solutions, and quizzes", () => {
     const resources = resourcesFromSnapshot(melSnapshot);
     const titles = resources.map((resource) => resource.title);
@@ -382,6 +385,39 @@ describe("student-centric exam navigator contracts", () => {
     );
   });
 
+  it("downgrades declared complete coverage when analyzer warnings name a chapter gap", () => {
+    const sourceUrl = "https://moodle.example/mod/resource/view.php?id=21";
+    const source = {
+      ...node("surface", sourceUrl, "resource", "acquired"),
+      sectionPath: ["A. Eigenstudium - Toleranzen, Passungen und Oberflächen"],
+    };
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [source],
+    });
+    const extracted = moodleExtractedData({
+      sources: [{ id: source.id, title: "Toleranzen", kind: "pdf", url: sourceUrl, path: "/tmp/source.pdf", page: 1 }],
+      sections: [{ heading: "Toleranzen", summary: "Toleranzen werden erklärt.", key_concepts: ["Grenzmaße"], source_ids: [source.id] }],
+      warnings: ["Für Oberflächenbeschaffenheit liegt keine nutzbare Detail-Evidenz vor."],
+    });
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, {
+      status: "complete",
+      detail: "All selected sources acquired.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 1,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 1,
+    });
+
+    expect(model.courseChapters[0].status).toBe("partial");
+    expect(model.publicationStatus).toBe("partial");
+  });
+
   it("removes organizational questions and renders one shared checklist", async () => {
     const config = moodleTestConfig({
       prompt: "Erstelle eine interaktive Lernseite mit Karteikarten",
@@ -568,6 +604,7 @@ describe("student-centric exam navigator contracts", () => {
     const model = buildStudyModel(moodleTestConfig(), extracted, manifest, coverage);
     const typst = renderStudentFirstTypst(model);
 
+    expect(model.title).toBe("Maschinenelemente 1 – Study Guide");
     expect(model.courseChapters.map((chapter) => chapter.title)).toEqual([
       "A. Eigenstudium - Toleranzen, Passungen und Oberflächen",
       "B. Eigenstudium - Klebeverbindungen",
@@ -584,7 +621,7 @@ describe("student-centric exam navigator contracts", () => {
     expect(typst.indexOf("Formelwerkzeug")).toBeLessThan(typst.lastIndexOf("B. Eigenstudium"));
   });
 
-  it("does not silently replace missing source visuals with generic diagrams", () => {
+  it("omits unresolved visual workflow prompts instead of rendering fake figures", () => {
     const sourceUrl = "https://moodle.example/mod/resource/view.php?id=10";
     const manifest = ResourceManifestSchema.parse({
       schemaVersion: "1.0",
@@ -648,8 +685,9 @@ describe("student-centric exam navigator contracts", () => {
     const typst = renderStudentFirstTypst(model);
 
     expect(typst).not.toContain("#sb-block-diagram");
-    expect(typst).toContain("Visualisierung nicht gerendert");
-    expect(typst).toContain("Toleranzfelder bei H7/k6");
+    expect(typst).not.toContain("Visualisierung nicht gerendert");
+    expect(typst).not.toContain("Visualisierungsprompt");
+    expect(typst).not.toContain("Toleranzfelder bei H7/k6");
   });
 
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")(

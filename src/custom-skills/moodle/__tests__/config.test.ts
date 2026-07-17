@@ -243,6 +243,7 @@ describe("createRuntimeConfig", () => {
     expect(config.visualsEnabled).toBe(true);
     expect(config.maxVisualAssets).toBe(5);
     expect(config.visualMinConfidence).toBe(0.4);
+    expect(config.visualCropMode).toBe("auto");
   });
 
   it("reads quiz safety policy from environment settings", async () => {
@@ -267,6 +268,33 @@ describe("createRuntimeConfig", () => {
       draftOnly: false,
       allowAttemptOpen: true,
       allowAnswerFill: true,
+      allowFinalSubmit: false,
+    });
+  });
+
+  it("forces quiz discovery to remain read-only even when auto-answer is enabled globally", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-discovery-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_QUIZ_AUTO_ANSWER", "true");
+    vi.stubEnv("MOODLE_QUIZ_OPEN_ATTEMPTS", "true");
+
+    const config = createRuntimeConfig({
+      prompt: "Find Moodle quizzes and self-checks that are still open today and list their time limits.",
+      moodleUrl: "https://moodle.example/my/",
+      autoAnswer: true,
+    });
+
+    expect(config.intentDecision).toMatchObject({
+      intent: "quiz_assist",
+      wantsQuizDiscovery: true,
+    });
+    expect(config.autoAnswer).toBe(false);
+    expect(config.quizPolicy).toMatchObject({
+      requestedAutoAnswer: false,
+      allowAttemptOpen: false,
+      allowAnswerFill: false,
+      allowAnswerChange: false,
+      allowSaveOrMovePage: false,
       allowFinalSubmit: false,
     });
   });

@@ -1,4 +1,9 @@
 import type { StudyModel } from "./examNavigatorContracts.js";
+import {
+  cleanVisibleMathText,
+  normalizeInlineMathSource,
+  renderTypstInlineText,
+} from "./typstInlineMath.js";
 
 export function renderStudentFirstTypst(model: StudyModel): string {
   const body: string[] = [];
@@ -37,7 +42,9 @@ export function renderStudentFirstTypst(model: StudyModel): string {
     }
 
     const examples = model.workedExamples.filter((example) => example.chapterId === chapter.id);
-    const figures = model.figures.filter((figure) => figure.chapterId === chapter.id);
+    const figures = model.figures.filter((figure) =>
+      figure.chapterId === chapter.id && Boolean(figure.relativePath)
+    );
     const exampleFigureIds = new Set(
       examples.flatMap((example) =>
         figuresForExample(figures, example, 1).map((figure) => figure.id)
@@ -96,7 +103,9 @@ export function renderStudentFirstTypst(model: StudyModel): string {
     }
   }
 
-  const remainingFigures = model.figures.filter((figure) => !renderedFigureIds.has(figure.id));
+  const remainingFigures = model.figures.filter((figure) =>
+    Boolean(figure.relativePath) && !renderedFigureIds.has(figure.id)
+  );
   if (remainingFigures.length > 0) {
     body.push(heading(1, labels.moreFiguresAndTables));
     for (const figure of remainingFigures) {
@@ -211,7 +220,7 @@ function renderFormula(model: StudyModel, formula: StudyModel["formulas"][number
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
   source: ${sourceReferences(model, formula.sourceIds)},
-  note: ${typstString(formula.assumptions)},
+  note: [${text(formula.assumptions)}],
 )[
   $ ${formatFormulaMath(formula.expression)} $
 ]`;
@@ -262,14 +271,7 @@ function renderFigure(
   #image(${typstString(figure.relativePath)}, width: ${width}, height: ${height}, fit: "contain")
 ]`;
   }
-  if (figure.kind === "typst_diagram") {
-    return `#sb-callout(title: ${typstString(labels.visualNotRendered)}, tone: "warning")[
-  ${text(figure.generationPrompt || labels.missingVisual(figure.title))}
-]`;
-  }
-  return `#sb-callout(title: ${typstString(labels.plannedVisual)}, tone: "info")[
-  ${text(figure.generationPrompt || figure.caption)}
-]`;
+  return "";
 }
 
 function figuresForExample(
@@ -279,7 +281,10 @@ function figuresForExample(
 ): StudyModel["figures"] {
   const exampleSources = new Set(example.sourceIds);
   return figures
-    .filter((figure) => figure.sourceIds.some((sourceId) => exampleSources.has(sourceId)))
+    .filter((figure) =>
+      Boolean(figure.relativePath) &&
+      figure.sourceIds.some((sourceId) => exampleSources.has(sourceId))
+    )
     .sort((left, right) =>
       visualSpecificity(right) - visualSpecificity(left) ||
       left.title.localeCompare(right.title, "de")
@@ -334,7 +339,7 @@ function numberedList(items: string[]): string {
 }
 
 function text(value: string): string {
-  return `#text(${typstString(value)})`;
+  return renderTypstInlineText(value, formatFormulaMath);
 }
 
 function typstString(value: string): string {
@@ -342,7 +347,7 @@ function typstString(value: string): string {
 }
 
 function stringTuple(values: string[]): string {
-  return `(${values.map(typstString).join(", ")}${values.length ? "," : ""})`;
+  return `(${values.map((value) => typstString(cleanVisibleMathText(value))).join(", ")}${values.length ? "," : ""})`;
 }
 
 function stripMathDelimiters(value: string): string {
@@ -350,19 +355,27 @@ function stripMathDelimiters(value: string): string {
   const body = trimmed.startsWith("$") && trimmed.endsWith("$")
     ? trimmed.slice(1, -1).trim()
     : trimmed;
-  return quoteBareMathText(body.replace(
+  return quoteBareMathText(separateGreekLatinSymbols(normalizeInlineMathSource(body).replace(
     /_\(([A-Za-z][A-Za-z0-9 -]+)\)/g,
     (_, label: string) => `_"${label.trim()}"`,
-  ));
+  )));
+}
+
+function separateGreekLatinSymbols(value: string): string {
+  return value
+    .replace(/([\p{Script=Greek}])(?=[A-Za-z])/gu, "$1 ")
+    .replace(/([A-Za-z])(?=[\p{Script=Greek}])/gu, "$1 ");
 }
 
 function quoteBareMathText(value: string): string {
   const mathKeywords = new Set([
     "and",
+    "approx",
     "cos",
     "dif",
     "div",
     "dot",
+    "dots",
     "exp",
     "frac",
     "lim",
@@ -371,25 +384,34 @@ function quoteBareMathText(value: string): string {
     "max",
     "min",
     "or",
+    "pi",
     "quad",
     "sin",
     "sqrt",
     "sum",
     "tan",
     "times",
+    "sigma",
+    "tau",
+    "gamma",
+    "nu",
+    "Delta",
   ]);
   return value
     .split(/("[^"]*")/)
     .map((part) => {
       if (part.startsWith('"') && part.endsWith('"')) return part;
-      return part.replace(/\b[A-Za-z]{2,}\b/g, (token) =>
-        mathKeywords.has(token) ? token : `"${token}"`
-      );
+      return part
+        .replace(/µm/g, '"µm"')
+        .replace(/°C/g, '"°C"')
+        .replace(/\b[A-Za-z]{2,}\b/g, (token) =>
+          mathKeywords.has(token) ? token : `"${token}"`
+        );
     })
     .join("");
 }
 
-function formatFormulaMath(value: string): string {
+export function formatFormulaMath(value: string): string {
   const body = stripMathDelimiters(value);
   if (body.length < 88 || !/;\s*quad\s*/.test(body)) {
     return body;

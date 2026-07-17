@@ -103,7 +103,19 @@ class CliAgentBrowserClient implements AgentBrowserClient {
   constructor(private readonly spec: CommandSpec) {}
 
   async open(url: string): Promise<AgentBrowserCommandResult> {
-    return this.run(["open", url]);
+    try {
+      return await this.run(["open", url]);
+    } catch (error) {
+      // agent-browser currently waits for Playwright's networkidle state when
+      // navigating. Moodle course pages can keep background requests alive
+      // indefinitely even though the DOM and URL are already usable. Treat
+      // that specific false timeout as a successful navigation; the caller's
+      // subsequent snapshot/body checks still reject empty or wrong pages.
+      if (!isNavigationTimeout(error)) throw error;
+      const currentUrl = await this.getUrl().catch(() => "");
+      if (!sameRequestedPage(url, currentUrl)) throw error;
+      return { stdout: currentUrl, stderr: navigationWarning(error) };
+    }
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<AgentBrowserSnapshot> {
@@ -172,6 +184,29 @@ class CliAgentBrowserClient implements AgentBrowserClient {
       throw toAgentBrowserCommandError(error, this.spec.sensitiveValues);
     }
   }
+}
+
+function isNavigationTimeout(error: unknown): boolean {
+  return error instanceof Error && /(?:goto|navigat).*timeout|timeout.*(?:goto|navigat)|networkidle/i.test(error.message);
+}
+
+function sameRequestedPage(requestedUrl: string, currentUrl: string): boolean {
+  try {
+    const requested = new URL(requestedUrl);
+    const current = new URL(currentUrl);
+    if (requested.origin !== current.origin || requested.pathname !== current.pathname) return false;
+    for (const [key, value] of requested.searchParams) {
+      if (current.searchParams.get(key) !== value) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function navigationWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message.split("\n", 1)[0] : String(error);
+  return `Navigation reached the requested Moodle page despite a non-terminal wait timeout: ${message}`;
 }
 
 class QuizPolicyAgentBrowserClient implements AgentBrowserClient {

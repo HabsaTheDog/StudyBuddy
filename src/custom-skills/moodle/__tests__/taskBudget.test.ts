@@ -19,6 +19,14 @@ function decision(intent: StudyBuddyIntentDecision["intent"]): StudyBuddyIntentD
 }
 
 describe("task budgets", () => {
+  it("gives read-only quiz discovery enough breadth for enrolled courses", () => {
+    expect(resolveTaskBudget({ ...decision("quiz_assist"), wantsQuizDiscovery: true })).toMatchObject({
+      maxMoodlePages: 24,
+      maxMoodleDepth: 2,
+      maxDownloadedFiles: 0,
+    });
+  });
+
   it("keeps schedule lookups small and model-free", () => {
     expect(resolveTaskBudget(decision("schedule_answer"))).toEqual({
       maxMoodlePages: 4,

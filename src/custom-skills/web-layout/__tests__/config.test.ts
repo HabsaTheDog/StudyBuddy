@@ -29,6 +29,7 @@ describe("web layout config", () => {
     expect(config.runDir).toContain(path.join("output", "buck-boost-flashcards"));
     expect(config.outputPath).toBe(path.join(config.runDir, "document.html"));
     expect(config.sourceMode).toBe("prompt");
+    expect(config.maxRuntimeMs).toBe(20 * 60_000);
   });
 
   it("uses an explicit Codex model over the inherited Study Buddy model", async () => {

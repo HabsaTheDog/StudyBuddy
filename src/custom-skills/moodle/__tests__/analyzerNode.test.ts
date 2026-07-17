@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   NonRetryableCodexError,
@@ -93,6 +96,72 @@ describe("analyzerNode", () => {
     expect(receivedPrompt.length).toBeLessThan(40_000);
   });
 
+  it("caches valid chapter handoffs and repairs only the chapter named by review feedback", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-chapters-"));
+    try {
+      const calls: string[] = [];
+      const codex: CodexClient = {
+        async run(prompt) {
+          calls.push(prompt);
+          const glue = prompt.includes("Kleben");
+          const id = glue ? "glue" : "rivet";
+          const title = glue ? "Kleben" : "Nieten";
+          return JSON.stringify({
+            document_title: "MEL",
+            language: "de",
+            course: { title: "MEL", url: "https://moodle.example/course" },
+            sources: [{ id, title, kind: "pdf", url: `https://moodle.example/${id}.pdf`, path: `/tmp/${id}.pdf`, page: 1 }],
+            sections: [{ heading: title, summary: `${title} ausführlich erklärt.`, key_concepts: [`${title} anwenden`], source_ids: [id] }],
+            formulas: [],
+            worked_examples: [{
+              origin: "source",
+              learning_goal: `${title} berechnen`,
+              prompt: `${title} Beispiel`,
+              steps: ["Gegebenes erfassen", "Ergebnis bestimmen"],
+              result: "Ergebnis",
+              source_ids: [id],
+            }],
+            quiz_style_questions: [],
+            visual_assets: [],
+            figures: [],
+            warnings: [],
+          });
+        },
+      };
+      const resources = [
+        chapterResource("glue", "Foliensatz: Kleben", "Eigenstudium 2", "primary_lecture"),
+        chapterResource("glue-solution", "Lösung 5", "Eigenstudium 2", "worked_example"),
+        chapterResource("rivet", "Foliensatz: Nietverbindung", "Eigenstudium 3", "primary_lecture"),
+        chapterResource("rivet-solution", "Lösung 7", "Eigenstudium 3", "worked_example"),
+      ];
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      });
+      const baseState = moodleTestState({
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources,
+        },
+      });
+
+      const first = await createAnalyzerNode(config, codex)(baseState);
+      const repaired = await createAnalyzerNode(config, codex)({
+        ...baseState,
+        error_log: "Chapter is too shallow: Klebeverbindungen",
+      });
+
+      expect(calls).toHaveLength(3);
+      expect(first.extracted_data).toMatchObject({ sections: [{ heading: "Kleben" }, { heading: "Nieten" }] });
+      expect(repaired.error_log).toBeNull();
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it("exhausts the retry budget immediately for deterministic model errors", async () => {
     const codex: CodexClient = {
       async run() {
@@ -132,3 +201,28 @@ describe("analyzerNode", () => {
     expect(classifyCodexError(error)).toEqual({ category, retryable: true });
   });
 });
+
+function chapterResource(
+  id: string,
+  title: string,
+  section: string,
+  role: "primary_lecture" | "worked_example",
+) {
+  return {
+    id: `res_${id}`,
+    parentId: null,
+    sectionPath: [section],
+    activityType: "resource",
+    title,
+    originUrl: `https://moodle.example/${id}.pdf`,
+    resolvedUrl: null,
+    localPath: `/tmp/${id}.pdf`,
+    previewPath: null,
+    status: "acquired" as const,
+    checksum: id,
+    verifiedAt: null,
+    examRelevance: "unknown" as const,
+    failureReason: null,
+    selection: { selected: true, role, topic: null, priority: 1, reason: "test" },
+  };
+}

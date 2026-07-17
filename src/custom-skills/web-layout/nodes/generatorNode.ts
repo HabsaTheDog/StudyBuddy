@@ -23,6 +23,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
       return {
         error_log: message,
         retry_count: state.retry_count + 1,
+        generator_retry_count: state.generator_retry_count + 1,
       };
     }
   };
@@ -47,6 +48,19 @@ export function buildGeneratorPrompt(
     "- Large PDFs and videos must remain user-triggered HTTPS Moodle/source links; label that they require connectivity or login.",
     "Interaction requirements:",
     interactionGuidance(config.kind),
+    "Scope control:",
+    "- Implement one coherent primary learning interaction. Prefer a smaller complete experience over a broad dashboard of loosely related tools.",
+    "- Do not add content editors, authoring workflows, import/export/download controls, source search/filtering, or modal source previews unless explicitly requested.",
+    config.sourceMode === "prompt"
+      ? "- The prompt is the only source: label the page as a demo, avoid course-specific factual claims, and do not build citations or source-management controls."
+      : "- Build citations only from sources actually present in the supplied source text.",
+    "Reliability requirements learned from validation:",
+    "- At 390px viewport width, no element may cause horizontal document overflow. Wrap or scroll wide local content inside its own labelled container.",
+    "- A quiz or scored interaction may award credit at most once per task until an explicit reset.",
+    "- Do not require a physical unit for every technical term. Mention units only for quantities, or say 'falls anwendbar'.",
+    "- Prefer inline details for secondary information. If an overlay behaves like a modal, implement dialog semantics, initial focus, focus containment, Escape/close handling, and focus restoration.",
+    "- Avoid SVG fragment references such as href='#id', xlink:href='#id', or url(#id); draw small reusable shapes directly so strict offline validation cannot mistake fragments for external resources.",
+    "- Never present layout specifications, UI metadata, generated examples, or the user prompt as fachliche Quellen.",
     `Requested kind: ${config.kind}`,
     `Language: ${config.language}`,
     `Validated layout spec:\n${JSON.stringify(state.layout_spec, null, 2)}`,
@@ -68,7 +82,7 @@ function interactionGuidance(kind: string): string {
     quiz: "Include multiple question types where useful, immediate feedback, score, and retry/reset.",
     worksheet: "Include editable answer fields, solution reveal, and progress/completion state.",
     reference: "Create a compact interactive reference with navigation/filtering if useful; keep it offline and branded.",
-    auto: "Choose the best interaction model from flashcards, visualization, simulation, quiz, exam practice, worksheet, or reference.",
+    auto: "Choose exactly one primary interaction model from flashcards, visualization, simulation, quiz, exam practice, worksheet, or reference. A compact navigation/progress aid is allowed, but do not combine multiple mini-apps.",
   };
   return `${shared}\n${byKind[kind] ?? byKind.auto}`;
 }

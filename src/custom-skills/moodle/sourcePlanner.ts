@@ -118,8 +118,6 @@ export function planSourcesForPrompt(
     "raum",
     "räume",
     "anwesenheit",
-    "prüfung",
-    "pruefung",
     "termin",
     "deadline",
     "frist",
@@ -130,7 +128,7 @@ export function planSourcesForPrompt(
     "laborslot",
     "lv-info",
     "administrativ",
-  ]);
+  ]) || /\b(?:prüfung|pruefung|test|klausur|exam|wann|wo|uhrzeit)\b/i.test(normalized);
   const courseMaterial = hasAny(normalized, [
     "lernzettel",
     "unterlagen",

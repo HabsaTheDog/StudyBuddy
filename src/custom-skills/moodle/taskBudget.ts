@@ -44,6 +44,16 @@ export function resolveTaskBudget(intent: StudyBuddyIntentDecision | undefined):
     case "quick_answer":
       return DEFAULT_BUDGET;
     case "quiz_assist":
+      if (intent.wantsQuizDiscovery) {
+        return {
+          maxMoodlePages: 24,
+          maxMoodleDepth: 2,
+          maxCisPages: 0,
+          maxDownloadedFiles: 0,
+          maxModelInputChars: 96_000,
+          allowModel: true,
+        };
+      }
       return {
         maxMoodlePages: 8,
         maxMoodleDepth: 2,

@@ -24,18 +24,35 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         validation_report: { ok: false, issues: [{ code: "artifact-build", message }] },
         error_log: message,
         retry_count: state.retry_count + 1,
+        validator_retry_count: state.validator_retry_count + 1,
       };
     }
-    const report = await validateWebLayoutFile(
-      prepared.validationHtml,
-      prepared.report.buildPath,
-      effectiveKind(config.kind, state),
-      {
-        runDir: config.runDir,
-        headed: config.browserHeaded,
-        skip: config.skipBrowserValidation,
-      },
-    );
+    let report;
+    try {
+      report = await validateWebLayoutFile(
+        prepared.validationHtml,
+        prepared.report.buildPath,
+        effectiveKind(config.kind, state),
+        {
+          runDir: config.runDir,
+          headed: config.browserHeaded,
+          skip: config.skipBrowserValidation,
+        },
+      );
+    } catch (error) {
+      const message = `Browser validation failed: ${error instanceof Error ? error.message : String(error)}`;
+      await config.diagnostics?.log("warn", "validator", message);
+      return {
+        validation_report: {
+          ok: false,
+          issues: [{ code: "browser-validation", message }],
+          artifact: artifactSummary(prepared.report),
+        },
+        error_log: message,
+        retry_count: state.retry_count + 1,
+        validator_retry_count: state.validator_retry_count + 1,
+      };
+    }
     const validationReport: JsonObject = {
       ...validationReportToJson(report),
       artifact: artifactSummary(prepared.report),
@@ -47,6 +64,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         validation_report: validationReport,
         error_log: message,
         retry_count: state.retry_count + 1,
+        validator_retry_count: state.validator_retry_count + 1,
       };
     }
     await config.diagnostics?.log("info", "validator", "HTML validation passed.");

@@ -8,6 +8,7 @@ import {
   parseExecutionProfile,
   parseModelPolicyOverrides,
   parseReasoningEffort,
+  resolveTaskModelPolicy,
 } from "./modelPolicy.js";
 import { parseCodexPreflightMode } from "./config.js";
 
@@ -39,6 +40,7 @@ const program = new Command()
   .option("--artifact-profile <profile>", "Artifact profile: study_guide, exam_navigator, interactive_learning, practice_pack, or source_audit", parseArtifactProfile)
   .option("--format <format>", "Output format; repeat for html and pdf", collectFormat, [])
   .option("--visual-mode <mode>", "Visual mode: off, deferred, or inline", parseVisualMode)
+  .option("--visual-crop-mode <mode>", "Visual extraction: auto, focused, context, or original")
   .option("--fast-first", "Prioritize validated text extraction and first render before optional visuals")
   .option("--no-visuals", "Skip visual planning and visual asset extraction")
   .option("--max-visual-assets <number>", "Maximum visual candidates to pass through; 0 means automatic budget", parseNumber)
@@ -92,6 +94,7 @@ const options = program.opts<{
   artifactProfile?: "study_guide" | "exam_navigator" | "interactive_learning" | "practice_pack" | "source_audit";
   format: Array<"html" | "pdf">;
   visualMode?: "off" | "deferred" | "inline";
+  visualCropMode?: "auto" | "focused" | "context" | "original";
   fastFirst?: boolean;
   visuals: boolean;
   maxVisualAssets?: number;
@@ -139,6 +142,7 @@ if (
     codexModel: options.codexModel,
     executionProfile: options.executionProfile,
     codexReasoningEffort: options.codexReasoningEffort,
+    profileOverrides: options.profileOverridesJson,
     approveQuizRequest: options.approveQuizRequest,
     assignmentFiles: options.assignmentFile,
     approveAssignmentRequest: options.approveAssignmentRequest,
@@ -174,6 +178,7 @@ const result = await runMoodleGraph({
   formats: options.format.length ? options.format : undefined,
   visualsEnabled,
   visualMode,
+  visualCropMode: options.visualCropMode,
   maxVisualAssets: options.maxVisualAssets,
   visualMinConfidence: options.visualMinConfidence,
   codexModel: options.codexModel,
@@ -322,6 +327,7 @@ function runNativeQuizWorkflow(input: {
   codexModel?: string;
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  profileOverrides?: import("./modelPolicy.js").StudyBuddyModelPolicyOverrides;
   approveQuizRequest?: string;
   assignmentFiles: string[];
   approveAssignmentRequest?: string;
@@ -346,6 +352,32 @@ function runNativeQuizWorkflow(input: {
     "--execution-profile",
     input.executionProfile,
   ];
+  const primaryQuizSolver = resolveTaskModelPolicy({
+    profile: input.executionProfile,
+    task: "quiz_solver",
+    attempt: 1,
+    globalModel: input.codexModel,
+    globalReasoningEffort: input.codexReasoningEffort,
+    overrides: input.profileOverrides,
+  });
+  const retryQuizSolver = resolveTaskModelPolicy({
+    profile: input.executionProfile,
+    task: "quiz_solver",
+    attempt: 2,
+    globalModel: input.codexModel,
+    globalReasoningEffort: input.codexReasoningEffort,
+    overrides: input.profileOverrides,
+  });
+  args.push(
+    "--quiz-solver-model",
+    primaryQuizSolver.model,
+    "--quiz-solver-reasoning-effort",
+    primaryQuizSolver.reasoningEffort,
+    "--quiz-solver-retry-model",
+    retryQuizSolver.model,
+    "--quiz-solver-retry-reasoning-effort",
+    retryQuizSolver.reasoningEffort,
+  );
   if (input.runDir) args.push("--run-dir", input.runDir);
   if (input.browserBackend) args.push("--browser-backend", input.browserBackend);
   if (input.browserHeaded) args.push("--browser-headed");
