@@ -70,6 +70,7 @@ export interface RunSummaryInput {
   route: string;
   status: "success" | "partial" | "failed" | "canceled" | "timeout";
   prompt: string;
+  taskPrompt?: string;
   error?: string;
   outputPath?: string;
   pdfPath?: string;
@@ -331,6 +332,9 @@ export class RunDiagnostics {
       "# Study Buddy Run Summary",
       "",
       `Prompt: ${input.prompt}`,
+      ...(input.taskPrompt && input.taskPrompt !== input.prompt
+        ? [`Task prompt: ${input.taskPrompt}`]
+        : []),
       "",
       `Route: ${input.route}`,
       `Run status: ${input.status}`,

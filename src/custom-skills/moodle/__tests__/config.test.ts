@@ -27,10 +27,25 @@ describe("createRuntimeConfig", () => {
       moodleUrl: "https://moodle.example/course",
       outputLanguage: "de",
     });
+    const translatedTaskPrompt = createRuntimeConfig({
+      prompt: "Bearbeite den ersten Selbsttest in Elektrotechnik 2",
+      originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
+      moodleUrl: "https://moodle.example/course",
+    });
 
     expect(english).toMatchObject({ outputLanguage: "en", outputLanguageReason: "prompt_language" });
     expect(sanitizeConfig(english)).toMatchObject({ outputLanguage: "en" });
     expect(overridden).toMatchObject({ outputLanguage: "de", outputLanguageReason: "explicit_option" });
+    expect(translatedTaskPrompt).toMatchObject({
+      originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
+      outputLanguage: "en",
+      outputLanguageReason: "prompt_language",
+    });
+    expect(sanitizeConfig(translatedTaskPrompt)).toMatchObject({
+      prompt: "Bearbeite den ersten Selbsttest in Elektrotechnik 2",
+      originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
+      outputLanguage: "en",
+    });
   });
 
   it("rejects missing required input", () => {
@@ -38,6 +53,11 @@ describe("createRuntimeConfig", () => {
       "prompt is required.",
     );
     expect(() => createRuntimeConfig({ prompt: "make notes", moodleUrl: " " })).toThrow("moodleUrl is required.");
+    expect(() => createRuntimeConfig({
+      prompt: "make notes",
+      originalUserPrompt: " ",
+      moodleUrl: "https://moodle.example/course",
+    })).toThrow("originalUserPrompt must not be empty");
   });
 
   it("normalizes explicit output paths and honors runtime overrides", async () => {

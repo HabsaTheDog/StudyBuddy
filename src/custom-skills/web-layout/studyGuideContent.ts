@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { fallbackStudyGuideRequirements, type StudyGuideRequirements } from "./studyGuideProfile.js";
 
 const sourceRefSchema = z.object({
   label: z.string().min(1),
   sourceTask: z.string().min(1),
-  provenance: z.enum(["source", "adapted"]),
+  provenance: z.enum(["source", "adapted", "derived"]),
 });
 
 const optionSchema = z.object({
@@ -67,6 +68,7 @@ const topicSchema = z.object({
 
 export const studyGuideContentSchema = z.object({
   courseTitle: z.string().min(1),
+  courseCode: z.string().default(""),
   scopeNote: z.string().min(1),
   topics: z.array(topicSchema).min(1),
   sources: z.array(z.object({
@@ -85,6 +87,7 @@ export const studyGuideContentJsonSchema = {
   required: ["courseTitle", "scopeNote", "topics", "sources"],
   properties: {
     courseTitle: { type: "string" },
+    courseCode: { type: "string" },
     scopeNote: { type: "string" },
     topics: {
       type: "array",
@@ -114,7 +117,7 @@ export const studyGuideContentJsonSchema = {
     sources: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "label", "url", "coverage"], properties: { id: { type: "string" }, label: { type: "string" }, url: { type: "string" }, coverage: { type: "string" } } } },
   },
   $defs: {
-    sourceRef: { type: "object", additionalProperties: false, required: ["label", "sourceTask", "provenance"], properties: { label: { type: "string" }, sourceTask: { type: "string" }, provenance: { enum: ["source", "adapted"] } } },
+    sourceRef: { type: "object", additionalProperties: false, required: ["label", "sourceTask", "provenance"], properties: { label: { type: "string" }, sourceTask: { type: "string" }, provenance: { enum: ["source", "adapted", "derived"] } } },
     option: { type: "object", additionalProperties: false, required: ["text", "correct", "feedback"], properties: { text: { type: "string" }, correct: { type: "boolean" }, feedback: { type: "string" } } },
     crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
     calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
@@ -129,15 +132,15 @@ export const STUDY_GUIDE_QUALITY_TARGETS = Object.freeze({
   calculationExercises: 18,
 });
 
-export function validateStudyGuideContentQuality(content: StudyGuideContent): string[] {
+export function validateStudyGuideContentQuality(content: StudyGuideContent, requirements: StudyGuideRequirements = fallbackStudyGuideRequirements(content)): string[] {
   const exercises = content.topics.flatMap((topic) => topic.exercises);
   const crosses = exercises.filter((exercise) => exercise.type === "cross");
   const calculations = exercises.filter((exercise) => exercise.type === "calculation");
   const issues: string[] = [];
-  if (content.topics.length < STUDY_GUIDE_QUALITY_TARGETS.topics) issues.push(`Expected broad course coverage of at least ${STUDY_GUIDE_QUALITY_TARGETS.topics} topics; received ${content.topics.length}.`);
-  if (exercises.length < STUDY_GUIDE_QUALITY_TARGETS.exercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.exercises} substantive exercises; received ${exercises.length}.`);
-  if (crosses.length < STUDY_GUIDE_QUALITY_TARGETS.crossExercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.crossExercises} Kreuzerl exercises; received ${crosses.length}.`);
-  if (calculations.length < STUDY_GUIDE_QUALITY_TARGETS.calculationExercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.calculationExercises} calculation exercises; received ${calculations.length}.`);
+  if (content.topics.length < requirements.topicTarget) issues.push(`Expected evidence-adaptive course coverage of at least ${requirements.topicTarget} topics; received ${content.topics.length}.`);
+  if (exercises.length < requirements.exerciseTarget) issues.push(`Expected at least ${requirements.exerciseTarget} substantive exercises for the ${requirements.archetype} course profile; received ${exercises.length}.`);
+  if (crosses.length < requirements.selectionTarget) issues.push(`Expected at least ${requirements.selectionTarget} selection/retrieval exercises; received ${crosses.length}.`);
+  if (calculations.length < requirements.calculationTarget) issues.push(`Expected at least ${requirements.calculationTarget} calculation exercises for the ${requirements.archetype} course profile; received ${calculations.length}.`);
   const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
   const uniquePrompts = new Set(prompts);
   if (uniquePrompts.size !== prompts.length) issues.push("Exercise prompts must be unique; duplicated prompts were found.");
@@ -166,6 +169,9 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent): st
     }
     if (fields.some((field) => /\b[xuntwy]\d{2,}\b|\)\s*[2-9]\b|π\d/i.test(field))) {
       issues.push(`${exercise.id} contains ambiguous OCR exponent notation that must be normalized or excluded.`);
+    }
+    if (exercise.source.provenance === "derived" && !/(?:folie|skript|kapitel|abschnitt|lernziel|quelle|thema|kursinhalt)/i.test(exercise.source.sourceTask)) {
+      issues.push(`${exercise.id} is derived practice but does not identify the concrete source concept it was derived from.`);
     }
   }
   for (const topic of content.topics) {

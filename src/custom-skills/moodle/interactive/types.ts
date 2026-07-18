@@ -1,4 +1,9 @@
 import type { AgentState, SourceCoverage } from "./state.js";
+import type {
+  LanguageResolutionReason,
+  OutputLanguagePreference,
+  SupportedLanguage,
+} from "../../shared/languagePolicy.js";
 
 export type StudyBuddyReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -11,6 +16,9 @@ export interface QuizSolverModelPolicy {
 
 export interface MoodleGraphInput {
   prompt: string;
+  /** Exact, untranslated user request. Language is resolved from this boundary value. */
+  originalUserPrompt?: string | undefined;
+  outputLanguage?: OutputLanguagePreference | undefined;
   moodleUrl: string;
   outputPath?: string | undefined;
   runDir?: string | undefined;
@@ -44,6 +52,7 @@ export interface MoodleGraphResult {
   workflowStatus: MoodleWorkflowStatus;
   coverageComplete: boolean;
   runDir: string;
+  quizUrl?: string;
   outputPath?: string;
   pdfPath?: string;
   answerPath?: string;
@@ -64,6 +73,9 @@ export type MoodleWorkflowStatus =
 
 export interface MoodleRuntimeConfig {
   prompt: string;
+  originalUserPrompt: string;
+  outputLanguage: SupportedLanguage;
+  outputLanguageReason: LanguageResolutionReason;
   moodleUrl: string;
   outputPath: string;
   runDir: string;

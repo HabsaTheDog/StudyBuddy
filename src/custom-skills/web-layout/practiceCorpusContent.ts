@@ -148,6 +148,7 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
   const courseTitle = typeof layoutSpec.title === "string" ? layoutSpec.title.replace(/^MAES2\s*[–-]\s*/i, "") : "MAES2 – Mathematik für Engineering Science 2";
   return {
     courseTitle,
+    courseCode: "MAES2",
     scopeNote: "Qualitätsgeprüfte Trainingsbank aus den zugänglichen Minitest-Lösungen 1–8 und 10. Mathematisch beschädigte PDF-OCR-Aufgaben werden ausgeschlossen, solange keine visuell verifizierte Rekonstruktion vorliegt; strukturierte Rechenübungen sind als abgeleitet gekennzeichnet. Minitest 9 war nicht abrufbar, Minitest 11 wurde nicht erworben. Übungspunkte sind keine offizielle Prüfungsbewertung.",
     topics,
     sources: [

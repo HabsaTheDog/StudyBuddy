@@ -95,6 +95,9 @@ describe("quizReviewNode", () => {
     expect(result.final_document).toContain(
       "filled=false persisted=false reason=answer-not-persisted",
     );
+    expect(result.final_document).toMatch(
+      /== Quiz öffnen\n\n#link\("https:\/\/moodle\.example\/mod\/quiz\/view\.php\?id=123"\)\[Quiz in Moodle öffnen\]\n$/,
+    );
     expect(client.calls).toContain("click:@e-start");
     expect(client.calls.some((call) => /submit all|endgültig|endgueltig/i.test(call))).toBe(false);
     await expect(readFile(path.join(runDir, "quiz-review.json"), "utf8")).resolves.toContain(
@@ -142,6 +145,9 @@ describe("quizReviewNode", () => {
     });
 
     expect(result.final_document).toContain("permission_required");
+    expect(result.final_document).toMatch(
+      /Native approval required[\s\S]*== Quiz öffnen\n\n#link\("https:\/\/moodle\.example\/mod\/quiz\/view\.php\?id=123"\)\[Quiz in Moodle öffnen\]\n$/,
+    );
     await expect(
       readFile(path.join(runDir, "quiz-permission-request.json"), "utf8"),
     ).resolves.toContain('"quizTitle": "1. Selbstcheck Test"');
@@ -673,6 +679,9 @@ function testConfig(
 ): MoodleRuntimeConfig {
   return {
     prompt: "mach den kommenden Minitest https://moodle.example/mod/quiz/view.php?id=123",
+    originalUserPrompt: "mach den kommenden Minitest https://moodle.example/mod/quiz/view.php?id=123",
+    outputLanguage: "de",
+    outputLanguageReason: "prompt_language",
     moodleUrl: "https://moodle.example/my",
     outputPath: path.join(runDir, "document.typ"),
     runDir,

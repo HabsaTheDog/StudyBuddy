@@ -172,5 +172,8 @@ function runtimeConfig(
     cisDashboardUrl: "https://cis.example",
     headless: true,
     ...overrides,
+    originalUserPrompt: overrides.originalUserPrompt ?? overrides.prompt,
+    outputLanguage: overrides.outputLanguage ?? "de",
+    outputLanguageReason: overrides.outputLanguageReason ?? "prompt_language",
   };
 }

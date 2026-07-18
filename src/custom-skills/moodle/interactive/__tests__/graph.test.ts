@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +21,8 @@ describe("interactive Moodle graph", () => {
     try {
       const result = await runInteractiveMoodleGraph(
         {
-          prompt: "Bearbeite den nächsten Quiz",
+          prompt: "Bearbeite diese Moodle-Aktivität",
+          originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
           moodleUrl: "https://moodle.example/mod/quiz/view.php?id=7",
         },
         {
@@ -43,6 +44,9 @@ describe("interactive Moodle graph", () => {
       expect(result.ok).toBe(true);
       expect(result.workflowStatus).toBe("permission_required");
       expect(result.permissionRequestPath).toContain("quiz-permission-request.json");
+      expect(result.quizUrl).toBe("https://moodle.example/mod/quiz/view.php?id=7");
+      await expect(readFile(path.join(result.runDir, "interaction-config.json"), "utf8"))
+        .resolves.toContain('"outputLanguage": "en"');
     } finally {
       restoreWorkspace(previousWorkspace);
     }

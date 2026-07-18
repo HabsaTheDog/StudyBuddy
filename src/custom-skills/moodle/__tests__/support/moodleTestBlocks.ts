@@ -15,6 +15,7 @@ import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
   return {
     prompt: "make compact notes",
+    originalUserPrompt: "make compact notes",
     outputLanguage: "de",
     outputLanguageReason: "fallback",
     moodleUrl: "https://moodle.example/course",

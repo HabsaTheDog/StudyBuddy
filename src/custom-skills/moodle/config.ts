@@ -49,9 +49,17 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
   }
+  if (input.originalUserPrompt !== undefined && !input.originalUserPrompt.trim()) {
+    throw new Error("originalUserPrompt must not be empty when provided.");
+  }
   if (!input.moodleUrl.trim()) {
     throw new Error("moodleUrl is required.");
   }
+
+  const originalUserPrompt = input.originalUserPrompt ?? input.prompt;
+  const requestContextPrompt = originalUserPrompt === input.prompt
+    ? input.prompt
+    : `${originalUserPrompt}\n${input.prompt}`;
 
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
   const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
@@ -69,16 +77,16 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     : [];
 
   const requestedMoodleUrl = input.moodleUrl || process.env.STUDY_BUDDY_MOODLE_URL || DEFAULT_MOODLE_URL;
-  const promptMoodleUrl = extractMoodleUrlFromPrompt(input.prompt);
+  const promptMoodleUrl = extractMoodleUrlFromPrompt(requestContextPrompt);
   const selectedMoodleUrl = shouldPreferPromptMoodleUrl(requestedMoodleUrl, promptMoodleUrl)
     ? promptMoodleUrl
     : requestedMoodleUrl;
-  const moodleUrl = resolveVerifiedMoodleSource(input.prompt, selectedMoodleUrl);
+  const moodleUrl = resolveVerifiedMoodleSource(requestContextPrompt, selectedMoodleUrl);
   const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
   let quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
   const stage = input.stage ?? "all";
   const intentDecision = classifyStudyBuddyIntent({
-    prompt: input.prompt,
+    prompt: requestContextPrompt,
     stage,
     diagnosticOnly: input.diagnosticOnly ?? false,
     autoAnswer: quizPolicy.requestedAutoAnswer,
@@ -99,7 +107,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     };
   }
   const calendarUrl = input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim() || undefined;
-  const artifactIntent = classifyArtifactIntent(input.prompt, {
+  const artifactIntent = classifyArtifactIntent(requestContextPrompt, {
     profile: input.artifactProfile,
     formats: input.formats,
     sourcePolicy: input.sourcePolicy,
@@ -113,12 +121,13 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const visualsEnabled = visualMode === "inline" || (stage === "render" && visualMode === "deferred");
   const codexModel = trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL);
   const outputLanguage = resolveOutputLanguage({
-    prompt: input.prompt,
+    prompt: originalUserPrompt,
     preference: input.outputLanguage,
   });
 
   return {
     prompt: input.prompt,
+    originalUserPrompt,
     outputLanguage: outputLanguage.language,
     outputLanguageReason: outputLanguage.reason,
     moodleUrl,
@@ -196,6 +205,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
 export function sanitizeConfig(config: MoodleRuntimeConfig) {
   return {
     prompt: config.prompt,
+    originalUserPrompt: config.originalUserPrompt,
     outputLanguage: config.outputLanguage,
     outputLanguageReason: config.outputLanguageReason,
     moodleUrl: config.moodleUrl,

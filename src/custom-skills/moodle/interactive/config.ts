@@ -15,6 +15,7 @@ import {
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../../shared/workspaceData.js";
+import { resolveOutputLanguage } from "../../shared/languagePolicy.js";
 
 const DEFAULT_BROWSER_BACKEND = "playwright";
 const DEFAULT_BROWSER_MAX_OUTPUT = 50_000;
@@ -29,6 +30,9 @@ const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../../..");
 export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfig {
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
+  }
+  if (input.originalUserPrompt !== undefined && !input.originalUserPrompt.trim()) {
+    throw new Error("originalUserPrompt must not be empty when provided.");
   }
   if (!input.moodleUrl.trim()) {
     throw new Error("moodleUrl is required.");
@@ -95,9 +99,17 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       : input.quizSafetyPolicy,
     environment,
   );
+  const originalUserPrompt = input.originalUserPrompt ?? input.prompt;
+  const outputLanguage = resolveOutputLanguage({
+    prompt: originalUserPrompt,
+    preference: input.outputLanguage,
+  });
 
   return {
     prompt: input.prompt,
+    originalUserPrompt,
+    outputLanguage: outputLanguage.language,
+    outputLanguageReason: outputLanguage.reason,
     moodleUrl: input.moodleUrl,
     outputPath: explicitOutputPath || path.resolve(path.join(runDir, "document.typ")),
     runDir,
