@@ -1,5 +1,5 @@
 import { offlineHtmlRules, studyBuddyDesignGuidelines } from "../designGuidelines.js";
-import { stripHtmlFence } from "../htmlShell.js";
+import { applyOfflineSecurityPolicy, stripHtmlFence } from "../htmlShell.js";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
@@ -11,7 +11,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         task: "artifact_builder",
         attempt: state.retry_count + 1,
       });
-      const html = stripHtmlFence(response);
+      const html = applyOfflineSecurityPolicy(stripHtmlFence(response));
       await config.diagnostics?.log("info", "generator", `Generated HTML (${html.length} chars).`);
       return {
         html_document: html,

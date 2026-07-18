@@ -946,6 +946,7 @@ async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState>
     studyModel,
     coverageAssessment,
     resourceManifest,
+    evidencePackage,
   );
   if (coverageAssessment.status === "blocked" || !reviewReport.ok) {
     throw new Error(`Render source is blocked by student-first review: ${sourceRunDir}`);

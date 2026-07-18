@@ -95,6 +95,32 @@ describe("formatterNode", () => {
     expect(result.final_document).not.toContain("Quellen und Modellannahmen");
   });
 
+  it("routes semantic quality findings to the repairing LLM formatter", async () => {
+    validateTypstMock.mockResolvedValueOnce({ ok: true });
+    let receivedPrompt = "";
+    const codex: CodexClient = {
+      async run(prompt) {
+        receivedPrompt = prompt;
+        return studyBuddyTypstDocument("= Repaired content");
+      },
+    };
+    const state = moodleTestState({
+      extracted_data: moodleExtractedData(),
+      error_log: "Semantic quality review failed:\n- Correct the dimensionally invalid formula.",
+      retry_count: 1,
+    });
+    state.review_report = { ...state.review_report, ok: true };
+    state.study_model = { ...state.study_model, publicationStatus: "partial" };
+
+    const result = await createFormatterNode(moodleTestConfig(), codex)(state);
+
+    expect(receivedPrompt).toContain("Correct the dimensionally invalid formula");
+    expect(result).toEqual({
+      final_document: studyBuddyTypstDocument("= Repaired content"),
+      error_log: null,
+    });
+  });
+
   it("returns validation diagnostics and increments retry count", async () => {
     validateTypstMock.mockResolvedValueOnce({ ok: false, error: "expected expression" });
     const codex: CodexClient = {

@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import {
   ReviewReportSchema,
   type CoverageAssessment,
+  type EvidencePackage,
   type ResourceManifest,
   type ReviewFinding,
   type ReviewReport,
@@ -13,6 +14,7 @@ export async function reviewStudyModel(
   model: StudyModel,
   coverage: CoverageAssessment,
   manifest: ResourceManifest,
+  evidence?: EvidencePackage,
 ): Promise<ReviewReport> {
   const findings: ReviewFinding[] = [];
   if (coverage.status === "blocked") {
@@ -61,6 +63,7 @@ export async function reviewStudyModel(
         ));
       }
     }
+    if (evidence) enforceLookupDependencies(model, manifest, evidence, findings);
   }
   if (new Set(model.checklist).size !== model.checklist.length) {
     findings.push(error("student_value", "duplicate-checklist", "The learning checklist contains duplicates."));
@@ -98,6 +101,59 @@ export async function reviewStudyModel(
     generatedAt: new Date().toISOString(),
     findings,
   });
+}
+
+function enforceLookupDependencies(
+  model: StudyModel,
+  manifest: ResourceManifest,
+  evidence: EvidencePackage,
+  findings: ReviewFinding[],
+): void {
+  const dependencyResourceIds = new Set(
+    evidence.records
+      .filter((record) => hasTableLookupDependency(record.content))
+      .map((record) => record.resourceId),
+  );
+  const checkedChapters = new Set<string>();
+  for (const resourceId of dependencyResourceIds) {
+    const resource = manifest.resources.find((entry) => entry.id === resourceId);
+    const chapter = model.courseChapters.find((entry) => entry.resourceIds.includes(resourceId));
+    if (!resource || !chapter || chapter.status === "missing" || checkedChapters.has(chapter.id)) continue;
+    checkedChapters.add(chapter.id);
+
+    const chapterFigures = model.figures.filter((figure) => figure.chapterId === chapter.id);
+    const hasLookupVisual = chapterFigures.some((figure) =>
+      Boolean(figure.relativePath) &&
+      /(?:tabelle|table|tabellenbuch|toleranzgrad|grundtoleranz|grundabmaß|grundabmass|kennlinie|nomogramm)/i.test(
+        `${figure.title} ${figure.caption}`,
+      )
+    );
+    if (!hasLookupVisual) {
+      findings.push(error(
+        "student_value",
+        "lookup-visual-missing",
+        `Chapter references a mandatory table lookup but contains no usable lookup table/diagram: ${chapter.title} (${resource.title})`,
+      ));
+    }
+
+    const examples = model.workedExamples.filter((example) => example.chapterId === chapter.id);
+    const hasLookupMethod = examples.some((example) =>
+      /(?:tabelle|tabellenzeile|tabellenspalte|nennmaßbereich|nennmassbereich|toleranzgrad|grundabmaß|grundabmass|ablesen|nachschlagen|TB\s*\d)/i.test(
+        `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")} ${example.result}`,
+      )
+    );
+    if (!hasLookupMethod) {
+      findings.push(error(
+        "student_value",
+        "lookup-method-missing",
+        `Chapter references a mandatory table lookup, but its worked example skips the lookup method and starts from pre-read values: ${chapter.title}`,
+      ));
+    }
+  }
+}
+
+function hasTableLookupDependency(text: string): boolean {
+  return /(?:mit\s+den\s+werten\s+der\s+tabellen|tabellen?\s*TB\s*\d|TB\s*\d+\s*[-–]\s*\d+|nach\s+(?:der\s+)?tabelle|aus\s+(?:der\s+)?tabelle|tabellenbuch)/i.test(text);
 }
 
 function isSafeOriginUrl(value: string): boolean {

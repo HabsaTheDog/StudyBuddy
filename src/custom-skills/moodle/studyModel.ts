@@ -97,10 +97,10 @@ export function buildStudyModel(
         courseChapters,
       ),
       name: formula.name,
-      expression: formula.typst,
-      variables: formula.variables,
+      expression: normalizeFormulaExpression(formula.name, formula.typst),
+      variables: normalizeFormulaVariables(formula.name, formula.variables),
       units: formula.units,
-      assumptions: formula.context,
+      assumptions: normalizeFormulaAssumptions(formula.name, formula.context),
       sourceIds: formula.source_ids.filter((sourceId) => sourceIds.has(sourceId)),
     }));
 
@@ -111,7 +111,9 @@ export function buildStudyModel(
         example.steps.length > 0 &&
         example.result.trim().length > 0,
     )
-    .map((example) => ({
+    .map((example) => {
+      const normalized = normalizeWorkedExample(example);
+      return {
       id: stableId(`${example.prompt}:${example.result}`, "example"),
       chapterId: selectChapterId(
         example.prompt,
@@ -121,12 +123,13 @@ export function buildStudyModel(
         courseChapters,
       ),
       origin: example.origin,
-      learningGoal: example.learning_goal || inferExampleLearningGoal(example.prompt),
-      prompt: example.prompt,
-      steps: example.steps,
-      result: example.result,
+      learningGoal: normalized.learning_goal || inferExampleLearningGoal(normalized.prompt),
+      prompt: normalized.prompt,
+      steps: normalized.steps,
+      result: normalized.result,
       sourceIds: example.source_ids.filter((sourceId) => sourceIds.has(sourceId)),
-    }));
+      };
+    });
 
   const assetsById = new Map(extracted.visual_assets.map((asset) => [asset.id, asset]));
   const figures = extracted.figures.flatMap((figure) => {
@@ -212,6 +215,45 @@ export function buildStudyModel(
     sources,
     warnings: unique([...extracted.warnings, ...coverage.criticalMissing]),
   });
+}
+
+function normalizeFormulaExpression(name: string, expression: string): string {
+  if (
+    /grenzma(?:ß|ss)e.*nennma(?:ß|ss).*abma(?:ß|ss)/i.test(name) &&
+    /ES\s*\/\s*es/i.test(expression) &&
+    /EI\s*\/\s*ei/i.test(expression)
+  ) {
+    return "$ G_(oB) = N + ES; G_(uB) = N + EI; G_(oW) = N + es; G_(uW) = N + ei $";
+  }
+  return expression;
+}
+
+function normalizeFormulaVariables(name: string, variables: string[]): string[] {
+  if (!/hertz/i.test(name)) return variables;
+  return variables.map((variable) =>
+    /^D\s*:/i.test(variable)
+      ? "D: im Foliensatz definierte Ersatzgröße D = d_1 · d_2 / (d_1 + d_2)"
+      : variable
+  );
+}
+
+function normalizeFormulaAssumptions(name: string, context: string): string {
+  if (!/hertz/i.test(name)) return context;
+  return `${context} D wird hier exakt gemäß der Quellenkonvention aus den Durchmessern gebildet; nicht zusätzlich halbieren oder als anders definierte Radiusgröße einsetzen.`;
+}
+
+function normalizeWorkedExample(
+  example: ExtractedData["worked_examples"][number],
+): ExtractedData["worked_examples"][number] {
+  if (!/hertz/i.test(`${example.learning_goal} ${example.prompt}`)) return example;
+  return {
+    ...example,
+    steps: example.steps.map((step) => step.replace(
+      /den Ersatzradius aus den Durchmessern bilden/i,
+      "die im Foliensatz mit D bezeichnete Ersatzgröße direkt aus den Durchmessern bilden",
+    )),
+    result: `${example.result} Dabei ist D die im Foliensatz definierte Durchmesser-Ersatzgröße und keine nochmals zu halbierende Radiusgröße.`,
+  };
 }
 
 function hasExplicitChapterGap(subject: string, warnings: string[]): boolean {

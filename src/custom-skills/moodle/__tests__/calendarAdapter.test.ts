@@ -137,6 +137,9 @@ describe("calendar adapter", () => {
 
   it("rejects invalid, oversized, and unreachable feeds without exposing their URL", async () => {
     await expect(fetchCalendarText("http://calendar.example/token")).rejects.toThrow("HTTPS");
+    await expect(fetchCalendarText("https://127.0.0.1/private-calendar", {
+      fetchImpl: vi.fn(async () => response(calendar([]))),
+    })).rejects.toThrow("local or private");
     const invalid = await readCalendarEvents("https://calendar.example/token", "MEL Prüfung", {
       fetchImpl: vi.fn(async () => response("not an ical feed")),
     });

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { OFFLINE_CSP } from "../web-layout/htmlShell.js";
 import type { StudyModel } from "./examNavigatorContracts.js";
 
 type SourceCategory = "slides" | "exercise" | "solution" | "test" | "external" | "course" | "other";
@@ -152,6 +153,7 @@ export function renderStudentFirstHtml(model: StudyModel, runDir: string): strin
 <html lang="${model.language}">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${OFFLINE_CSP}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(model.title)}</title>
 <style>

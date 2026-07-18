@@ -258,4 +258,60 @@ describe("visual asset discovery", () => {
       relative_path: null,
     });
   });
+
+  it("adds a source diagram when a worked example explicitly depends on diagram reading", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-example-visual-"));
+    const solutionPath = path.join(runDir, "sources", "solution-f.pdf");
+    await writeFile(path.join(runDir, "visual-candidates.json"), JSON.stringify({
+      tooling: { pdfinfo: true, pdftotext: true, pdftoppm: true, pdfimages: true, magick: true },
+      warnings: [],
+      candidates: [{
+        id: "fig-diagram",
+        kind: "moodle_pdf_image",
+        title: "solution-f.pdf – eingebettete Abbildung",
+        relative_path: "assets/visuals/viscosity-diagram.jpg",
+        mime_type: "image/jpeg",
+        width_px: 617,
+        height_px: 416,
+        source_id: null,
+        source_url: "https://moodle.example/solution-f",
+        source_path: solutionPath,
+        source_page: 1,
+        confidence: 0.9,
+        caption_hint: "Viskositätsdiagramm",
+        relevance_reason: "Embedded source diagram",
+        generation_prompt: null,
+      }],
+    }), "utf8");
+    const data = moodleExtractedData({
+      sources: [{
+        id: "solution-f",
+        title: "Lösung F",
+        kind: "pdf",
+        url: "https://moodle.example/solution-f",
+        path: solutionPath,
+        page: null,
+      }],
+      worked_examples: [{
+        origin: "source",
+        learning_goal: "Viskosität aus einem Diagramm ablesen",
+        prompt: "Bestimme den Wert mithilfe des Roloff-Matek-Diagramms.",
+        steps: ["Punkte eintragen", "Gerade im Diagramm verlängern"],
+        result: "30 mm²/s",
+        source_ids: ["solution-f"],
+      }],
+    });
+
+    const hydrated = await hydrateExtractedVisualAssets(runDir, data, "auto");
+
+    expect(hydrated.visual_assets).toContainEqual(expect.objectContaining({
+      kind: "moodle_pdf_image",
+      relative_path: "assets/visuals/viscosity-diagram.jpg",
+      source_page: 1,
+    }));
+    expect(hydrated.figures).toContainEqual(expect.objectContaining({
+      asset_id: "auto-example-visual-1",
+      source_ids: ["solution-f"],
+    }));
+  });
 });

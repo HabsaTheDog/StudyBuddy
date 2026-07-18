@@ -341,6 +341,11 @@ export function classifyResourceRole(candidate: Pick<ResourcePlanningCandidate, 
 export function classifyResourceTopic(candidate: Pick<ResourcePlanningCandidate, "href" | "label" | "sectionTitle">): string | null {
   const text = `${candidate.sectionTitle ?? ""} ${candidate.label} ${decodePath(candidate.href)}`.toLowerCase();
   const topics: Array<[RegExp, string]> = [
+    [/toleranz|passung|oberfl[aä]chen|grundabma(?:ß|ss)|toleranzgrad/, "Toleranzen und Passungen"],
+    [/kleben|klebstoff|klebverbindung/, "Klebverbindungen"],
+    [/nieten|nietverbindung/, "Nietverbindungen"],
+    [/l[oö]ten|l[oö]tverbindung/, "Lötverbindungen"],
+    [/tribolog|viskosit[aä]t|hertz|reibung|schmierung/, "Tribologie"],
     [/punktkinematik|schiefer.?wurf|bremsweg|schraubenlinie|h[uü]lse/, "Punktkinematik"],
     [/vektorkinematik|kopplung|scheibe.?in.?zylinder|gerader.?stab/, "Vektorkinematik"],
     [/schwerpunktsatz|schwerpunkt|flaschenzug|rohrkr[uü]mmer|gleitende.?bl[oö]cke/, "Schwerpunktsatz"],

@@ -17,6 +17,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
     try {
       const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
       if (
+        !state.error_log &&
         state.review_report.ok &&
         state.study_model.publicationStatus !== "blocked"
       ) {
@@ -62,7 +63,8 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
           };
         }
       }
-      if (state.error_log && state.retry_count > 0) {
+      const semanticRepair = state.error_log?.startsWith("Semantic quality review failed:") ?? false;
+      if (state.error_log && state.retry_count > 0 && !semanticRepair) {
         await config.diagnostics?.log(
           "warn",
           "formatter",

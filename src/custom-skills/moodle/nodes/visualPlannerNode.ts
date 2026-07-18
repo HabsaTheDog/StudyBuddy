@@ -54,12 +54,13 @@ export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: Code
           })
           .filter((request) => request.pages.length > 0),
       });
+      const completePlan = augmentLookupDependencies(sanitized, pageIndex);
 
-      await writeVisualRetrievalPlan(config.runDir, sanitized);
+      await writeVisualRetrievalPlan(config.runDir, completePlan);
       await config.diagnostics?.log(
         "info",
         "diagnostic",
-        `Visual planner requested ${sanitized.requests.reduce((sum, request) => sum + request.pages.length, 0)} page(s) across ${sanitized.requests.length} request(s).`,
+        `Visual planner requested ${completePlan.requests.reduce((sum, request) => sum + request.pages.length, 0)} page(s) across ${completePlan.requests.length} request(s).`,
       );
       return { error_log: null };
     } catch (error) {
@@ -105,6 +106,7 @@ function buildVisualPlannerPrompt(
     "- Visuals are usually valuable for learning. Prefer requesting useful pages over being overly conservative.",
     "- Request pages for worked examples, exercises, solutions, tables, diagrams, formula reference pages, chapter-opening context, and relevant cover/title pages.",
     "- If examples or solutions are near the end of a PDF, explicitly request those late pages.",
+    "- A worked example that explicitly says to use a table, table book (for example TB 2-1), diagram, characteristic curve, or nomogram is not self-contained without that lookup asset. Request both the example page and the relevant table/diagram pages, including nearby preceding reference pages.",
     "- Spread requests over Moodle chapters and sources; do not spend all requests on the first chapter unless the course material genuinely only covers that chapter.",
     "- Use source-related title/cover/logo/context visuals when they improve orientation, but do not request random decorative pages.",
     "- Keep requests focused: use concrete page numbers. Prefer 1-4 pages per reason; use more only for dense example/table sections.",
@@ -115,4 +117,52 @@ function buildVisualPlannerPrompt(
     `Evidence summary:\n${JSON.stringify(evidence, null, 2)}`,
     `Visual page index:\n${JSON.stringify(compactVisualPageIndexForPrompt(pageIndex), null, 2)}`,
   ].join("\n\n");
+}
+
+function augmentLookupDependencies(
+  plan: ReturnType<typeof VisualRetrievalPlanSchema.parse>,
+  pageIndex: Awaited<ReturnType<typeof buildVisualPageIndex>>,
+): ReturnType<typeof VisualRetrievalPlanSchema.parse> {
+  const requests = [...plan.requests];
+  for (const entry of pageIndex.entries) {
+    const dependencyPages = entry.pages.filter((page) => hasLookupDependency(page.hint));
+    if (dependencyPages.length === 0) continue;
+    const pages = new Set<number>();
+    for (const dependency of dependencyPages) {
+      pages.add(dependency.page);
+      for (const candidate of entry.pages) {
+        if (
+          candidate.page < dependency.page &&
+          candidate.page >= Math.max(1, dependency.page - 4) &&
+          (candidate.signals.includes("table") || candidate.signals.includes("diagram_or_figure"))
+        ) {
+          pages.add(candidate.page);
+        }
+      }
+      if (![...pages].some((page) => page < dependency.page)) {
+        if (dependency.page > 2) pages.add(dependency.page - 2);
+        if (dependency.page > 1) pages.add(dependency.page - 1);
+      }
+    }
+    const existing = requests.find((request) =>
+      request.resourceId === entry.resourceId && request.purpose === "table"
+    );
+    if (existing) {
+      existing.pages = [...new Set([...existing.pages, ...pages])].sort((left, right) => left - right);
+    } else {
+      requests.push({
+        resourceId: entry.resourceId,
+        pages: [...pages].sort((left, right) => left - right),
+        purpose: "table",
+        priority: "high",
+        placementHint: "Place the lookup table/diagram immediately before or beside the dependent worked example in the same chapter.",
+        reason: "The source explicitly requires a table/diagram lookup; retrieve the dependency and its worked-example page together.",
+      });
+    }
+  }
+  return VisualRetrievalPlanSchema.parse({ ...plan, requests });
+}
+
+function hasLookupDependency(text: string): boolean {
+  return /(?:mit\s+den\s+werten\s+der\s+tabellen|tabellen?\s*TB\s*\d|TB\s*\d+\s*[-–]\s*\d+|nach\s+(?:der\s+)?tabelle|aus\s+(?:der\s+)?tabelle|tabellenbuch|nomogramm|aus\s+(?:dem\s+)?diagramm\s+ablesen)/i.test(text);
 }

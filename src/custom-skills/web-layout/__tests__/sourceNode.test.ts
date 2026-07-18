@@ -72,6 +72,20 @@ describe("web layout source node", () => {
     expect(result.error_log).toContain("require a successful extraction handoff");
     expect(result.error_log).toContain("--source-run-dir");
   });
+
+  it("rejects oversized source files before loading them into the model context", async () => {
+    const workspace = await tempWorkspace();
+    const sourceFile = path.join(workspace, "oversized.txt");
+    await writeFile(sourceFile, Buffer.alloc(10 * 1024 * 1024 + 1, 65));
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build a reference",
+      sourceFiles: [sourceFile],
+    });
+
+    const result = await createSourceNode(config)();
+
+    expect(result.error_log).toContain("10 MiB safety limit");
+  });
 });
 
 async function tempWorkspace(): Promise<string> {

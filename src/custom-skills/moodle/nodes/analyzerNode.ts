@@ -14,7 +14,7 @@ import {
 import { resolveTaskBudget } from "../taskBudget.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-18.1";
+const CHAPTER_ANALYZER_VERSION = "2026-07-18.2";
 const FOCUSED_CONTEXT_BUDGET = 45_000;
 const FOCUSED_EVIDENCE_BUDGET = 34_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 8_000;
@@ -406,6 +406,7 @@ async function buildAnalyzerPrompt(
     "- Include visuals when they materially help the topic, especially circuits, measurement setups, block diagrams, lab workflows, plots, formula tables, tolerance tables, example sketches, and engineering mechanisms.",
     "- For text-heavy topics, use a relevant title image, source cover crop, organization/company logo already present in source material, process overview, or simple didactic diagram when it improves readability and memory.",
     "- If a worked example is based on a source table, sketch, diagram, plot, or page crop, include that source visual as a figure with the same source_ids and chapter placement so the renderer can place it next to the example.",
+    "- Lookup dependencies are mandatory: when the source tells the student to use a table/table book (for example TB 2-1), diagram, characteristic curve, or nomogram, select the relevant lookup visual and place it in the same chapter. The example is incomplete without it.",
     "- Avoid random decorative visuals. Aesthetic/title visuals are allowed when they are source-related or clearly support orientation, not when they mislead about course content.",
     "- If no Moodle/CIS image is suitable but a simple technical visualization helps, create a typst_diagram visual asset with no relative_path and describe the intended approved component in caption_hint.",
     "- If neither source image nor approved Typst diagram fits, create a placeholder_prompt visual asset with a concrete generation_prompt.",
@@ -423,10 +424,13 @@ async function buildAnalyzerPrompt(
     "- Prefer an acquired exercise/solution pair and set origin='source' only when the supplied evidence contains enough givens, substitutions, and intermediate steps to reproduce the result.",
     "- If a source exercise or solution is incomplete, ambiguous, diagram-dependent, or only states an end result, do not pretend it is fully solved. Instead create one clearly marked origin='derived' example using a source-backed rule or formula and simple explicitly chosen values.",
     "- Every example must be self-contained: state all givens and assumptions, show the formula selection, substitute values with units, show meaningful intermediate results, and finish with a result plus a short plausibility or unit check.",
+    "- Never shortcut a table-dependent method by copying already-read values from a solution and starting the calculation there. Teach the lookup itself: identify the nominal-size interval, choose the applicable row/column or tolerance grade and fundamental-deviation letter, read the base/deviation value, derive the paired deviation when required, and only then calculate limits or fits.",
+    "- For tolerance examples involving EI/ES/ei/es, include at least one complete table-dependent workflow whenever the source references tolerance tables. The worked steps must explain how the values are found, not merely state them as givens.",
     "- A derived example must remain reproducible from its cited definitions, rules, or formulas. Chosen didactic values are allowed when identified as assumptions; never present them as course facts or disguise the example as an original Moodle exercise.",
     "- One complete representative example per chapter is required. It need not exercise every formula or proof method in that chapter.",
     "- Use key_concepts for concise, testable takeaways; put the actual explanation in section.summary, using multiple paragraphs where useful.",
     "Course structure policy:",
+    "- Infer learning priority from course evidence: a method repeated across lecture examples, assigned task/solution pairs, a dedicated Moodle test, or explicit table-book instructions is high priority. Label it inferred rather than confirmed exam scope unless the source explicitly confirms the exam scope.",
     "- Treat resource_manifest.sectionPath as the authoritative Moodle chapter structure.",
     "- Emit subject sections in the same order and with the same subject boundaries as the Moodle course; do not reorganize them into generic theory/formula/example buckets.",
     "- Keep formulas, figures, tables, and worked examples source-linked to the subject section where they are taught.",

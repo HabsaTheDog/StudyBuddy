@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { dismissCommonOverlays, ensureLoggedIn, isAuthFailure, looksLikeLoginPage } from "../browserAuth.js";
 import { extractReadableFileText } from "../fileTextExtraction.js";
 import { safeFileName } from "../runDiagnostics.js";
@@ -10,11 +10,14 @@ import type { MoodleRuntimeConfig } from "../types.js";
 import { runDownloadQueue } from "../downloadQueue.js";
 import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "../courseTargeting.js";
 import { resolveTaskBudget } from "../taskBudget.js";
+import { assertPublicHttpsUrl, hasExactOrigin } from "../urlSecurity.js";
 
 interface CrawlPage {
   url: string;
   depth: number;
 }
+
+const MAX_CIS_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
 export function createCisScraperNode(config: MoodleRuntimeConfig) {
   return async function cisScraperNode(
@@ -221,7 +224,7 @@ async function extractCisLinks(page: Page, baseUrl: string, prompt: string, page
   );
   const targetOnPage = rawTextContainsRequestedCourse(prompt, pageText);
   return uniqueLinks(links)
-    .filter(({ href }) => href.startsWith(origin))
+    .filter(({ href }) => hasExactOrigin(href, origin))
     .filter(({ href }) => href.includes("cis.php"))
     .filter(({ href }) => isUsefulCisUrl(href))
     .sort((left, right) =>
@@ -323,6 +326,7 @@ async function captureReadableFiles(
     })),
   );
   const fileLinks = hrefs
+    .filter(({ href }) => hasExactOrigin(href, config.cisBaseUrl))
     .filter(({ href }) => /\.(pdf|txt|md)$/i.test(new URL(href).pathname))
     .filter((link) => !options.scheduleOnly || isScheduleDocument(link))
     .filter(({ href }) => {
@@ -334,22 +338,27 @@ async function captureReadableFiles(
       return true;
     })
     .slice(0, remaining);
-  const jobs = fileLinks.map((link, index) => async () => {
-    throwIfAborted(config.abortSignal);
+  const jobs = fileLinks.map((link, index) => async ({ signal }: { signal: AbortSignal }) => {
+    throwIfAborted(signal);
     const filename = safeFileName(
       `${index + 1}-${link.label || path.basename(new URL(link.href).pathname)}`,
     );
     const target = path.join(sourcesDir, filename);
     await config.diagnostics?.log("info", "cis_download", `Downloading CIS file: ${link.href}`);
-    const response = await page
-      .context()
-      .request.get(link.href)
-      .catch(() => null);
-    if (!response?.ok()) {
+    const downloadedOk = await downloadCisFile(
+      page.context(),
+      link.href,
+      target,
+      config.cisBaseUrl,
+      signal,
+    ).then(() => true).catch(() => {
+      throwIfAborted(signal);
+      return false;
+    });
+    if (!downloadedOk) {
       return `[Linked file]\nTitle: ${link.label || filename}\nURL: ${link.href}\nDownload failed`;
     }
-    const body = await response.body();
-    await writeFile(target, body);
+    throwIfAborted(signal);
     await config.diagnostics?.updateCoverage("cis", { artifacts: [target] });
     const text = await extractReadableFileText(target).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -360,11 +369,72 @@ async function captureReadableFiles(
   const results = await runDownloadQueue(jobs, {
     concurrency: config.downloadConcurrency,
     timeoutMs: 90_000,
+    signal: config.abortSignal,
   });
   for (const result of results) {
     chunks.push(result.status === "fulfilled"
       ? result.value
       : `[Linked file]\nDownload failed: ${errorMessage(result.reason)}`);
+  }
+}
+
+async function downloadCisFile(
+  context: BrowserContext,
+  url: string,
+  target: string,
+  allowedOrigin: string,
+  signal: AbortSignal,
+): Promise<void> {
+  let currentUrl = url;
+  let response: Response | null = null;
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    throwIfAborted(signal);
+    if (!hasExactOrigin(currentUrl, allowedOrigin)) throw new Error("CIS download left the trusted origin.");
+    await assertPublicHttpsUrl(currentUrl);
+    const cookies = await context.cookies(currentUrl);
+    response = await fetch(currentUrl, {
+      redirect: "manual",
+      signal,
+      headers: cookies.length > 0
+        ? { cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ") }
+        : undefined,
+    });
+    if (response.status < 300 || response.status >= 400) break;
+    const location = response.headers.get("location");
+    await response.body?.cancel().catch(() => undefined);
+    if (!location || redirects === 5) throw new Error("CIS download redirect failed.");
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+  if (!response?.ok || !response.body) throw new Error("CIS download failed.");
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_CIS_DOWNLOAD_BYTES) {
+    await response.body.cancel().catch(() => undefined);
+    throw new Error("CIS download exceeds the 100 MiB safety limit.");
+  }
+  const temporaryPath = `${target}.${process.pid}.${Date.now()}.part`;
+  const handle = await open(temporaryPath, "wx", 0o600);
+  const reader = response.body.getReader();
+  let bytes = 0;
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CIS_DOWNLOAD_BYTES) {
+        await reader.cancel();
+        throw new Error("CIS download exceeds the 100 MiB safety limit.");
+      }
+      await handle.write(value);
+    }
+    await handle.close();
+    throwIfAborted(signal);
+    await rename(temporaryPath, target);
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    await handle.close().catch(() => undefined);
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 

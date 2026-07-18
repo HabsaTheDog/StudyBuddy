@@ -30,6 +30,18 @@ describe("web layout config", () => {
     expect(config.outputPath).toBe(path.join(config.runDir, "document.html"));
     expect(config.sourceMode).toBe("prompt");
     expect(config.maxRuntimeMs).toBe(20 * 60_000);
+    expect(config.maxArtifactBytes).toBe(100_000_000);
+  });
+
+  it("rejects artifact ceilings above the 250 MB absolute limit", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+
+    expect(() => createWebLayoutRuntimeConfig({
+      prompt: "Erstelle Flashcards",
+      maxArtifactBytes: 250_000_001,
+    })).toThrow("maxArtifactBytes");
   });
 
   it("uses an explicit Codex model over the inherited Study Buddy model", async () => {

@@ -6,15 +6,15 @@ Study Buddy currently supports Linux directly and should work on macOS when Home
 
 ### P0 — Native executable discovery
 
-- [ ] Replace the current exact-name executable lookup with a cross-platform resolver.
-- [ ] On Windows, honor `PATHEXT` and resolve `.exe`, `.cmd`, and `.bat` executables.
-- [ ] Handle executable paths containing spaces, including native Windows Poppler and LibreOffice installations.
-- [ ] Add explicit configuration overrides:
-  - [ ] `STUDY_BUDDY_PDFTOTEXT_PATH`
-  - [ ] `STUDY_BUDDY_PDFTOPPM_PATH`
-  - [ ] `STUDY_BUDDY_LIBREOFFICE_PATH`
-- [ ] Validate configured executable overrides and report an actionable error when a path is invalid.
-- [ ] Add unit tests for Linux/macOS executable names, Windows extensions, `PATHEXT`, spaces in paths, and explicit overrides.
+- [x] Replace the current exact-name executable lookup with a cross-platform resolver.
+- [x] On Windows, honor `PATHEXT` and resolve `.exe`, `.cmd`, and `.bat` executables.
+- [x] Handle executable paths containing spaces, including native Windows Poppler and LibreOffice installations.
+- [x] Add explicit configuration overrides:
+  - [x] `STUDY_BUDDY_PDFTOTEXT_PATH`
+  - [x] `STUDY_BUDDY_PDFTOPPM_PATH`
+  - [x] `STUDY_BUDDY_LIBREOFFICE_PATH`
+- [x] Validate configured executable overrides and report an actionable error when a path is invalid.
+- [x] Add unit tests for Windows extensions, `PATHEXT`, spaces in paths, and explicit overrides. Native runner coverage remains under the integration-test section below.
 
 ### P1 — Platform-specific setup and diagnostics
 

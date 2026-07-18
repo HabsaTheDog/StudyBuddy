@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.2";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.3";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -173,11 +173,15 @@ const PROFILE_POLICIES: Record<
       escalationTimeoutMs: 6 * 60_000,
     },
     content_analyzer: {
-      model: "gpt-5.6-sol",
+      // Chapter analyzers run concurrently. Terra provides the necessary
+      // structured depth without the long queue observed when parallel Sol
+      // calls are used; a failed validation still escalates to Sol.
+      model: "gpt-5.6-terra",
       reasoningEffort: "high",
-      timeoutMs: 8 * 60_000,
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-5.6-sol",
       escalationEffort: "xhigh",
-      escalationTimeoutMs: 12 * 60_000,
+      escalationTimeoutMs: 6 * 60_000,
     },
     quiz_solver: {
       model: "gpt-5.6-sol",

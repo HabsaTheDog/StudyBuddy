@@ -4,7 +4,8 @@ import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
 import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
 
-export const ABSOLUTE_MAX_ARTIFACT_BYTES = 1_000_000_000;
+export const DEFAULT_MAX_ARTIFACT_BYTES = 100_000_000;
+export const ABSOLUTE_MAX_ARTIFACT_BYTES = 250_000_000;
 export const DEFAULT_MAX_IMAGE_WIDTH = 2_000;
 export const DEFAULT_WEBP_QUALITY = 84;
 
@@ -44,7 +45,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     skipBrowserValidation: input.skipBrowserValidation ?? false,
     maxArtifactBytes: boundedInteger(
       input.maxArtifactBytes,
-      ABSOLUTE_MAX_ARTIFACT_BYTES,
+      DEFAULT_MAX_ARTIFACT_BYTES,
       1,
       ABSOLUTE_MAX_ARTIFACT_BYTES,
       "maxArtifactBytes",

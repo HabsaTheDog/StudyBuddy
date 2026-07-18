@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatFormulaMath } from "../studentFirstTypstRenderer.js";
 import {
   cleanVisibleMathText,
+  normalizeInlineMathSource,
   renderTypstInlineText,
 } from "../typstInlineMath.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
@@ -31,5 +32,12 @@ describe("Typst inline mathematics", () => {
     expect(cleanVisibleMathText("tau_1 <= tau_1B / S; N/mm^2; pi dot d^2"))
       .toBe("τ_1 ≤ τ_1B / S; N/mm²; π · d²");
     expect(cleanVisibleMathText("`origin: source`")).toBe("origin: source");
+  });
+
+  it("quotes comma-separated engineering subscripts as one Typst label", () => {
+    expect(normalizeInlineMathSource("R_(m,Niet) = 400 N/mm^2")).toContain('R_"m,Niet"');
+    expect(normalizeInlineMathSource("F_(v,Rd) >= F_(v,Ed)")).toBe(
+      'F_"v,Rd" >= F_"v,Ed"',
+    );
   });
 });
