@@ -287,6 +287,10 @@ async function validateStudyGuideInteractionMatrix(
       continue;
     }
     for (let index = 0; index < tabCount; index += 1) {
+      const chapterMenu = page.locator("[data-chapter-menu]").first();
+      if (await chapterMenu.count()) {
+        await chapterMenu.evaluate((element: HTMLDetailsElement) => { element.open = true; });
+      }
       const tab = page.locator('[role="tab"]').nth(index);
       const tabName = (await tab.textContent())?.trim() || `tab-${index + 1}`;
       await tab.click();
