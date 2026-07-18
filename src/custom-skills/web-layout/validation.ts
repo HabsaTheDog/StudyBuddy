@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { STUDY_BUDDY_HTML_MARKS, STUDY_BUDDY_HTML_TOKENS } from "./designGuidelines.js";
+import { OFFLINE_CSP } from "./htmlShell.js";
 import type { JsonObject } from "./state.js";
 import type { WebLayoutKind } from "./types.js";
 
@@ -70,6 +71,7 @@ export function validateSingleFileHtml(html: string, kind: WebLayoutKind = "auto
   requirePattern(trimmed, /<body\b[^>]*>/i, "body-tag", "Missing <body> tag.");
   requirePattern(trimmed, /<title\b[^>]*>[\s\S]*?<\/title>/i, "title", "Missing <title>.");
   requirePattern(trimmed, /<meta\b[^>]*name=["']viewport["'][^>]*>/i, "viewport", "Missing viewport meta tag.");
+  validateOfflineCsp(trimmed, issues);
   requirePattern(trimmed, /<style\b[^>]*>[\s\S]+?<\/style>/i, "inline-style", "Missing inline <style> block.");
   if (kind !== "reference") {
     requirePattern(trimmed, /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]+?<\/script>/i, "inline-script", "Missing inline <script> block.");
@@ -83,7 +85,7 @@ export function validateSingleFileHtml(html: string, kind: WebLayoutKind = "auto
   if (/@import\b/i.test(trimmed)) {
     issues.push(issue("css-import", "CSS @import is not allowed."));
   }
-  if (/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/.test(trimmed) || /\bnew\s+(?:XMLHttpRequest|WebSocket|EventSource)\b/.test(trimmed)) {
+  if (/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\s*\(/.test(trimmed) || /\bnew\s+(?:XMLHttpRequest|WebSocket|EventSource)\b/.test(trimmed)) {
     issues.push(issue("network-api", "Network APIs are not allowed."));
   }
   if (/\bimport\s*\(/.test(trimmed)) {
@@ -128,6 +130,29 @@ export function validateSingleFileHtml(html: string, kind: WebLayoutKind = "auto
   return { ok: issues.length === 0, issues, screenshotPaths: [] };
 }
 
+function validateOfflineCsp(html: string, issues: HtmlValidationIssue[]): void {
+  const policyTag = (html.match(/<meta\b[^>]*>/gi) ?? []).find((tag) =>
+    /\bhttp-equiv\s*=\s*["']?content-security-policy["']?/i.test(tag)
+  );
+  const policy = policyTag?.match(/\bcontent\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] ?? "";
+  if (!policy) {
+    issues.push(issue("content-security-policy", "Missing offline Content-Security-Policy meta tag."));
+    return;
+  }
+  const actualDirectives = policy
+    .split(";")
+    .map((directive) => directive.replace(/\s+/g, " ").trim().toLowerCase())
+    .filter(Boolean);
+  const requiredDirectives = OFFLINE_CSP.split(";")
+    .map((directive) => directive.trim().toLowerCase())
+    .filter(Boolean);
+  for (const directive of requiredDirectives) {
+    if (!actualDirectives.includes(directive)) {
+      issues.push(issue("content-security-policy", `Offline Content-Security-Policy is missing: ${directive}.`));
+    }
+  }
+}
+
 export function validationReportToJson(report: HtmlValidationReport): JsonObject {
   return {
     ok: report.ok,
@@ -150,6 +175,7 @@ async function validateHtmlFileInBrowser(filePath: string, options: BrowserValid
   const browser = await chromium.launch({ headless: !options.headed });
   try {
     const context = await browser.newContext();
+    await context.route(/^(?:https?|wss?):/i, (route) => route.abort("blockedbyclient"));
     const page = await context.newPage();
     const pageErrors: string[] = [];
     const externalRequests: string[] = [];

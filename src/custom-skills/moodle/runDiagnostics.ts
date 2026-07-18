@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import type { AgentBrowserClient } from "./agentBrowserClient.js";
@@ -116,6 +116,7 @@ export class RunDiagnostics {
   private readonly secrets: string[];
   private coverage: SourceCoverage = structuredClone(initialSourceCoverage);
   private lastEventAt = Date.now();
+  private persistenceQueue: Promise<void> = Promise.resolve();
 
   constructor(input: { runDir: string; secrets?: string[]; initialCoverage?: SourceCoverage }) {
     this.runDir = input.runDir;
@@ -145,9 +146,11 @@ export class RunDiagnostics {
 
   async init(): Promise<void> {
     await mkdir(this.runDir, { recursive: true });
-    await this.writeCoverage();
-    await writeFile(this.eventsPath, "", "utf8");
-    await this.writeRunningSummary();
+    await this.enqueuePersistence(async () => {
+      await this.writeCoverage();
+      await writePrivateFile(this.eventsPath, "");
+      await this.writeRunningSummary();
+    });
   }
 
   async log(
@@ -166,7 +169,13 @@ export class RunDiagnostics {
       message: this.redact(message),
       data: data ? (JSON.parse(this.redact(JSON.stringify(data))) as Record<string, unknown>) : undefined,
     };
-    await writeFile(this.eventsPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "a" });
+    await this.enqueuePersistence(() =>
+      writeFile(this.eventsPath, `${JSON.stringify(event)}\n`, {
+        encoding: "utf8",
+        flag: "a",
+        mode: 0o600,
+      }),
+    );
     const prefix = level === "error" ? "ERROR" : level === "warn" ? "WARN" : "INFO";
     console[level === "error" ? "error" : level === "warn" ? "warn" : "log"](
       `[study-buddy] ${prefix} ${phase}: ${event.message}`,
@@ -185,8 +194,10 @@ export class RunDiagnostics {
         artifacts: unique([...(current.artifacts ?? []), ...(update.artifacts ?? [])]),
       },
     };
-    await this.writeCoverage();
-    await this.writeRunningSummary();
+    await this.enqueuePersistence(async () => {
+      await this.writeCoverage();
+      await this.writeRunningSummary();
+    });
   }
 
   async markAttempt(source: SourceName, url: string, detail: string): Promise<void> {
@@ -239,21 +250,29 @@ export class RunDiagnostics {
     const currentUrl = page.url();
     const errorText = error instanceof Error ? error.message : String(error);
 
-    await writeFile(`${base}-current-url.txt`, `${currentUrl}\n`, "utf8");
+    await writePrivateFile(`${base}-current-url.txt`, `${this.redactDiagnosticContent(currentUrl)}\n`);
     artifacts.push(`${base}-current-url.txt`);
-    await writeFile(`${base}-error.txt`, `${this.redact(errorText)}\n`, "utf8");
+    await writePrivateFile(`${base}-error.txt`, `${this.redactDiagnosticContent(errorText)}\n`);
     artifacts.push(`${base}-error.txt`);
 
-    const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
-    await writeFile(`${base}-visible-text.txt`, visibleText, "utf8");
-    artifacts.push(`${base}-visible-text.txt`);
+    if (diagnosticPageContentEnabled()) {
+      const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+      await writePrivateFile(`${base}-visible-text.txt`, this.redactDiagnosticContent(visibleText));
+      artifacts.push(`${base}-visible-text.txt`);
 
-    const html = await page.content().catch(() => "");
-    await writeFile(`${base}-page.html`, html, "utf8");
-    artifacts.push(`${base}-page.html`);
+      const html = await page.content().catch(() => "");
+      await writePrivateFile(`${base}-page.html`, this.sanitizeDiagnosticHtml(html));
+      artifacts.push(`${base}-page.html`);
+    }
 
-    await page.screenshot({ path: `${base}-screenshot.png`, fullPage: true }).catch(() => undefined);
-    artifacts.push(`${base}-screenshot.png`);
+    if (diagnosticScreenshotsEnabled()) {
+      const screenshotPath = `${base}-screenshot.png`;
+      const screenshotWritten = await page
+        .screenshot({ path: screenshotPath, fullPage: true })
+        .then(() => true)
+        .catch(() => false);
+      if (screenshotWritten) artifacts.push(screenshotPath);
+    }
 
     await this.updateCoverage(source, { artifacts, lastUrl: currentUrl });
     return artifacts;
@@ -272,26 +291,34 @@ export class RunDiagnostics {
     const artifacts: string[] = [];
     const errorText = error instanceof Error ? error.message : String(error);
 
-    await writeFile(`${base}-error.txt`, `${this.redact(errorText)}\n`, "utf8");
+    await writePrivateFile(`${base}-error.txt`, `${this.redactDiagnosticContent(errorText)}\n`);
     artifacts.push(`${base}-error.txt`);
 
     const currentUrl = await client.getUrl().catch(() => "");
-    await writeFile(`${base}-current-url.txt`, `${currentUrl}\n`, "utf8");
+    await writePrivateFile(`${base}-current-url.txt`, `${this.redactDiagnosticContent(currentUrl)}\n`);
     artifacts.push(`${base}-current-url.txt`);
 
-    const snapshot = await client.snapshot({ interactive: true, urls: true, compact: true }).catch(() => null);
-    if (snapshot) {
-      await writeFile(`${base}-snapshot.json`, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
-      await writeFile(`${base}-visible-text.txt`, snapshotToText(snapshot.snapshot), "utf8");
-      artifacts.push(`${base}-snapshot.json`, `${base}-visible-text.txt`);
-    }
+    if (diagnosticPageContentEnabled()) {
+      const snapshot = await client.snapshot({ interactive: true, urls: true, compact: true }).catch(() => null);
+      if (snapshot) {
+        await writePrivateFile(
+          `${base}-snapshot.json`,
+          `${this.redactDiagnosticContent(JSON.stringify(snapshot, null, 2))}\n`,
+        );
+        await writePrivateFile(
+          `${base}-visible-text.txt`,
+          this.redactDiagnosticContent(snapshotToText(snapshot.snapshot)),
+        );
+        artifacts.push(`${base}-snapshot.json`, `${base}-visible-text.txt`);
+      }
 
-    const html = await client
-      .evalText("document.documentElement ? document.documentElement.outerHTML : ''")
-      .catch(() => "");
-    if (html) {
-      await writeFile(`${base}-page.html`, html, "utf8");
-      artifacts.push(`${base}-page.html`);
+      const html = await client
+        .evalText("document.documentElement ? document.documentElement.outerHTML : ''")
+        .catch(() => "");
+      if (html) {
+        await writePrivateFile(`${base}-page.html`, this.sanitizeDiagnosticHtml(html));
+        artifacts.push(`${base}-page.html`);
+      }
     }
 
     await this.updateCoverage(source, { artifacts, lastUrl: currentUrl });
@@ -337,7 +364,7 @@ export class RunDiagnostics {
       recommendation(input, coverage),
       "",
     ];
-    await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
+    await this.enqueuePersistence(() => this.writeAtomically(this.summaryPath, `${lines.join("\n")}\n`));
   }
 
   async readEvents(): Promise<string> {
@@ -346,7 +373,10 @@ export class RunDiagnostics {
 
   private async writeCoverage(): Promise<void> {
     await mkdir(this.runDir, { recursive: true });
-    await writeFile(this.coveragePath, `${this.redact(JSON.stringify(this.coverage, null, 2))}\n`, "utf8");
+    await this.writeAtomically(
+      this.coveragePath,
+      `${this.redactDiagnosticContent(JSON.stringify(this.coverage, null, 2))}\n`,
+    );
   }
 
   private async writeRunningSummary(): Promise<void> {
@@ -368,11 +398,42 @@ export class RunDiagnostics {
       "Final summary will be written when the run exits cleanly.",
       "",
     ];
-    await writeFile(this.summaryPath, `${lines.join("\n")}\n`, "utf8");
+    await this.writeAtomically(this.summaryPath, `${lines.join("\n")}\n`);
   }
 
   private redact(text: string): string {
     return this.secrets.reduce((current, secret) => current.split(secret).join("[redacted]"), text);
+  }
+
+  private redactDiagnosticContent(text: string): string {
+    return this.redact(text)
+      .replace(
+        /([?&](?:sesskey|token|access_token|refresh_token|auth|authorization|password|passwd|secret|signature|code|key)=)[^&#\s"'<>]*/gi,
+        "$1[redacted]",
+      )
+      .replace(
+        /((?:"|')?(?:sesskey|token|access_token|refresh_token|authorization|password|passwd|secret|signature|api[_-]?key)(?:"|')?\s*[:=]\s*)(["'])[^"']*\2/gi,
+        "$1$2[redacted]$2",
+      );
+  }
+
+  private sanitizeDiagnosticHtml(html: string): string {
+    return this.redactDiagnosticContent(html)
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "<!-- script removed from diagnostics -->")
+      .replace(/(<input\b[^>]*\bvalue\s*=\s*)(["'])[^"']*\2/gi, "$1$2[redacted]$2")
+      .replace(/(<textarea\b[^>]*>)[\s\S]*?(<\/textarea>)/gi, "$1[redacted]$2");
+  }
+
+  private enqueuePersistence(operation: () => Promise<void>): Promise<void> {
+    const next = this.persistenceQueue.then(operation, operation);
+    this.persistenceQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async writeAtomically(filePath: string, content: string): Promise<void> {
+    const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    await writePrivateFile(temporaryPath, content);
+    await rename(temporaryPath, filePath);
   }
 }
 
@@ -433,4 +494,16 @@ function snapshotToText(snapshot: string): string {
     .map((line) => line.replace(/\s*\[ref=[^\]]+\]/g, "").replace(/\s*url=\S+/g, "").trim())
     .filter(Boolean)
     .join("\n");
+}
+
+function diagnosticScreenshotsEnabled(): boolean {
+  return process.env.STUDY_BUDDY_DIAGNOSTICS_INCLUDE_SCREENSHOTS === "true";
+}
+
+function diagnosticPageContentEnabled(): boolean {
+  return process.env.STUDY_BUDDY_DIAGNOSTICS_INCLUDE_PAGE_CONTENT === "true";
+}
+
+async function writePrivateFile(filePath: string, content: string): Promise<void> {
+  await writeFile(filePath, content, { encoding: "utf8", mode: 0o600 });
 }

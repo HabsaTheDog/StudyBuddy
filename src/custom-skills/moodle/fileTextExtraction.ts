@@ -1,4 +1,4 @@
-import { access, open, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -20,6 +20,13 @@ export interface ExtractionTooling {
   pdftoppm: boolean;
   libreoffice: boolean;
 }
+
+const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+const EXECUTABLE_OVERRIDES: Record<string, string> = {
+  pdftotext: "STUDY_BUDDY_PDFTOTEXT_PATH",
+  pdftoppm: "STUDY_BUDDY_PDFTOPPM_PATH",
+  libreoffice: "STUDY_BUDDY_LIBREOFFICE_PATH",
+};
 
 export async function extractReadableFile(
   filePath: string,
@@ -84,7 +91,7 @@ export async function extractPdfText(
   if (!pdftotext) {
     return extractionResult(pdfPath, "none", "", ["pdftotext executable was not found on PATH."]);
   }
-  const textPath = pdfPath.replace(/\.pdf$/i, ".txt");
+  const textPath = pdfPath.replace(/\.pdf$/i, ".extracted.txt");
   const result = await runCommand(pdftotext, ["-layout", pdfPath, textPath], options);
   if (result.code !== 0) {
     return extractionResult(pdfPath, "none", "", [
@@ -109,23 +116,27 @@ async function extractOfficeText(
   if (!libreoffice) {
     return extractionResult(filePath, "none", "", ["libreoffice executable was not found on PATH."]);
   }
-  const outputDir = path.dirname(filePath);
-  const result = await runCommand(libreoffice, [
-    "--headless",
-    "--convert-to",
-    "pdf",
-    "--outdir",
-    outputDir,
-    filePath,
-  ], options);
-  if (result.code !== 0) {
-    return extractionResult(filePath, "none", "", [
-      result.stderr || result.stdout || `libreoffice exited with code ${result.code}`,
-    ]);
+  const conversionDir = await mkdtemp(path.join(path.dirname(filePath), ".office-conversion-"));
+  try {
+    const result = await runCommand(libreoffice, [
+      "--headless",
+      "--convert-to",
+      "pdf",
+      "--outdir",
+      conversionDir,
+      filePath,
+    ], options);
+    if (result.code !== 0) {
+      return extractionResult(filePath, "none", "", [
+        result.stderr || result.stdout || `libreoffice exited with code ${result.code}`,
+      ]);
+    }
+    const pdfPath = path.join(conversionDir, `${path.basename(filePath, path.extname(filePath))}.pdf`);
+    const extracted = await extractPdfText(pdfPath, options);
+    return { ...extracted, filePath, method: extracted.method === "none" ? "none" : "office_to_pdf" };
+  } finally {
+    await rm(conversionDir, { recursive: true, force: true });
   }
-  const pdfPath = path.join(outputDir, `${path.basename(filePath, path.extname(filePath))}.pdf`);
-  const extracted = await extractPdfText(pdfPath, options);
-  return { ...extracted, filePath, method: extracted.method === "none" ? "none" : "office_to_pdf" };
 }
 
 export async function inspectExtractionTooling(): Promise<ExtractionTooling> {
@@ -141,17 +152,44 @@ export async function inspectExtractionTooling(): Promise<ExtractionTooling> {
   };
 }
 
-async function findExecutable(name: string): Promise<string | null> {
-  for (const entry of (process.env.PATH || "").split(path.delimiter)) {
-    const candidate = path.join(entry, name);
+export async function resolveExtractionExecutable(
+  name: keyof typeof EXECUTABLE_OVERRIDES,
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string | null> {
+  const overrideKey = EXECUTABLE_OVERRIDES[name];
+  const override = environment[overrideKey]?.trim();
+  if (override) {
+    const resolved = path.resolve(override.replace(/^"|"$/g, ""));
     try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Keep looking.
+      await access(resolved, platform === "win32" ? constants.F_OK : constants.X_OK);
+      return resolved;
+    } catch (error) {
+      throw new Error(`${overrideKey} does not point to an executable file: ${resolved}`, { cause: error });
+    }
+  }
+  const extensions = platform === "win32"
+    ? (environment.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  const pathDelimiter = platform === "win32" ? ";" : path.delimiter;
+  for (const rawEntry of (environment.PATH || "").split(pathDelimiter)) {
+    const entry = rawEntry.trim().replace(/^"|"$/g, "");
+    if (!entry) continue;
+    for (const extension of extensions) {
+      const candidate = path.join(entry, platform === "win32" ? `${name}${extension.toLowerCase()}` : name);
+      try {
+        await access(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
+        return candidate;
+      } catch {
+        // Keep looking.
+      }
     }
   }
   return null;
+}
+
+async function findExecutable(name: keyof typeof EXECUTABLE_OVERRIDES): Promise<string | null> {
+  return resolveExtractionExecutable(name);
 }
 
 function runCommand(
@@ -186,10 +224,18 @@ function runCommand(
       commandTimer = setTimeout(() => stop(new Error(`${path.basename(command)} timed out after ${timeoutMs}ms.`)), timeoutMs);
     }
     child.stdout.on("data", (chunk) => {
+      if (settled) return;
       stdout += String(chunk);
+      if (Buffer.byteLength(stdout) > MAX_COMMAND_OUTPUT_BYTES) {
+        stop(new Error(`${path.basename(command)} exceeded the 1 MiB stdout safety limit.`));
+      }
     });
     child.stderr.on("data", (chunk) => {
+      if (settled) return;
       stderr += String(chunk);
+      if (Buffer.byteLength(stderr) > MAX_COMMAND_OUTPUT_BYTES) {
+        stop(new Error(`${path.basename(command)} exceeded the 1 MiB stderr safety limit.`));
+      }
     });
     child.on("error", (error) => {
       if (settled) return;

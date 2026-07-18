@@ -12,6 +12,7 @@ import {
 import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { applyOfflineSecurityPolicy } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -142,7 +143,7 @@ export async function bundleWebLayoutSource(input: {
     readFile(path.join(input.sourceDir, "styles.css"), "utf8").catch(() => ""),
     readFile(path.join(input.sourceDir, "app.js"), "utf8").catch(() => ""),
   ]);
-  let template = inlineEditableSource(indexHtml, css, js);
+  let template = applyOfflineSecurityPolicy(inlineEditableSource(indexHtml, css, js));
   const localReferences = collectImageReferences(template)
     .filter(isLocalImageReference);
   const uniqueReferences = [...new Set(localReferences)];

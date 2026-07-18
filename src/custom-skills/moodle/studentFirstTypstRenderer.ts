@@ -283,7 +283,8 @@ function figuresForExample(
   return figures
     .filter((figure) =>
       Boolean(figure.relativePath) &&
-      figure.sourceIds.some((sourceId) => exampleSources.has(sourceId))
+      figure.sourceIds.length > 0 &&
+      figure.sourceIds.every((sourceId) => exampleSources.has(sourceId))
     )
     .sort((left, right) =>
       visualSpecificity(right) - visualSpecificity(left) ||

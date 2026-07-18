@@ -34,9 +34,11 @@ npm run web-layout:bundle -- "<run-dir>/source" --out "<run-dir>/document.html"
 - Generated Base64 image data is extracted back into `source/assets/` before validation.
 - The final bundler embeds selected assets as data URIs and adds lazy image loading hints.
 - Remote images and sibling-file dependencies are rejected. User-triggered HTTPS links to Moodle videos, PDFs, and other source material remain allowed.
+- The bundler injects a restrictive offline Content Security Policy. Network connections, forms, frames, plugins, and external code remain blocked even if generated inline JavaScript attempts to use another browser API.
+- Static validation and a Chromium pass are mandatory in CI; the validation browser aborts all HTTP(S)/WebSocket requests instead of merely recording them.
 
 ## Size policy
 
-The default and absolute maximum is 1,000,000,000 bytes. The builder estimates the complete Base64-expanded output before writing it and refuses to exceed the configured ceiling. Runs at or above 100 MB receive a large-artifact warning; runs at or above 250 MB receive a very-large mobile-compatibility warning. These are warnings, not smaller hidden limits.
+The default maximum is 100 MB and the absolute override ceiling is 250 MB. The builder estimates the complete Base64-expanded output before writing it and refuses to exceed the configured ceiling. Runs at or above 100 MB receive a large-artifact warning; 250 MB is reserved for exceptional desktop-oriented artifacts because mobile browser memory limits are substantially lower.
 
-The run summary and media manifest report final size, embedded binary bytes, and estimated decoded raster memory. Override the per-run ceiling only downward with `--max-artifact-mb`; values above 1000 MB are rejected.
+The run summary and media manifest report final size, embedded binary bytes, and estimated decoded raster memory. Override the per-run ceiling with `--max-artifact-mb`; values above 250 MB are rejected.

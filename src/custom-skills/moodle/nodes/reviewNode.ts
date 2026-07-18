@@ -12,6 +12,7 @@ export function createReviewNode(config: MoodleRuntimeConfig) {
       state.study_model,
       state.coverage_assessment,
       state.resource_manifest,
+      state.evidence_package,
     );
     await writeFile(
       path.join(config.runDir, "review-report.json"),

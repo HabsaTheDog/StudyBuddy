@@ -136,6 +136,14 @@ describe("source architect", () => {
     }));
     const lectureId = stableResourceId(lectureUrl);
     const state = moodleTestState({
+      source_architect_decision: {
+        round: 2,
+        status: "request_more",
+        coverageSummary: "Two targeted rounds have already completed.",
+        requestedUrls: [],
+        remainingAvailable: 2,
+        reasons: [],
+      },
       resource_manifest: {
         schemaVersion: "1.0",
         courseUrl: "https://moodle.technikum-wien.at/course/view.php?id=1",
@@ -172,9 +180,162 @@ describe("source architect", () => {
     const result = await createSourceArchitectNode(config, codex)(state);
 
     expect(result.source_architect_decision).toMatchObject({
+      round: 3,
       status: "request_more",
       requestedUrls: [taskUrl, solutionUrl],
     });
+  });
+
+  it("requests chapter-matched external references when acquired evidence requires table-book lookup", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-lookup-dependency-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=20";
+    const tableBookOne = "https://link.springer.example/chapter-2-pages-27-44.pdf";
+    const tableBookTwo = "https://link.springer.example/chapter-2-pages-46-63.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "Foliensatz Grundlagen", true, 900), sectionTitle: "Diskussion zum Eigenstudium 1", role: "primary_lecture" },
+        { ...entry(tableBookOne, "Seite 27 bis 44", false, 50), sectionTitle: "A. Eigenstudium - Toleranzen", role: "external_reference" },
+        { ...entry(tableBookTwo, "Seite 46 bis 63", false, 50), sectionTitle: "A. Eigenstudium - Toleranzen", role: "external_reference" },
+      ],
+    }));
+    const lectureId = stableResourceId(lectureUrl);
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.technikum-wien.at/course/view.php?id=1",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          resource(lectureId, lectureUrl, "Foliensatz Grundlagen", "Diskussion zum Eigenstudium 1", "/tmp/lecture.pdf", "primary_lecture"),
+        ],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "ev_table_lookup",
+          resourceId: lectureId,
+          kind: "exercise",
+          locator: { page: 12 },
+          content: "Bestimmen Sie EI, ES, ei und es mit den Werten der Tabellen TB 2-1 bis TB 2-3.",
+          confidence: 1,
+          pairId: null,
+          sourceUrl: lectureUrl,
+          localPath: "/tmp/lecture.pdf",
+        }],
+        warnings: [],
+      },
+    });
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "sufficient",
+        coverage_summary: "The lecture is present.",
+        requested_urls: [],
+        reasons: [],
+      })),
+    };
+    const config = moodleTestConfig({
+      runDir,
+      prompt: "Create a study guide for MEL",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt: "Create a study guide for MEL",
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    });
+
+    const result = await createSourceArchitectNode(config, codex)(state);
+
+    expect(result.source_architect_decision).toMatchObject({
+      round: 1,
+      status: "request_more",
+      requestedUrls: [tableBookOne, tableBookTwo],
+    });
+    expect(result.source_architect_decision?.reasons.join(" ")).toContain("mandatory learning dependency");
+  });
+
+  it("delegates embedded-table verification to the visual pipeline after bounded acquisition", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-visual-handoff-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=30";
+    const unrelatedUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=31";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "Foliensatz Toleranzen", true, 900), sectionTitle: "Eigenstudium 1", role: "primary_lecture" },
+        { ...entry(unrelatedUrl, "Weitere Aufgabe", false, 150), sectionTitle: "Eigenstudium 1", role: "supplementary" },
+      ],
+    }));
+    const lectureId = stableResourceId(lectureUrl);
+    const state = moodleTestState({
+      source_architect_decision: {
+        round: 3,
+        status: "request_more",
+        coverageSummary: "Three targeted acquisitions completed.",
+        requestedUrls: [],
+        remainingAvailable: 1,
+        reasons: [],
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.technikum-wien.at/course/view.php?id=1",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          resource(lectureId, lectureUrl, "Foliensatz Toleranzen", "Eigenstudium 1", "/tmp/tolerances.pdf", "primary_lecture"),
+        ],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "ev_embedded_table",
+          resourceId: lectureId,
+          kind: "exercise",
+          locator: { page: 12 },
+          content: "Verwenden Sie die Tabellen TB 2-1 bis TB 2-3.",
+          confidence: 1,
+          pairId: null,
+          sourceUrl: lectureUrl,
+          localPath: "/tmp/tolerances.pdf",
+        }],
+        warnings: [],
+      },
+    });
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "request_more",
+        coverage_summary: "The table is not visible in the text brief.",
+        requested_urls: [unrelatedUrl],
+        reasons: ["TB 2-1 must be verified visually."],
+      })),
+    };
+    const config = moodleTestConfig({
+      runDir,
+      prompt: "Create a study guide for MEL",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt: "Create a study guide for MEL",
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    });
+
+    const result = await createSourceArchitectNode(config, codex)(state);
+
+    expect(result.source_architect_decision).toMatchObject({
+      round: 4,
+      status: "sufficient",
+      requestedUrls: [],
+    });
+    expect(result.source_architect_decision?.reasons.join(" ")).toContain("deterministic review");
   });
 });
 

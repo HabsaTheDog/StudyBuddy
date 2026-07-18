@@ -1,7 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
+
+const MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_HANDOFF_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_COMBINED_SOURCE_BYTES = 50 * 1024 * 1024;
 
 export function createSourceNode(config: WebLayoutRuntimeConfig) {
   return async function sourceNode(): Promise<Partial<LangGraphWebLayoutState>> {
@@ -30,6 +34,9 @@ export function createSourceNode(config: WebLayoutRuntimeConfig) {
         ].join("\n"));
       }
       const sourceText = chunks.join("\n\n---\n\n");
+      if (Buffer.byteLength(sourceText) > MAX_COMBINED_SOURCE_BYTES) {
+        throw new Error("Combined web-layout source exceeds the 50 MiB safety limit.");
+      }
       await config.diagnostics?.log("info", "source", `Prepared source text (${sourceText.length} chars).`);
       return {
         source_text: sourceText,
@@ -48,7 +55,7 @@ function requestsMoodleSources(prompt: string): boolean {
 }
 
 async function readTextSourceFile(filePath: string): Promise<string> {
-  const buffer = await readFile(filePath);
+  const buffer = await readBoundedFile(filePath, MAX_SOURCE_FILE_BYTES);
   if (buffer.includes(0)) {
     throw new Error(`Source file appears to be binary: ${filePath}`);
   }
@@ -111,12 +118,26 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
 
 async function readRequired(filePath: string): Promise<string> {
   try {
-    return await readFile(filePath, "utf8");
+    return (await readBoundedFile(filePath, MAX_HANDOFF_FILE_BYTES)).toString("utf8");
   } catch (error) {
     throw new Error(`Required handoff file is missing or unreadable: ${filePath}`);
   }
 }
 
 async function readOptional(filePath: string): Promise<string | null> {
-  return readFile(filePath, "utf8").catch(() => null);
+  try {
+    return (await readBoundedFile(filePath, MAX_HANDOFF_FILE_BYTES)).toString("utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function readBoundedFile(filePath: string, maxBytes: number): Promise<Buffer> {
+  const details = await stat(filePath);
+  if (!details.isFile()) throw new Error(`Source path is not a file: ${filePath}`);
+  if (details.size > maxBytes) {
+    throw new Error(`Source file exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MiB safety limit: ${filePath}`);
+  }
+  return readFile(filePath);
 }

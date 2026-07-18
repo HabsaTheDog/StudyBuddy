@@ -1,6 +1,6 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type APIRequestContext, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { createAgentBrowserClient, type AgentBrowserClient, type AgentBrowserSnapshot } from "../agentBrowserClient.js";
 import {
   dismissCommonOverlays,
@@ -27,6 +27,7 @@ import {
 } from "../resourcePlanning.js";
 import { resolveTaskBudget } from "../taskBudget.js";
 import { writeRunProgress } from "../runProgress.js";
+import { assertPublicHttpsUrl, hasExactOrigin } from "../urlSecurity.js";
 import {
   formatResourceFailureBlock,
   inspectResourcePayload,
@@ -52,6 +53,8 @@ interface CrawlPage {
   url: string;
   depth: number;
 }
+
+const MAX_RESOURCE_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
 interface PageFetchSuccess {
   ok: true;
@@ -854,7 +857,7 @@ async function extractMoodleLinks(page: Page, config: MoodleRuntimeConfig): Prom
   );
   const seen = new Set<string>();
   const relevantLinks = hrefs
-    .filter(({ href }) => href.startsWith(origin))
+    .filter(({ href }) => hasExactOrigin(href, origin))
     .filter(
       ({ href }) =>
         href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
@@ -936,7 +939,7 @@ async function captureFileLinks(
     await config.executionTelemetry?.recordResourceAttempt("started");
     await config.diagnostics?.log("info", "moodle_download", `Authenticated resource download: ${link.href}`);
     try {
-      const metadata = await downloadResourceWithRequest(page.context().request, link.href, target, signal);
+      const metadata = await downloadResourceWithRequest(page.context(), link.href, target, signal);
       await config.diagnostics?.updateCoverage("moodle", { artifacts: [metadata.localPath] });
       const extraction = await extractReadableFile(metadata.localPath, { signal, commandTimeoutMs: 60_000 });
       await recordExtractionResult(config.runDir, extraction);
@@ -1221,7 +1224,7 @@ function extractMoodleLinksFromSnapshot(
 ): string[] {
   const origin = new URL(config.baseUrl).origin;
   const links = extractSnapshotLinks(snapshot)
-    .filter(({ href }) => href.startsWith(origin))
+    .filter(({ href }) => hasExactOrigin(href, origin))
     .filter(
       ({ href }) =>
         href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
@@ -1759,7 +1762,7 @@ async function createResourceDownloadSession(
       password: config.password,
     });
     return {
-      download: (url, target, signal) => downloadResourceWithRequest(context.request, url, target, signal),
+      download: (url, target, signal) => downloadResourceWithRequest(context, url, target, signal),
       close: async () => {
         config.abortSignal?.removeEventListener("abort", closeOnAbort);
         await browser.close().catch(() => undefined);
@@ -1796,71 +1799,138 @@ class ResourceDownloadFailure extends Error {
   }
 }
 
-async function downloadResourceWithRequest(
-  request: APIRequestContext,
+export async function downloadResourceWithRequest(
+  context: BrowserContext,
   url: string,
   target: string,
   signal?: AbortSignal,
 ): Promise<ResourceDownloadMetadata> {
   throwIfAborted(signal);
   const startedAt = Date.now();
-  const response = await request.get(url, {
-    failOnStatusCode: false,
-    timeout: 45_000,
-  });
-  throwIfAborted(signal);
-  const contentType = response.headers()["content-type"] ?? null;
-  const contentDisposition = response.headers()["content-disposition"] ?? null;
-  const resolvedUrl = response.url();
-  if (!response.ok()) {
-    throw new ResourceDownloadFailure(
-      `Resource download returned HTTP ${response.status()}.`,
-      { resolvedUrl, contentType, httpStatus: response.status() },
-    );
+  let currentUrl = url;
+  let response: Response | null = null;
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    throwIfAborted(signal);
+    await assertPublicHttpsUrl(currentUrl);
+    const cookies = await context.cookies(currentUrl);
+    response = await fetch(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers: cookies.length > 0
+        ? { cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ") }
+        : undefined,
+    });
+    if (response.status < 300 || response.status >= 400) break;
+    const location = response.headers.get("location");
+    await response.body?.cancel().catch(() => undefined);
+    if (!location || redirects === 5) {
+      throw new ResourceDownloadFailure("Resource download redirect could not be followed.", {
+        resolvedUrl: currentUrl,
+        httpStatus: response.status,
+      });
+    }
+    currentUrl = new URL(location, currentUrl).toString();
   }
-  const body = await response.body();
-  throwIfAborted(signal);
-  const inspection = inspectResourcePayload(body, contentType ?? undefined);
-  const expectsPdf = isKnownPdfEndpoint(url);
-  const isMoodleResource = new URL(url).pathname.includes("/mod/resource/view.php");
-  if ((expectsPdf && inspection.kind !== "pdf") || (isMoodleResource && inspection.kind === "html")) {
-    const titleSuffix = inspection.title ? ` (${inspection.title})` : "";
-    throw new ResourceDownloadFailure(
-      inspection.kind === "html"
-        ? `Downloaded file is not a PDF; Moodle returned an HTML page instead${titleSuffix}.`
-        : `Downloaded resource has unexpected content type ${inspection.contentType ?? inspection.kind}.`,
-      {
-        resolvedUrl,
-        contentType: inspection.contentType,
-        htmlTitle: inspection.title,
-        httpStatus: response.status(),
-      },
-    );
+  if (!response) throw new ResourceDownloadFailure("Resource download did not return a response.");
+  const resolvedUrl = currentUrl;
+  const contentType = response.headers.get("content-type");
+  const contentDisposition = response.headers.get("content-disposition");
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new ResourceDownloadFailure(`Resource download returned HTTP ${response.status}.`, {
+      resolvedUrl,
+      contentType,
+      httpStatus: response.status,
+    });
   }
-  const localPath = resolveDownloadedPath(target, inspection, contentDisposition);
-  if (inspection.kind === "binary" && localPath === target && target.toLowerCase().endsWith(".pdf")) {
-    throw new ResourceDownloadFailure(
-      `Downloaded resource has unsupported content type ${inspection.contentType ?? "binary"}.`,
-      { resolvedUrl, contentType: inspection.contentType, httpStatus: response.status() },
-    );
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESOURCE_DOWNLOAD_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new ResourceDownloadFailure("Resource download exceeds the 100 MiB safety limit.", {
+      resolvedUrl,
+      contentType,
+      httpStatus: response.status,
+    });
   }
-  const temporaryPath = `${localPath}.${process.pid}.${Date.now()}.part`;
+  if (!response.body) throw new ResourceDownloadFailure("Resource download returned an empty body.");
+  const temporaryPath = `${target}.${process.pid}.${Date.now()}.part`;
+  const handle = await open(temporaryPath, "wx", 0o600);
+  const reader = response.body.getReader();
+  const inspectionChunks: Uint8Array[] = [];
+  let inspectionBytes = 0;
+  let bytes = 0;
   try {
-    await writeFile(temporaryPath, body);
+    while (true) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESOURCE_DOWNLOAD_BYTES) {
+        await reader.cancel();
+        throw new ResourceDownloadFailure("Resource download exceeds the 100 MiB safety limit.", {
+          resolvedUrl,
+          contentType,
+          httpStatus: response.status,
+        });
+      }
+      await handle.write(value);
+      if (inspectionBytes < 64 * 1024) {
+        const sample = value.subarray(0, Math.min(value.byteLength, 64 * 1024 - inspectionBytes));
+        inspectionChunks.push(sample);
+        inspectionBytes += sample.byteLength;
+      }
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    await handle.close().catch(() => undefined);
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+  const inspection = inspectResourcePayload(Buffer.concat(inspectionChunks), contentType ?? undefined);
+  let localPath = target;
+  let renamed = false;
+  try {
+    const expectsPdf = isKnownPdfEndpoint(url);
+    const isMoodleResource = new URL(url).pathname.includes("/mod/resource/view.php");
+    if ((expectsPdf && inspection.kind !== "pdf") || (isMoodleResource && inspection.kind === "html")) {
+      const titleSuffix = inspection.title ? ` (${inspection.title})` : "";
+      throw new ResourceDownloadFailure(
+        inspection.kind === "html"
+          ? `Downloaded file is not a PDF; Moodle returned an HTML page instead${titleSuffix}.`
+          : `Downloaded resource has unexpected content type ${inspection.contentType ?? inspection.kind}.`,
+        {
+          resolvedUrl,
+          contentType: inspection.contentType,
+          htmlTitle: inspection.title,
+          httpStatus: response.status,
+        },
+      );
+    }
+    localPath = resolveDownloadedPath(target, inspection, contentDisposition);
+    if (inspection.kind === "binary" && localPath === target && target.toLowerCase().endsWith(".pdf")) {
+      throw new ResourceDownloadFailure(
+        `Downloaded resource has unsupported content type ${inspection.contentType ?? "binary"}.`,
+        { resolvedUrl, contentType: inspection.contentType, httpStatus: response.status },
+      );
+    }
     throwIfAborted(signal);
     await rename(temporaryPath, localPath);
+    renamed = true;
     await assertNonEmptyFile(localPath);
     await assertReadableDownloadedFile(localPath);
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
-    await rm(localPath, { force: true }).catch(() => undefined);
+    if (renamed) await rm(localPath, { force: true }).catch(() => undefined);
     throw error;
   }
   return {
     resolvedUrl,
     contentType: inspection.contentType,
     localPath,
-    bytes: body.byteLength,
+    bytes,
     durationMs: Date.now() - startedAt,
   };
 }

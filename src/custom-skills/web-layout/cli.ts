@@ -23,7 +23,7 @@ const program = new Command()
   .option("--language <language>", "Language: de or en", parseLanguage, "de")
   .option("--browser-headed", "Show browser window during Playwright validation")
   .option("--skip-browser-validation", "Skip Playwright validation")
-  .option("--max-artifact-mb <number>", "Maximum final HTML size in decimal MB (1-1000)", parseArtifactMegabytes, 1000)
+  .option("--max-artifact-mb <number>", "Maximum final HTML size in decimal MB (1-250)", parseArtifactMegabytes, 100)
   .option("--max-image-width <number>", "Maximum optimized raster width in pixels", parseNumber, 2000)
   .option("--webp-quality <number>", "Lossy WebP quality from 1 to 100", parseQuality, 84)
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
@@ -109,8 +109,8 @@ function parseNumber(value: string): number {
 
 function parseArtifactMegabytes(value: string): number {
   const parsed = parseNumber(value);
-  if (parsed < 1 || parsed > 1000) {
-    throw new Error(`Expected artifact size from 1 to 1000 MB, got ${value}`);
+  if (parsed < 1 || parsed > 250) {
+    throw new Error(`Expected artifact size from 1 to 250 MB, got ${value}`);
   }
   return parsed;
 }

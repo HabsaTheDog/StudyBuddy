@@ -6,6 +6,7 @@ import type { CodexClient } from "../codexClient.js";
 import { resolveCourseTargetsFromLinks } from "../courseTargeting.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { hasExactOrigin } from "../urlSecurity.js";
 
 const MODEL_SHORTLIST_LIMIT = 4;
 const FALLBACK_SHORTLIST_LIMIT = 8;
@@ -436,7 +437,7 @@ function playwrightReader(browser: Browser, page: Page, config: MoodleRuntimeCon
       })));
       const unique = new Map<string, { url: string; label: string }>();
       for (const link of links) {
-        if (!link.url.startsWith(origin) || !link.label) continue;
+        if (!hasExactOrigin(link.url, origin) || !link.label) continue;
         unique.set(normalizeUrl(link.url), { ...link, url: normalizeUrl(link.url) });
       }
       return [...unique.values()].map((candidate, index) => ({

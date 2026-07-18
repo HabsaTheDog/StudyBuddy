@@ -53,6 +53,17 @@ describe("single-file HTML validation", () => {
     expect(report.issues.map((issue) => issue.code)).toContain("network-api");
   });
 
+  it("rejects sendBeacon and requires the locked-down offline CSP", () => {
+    const html = minimalValidStudyBuddyHtml({ title: "Flashcards", kind: "flashcards", language: "de" })
+      .replace("</script>", "navigator.sendBeacon('https://example.com/collect','x')</script>");
+    const withoutCsp = html.replace(/<meta\b[^>]*content-security-policy[^>]*>\s*/i, "");
+
+    expect(validateSingleFileHtml(html, "flashcards").issues.map((issue) => issue.code))
+      .toContain("network-api");
+    expect(validateSingleFileHtml(withoutCsp, "flashcards").issues.map((issue) => issue.code))
+      .toContain("content-security-policy");
+  });
+
   it("allows user-triggered HTTPS source links", () => {
     const html = minimalValidStudyBuddyHtml({ title: "Reference", kind: "reference", language: "de" })
       .replace("</main>", "<a href=\"https://moodle.example/course\" target=\"_blank\" rel=\"noopener noreferrer\">Quelle</a></main>");

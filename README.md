@@ -117,11 +117,11 @@ Study Buddy/
 
 ## Cross-Platform Notes
 
-The codebase is **cross-platform** (Linux, macOS, Windows). A few things to be aware of:
+Linux is the currently CI-tested platform. macOS and native Windows are intended targets, but remain best-effort until the platform matrix in `TODO.md` is complete.
 
-- **Windows**: Node.js, npm, Playwright, and Typst all have native Windows support. No WSL required for core functionality.
+- **Windows**: Node.js, npm, Playwright, and Typst have native Windows versions, but Study Buddy's executable discovery, cancellation, and PDF toolchain have not yet passed native Windows CI. Use WSL for the currently verified path.
 - **Shell scripts**: The `npm run setup` script uses `bash`. On Windows, run it via **Git Bash** (included with Git for Windows) or use the manual setup method above.
-- **Path handling**: All source code uses `node:path` for OS-aware path resolution — no hardcoded Unix paths.
+- **Path handling**: Runtime TypeScript generally uses `node:path`; shell setup and external executable discovery still have platform-specific work listed in `TODO.md`.
 
 ## Security
 

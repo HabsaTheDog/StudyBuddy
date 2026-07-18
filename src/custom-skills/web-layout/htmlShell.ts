@@ -1,10 +1,24 @@
 import type { WebLayoutKind } from "./types.js";
 import { studyBuddyCssTokenBlock } from "./designGuidelines.js";
 
+export const OFFLINE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
+
 export function stripHtmlFence(value: string): string {
   const trimmed = value.trim();
   const fenced = /^```(?:html)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   return fenced ? fenced[1].trim() : trimmed;
+}
+
+export function applyOfflineSecurityPolicy(value: string): string {
+  const withoutExistingPolicy = value.replace(
+    /<meta\b(?=[^>]*\bhttp-equiv\s*=\s*["']?content-security-policy["']?)[^>]*>\s*/gi,
+    "",
+  );
+  const policyTag = `<meta http-equiv="Content-Security-Policy" content="${OFFLINE_CSP}">`;
+  if (/<meta\b[^>]*charset\s*=/i.test(withoutExistingPolicy)) {
+    return withoutExistingPolicy.replace(/(<meta\b[^>]*charset\s*=[^>]*>)/i, `$1\n  ${policyTag}`);
+  }
+  return withoutExistingPolicy.replace(/<head\b[^>]*>/i, (head) => `${head}\n  ${policyTag}`);
 }
 
 export function minimalValidStudyBuddyHtml(input: { title: string; kind: WebLayoutKind; language: "de" | "en" }): string {
@@ -34,6 +48,7 @@ export function minimalValidStudyBuddyHtml(input: { title: string; kind: WebLayo
 <html lang="${input.language}">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="${OFFLINE_CSP}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(input.title)}</title>
   <style>

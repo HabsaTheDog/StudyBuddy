@@ -235,8 +235,8 @@ function visualSignals(text: string): string[] {
   const signals: string[] = [];
   if (/\b(?:beispiel|aufgabe|übung|uebung|exercise|example)\w*/.test(lower)) signals.push("worked_example");
   if (/\b(?:lösung|loesung|musterlösung|musterloesung|solution|answer)\w*/.test(lower)) signals.push("solution");
-  if (/\b(?:tabelle|table|tab\.)\w*/.test(lower)) signals.push("table");
-  if (/\b(?:abbildung|diagramm|schema|zeichnung|skizze|plot|kennlinie)\w*/.test(lower)) signals.push("diagram_or_figure");
+  if (/\b(?:tabelle|table|tab\.)\w*/.test(lower) || /(?:toleranzgrad|grundtoleranz|maßtoleranz:\s*größe|TB\s*\d+\s*[-–]\s*\d+)/i.test(text)) signals.push("table");
+  if (/\b(?:abbildung|diagramm|schema|zeichnung|skizze|plot|kennlinie)\w*/.test(lower) || /(?:grundabmaß|maßtoleranz:\s*lage)/i.test(text)) signals.push("diagram_or_figure");
   if (/(?:=|≤|≥|√|∑|π|N\/mm|mm²|MPa|mPa)/.test(text)) signals.push("formula_or_math");
   if (/\b(?:logo|firma|unternehmen|company|hersteller)\w*/.test(lower)) signals.push("context_logo");
   return signals;

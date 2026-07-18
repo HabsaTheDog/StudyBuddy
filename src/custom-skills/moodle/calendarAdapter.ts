@@ -5,6 +5,7 @@ import {
   extractCourseTargetHint,
   hasUnrecognizedNamedCourseTarget,
 } from "./courseTargeting.js";
+import { assertPublicHttpsUrl } from "./urlSecurity.js";
 
 export const CALENDAR_TIMEOUT_MS = 15_000;
 export const CALENDAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -38,6 +39,7 @@ export interface CalendarAdapterOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxBytes?: number;
+  resolveHostname?: (hostname: string) => Promise<string[]>;
 }
 
 const COURSE_ALIASES: Record<string, string[]> = {
@@ -127,6 +129,10 @@ export async function fetchCalendarText(
   try {
     let currentUrl = normalizeCalendarUrl(url);
     for (let redirects = 0; redirects <= 3; redirects += 1) {
+      await assertPublicHttpsUrl(
+        currentUrl,
+        options.resolveHostname ?? (options.fetchImpl ? async () => ["8.8.8.8"] : undefined),
+      );
       const response = await fetchImpl(currentUrl, {
         signal: controller.signal,
         redirect: "manual",

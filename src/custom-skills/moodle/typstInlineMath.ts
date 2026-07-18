@@ -60,6 +60,7 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\nu\b/g, "nu")
     .replace(/\\Delta\b/g, "Delta")
     .replace(/_\{([A-Za-z][A-Za-z0-9 ,.-]*)\}/g, (_, label: string) => `_"${label.trim()}"`)
+    .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9]*\([^)]+\))\)/g, (_, label: string) => `_"${label}"`)
     .replace(/_([A-Za-z][A-Za-z0-9]{1,})\b/g, (_, label: string) => `_"${label}"`);
 }

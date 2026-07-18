@@ -27,6 +27,11 @@ vi.mock("../fileTextExtraction.js", () => ({
   extractReadableFileText: mocks.extractReadableFileText,
 }));
 
+vi.mock("../urlSecurity.js", () => ({
+  assertPublicHttpsUrl: vi.fn().mockResolvedValue(undefined),
+  hasExactOrigin: (value: string, expected: string) => new URL(value).origin === new URL(expected).origin,
+}));
+
 import { createCisScraperNode } from "../nodes/cisScraperNode.js";
 
 describe("CIS scraper task bounds", () => {
@@ -40,6 +45,7 @@ describe("CIS scraper task bounds", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await rm(runDir, { recursive: true, force: true });
   });
 
@@ -89,6 +95,7 @@ describe("CIS scraper task bounds", () => {
     expect(requestGet).toHaveBeenCalledOnce();
     expect(requestGet).toHaveBeenCalledWith(
       "https://cis.example/files/pruefungsinformation.pdf",
+      expect.objectContaining({ redirect: "manual" }),
     );
   });
 
@@ -122,10 +129,14 @@ describe("CIS scraper task bounds", () => {
     goto = vi.fn(async (url: string) => {
       currentUrl = url;
     });
-    requestGet = vi.fn().mockResolvedValue({
-      ok: () => true,
-      body: () => Promise.resolve(Buffer.from("PDF")),
-    });
+    requestGet = vi.fn().mockResolvedValue(new Response("PDF", {
+      headers: { "content-type": "application/pdf", "content-length": "3" },
+    }));
+    vi.stubGlobal("fetch", requestGet);
+    const browserContext = {
+      request: { get: requestGet },
+      cookies: vi.fn().mockResolvedValue([]),
+    };
     const page = {
       goto,
       title: vi.fn().mockResolvedValue("CIS"),
@@ -134,11 +145,12 @@ describe("CIS scraper task bounds", () => {
       locator: vi.fn((selector: string) => selector === "body"
         ? { innerText: vi.fn().mockResolvedValue("Exam schedule for the requested course") }
         : { evaluateAll: vi.fn().mockResolvedValue(links) }),
-      context: vi.fn(() => ({ request: { get: requestGet } })),
+      context: vi.fn(() => browserContext),
     };
     const context = {
       newPage: vi.fn().mockResolvedValue(page),
       request: { get: requestGet },
+      cookies: browserContext.cookies,
     };
     mocks.launch.mockResolvedValue({
       newContext: vi.fn().mockResolvedValue(context),

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { Command } from "commander";
-import { ABSOLUTE_MAX_ARTIFACT_BYTES } from "./config.js";
+import { ABSOLUTE_MAX_ARTIFACT_BYTES, DEFAULT_MAX_ARTIFACT_BYTES } from "./config.js";
 import { bundleWebLayoutSource } from "./assetPipeline.js";
 
 const program = new Command()
@@ -9,7 +9,12 @@ const program = new Command()
   .description("Compile an editable Study Buddy web-layout source directory into one offline HTML file.")
   .argument("<source-dir>", "Directory containing index.html, styles.css, app.js, and assets/")
   .option("--out <path>", "Output HTML path")
-  .option("--max-artifact-mb <number>", "Maximum output size in decimal MB (1-1000)", parseMegabytes, 1000)
+  .option(
+    "--max-artifact-mb <number>",
+    "Maximum output size in decimal MB (1-250)",
+    parseMegabytes,
+    DEFAULT_MAX_ARTIFACT_BYTES / 1_000_000,
+  )
   .parse(process.argv);
 
 const sourceDir = path.resolve(program.args[0]);
