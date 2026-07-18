@@ -207,7 +207,8 @@ function buildFormatterPrompt(config: MoodleRuntimeConfig, state: LangGraphAgent
   return [
     "Generate a complete Typst document for an engineering study note.",
     "Return only Typst source. Do not include Markdown fences or explanation.",
-    studyBuddyTemplatePromptReference(),
+    studyBuddyTemplatePromptReference(config.outputLanguage),
+    `Artifact language: ${config.outputLanguage === "en" ? "English" : "German"}. Do not let the source language override it.`,
     "Select components before writing content: shell, document pattern, tables, mathematics, diagrams, exercises, and source notes.",
     "Do not reproduce or redefine component implementations in the generated document.",
     "Escape text content that is not Typst syntax.",

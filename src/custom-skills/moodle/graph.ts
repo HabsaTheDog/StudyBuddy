@@ -1076,6 +1076,14 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
         config.visualCropMode,
       )
     : {};
+  const recoveredLanguage = extractedText
+    ? validateExtractedData(extractedData).language
+    : null;
+  if (recoveredLanguage && recoveredLanguage !== config.outputLanguage) {
+    throw new Error(
+      `Extraction recovery language mismatch: handoff is ${recoveredLanguage}, request resolves to ${config.outputLanguage}. Start a new extraction for the requested artifact language.`,
+    );
+  }
   if (!extractedText) {
     const handoffs = await readdir(path.join(sourceRunDir, "chapter-handoffs")).catch(() => []);
     if (
@@ -1187,6 +1195,11 @@ async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState>
     validateExtractedData(JSON.parse(extractedText)),
     config.visualCropMode,
   );
+  if (extractedData.language !== config.outputLanguage) {
+    throw new Error(
+      `Render language mismatch: extraction handoff is ${extractedData.language}, render request resolves to ${config.outputLanguage}. Re-run extraction with the requested artifact language.`,
+    );
+  }
   const resourceManifest = manifestText
     ? ResourceManifestSchema.parse(JSON.parse(manifestText))
     : await buildResourceManifest(sourceRunDir, rawText);

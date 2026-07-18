@@ -104,6 +104,7 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
   if (files.length < 5) return null;
 
   const byMinitest = new Map<number, ReturnType<typeof parsePracticeFile>>();
+  const sourceUrls = extractedSourceUrls(sourceText);
   for (let index = 0; index < files.length; index += 1) {
     const filename = files[index][1].trim();
     const minitest = Number(/Minitest-(\d+)/i.exec(filename)?.[1]);
@@ -150,11 +151,33 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
     scopeNote: "Qualitätsgeprüfte Trainingsbank aus den zugänglichen Minitest-Lösungen 1–8 und 10. Mathematisch beschädigte PDF-OCR-Aufgaben werden ausgeschlossen, solange keine visuell verifizierte Rekonstruktion vorliegt; strukturierte Rechenübungen sind als abgeleitet gekennzeichnet. Minitest 9 war nicht abrufbar, Minitest 11 wurde nicht erworben. Übungspunkte sind keine offizielle Prüfungsbewertung.",
     topics,
     sources: [
-      ...[1, 2, 3, 4, 5, 6, 7, 8, 10].map((number) => ({ id: `mt${number}`, label: `Minitest ${number} – Lösungen`, url: "", coverage: `Konkrete Aufgaben und Lösungen für Thema ${number}` })),
-      { id: "ode", label: "Ernst Graf: Skriptum Differentialgleichungen", url: "", coverage: "Abgeleitete Ergänzungen für DGL-Grundlagen" },
-      { id: "ode2", label: "Ernst Graf: DGL 2. Ordnung mit konstanten Koeffizienten", url: "", coverage: "Abgeleitete Ergänzungen für DGL zweiter Ordnung" },
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 10].map((number) => ({ id: `mt${number}`, label: `Minitest ${number} – Lösungen`, url: sourceUrls.get(`t${number}`) ?? "", coverage: `Konkrete Aufgaben und Lösungen für Thema ${number}` })),
+      { id: "ode", label: "Ernst Graf: Skriptum Differentialgleichungen", url: sourceUrls.get("ode") ?? "", coverage: "Abgeleitete Ergänzungen für DGL-Grundlagen" },
+      { id: "ode2", label: "Ernst Graf: DGL 2. Ordnung mit konstanten Koeffizienten", url: sourceUrls.get("ode2") ?? "", coverage: "Abgeleitete Ergänzungen für DGL zweiter Ordnung" },
     ],
   };
+}
+
+function extractedSourceUrls(sourceText: string): Map<string, string> {
+  const urls = new Map<string, string>();
+  const marker = sourceText.indexOf("## Extracted data");
+  if (marker < 0) return urls;
+  const jsonStart = sourceText.indexOf("{", marker);
+  const nextSection = sourceText.indexOf("\n## ", jsonStart + 1);
+  if (jsonStart < 0) return urls;
+  try {
+    const handoff = JSON.parse(sourceText.slice(jsonStart, nextSection < 0 ? undefined : nextSection).trim()) as {
+      sources?: Array<{ id?: unknown; url?: unknown }>;
+    };
+    for (const source of handoff.sources ?? []) {
+      if (typeof source.id !== "string" || typeof source.url !== "string") continue;
+      if (!/^https:\/\/moodle\.technikum-wien\.at\/(?:course|mod)\//i.test(source.url)) continue;
+      urls.set(source.id, source.url);
+    }
+  } catch {
+    return urls;
+  }
+  return urls;
 }
 
 function parsePracticeFile(text: string, minitest: number) {

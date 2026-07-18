@@ -545,6 +545,7 @@ describe("moodle graph retry routing", () => {
         runDir: renderDir,
         stage: "render",
         sourceRunDir: extractionDir,
+        outputLanguage: "de",
       },
       {
         scraperNode: async () => {

@@ -19,6 +19,30 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("keeps deterministic fallback labels in the resolved English artifact language", () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        language: "en",
+        document_title: "Dynamics Study Guide",
+        sections: [{
+          heading: "Kinematics",
+          summary: "Motion is described relative to a reference frame.",
+          key_concepts: ["Position", "Velocity"],
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+      { profile: "study_guide" },
+    );
+
+    expect(source).toContain("Document note");
+    expect(source).toContain("Source coverage");
+    expect(source).toContain("Key concepts: Position and Velocity");
+    expect(source).toContain('status: "Validated"');
+    expect(source).not.toContain("Dokumenthinweis");
+    expect(source).not.toContain("Quellenabdeckung");
+  });
+
   it("reconciles an explicit course alias and study-guide document type from the render request", () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({

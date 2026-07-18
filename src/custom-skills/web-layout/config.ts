@@ -8,6 +8,7 @@ import {
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../shared/workspaceData.js";
+import { resolveOutputLanguage } from "../shared/languagePolicy.js";
 
 export const DEFAULT_MAX_ARTIFACT_BYTES = 100_000_000;
 export const ABSOLUTE_MAX_ARTIFACT_BYTES = 250_000_000;
@@ -60,7 +61,10 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     sourceRunDir,
     resumeRunDir,
     sourceMode: inferSourceMode(sourceRunDir, sourceFiles),
-    language: input.language ?? "de",
+    language: resolveOutputLanguage({
+      prompt: input.prompt,
+      preference: input.language,
+    }).language,
     maxRuntimeMs: input.maxRuntimeMs ?? 20 * 60_000,
     idleTimeoutMs: input.idleTimeoutMs ?? 5 * 60_000,
     browserHeaded: input.browserHeaded ?? false,

@@ -13,6 +13,7 @@ import {
 import { parseCodexPreflightMode } from "./config.js";
 import { acquireRunLease } from "../shared/runLease.js";
 import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
+import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 
 const program = new Command()
   .name("moodle-agent")
@@ -41,6 +42,7 @@ const program = new Command()
   .option("--download-concurrency <number>", "Parallel source-file downloads, clamped to 1..4", parseNumber)
   .option("--typst-validation <mode>", "Typst validation mode: strict or balanced", parseTypstValidation, "balanced")
   .option("--render-strategy <strategy>", "Render strategy: auto, deterministic, or llm_formatter", parseRenderStrategy, "auto")
+  .option("--language <language>", "Artifact language: auto, de, or en", parseOutputLanguage, "auto")
   .option("--artifact-profile <profile>", "Artifact profile: study_guide, exam_navigator, interactive_learning, practice_pack, or source_audit", parseArtifactProfile)
   .option("--format <format>", "Output format; repeat for html and pdf", collectFormat, [])
   .option("--visual-mode <mode>", "Visual mode: off, deferred, or inline", parseVisualMode)
@@ -96,6 +98,7 @@ const options = program.opts<{
   downloadConcurrency?: number;
   typstValidation: "strict" | "balanced";
   renderStrategy: "auto" | "deterministic" | "llm_formatter";
+  language: OutputLanguagePreference;
   cis: boolean;
   artifactProfile?: "study_guide" | "exam_navigator" | "interactive_learning" | "practice_pack" | "source_audit";
   format: Array<"html" | "pdf">;
@@ -186,6 +189,7 @@ if (interactiveRequest) {
   downloadConcurrency: options.downloadConcurrency,
   typstValidationMode: options.typstValidation,
   renderStrategy: options.renderStrategy,
+  outputLanguage: options.language,
   includeCis: options.cis,
   artifactProfile: options.artifactProfile,
   formats: options.format.length ? options.format : undefined,
@@ -297,6 +301,11 @@ function parseRenderStrategy(value: string): "auto" | "deterministic" | "llm_for
     return value;
   }
   throw new Error(`Expected render strategy to be auto, deterministic, or llm_formatter, got ${value}`);
+}
+
+function parseOutputLanguage(value: string): OutputLanguagePreference {
+  if (value === "auto" || value === "de" || value === "en") return value;
+  throw new Error(`Expected language to be auto, de, or en, got ${value}`);
 }
 
 function parseVisualMode(value: string): "off" | "deferred" | "inline" {

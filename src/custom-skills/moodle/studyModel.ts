@@ -196,9 +196,9 @@ export function buildStudyModel(
     profile,
     language: extracted.language,
     title: profile === "study_guide" && courseChapters.length > 1
-      ? `${extracted.course.title || "Kurs"} – Study Guide`
+      ? `${extracted.course.title || (english ? "Course" : "Kurs")} – Study Guide`
       : extracted.document_title,
-    courseTitle: extracted.course.title || "Unbekannter Kurs",
+    courseTitle: extracted.course.title || (english ? "Unknown course" : "Unbekannter Kurs"),
     courseUrl: extracted.course.url || manifest.courseUrl,
     publicationStatus,
     scopeNote:

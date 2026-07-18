@@ -14,7 +14,11 @@ const REPAIR_DOCUMENT_PATH = ".repair/document.html";
 export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function generatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      if (config.kind === "study-guide" && Object.keys(state.study_guide_content).length > 0) {
+      if (
+        config.kind === "study-guide" &&
+        config.language === "de" &&
+        Object.keys(state.study_guide_content).length > 0
+      ) {
         const html = applyOfflineSecurityPolicy(renderStandardStudyGuide(state.study_guide_content, config.language));
         assertCompleteHtmlResponse(html);
         await config.diagnostics?.log("info", "generator", `Rendered standardized study-guide HTML deterministically (${html.length} chars).`);

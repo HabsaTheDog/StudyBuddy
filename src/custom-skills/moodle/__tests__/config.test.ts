@@ -15,6 +15,24 @@ afterEach(async () => {
 });
 
 describe("createRuntimeConfig", () => {
+  it("resolves artifact language from the prompt unless explicitly overridden", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-language-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    const english = createRuntimeConfig({
+      prompt: "Make me a PDF about dynamics",
+      moodleUrl: "https://moodle.example/course",
+    });
+    const overridden = createRuntimeConfig({
+      prompt: "Create a study guide",
+      moodleUrl: "https://moodle.example/course",
+      outputLanguage: "de",
+    });
+
+    expect(english).toMatchObject({ outputLanguage: "en", outputLanguageReason: "prompt_language" });
+    expect(sanitizeConfig(english)).toMatchObject({ outputLanguage: "en" });
+    expect(overridden).toMatchObject({ outputLanguage: "de", outputLanguageReason: "explicit_option" });
+  });
+
   it("rejects missing required input", () => {
     expect(() => createRuntimeConfig({ prompt: " ", moodleUrl: "https://moodle.example/course" })).toThrow(
       "prompt is required.",

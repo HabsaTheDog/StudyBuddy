@@ -1,3 +1,5 @@
+import type { SupportedLanguage } from "../shared/languagePolicy.js";
+
 export const STUDY_BUDDY_COMPONENTS_FILE = "study-buddy-components.typ";
 export const STUDY_BUDDY_TEMPLATE_FILE = "study-buddy-template.typ";
 export const STUDY_BUDDY_PACKAGE_DIR = ".typst-packages";
@@ -6,7 +8,7 @@ export const STUDY_BUDDY_TEMPLATE_COMPATIBILITY = `// Compatibility import for o
 #import "${STUDY_BUDDY_COMPONENTS_FILE}": *
 `;
 
-export function studyBuddyTemplatePromptReference(): string {
+export function studyBuddyTemplatePromptReference(language: SupportedLanguage = "de"): string {
   return [
     "Use the versioned Study Buddy component library as the only document shell and visual component source.",
     `Import it exactly once with: #import "${STUDY_BUDDY_COMPONENTS_FILE}": *`,
@@ -72,8 +74,11 @@ export function studyBuddyTemplatePromptReference(): string {
     "Content and locale rules:",
     "- Produce a polished study document, not a plain headings-only transcript. Use approved formula, example, table, checklist, diagram, and source-note components where the extracted data supports them, while keeping prose as the primary reading path.",
     "- Mirror every explicitly requested deliverable as a clear level-1 section and keep practical steps actionable.",
-    "- Use German/Austrian conventions: TT.MM.JJJJ, 24-hour time, decimal comma in prose, and SI units.",
-    "- UTF-8 German text and umlauts are supported directly.",
+    language === "en"
+      ? "- Write all learner-facing prose and labels in English. Use en-GB date conventions, 24-hour time, decimal points in prose, and SI units."
+      : "- Write all learner-facing prose and labels in German. Use German/Austrian conventions: TT.MM.JJJJ, 24-hour time, decimal commas in prose, and SI units.",
+    "- Preserve official source titles, identifiers, and necessary quoted terminology in their original language.",
+    "- UTF-8 German text and umlauts remain supported for source titles and terminology.",
     "- Distinguish Moodle facts from CIS facts in a compact Quellenlage note when both were requested, preferably once in the overview or sources section unless a later section has conflicting coverage.",
     "- Keep citations next to claims and formulas using Q markers that match the final Quellenverzeichnis. Never invent a source id.",
     "- For visual_assets of kind typst_diagram, use only approved Study Buddy diagram components inside #sb-figure.",
