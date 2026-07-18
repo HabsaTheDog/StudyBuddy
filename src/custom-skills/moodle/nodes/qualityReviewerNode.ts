@@ -1,6 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CodexClient } from "../codexClient.js";
+import { ModelCallTimeoutError, type CodexClient } from "../codexClient.js";
+import {
+  clearPendingExtractionRepairs,
+  persistPendingExtractionRepairs,
+} from "../pendingExtractionRepairs.js";
+import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray } from "../validation.js";
@@ -42,6 +47,7 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
         "utf8",
       );
       if (parsed.ok || localized.blocking.length === 0) {
+        await clearPendingExtractionRepairs(config.runDir);
         if (!parsed.ok && localized.advisory.length > 0) {
           await config.diagnostics?.log(
             "warn",
@@ -53,9 +59,20 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
         return { error_log: null };
       }
       const message = `Semantic quality review failed:\n- ${localized.blocking.join("\n- ")}`;
+      await persistPendingExtractionRepairs(
+        config.runDir,
+        message,
+        state.retry_count + 1,
+      );
       await config.diagnostics?.log("warn", "analyzer", message);
       return { error_log: message, retry_count: state.retry_count + 1 };
     } catch (error) {
+      if (config.stage === "extract" && error instanceof ModelCallTimeoutError) {
+        throw new StudyBuddyCheckpointError(
+          `Extraction capacity checkpoint required: ${error.task} on ${error.model} ` +
+          `produced no token usage within ${error.timeoutMs}ms. Resume after fair model admission.`,
+        );
+      }
       return {
         error_log: `Quality reviewer failed: ${error instanceof Error ? error.message : String(error)}`,
         retry_count: state.retry_count + 1,

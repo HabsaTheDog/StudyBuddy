@@ -41,7 +41,23 @@ The printed workflow directory contains two stages. A successful run has:
 - `run-metrics.json` and `run-spans.jsonl` in both stage directories.
 
 The metrics contain model names, reasoning effort, phase/model latency, retry
-counts, and token totals. They never contain prompt or document content.
+counts, token totals, prompt/schema character counts, and global model-queue
+wait time. They never contain prompt or document content.
+
+## Fair model-call admission
+
+Source discovery and downloads may run concurrently, but each expensive model
+turn enters one filesystem-backed FIFO shared by all Study Buddy runs. This
+prevents one run from repeatedly taking both model lanes while another run
+accumulates tokenless 90-second timeouts. The model timeout starts only after
+admission. The production default is one active model turn; set
+`STUDY_BUDDY_MODEL_CALL_CONCURRENCY=2` only when the runtime has demonstrated
+stable two-call capacity. Values above two are rejected by clamping them to two.
+
+The first model timeout without token usage creates a resumable extraction
+checkpoint. The wrapper resumes from the persisted source map, evidence,
+chapter handoffs, and pending semantic repairs instead of crawling Moodle
+again or continuing through more chapters on an unhealthy model lane.
 
 ## Override a model or thinking mode
 

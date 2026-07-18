@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { runMoodleGraph } from "./graph.js";
 import { runInteractiveMoodleGraph } from "./interactive/graph.js";
 import { loadApprovedQuizPermission } from "./interactive/quizPermissions.js";
@@ -13,15 +11,8 @@ import {
   resolveTaskModelPolicy,
 } from "./modelPolicy.js";
 import { parseCodexPreflightMode } from "./config.js";
-import { acquireQueuedRunSlot, acquireRunLease } from "../shared/runLease.js";
+import { acquireRunLease } from "../shared/runLease.js";
 import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
-
-const GLOBAL_EXTRACTION_QUEUE_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../..",
-  "output",
-  ".artifact-extraction-slots",
-);
 
 const program = new Command()
   .name("moodle-agent")
@@ -145,27 +136,9 @@ const interactiveRequest =
 
 const releaseRunLease = await acquireRunLease(options.runDir);
 let releaseRecoverySourceLease: () => Promise<void> = async () => {};
-let releaseExtractionSlot: () => Promise<void> = async () => {};
 try {
 if (options.resumeExtractionRunDir) {
   releaseRecoverySourceLease = await acquireRunLease(options.resumeExtractionRunDir);
-}
-if (!interactiveRequest && options.stage === "extract" && !options.diagnosticOnly) {
-  // The production traces show two concurrent extraction/model streams stay
-  // healthy while a third remains queued until its 90-second call timeout.
-  const configuredSlots = Number(process.env.STUDY_BUDDY_MAX_CONCURRENT_EXTRACTIONS ?? "2");
-  const slots = Number.isInteger(configuredSlots)
-    ? Math.max(1, Math.min(2, configuredSlots))
-    : 1;
-  releaseExtractionSlot = await acquireQueuedRunSlot(GLOBAL_EXTRACTION_QUEUE_DIR, {
-    slots,
-    onWait: (active, total) => {
-      console.error(
-        `Extraction queued: ${active}/${total} global model slot(s) active. Runtime budget starts after admission.`,
-      );
-    },
-  });
-  console.error(`Extraction admitted to global model queue (${slots} slot${slots === 1 ? "" : "s"}).`);
 }
 if (interactiveRequest) {
   await runNativeQuizWorkflow({
@@ -274,7 +247,6 @@ if (interactiveRequest) {
   }
 }
 } finally {
-  await releaseExtractionSlot();
   await releaseRecoverySourceLease();
   await releaseRunLease();
 }

@@ -32,6 +32,9 @@ describe("ExecutionTelemetry", () => {
       startedAt: "2026-07-14T00:00:01.000Z",
       completedAt: "2026-07-14T00:00:03.000Z",
       durationMs: 2_000,
+      queueWaitMs: 750,
+      requestCharacters: 12_000,
+      schemaCharacters: 2_000,
       status: "completed",
       inputTokens: 100,
       cachedInputTokens: 40,
@@ -52,6 +55,7 @@ describe("ExecutionTelemetry", () => {
         reasoningOutputTokens: 5,
         modelCalls: 1,
         modelDurationMs: 2_000,
+        modelQueueWaitMs: 750,
       },
     });
     expect(metrics.phases[0]).toMatchObject({ phase: "planning_sources", durationMs: 1_000 });

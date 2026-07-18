@@ -70,6 +70,11 @@ import {
   preflightCodexRuntime,
   type CodexRuntimeReport,
 } from "./codexRuntime.js";
+import {
+  PENDING_EXTRACTION_REPAIRS_FILE,
+  pendingExtractionRepairError,
+  readPendingExtractionRepairs,
+} from "./pendingExtractionRepairs.js";
 
 const MAX_RETRIES = 3;
 // Extraction may perform one targeted semantic repair after its first review.
@@ -1040,8 +1045,16 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   ]);
   const downstreamReviewFailure = /^(?:Student-first review failed:|Semantic quality review failed:)/
     .test(errorLog.trim());
-  const timedOutDuringAnalysis = /^Study Buddy run timed out after \d+ms\.$/.test(errorLog.trim());
+  const timedOutDuringAnalysis =
+    /^Study Buddy run timed out after \d+ms(?: without pipeline progress)?\.$/.test(errorLog.trim());
   const checkpointedDuringAnalysis = /^Extraction checkpoint required:/.test(errorLog.trim());
+  const capacityCheckpointedDuringAnalysis =
+    /^Extraction capacity checkpoint required:/.test(errorLog.trim()) ||
+    /content_analyzer model call timed out after/.test(errorLog);
+  const interruptedDuringAnalysis =
+    timedOutDuringAnalysis ||
+    checkpointedDuringAnalysis ||
+    capacityCheckpointedDuringAnalysis;
   const terminal = /^Run status:\s*(?:failed|timeout|partial|success)$/m.test(summary);
   const interruptedAfterReview = /^Run status:\s*running$/m.test(summary) && downstreamReviewFailure;
   if (!terminal && !interruptedAfterReview) {
@@ -1050,8 +1063,7 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   if (
     errorLog.trim() &&
     !downstreamReviewFailure &&
-    !timedOutDuringAnalysis &&
-    !checkpointedDuringAnalysis
+    !interruptedDuringAnalysis
   ) {
     throw new Error(
       `Extraction recovery is allowed only after a downstream review failure, timeout, or runtime checkpoint: ${sourceRunDir}`,
@@ -1067,20 +1079,34 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   if (!extractedText) {
     const handoffs = await readdir(path.join(sourceRunDir, "chapter-handoffs")).catch(() => []);
     if (
-      !(timedOutDuringAnalysis || checkpointedDuringAnalysis) ||
-      !handoffs.some((name) => name.endsWith(".json"))
+      !interruptedDuringAnalysis ||
+      (
+        !capacityCheckpointedDuringAnalysis &&
+        !handoffs.some((name) => name.endsWith(".json"))
+      )
     ) {
       throw new Error(`Extraction interruption has no validated chapter handoff to resume: ${sourceRunDir}`);
     }
   }
   await copyExtractionRecoveryCheckpoints(sourceRunDir, config.runDir);
+  const pendingRepairs = await readPendingExtractionRepairs(config.runDir);
+  const mustFinishPendingRepairs = Boolean(pendingRepairs?.pendingChapterTitles.length);
   const learningArchitecture = architectureText
     ? parseLearningArchitectureModelJson(architectureText)
     : undefined;
   return {
     ...initialAgentState,
     moodle_raw_text: rawText,
-    extracted_data: extractedData,
+    // An extracted-data snapshot predating a semantic repair is intentionally
+    // hidden from START. This forces the analyzer to consume the persisted
+    // pending chapter list before the reviewer is allowed to pass the run.
+    extracted_data: mustFinishPendingRepairs ? {} : extractedData,
+    error_log: mustFinishPendingRepairs && pendingRepairs
+      ? pendingExtractionRepairError(pendingRepairs)
+      : null,
+    retry_count: mustFinishPendingRepairs && pendingRepairs
+      ? Math.min(MAX_RETRIES - 1, pendingRepairs.retryCount)
+      : 0,
     resource_manifest: ResourceManifestSchema.parse(JSON.parse(manifestText)),
     evidence_package: EvidencePackageSchema.parse(JSON.parse(evidenceText)),
     coverage_assessment: CoverageAssessmentSchema.parse(JSON.parse(coverageText)),
@@ -1088,7 +1114,9 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
       round: 0,
       status: "sufficient",
       coverageSummary: extractedText
-        ? "Reused persisted extraction architecture for review recovery."
+        ? mustFinishPendingRepairs
+          ? "Resumed persisted semantic chapter repairs before review without crawling sources."
+          : "Reused persisted extraction architecture for review recovery."
         : "Resumed persisted chapter handoffs after analyzer interruption without crawling sources.",
       requestedUrls: [],
       remainingAvailable: 0,
@@ -1112,6 +1140,7 @@ async function copyExtractionRecoveryCheckpoints(
     "visual-retrieval-plan.json",
     "visual-page-index.json",
     "learning-architecture.json",
+    PENDING_EXTRACTION_REPAIRS_FILE,
   ];
   for (const relativePath of relativePaths) {
     await cp(
