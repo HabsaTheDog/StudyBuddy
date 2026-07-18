@@ -9,7 +9,7 @@ import {
 } from "../codexClient.js";
 import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.js";
 import { buildChapterFragmentPrompt, createAnalyzerNode } from "../nodes/analyzerNode.js";
-import { StudyBuddyTimeoutError } from "../runtimeAbort.js";
+import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbort.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
@@ -169,6 +169,48 @@ describe("analyzerNode", () => {
     }
   });
 
+  it("checkpoints before starting a chapter that cannot fit in the remaining run budget", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-checkpoint-chapters-"));
+    try {
+      let calls = 0;
+      const codex: CodexClient = {
+        async run() {
+          calls += 1;
+          throw new Error("Model must not start after checkpoint boundary.");
+        },
+      };
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        maxRuntimeMs: 10 * 60_000,
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+        executionTelemetry: {
+          getSnapshot: () => ({
+            startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
+          }),
+        } as never,
+      });
+      const state = moodleTestState({
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources: [
+            chapterResource("first", "First chapter", "Topic 1", "primary_lecture"),
+            chapterResource("second", "Second chapter", "Topic 2", "primary_lecture"),
+          ],
+        },
+      });
+
+      await expect(createAnalyzerNode(config, codex)(state)).rejects.toBeInstanceOf(
+        StudyBuddyCheckpointError,
+      );
+      expect(calls).toBe(0);
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it("caps quick-answer source context before invoking Codex", async () => {
     let receivedPrompt = "";
     const codex: CodexClient = {
@@ -266,7 +308,7 @@ describe("analyzerNode", () => {
     }
   });
 
-  it("regenerates only the cached fragment containing a formula with incomplete metadata", async () => {
+  it("regenerates the cached dense fragment localized by generic semantic feedback", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-formula-repair-"));
     try {
       const prompts: string[] = [];
@@ -346,13 +388,12 @@ describe("analyzerNode", () => {
       repairPass = true;
       const repaired = await createAnalyzerNode(config, codex)({
         ...baseState,
-        error_log: "Student-first review failed:\n- Formula metadata incomplete: Impulssatz",
+        error_log: "Semantic quality review failed:\n- [chapter: Dynamik — Impulssatz] Die fachliche Einordnung im Kapitel ist widersprüchlich.",
         retry_count: 1,
       });
 
       expect(prompts).toHaveLength(firstPassCalls + 1);
-      expect(prompts.at(-1)).toContain("Formula metadata incomplete: Impulssatz");
-      expect(prompts.at(-1)).toContain("non-empty variables, units, and context metadata");
+      expect(prompts.at(-1)).toContain("Die fachliche Einordnung im Kapitel ist widersprüchlich.");
       expect(repaired.error_log).toBeNull();
       const formulas = (repaired.extracted_data as {
         formulas: Array<{ name: string; units: string[] }>;

@@ -39,7 +39,9 @@ describe("web layout config", () => {
       requestName: "buck-boost-flashcards",
     });
 
-    expect(config.runDir).toContain(path.join("output", "buck-boost-flashcards"));
+    expect(config.runDir).toContain(
+      path.join("study-buddy-data", "runs", "buck-boost-flashcards"),
+    );
     expect(config.outputPath).toBe(path.join(config.runDir, "document.html"));
     expect(config.sourceMode).toBe("prompt");
     expect(config.maxRuntimeMs).toBe(20 * 60_000);

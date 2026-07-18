@@ -89,7 +89,7 @@ export async function prepareWebLayoutArtifact(
     if (!source) continue;
     const optimized = await optimizeSourceAsset(source, sourceAssetsDir, config);
     assets.push(optimized);
-    readableHtml = replaceAllLiteral(readableHtml, reference, optimized.relativePath);
+    readableHtml = replaceImageReference(readableHtml, reference, optimized.relativePath);
   }
   readableHtml = addLazyImageHints(readableHtml);
 
@@ -161,8 +161,8 @@ export async function bundleWebLayoutSource(input: {
       throw new Error(`Source bundle references a missing image asset: ${reference}`);
     }
     const marker = `__STUDY_BUDDY_ASSET_${index}__`;
-    const occurrences = countOccurrences(template, reference);
-    template = replaceAllLiteral(template, reference, marker);
+    const occurrences = collectImageReferences(template).filter((value) => value === reference).length;
+    template = replaceImageReference(template, reference, marker);
     replacements.push({
       marker,
       filePath,
@@ -404,7 +404,7 @@ function inlineEditableSource(indexHtml: string, css: string, js: string): strin
 function createValidationProjection(html: string): string {
   let projection = html;
   for (const reference of collectImageReferences(html).filter(isLocalImageReference)) {
-    projection = replaceAllLiteral(projection, reference, "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
+    projection = replaceImageReference(projection, reference, "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==");
   }
   return projection;
 }
@@ -420,6 +420,14 @@ function collectImageReferences(html: string): string[] {
     }
   }
   return references;
+}
+
+function replaceImageReference(html: string, reference: string, replacement: string): string {
+  return html.replace(IMAGE_REFERENCE_PATTERN, (match, _srcQuote: string, srcValue: string | undefined, _urlQuote: string, urlValue: string | undefined) => {
+    const value = (srcValue ?? urlValue ?? "").trim();
+    if (value !== reference) return match;
+    return replaceAllLiteral(match, srcValue ?? urlValue ?? "", replacement);
+  });
 }
 
 function isLocalImageReference(value: string): boolean {

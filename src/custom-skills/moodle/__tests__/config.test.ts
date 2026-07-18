@@ -71,7 +71,9 @@ describe("createRuntimeConfig", () => {
     });
 
     expect(config.outputPath).toBe(path.join(config.runDir, "document.typ"));
-    expect(path.dirname(config.runDir)).toBe(path.join(tempRoot, "output", "make-notes"));
+    expect(path.dirname(config.runDir)).toBe(
+      path.join(tempRoot, "study-buddy-data", "runs", "make-notes"),
+    );
     expect(config.maxDepth).toBe(2);
     expect(config.maxPages).toBe(8);
     expect(config.allowFileDownloads).toBe(true);
@@ -156,9 +158,9 @@ describe("createRuntimeConfig", () => {
       sourceRunDir: tempRoot,
     });
 
-    expect(extractionConfig.maxRuntimeMs).toBe(12 * 60_000);
+    expect(extractionConfig.maxRuntimeMs).toBe(14 * 60_000);
     expect(extractionConfig.idleTimeoutMs).toBe(5 * 60_000);
-    expect(renderConfig.maxRuntimeMs).toBe(3 * 60_000);
+    expect(renderConfig.maxRuntimeMs).toBe(1 * 60_000);
     expect(renderConfig.idleTimeoutMs).toBe(5 * 60_000);
   });
 

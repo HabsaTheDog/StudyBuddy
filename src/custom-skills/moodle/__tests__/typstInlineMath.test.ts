@@ -71,4 +71,10 @@ describe("Typst inline mathematics", () => {
       .toBe('"EI" = 0 "µm"; "ES" = "EI" + "IT7"');
     expect(quoteBareMathText("frac(F, pi dot d^2)")).toBe("frac(F, pi dot d^2)");
   });
+
+  it("quotes non-ASCII prose inside a math expression", () => {
+    expect(quoteBareMathText('f(x) = x quad für "alle" x')).toBe(
+      'f(x) = x quad "für" "alle" x',
+    );
+  });
 });

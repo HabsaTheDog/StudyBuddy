@@ -6,6 +6,7 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 import { adaptiveQualityCriteria } from "../learningInteractionGuidance.js";
 import { balancedExcerpt, compactHtmlForModel } from "../modelText.js";
 import { studyGuideBlockQualityCriteria } from "../studyGuideBlockContract.js";
+import { STUDY_GUIDE_QUALITY_TARGETS } from "../studyGuideContent.js";
 
 const qualityReviewSchema = {
   type: "object",
@@ -74,8 +75,8 @@ function deterministicStandardGuideFindings(state: LangGraphWebLayoutState, html
   const findings: string[] = [];
   const topics = Array.isArray(state.study_guide_content.topics) ? state.study_guide_content.topics : [];
   const exercises = topics.flatMap((topic) => topic && !Array.isArray(topic) && typeof topic === "object" && Array.isArray(topic.exercises) ? topic.exercises : []);
-  if (topics.length < 11) findings.push(`Nur ${topics.length} statt mindestens 11 Themen gerendert.`);
-  if (exercises.length < 50) findings.push(`Nur ${exercises.length} statt mindestens 50 Aufgaben gerendert.`);
+  if (topics.length < STUDY_GUIDE_QUALITY_TARGETS.topics) findings.push(`Nur ${topics.length} statt mindestens ${STUDY_GUIDE_QUALITY_TARGETS.topics} Themen gerendert.`);
+  if (exercises.length < STUDY_GUIDE_QUALITY_TARGETS.exercises) findings.push(`Nur ${exercises.length} statt mindestens ${STUDY_GUIDE_QUALITY_TARGETS.exercises} Aufgaben gerendert.`);
   if (!/data-sb-hotbar/i.test(html) || /class="[^"]*(?:sidebar|side-nav|navigation-rail)/i.test(html)) findings.push("Hotbar-/Sidebar-Vertrag verletzt.");
   if (!/data-sb-course-tabs/i.test(html) || !/role="tab"/i.test(html) || !/role="tabpanel"/i.test(html)) findings.push("Standardisierte Kapitel-Tabs mit Tab-Semantik fehlen.");
   if (!/localStorage/i.test(html) || !/drafts/i.test(html) || !/completed/i.test(html)) findings.push("Persistenz von Entwürfen und Fortschritt fehlt.");

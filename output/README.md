@@ -1,9 +1,13 @@
-Generated study artifacts belong here.
+This is the legacy Study Buddy output location.
 
-For every artifact-producing request, create a new subdirectory:
+New workspace-scoped runs belong below `study-buddy-data/`, separated by thread
+for regular projects. Existing runs remain here so their recorded paths and
+recovery handoffs continue to work.
 
 ```text
-output/<request-name>/
+study-buddy-data/threads/<thread-id>/runs/<request-name>/
 ```
 
-Use that subdirectory for generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, and other temporary source files. Do not write generated artifacts into `t3code-fork/` or other reference repos unless the user explicitly asks for that.
+Quick Chat workspaces omit the `threads/<thread-id>/` layer. User-facing
+deliverables are published outside `study-buddy-data/`; internal sources,
+diagnostics, caches, and canonical workflow files stay inside it.

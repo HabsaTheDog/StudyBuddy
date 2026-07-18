@@ -54,6 +54,28 @@ describe("web layout media pipeline", () => {
     expect(prepared.report.artifactBytes).toBe((await stat(prepared.report.buildPath)).size);
   });
 
+  it("embeds image attributes without replacing matching source text inside JSON", async () => {
+    const workspace = await tempWorkspace();
+    const imagePath = path.join(workspace, "logo.svg");
+    await writeFile(imagePath, '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>', "utf8");
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build a guide with source metadata",
+      requestName: "attribute-only-asset-test",
+      assetFiles: [imagePath],
+      skipBrowserValidation: true,
+    });
+    const html = minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" })
+      .replace("</main>", '<img src="assets/logo.svg" alt="Study Buddy"></main>')
+      .replace("</body>", '<script type="application/json">{"source":"assets/logo.svg"}</script></body>');
+
+    const prepared = await prepareWebLayoutArtifact(html, config);
+    const finalHtml = await readFile(prepared.report.buildPath, "utf8");
+
+    expect(finalHtml).toContain('<img src="data:image/svg+xml;base64,');
+    expect(finalHtml).toContain('{"source":"assets/logo.svg"}');
+    expect(finalHtml.match(/data:image\/svg\+xml;base64,/g)).toHaveLength(1);
+  });
+
   it("refuses to emit a final artifact above the configured ceiling", async () => {
     await tempWorkspace();
     const config = createWebLayoutRuntimeConfig({

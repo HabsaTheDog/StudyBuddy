@@ -75,7 +75,7 @@ const MAX_RETRIES = 3;
 // Extraction may perform one targeted semantic repair after its first review.
 // A second failed review is terminal; re-running whole chapters a third time
 // was the dominant cause of the 45-minute timeouts.
-const MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS = 2;
+const MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS = 3;
 // Source-architect rounds and analyzer/formatter/reviewer repair loops are each
 // independently bounded. The default LangGraph limit of 25 is too small for a
 // legitimate worst-case path through those bounded loops.
@@ -1041,14 +1041,20 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   const downstreamReviewFailure = /^(?:Student-first review failed:|Semantic quality review failed:)/
     .test(errorLog.trim());
   const timedOutDuringAnalysis = /^Study Buddy run timed out after \d+ms\.$/.test(errorLog.trim());
+  const checkpointedDuringAnalysis = /^Extraction checkpoint required:/.test(errorLog.trim());
   const terminal = /^Run status:\s*(?:failed|timeout|partial|success)$/m.test(summary);
   const interruptedAfterReview = /^Run status:\s*running$/m.test(summary) && downstreamReviewFailure;
   if (!terminal && !interruptedAfterReview) {
     throw new Error(`Extraction recovery source has no recoverable terminal/review state: ${sourceRunDir}`);
   }
-  if (errorLog.trim() && !downstreamReviewFailure && !(timedOutDuringAnalysis && !extractedText)) {
+  if (
+    errorLog.trim() &&
+    !downstreamReviewFailure &&
+    !timedOutDuringAnalysis &&
+    !checkpointedDuringAnalysis
+  ) {
     throw new Error(
-      `Extraction recovery is allowed only after a downstream review failure or an analyzer timeout with persisted handoffs: ${sourceRunDir}`,
+      `Extraction recovery is allowed only after a downstream review failure, timeout, or runtime checkpoint: ${sourceRunDir}`,
     );
   }
   const extractedData = extractedText
@@ -1060,8 +1066,11 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
     : {};
   if (!extractedText) {
     const handoffs = await readdir(path.join(sourceRunDir, "chapter-handoffs")).catch(() => []);
-    if (!timedOutDuringAnalysis || !handoffs.some((name) => name.endsWith(".json"))) {
-      throw new Error(`Extraction timeout has no validated chapter handoff to resume: ${sourceRunDir}`);
+    if (
+      !(timedOutDuringAnalysis || checkpointedDuringAnalysis) ||
+      !handoffs.some((name) => name.endsWith(".json"))
+    ) {
+      throw new Error(`Extraction interruption has no validated chapter handoff to resume: ${sourceRunDir}`);
     }
   }
   await copyExtractionRecoveryCheckpoints(sourceRunDir, config.runDir);
@@ -1080,7 +1089,7 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
       status: "sufficient",
       coverageSummary: extractedText
         ? "Reused persisted extraction architecture for review recovery."
-        : "Resumed persisted chapter handoffs after analyzer timeout without crawling sources.",
+        : "Resumed persisted chapter handoffs after analyzer interruption without crawling sources.",
       requestedUrls: [],
       remainingAvailable: 0,
       reasons: ["Extraction recovery does not crawl or acquire sources."],
@@ -1196,7 +1205,8 @@ async function withRuntimeGuard<T>(
   abortController: AbortController,
   run: () => Promise<T>,
 ): Promise<T> {
-  const startedAt = Date.now();
+  const telemetryStartedAt = Date.parse(config.executionTelemetry?.getSnapshot().startedAt ?? "");
+  const startedAt = Number.isFinite(telemetryStartedAt) ? telemetryStartedAt : Date.now();
   let heartbeat: NodeJS.Timeout | null = null;
   let guard: NodeJS.Timeout | null = null;
   try {

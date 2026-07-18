@@ -5,6 +5,14 @@ export class StudyBuddyTimeoutError extends Error {
   }
 }
 
+/** Signals a recoverable extraction boundary after validated handoffs exist. */
+export class StudyBuddyCheckpointError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StudyBuddyCheckpointError";
+  }
+}
+
 export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) {
     return;

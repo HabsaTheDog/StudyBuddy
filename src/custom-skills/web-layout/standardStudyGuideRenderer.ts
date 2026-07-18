@@ -6,52 +6,62 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
   const allExercises = content.topics.flatMap((topic) => topic.exercises);
   const crossCount = allExercises.filter((exercise) => exercise.type === "cross").length;
   const calculationCount = allExercises.filter((exercise) => exercise.type === "calculation").length;
-  const contentJson = JSON.stringify(content).replace(/</g, "\\u003c");
-  const topicsHtml = content.topics.map((topic, topicIndex) => `
+  const contentJson = JSON.stringify(clientContentForDisplay(content)).replace(/</g, "\\u003c");
+  const topicsHtml = content.topics.map((topic, topicIndex) => {
+    const firstCheck = topic.exercises.slice(0, 2);
+    const guidedPractice = topic.exercises.slice(2, 5);
+    const examPractice = topic.exercises.slice(5);
+    const renderExercises = (exercises: typeof topic.exercises, offset: number) => exercises
+      .map((exercise, exerciseIndex) => exercise.type === "cross" ? crossHtml(exercise, exerciseIndex + offset) : calculationHtml(exercise, exerciseIndex + offset))
+      .join("");
+    return `
     <section class="topic" id="topic-${esc(topic.id)}" data-sb-topic="${esc(topic.id)}" role="tabpanel" aria-labelledby="tab-${esc(topic.id)}"${topicIndex === 0 ? "" : " hidden"}>
       <header class="topic-head">
         <div><span class="topic-index">${String(topicIndex + 1).padStart(2, "0")}</span><p class="eyebrow">Lernmodul</p><h2>${esc(topic.title)}</h2></div>
         <div class="topic-status" data-topic-status="${esc(topic.id)}">0 / ${topic.exercises.length}</div>
       </header>
-      <div class="topic-grid">
-        <article class="theory" data-sb-theory data-sb-learning-content>
-          <p class="block-label">Verstehen</p>
-          <h3>Das musst du können</h3>
-          <p>${richMathText(topic.theory.summary)}</p>
-          <ul>${topic.theory.keyIdeas.map((idea) => `<li>${esc(idea)}</li>`).join("")}</ul>
-          ${topic.theory.formulas.map((formula) => `<figure class="formula"><div class="math-scroll">${mathml(formula.expression)}</div><figcaption>${esc(formula.meaning)}</figcaption></figure>`).join("")}
+      <div class="learning-path" data-sb-course-map>
+        <article class="lesson-step lesson-step--intro" data-sb-theory data-sb-learning-content>
+          <div class="step-marker"><span>1</span><small>Verstehen</small></div>
+          <div class="step-content readable-copy"><p class="block-label">Einstieg</p><h3>Worum geht es?</h3><p class="lead-copy">${richMathText(topic.theory.summary)}</p><div class="goal-panel"><strong>Nach diesem Kapitel kannst du</strong><ul>${topic.learningGoals.map((goal) => `<li>${richMathText(goal)}</li>`).join("")}</ul></div></div>
         </article>
-        <article class="orientation">
-          <p class="block-label">Orientierung</p><h3>Dein Ziel</h3>
-          <ol>${topic.learningGoals.map((goal) => `<li>${esc(goal)}</li>`).join("")}</ol>
-          <p class="next-step"><strong>Arbeitsauftrag:</strong> Lies die Theorie, klappe das Beispiel erst bei Bedarf auf und löse danach die Aufgaben ohne Quellenlösung.</p>
+        <section class="lesson-step lesson-step--check practice practice--compact" data-sb-practice aria-labelledby="check-${esc(topic.id)}">
+          <div class="step-marker"><span>2</span><small>Prüfen</small></div>
+          <div class="step-content"><div class="practice-head"><div><p class="block-label">Direkt anwenden</p><h3 id="check-${esc(topic.id)}">Hast du die Grundidee?</h3></div><p>Zwei kurze Aufgaben, bevor es tiefer geht.</p></div><div class="task-list">${renderExercises(firstCheck, 0)}</div></div>
+        </section>
+        <article class="lesson-step lesson-step--deepen">
+          <div class="step-marker"><span>3</span><small>Vertiefen</small></div>
+          <div class="step-content"><p class="block-label">Mathematische Struktur</p><h3>So denkst du im Rechenweg</h3><div class="principle-grid">${topic.theory.keyIdeas.map((idea, index) => `<div class="principle"><span>${index + 1}</span><p>${richMathText(idea)}</p></div>`).join("")}</div><div class="formula-deck">${topic.theory.formulas.map((formula) => `<figure class="formula"><div class="math-scroll">${mathml(formula.expression)}</div><figcaption>${richMathText(formula.meaning)}</figcaption></figure>`).join("")}</div></div>
         </article>
+        <article class="lesson-step lesson-step--example">
+          <div class="step-marker"><span>4</span><small>Nachvollziehen</small></div>
+          <div class="step-content"><p class="block-label">Geführtes Beispiel</p><h3>Einen vollständigen Lösungsweg lesen</h3><div class="examples">${topic.workedExamples.map((example) => `<details class="worked" data-sb-worked-example><summary><span>${esc(example.title)}</span><span class="summary-action">Rechenweg öffnen</span></summary><div class="worked-body"><div class="problem">${richMathText(example.prompt)}</div><ol class="steps">${example.steps.map((step) => `<li>${richMathText(step)}</li>`).join("")}</ol><p class="result"><strong>Ergebnis:</strong> ${richMathText(example.answer)}</p><p class="source-chip">${sourceLabel(example.source)}</p></div></details>`).join("")}</div></div>
+        </article>
+        <section class="lesson-step lesson-step--guided practice" data-sb-practice aria-labelledby="guided-${esc(topic.id)}">
+          <div class="step-marker"><span>5</span><small>Anwenden</small></div>
+          <div class="step-content"><div class="practice-head"><div><p class="block-label">Mit Rückmeldung</p><h3 id="guided-${esc(topic.id)}">Jetzt selbst rechnen</h3></div><p>Drei Aufgaben mit Quellenlösung und Fehlerhinweis.</p></div><div class="task-list">${renderExercises(guidedPractice, 2)}</div><details class="retrieval" data-sb-retrieval><summary>Zwischenstopp: ohne Nachsehen erklären</summary>${topic.retrieval.map((item, index) => `<div class="retrieval-item"><p><strong>${richMathText(item.prompt)}</strong></p><button class="text-button" type="button" data-reveal-retrieval="${esc(topic.id)}-${index}">Antwort prüfen</button><p id="retrieval-${esc(topic.id)}-${index}" hidden>${richMathText(item.answer)}</p></div>`).join("")}</details></div>
+        </section>
+        ${examPractice.length ? `<section class="lesson-step lesson-step--exam practice" data-sb-practice aria-labelledby="practice-${esc(topic.id)}"><div class="step-marker"><span>6</span><small>Festigen</small></div><div class="step-content"><div class="practice-head"><div><p class="block-label">Prüfungstraining</p><h3 id="practice-${esc(topic.id)}">Gemischte Aufgaben</h3></div><p>${examPractice.length} weitere Aufgaben aus dem Moodle-Korpus.</p></div><div class="task-list">${renderExercises(examPractice, 5)}</div></div></section>` : ""}
       </div>
-      <div class="examples">
-        ${topic.workedExamples.map((example) => `<details class="worked" data-sb-worked-example><summary><span><span class="block-label">Vorgerechnet</span>${esc(example.title)}</span><span class="summary-action">Rechenweg öffnen</span></summary><div class="worked-body"><div class="problem">${richMathText(example.prompt)}</div><ol class="steps">${example.steps.map((step) => `<li>${richMathText(step)}</li>`).join("")}</ol><p class="result"><strong>Ergebnis:</strong> ${richMathText(example.answer)}</p><p class="source-chip">${sourceLabel(example.source)}</p></div></details>`).join("")}
-      </div>
-      <section class="practice" data-sb-practice aria-labelledby="practice-${esc(topic.id)}">
-        <div class="practice-head"><div><p class="block-label">Anwenden</p><h3 id="practice-${esc(topic.id)}">Kreuzerl- & Rechentraining</h3></div><p>${topic.exercises.length} konkrete Aufgaben · Feedback nach Abgabe</p></div>
-        <div class="task-list">
-          ${topic.exercises.map((exercise, exerciseIndex) => exercise.type === "cross" ? crossHtml(exercise, exerciseIndex) : calculationHtml(exercise, exerciseIndex)).join("")}
-        </div>
-      </section>
-      <details class="retrieval" data-sb-retrieval><summary>Kurz aus dem Gedächtnis abrufen</summary>${topic.retrieval.map((item, index) => `<div class="retrieval-item"><p><strong>${esc(item.prompt)}</strong></p><button class="text-button" type="button" data-reveal-retrieval="${esc(topic.id)}-${index}">Antwort prüfen</button><p id="retrieval-${esc(topic.id)}-${index}" hidden>${esc(item.answer)}</p></div>`).join("")}</details>
-    </section>`).join("");
+    </section>`;
+  }).join("");
 
   return `<!doctype html>
 <html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="study-buddy-renderer" content="standard-study-guide-v1"><title>${esc(content.courseTitle)} · Study Buddy</title>
 <style>
 :root{--sb-navy:#19254b;--sb-blue:#323a61;--sb-gold:#dfbb63;--sb-gold-dark:#c3994d;--sb-cyan:#397f93;--sb-green:#23805A;--sb-amber:#c3994d;--sb-red:#B33A3A;--sb-ink:#20263f;--sb-muted:#66708f;--sb-line:#d9ddea;--sb-soft:#f6f7fb;--sb-white:#FFFFFF;--ink:var(--sb-ink);--muted:var(--sb-muted);--line:var(--sb-line);--paper:var(--sb-white);--wash:var(--sb-soft);--navy:var(--sb-navy);--blue:var(--sb-blue);--cyan:var(--sb-cyan);--orange:var(--sb-gold-dark);--green:var(--sb-green);--red:var(--sb-red);--radius:18px;--shadow:0 14px 40px rgba(24,34,53,.08)}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:142px}body{margin:0;background:var(--wash);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}button,input{font:inherit}button{cursor:pointer}.skip{position:fixed;left:12px;top:-80px;z-index:100;background:#fff;padding:12px}.skip:focus{top:12px}.hotbar{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}.hotbar-main{height:76px;max-width:1280px;margin:auto;padding:10px 24px;display:flex;align-items:center;gap:18px}.brand{display:flex;align-items:center;gap:12px;min-width:0}.brand img{width:44px;height:44px;object-fit:contain}.brand-text{min-width:0}.brand-text strong,.brand-text span{display:block}.brand-text span{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hot-actions{margin-left:auto;display:flex;align-items:center;gap:10px}.progress-pill{min-width:150px}.progress-pill strong,.progress-pill span{display:block;font-size:.8rem}.bar{height:6px;border-radius:99px;background:#e9edf3;overflow:hidden}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--cyan));transition:width .2s}.primary,.secondary,.text-button{border:0;border-radius:10px;padding:10px 14px;font-weight:750}.primary{background:var(--blue);color:#fff}.secondary{background:#eaf0ff;color:var(--navy)}.text-button{padding:4px 0;background:transparent;color:var(--blue);text-decoration:underline}.topic-strip{border-top:1px solid #edf0f5;overflow-x:auto;scrollbar-width:thin}.topic-strip-inner{width:max-content;min-width:100%;max-width:1280px;margin:auto;padding:8px 24px;display:flex;gap:7px}.topic-link{border:1px solid transparent;background:transparent;color:#596579;border-radius:99px;padding:7px 11px;white-space:nowrap;text-decoration:none;font-size:.82rem;font-weight:700}.topic-link:hover,.topic-link:focus-visible{border-color:#b8c5ed;color:var(--blue);outline:0}.hero{max-width:1280px;margin:0 auto;padding:64px 24px 36px}.hero-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:24px}.kicker,.eyebrow,.block-label{color:var(--blue);font-size:.72rem;letter-spacing:.11em;text-transform:uppercase;font-weight:850}.hero h1{font-size:clamp(2.2rem,5vw,5rem);line-height:.97;letter-spacing:-.055em;margin:14px 0 24px;max-width:900px}.hero-lead{font-size:1.13rem;color:#4c586d;max-width:760px}.scope-card{background:var(--navy);color:#fff;border-radius:24px;padding:26px;box-shadow:var(--shadow)}.scope-card p{color:#cbd5e5}.scope-card dl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0 0}.scope-card dt{font-size:.74rem;color:#aab8cf}.scope-card dd{font-size:1.45rem;font-weight:850;margin:2px 0}.course-map{max-width:1232px;margin:0 auto 54px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.map-item{padding:14px;border-left:3px solid var(--cyan)}.map-item strong,.map-item span{display:block}.map-item span{font-size:.84rem;color:var(--muted)}main{max-width:1232px;margin:auto;padding:0 24px 80px}.topic{margin:0 0 80px;scroll-margin-top:145px}.topic-head{display:flex;align-items:end;justify-content:space-between;border-bottom:2px solid var(--ink);padding:0 0 16px;margin-bottom:20px}.topic-head>div:first-child{display:grid;grid-template-columns:auto 1fr;column-gap:14px}.topic-index{grid-row:1/3;font-size:2rem;font-weight:900;color:#c5ccda}.topic-head .eyebrow{margin:0}.topic-head h2{margin:0;font-size:clamp(1.65rem,3vw,2.6rem);letter-spacing:-.035em}.topic-status{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 12px;font-size:.84rem;font-weight:800}.topic-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr);gap:18px}.topic-grid>*{min-width:0}.theory,.orientation{min-width:0;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px}.theory{box-shadow:var(--shadow)}.theory h3,.orientation h3,.practice h3{font-size:1.35rem;margin:4px 0 14px}.theory ul,.orientation ol{padding-left:1.2rem}.next-step{border-left:3px solid var(--orange);padding-left:14px}.formula{margin:22px 0 0;padding:16px;background:#f7f9fe;border-radius:12px}.math-scroll{max-width:100%;overflow-x:auto;padding:2px}.formula math{font-size:1.18rem}.formula figcaption{font-size:.78rem;color:var(--muted);margin-top:7px}.examples{margin:18px 0}.worked{background:#eef3ff;border:1px solid #cad6fc;border-radius:var(--radius)}.worked summary{list-style:none;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:16px;font-weight:800}.worked summary::-webkit-details-marker{display:none}.summary-action{font-size:.78rem;color:var(--blue)}.worked-body{padding:0 22px 22px}.problem{font-size:1.05rem}.steps{counter-reset:step;list-style:none;padding:0}.steps li{position:relative;padding:10px 10px 10px 42px;border-top:1px solid #d7e0f7}.steps li:before{counter-increment:step;content:counter(step);position:absolute;left:8px;top:9px;width:24px;height:24px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:.75rem;font-weight:900}.result{background:#fff;padding:12px;border-radius:10px}.source-chip{font-size:.75rem;color:#52617a}.practice{background:#e9edf3;border-radius:24px;padding:26px;margin-top:18px}.practice-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px}.practice-head p{margin:0;color:var(--muted)}.task-list{display:grid;gap:14px}.task{min-width:0;background:#fff;border:1px solid #d8dee8;border-radius:16px;padding:22px;transition:border-color .15s;overflow-wrap:anywhere}.task.is-complete{border-color:#84cfb2}.task-top{display:flex;align-items:center;gap:9px;margin-bottom:12px}.task-number{font-weight:900;color:var(--blue)}.task-kind{font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.08em;background:#edf1f7;border-radius:99px;padding:4px 8px}.task-source{margin-left:auto;font-size:.72rem;color:var(--muted)}.task h4{font-size:1.08rem;margin:0 0 14px;white-space:pre-line}.options{border:0;padding:0;margin:0;display:grid;gap:8px}.option{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:11px;padding:11px}.option:has(input:checked){border-color:var(--blue);background:#f3f6ff}.option input{margin-top:5px}.task-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.feedback{margin-top:14px;padding:14px;border-radius:12px;background:#f5f7fa}.feedback.good{background:#eaf8f2;color:#0d6041}.feedback.bad{background:#fff1f0;color:#8f2018}.feedback ul{margin:.5rem 0 0;padding-left:1.2rem}.calc-input{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:620px}.calc-input input{width:100%;border:1px solid #b9c2d0;border-radius:10px;padding:11px}.hints{margin-top:12px}.hints summary{font-weight:750;color:var(--blue)}.self-check{display:flex;gap:8px;margin-top:12px}.retrieval{margin-top:14px;background:#fff;border:1px dashed #aeb8c7;border-radius:14px;padding:14px 18px}.retrieval summary{font-weight:800}.retrieval-item{padding:8px 0}.sources{background:#fff;border-top:4px solid var(--navy);padding:42px 24px 70px}.sources-inner{max-width:1184px;margin:auto}.source-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.source{border:1px solid var(--line);border-radius:12px;padding:15px}.source p{font-size:.82rem;color:var(--muted)}.footer-actions{margin-top:28px}.sr-live{position:fixed;left:-9999px}.mobile-progress{display:none}@media(max-width:800px){html{scroll-padding-top:132px}.hotbar-main{height:68px;padding:8px 14px}.brand img{width:38px;height:38px}.brand-text span{max-width:170px}.progress-pill,.hot-actions .secondary{display:none}.topic-strip-inner{padding:7px 12px}.hero{padding:40px 16px 26px}.hero-grid,.topic-grid{grid-template-columns:1fr}.hero h1{font-size:2.65rem}.course-map{margin:0 16px 40px;grid-template-columns:1fr 1fr;padding:15px}main{padding:0 16px 60px}.topic{margin-bottom:55px}.topic-head{align-items:flex-start}.topic-status{font-size:.72rem}.theory,.orientation,.practice{padding:18px}.practice-head{align-items:flex-start;flex-direction:column}.task{padding:16px}.task-top{flex-wrap:wrap}.task-source{width:100%;margin:0}.calc-input{grid-template-columns:1fr}.source-grid{grid-template-columns:1fr}.worked summary{align-items:flex-start}.summary-action{display:none}}@media(max-width:430px){.brand-text strong{font-size:.88rem}.brand-text span{max-width:135px}.hot-actions .primary{padding:9px 10px;font-size:.78rem}.course-map{grid-template-columns:1fr}.hero h1{font-size:2.3rem}.topic-head h2{font-size:1.45rem}.topic-index{font-size:1.4rem}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
-.topic[hidden]{display:none}.topic-link.is-active{background:var(--sb-navy);color:#fff;border-color:var(--sb-navy)}.topic-link.is-active:hover,.topic-link.is-active:focus-visible{color:#fff;border-color:var(--sb-gold)}.topic{animation:topic-in .18s ease-out}.question-content{font-size:1.14rem;font-weight:760;line-height:1.65;margin:0 0 18px;color:var(--sb-ink)}.question-content math,.option math,.problem math,.steps math,.result math,.feedback math{font-size:1.08em;vertical-align:middle}.question-content math{margin:.1rem .16rem}.option-content{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.2rem}.option-letter{flex:0 0 28px;width:28px;height:28px;border-radius:8px;background:var(--sb-soft);display:grid;place-items:center;font-size:.76rem;font-weight:900;color:var(--sb-blue)}.option:has(input:checked) .option-letter{background:var(--sb-blue);color:#fff}.calc-input label{display:grid;gap:7px;min-width:0}.calc-input>.primary{align-self:end;min-height:52px}.calc-answer{min-height:74px;resize:vertical;line-height:1.45}.math-inline{display:inline-flex;max-width:100%;overflow-x:auto;vertical-align:middle;padding:.08rem .14rem}.feedback ul{display:grid;gap:8px}.feedback .solution-copy{margin:12px 0 0;padding-top:12px;border-top:1px solid currentColor}.task{box-shadow:0 4px 14px rgba(25,37,75,.045)}.practice{padding:20px}.hero{padding-top:42px;padding-bottom:26px}.course-map{margin-bottom:34px}@keyframes topic-in{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:none}}@media(max-width:800px){.question-content{font-size:1.02rem}.option{padding:10px}.option-letter{flex-basis:25px;width:25px;height:25px}.topic-strip{box-shadow:0 5px 12px rgba(25,37,75,.08)}.hero{padding-top:28px}.hero-grid{gap:14px}}
+.topic[hidden]{display:none}.topic-link.is-active{background:var(--sb-navy);color:#fff;border-color:var(--sb-navy)}.topic-link.is-active:hover,.topic-link.is-active:focus-visible{color:#fff;border-color:var(--sb-gold)}.topic{animation:topic-in .18s ease-out}.question-content{font-size:1.14rem;font-weight:760;line-height:1.65;margin:0 0 18px;color:var(--sb-ink)}.question-content math,.option math,.problem math,.steps math,.result math,.feedback math{font-size:1.08em;vertical-align:middle}.question-content math{margin:.1rem .16rem}.option-content{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.2rem;overflow-x:auto;scrollbar-width:none}.option-content::-webkit-scrollbar{display:none}.option-letter{flex:0 0 28px;width:28px;height:28px;border-radius:8px;background:var(--sb-soft);display:grid;place-items:center;font-size:.76rem;font-weight:900;color:var(--sb-blue)}.option:has(input:checked) .option-letter{background:var(--sb-blue);color:#fff}.calc-input label{display:grid;gap:7px;min-width:0}.calc-input>.primary{align-self:end;min-height:52px}.calc-answer{height:52px;min-height:52px;resize:none;line-height:1.35}.math-inline{display:inline-block;max-width:none;overflow:visible;vertical-align:middle;padding:.08rem .14rem}.feedback ul{display:grid;gap:8px}.feedback .solution-copy{margin:12px 0 0;padding-top:12px;border-top:1px solid currentColor}.task{box-shadow:0 4px 14px rgba(25,37,75,.045)}.hero{padding-top:42px;padding-bottom:26px}.course-map{margin-bottom:34px}.learning-path{position:relative;display:grid;gap:18px}.lesson-step{position:relative;display:grid;grid-template-columns:84px minmax(0,1fr);gap:18px;margin:0}.step-marker{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--sb-muted)}.step-marker:after{content:"";position:absolute;top:48px;bottom:-36px;width:2px;background:#cdd4e1}.lesson-step:last-child .step-marker:after{display:none}.step-marker>span{position:relative;z-index:1;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--sb-navy);color:#fff;border:5px solid var(--sb-soft);font-weight:900}.step-marker small{font-size:.65rem;font-weight:850;text-transform:uppercase;letter-spacing:.07em;writing-mode:vertical-rl}.step-content{min-width:0;background:#fff;border:1px solid var(--sb-line);border-radius:20px;padding:30px;box-shadow:0 8px 26px rgba(25,37,75,.055)}.lesson-step.practice{padding:0;background:transparent;border-radius:0;margin:0}.lesson-step.practice .step-content{background:#eef1f6}.lesson-step--intro .step-content{border-top:5px solid var(--sb-navy)}.lesson-step--deepen .step-content{background:#f2f5fc}.lesson-step--example .step-content{border-left:5px solid var(--sb-gold)}.readable-copy{font-family:Georgia,"Times New Roman",serif}.readable-copy h3,.readable-copy .block-label,.goal-panel{font-family:Inter,ui-sans-serif,system-ui,sans-serif}.lead-copy{font-size:1.12rem;line-height:1.82;margin:0;max-width:78ch}.goal-panel{margin-top:24px;padding:18px 20px;background:var(--sb-soft);border-radius:14px}.goal-panel ul{margin:.6rem 0 0;padding-left:1.25rem}.goal-panel li+li{margin-top:.45rem}.principle-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.principle{display:grid;grid-template-columns:30px 1fr;gap:9px;align-items:start;background:#fff;border:1px solid var(--sb-line);border-radius:13px;padding:14px}.principle>span{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--sb-navy);color:#fff;font-size:.75rem;font-weight:900}.principle p{margin:1px 0 0}.formula-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}.formula-deck .formula{margin:0;background:#fff;border:1px solid var(--sb-line)}.practice--compact .task-list{grid-template-columns:repeat(2,minmax(0,1fr))}.solve-offline{display:grid;gap:2px;margin:0;padding:11px 14px;background:#fff;border:1px dashed #aeb8c7;border-radius:11px}.solve-offline span{font-size:.84rem;color:var(--sb-muted)}.calculation--paper .calc-input{max-width:760px;grid-template-columns:minmax(0,1fr) auto}.calculation--answer .calc-input{max-width:620px}.examples{margin:12px 0 0}.worked{background:#f4f6fb}.topic-head{margin-bottom:28px}@keyframes topic-in{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:none}}@media(max-width:900px){.practice--compact .task-list,.principle-grid{grid-template-columns:1fr}}@media(max-width:800px){.question-content{font-size:1.02rem}.option{padding:10px}.option-letter{flex-basis:25px;width:25px;height:25px}.topic-strip{box-shadow:0 5px 12px rgba(25,37,75,.08)}.hero{padding-top:28px}.hero-grid{gap:14px}.lesson-step{grid-template-columns:1fr}.step-marker{display:none}.step-content{padding:20px;border-radius:16px}.lesson-step.practice .step-content{padding:16px}.lead-copy{font-size:1.02rem;line-height:1.7}.calculation--paper .calc-input{grid-template-columns:1fr}.formula-deck{grid-template-columns:1fr}}
+.options,.option{min-width:0;width:100%}.task{overflow:hidden}.formula,.formula-deck,.math-scroll{min-width:0;max-width:100%}.math-scroll{width:100%;overflow-x:auto;scrollbar-width:none}.math-scroll::-webkit-scrollbar{display:none}.feedback{min-width:0;max-width:100%;overflow-wrap:anywhere;overflow:hidden}.feedback ul{min-width:0;width:100%;max-width:100%}.feedback li{min-width:0;max-width:100%;overflow:hidden}.feedback .math-inline{display:block;width:100%;max-width:100%;overflow-x:auto;scrollbar-width:none}.feedback .math-inline::-webkit-scrollbar{display:none}.readable-copy var,.question-content var,.feedback var{font-family:Georgia,"Times New Roman",serif;font-style:italic}.bounded-operator{display:inline-flex;align-items:center;white-space:nowrap;font-family:Georgia,"Times New Roman",serif;font-size:1.14em;margin:0 .08em}.bounded-operator sub,.bounded-operator sup{font-size:.62em;line-height:1}
 </style></head><body>
 <a class="skip" href="#main">Zum Lerninhalt springen</a>
 <header class="hotbar" data-sb-hotbar><div class="hotbar-main"><div class="brand"><img src="assets/logo.png" alt="Study Buddy" data-study-buddy-logo><div class="brand-text"><strong>Study Buddy · MAES2</strong><span>${esc(content.courseTitle)}</span></div></div><div class="hot-actions"><div class="progress-pill" data-sb-progress><span>Gesamtfortschritt</span><div class="bar"><i data-progress-bar></i></div><strong data-progress-text>0 / ${allExercises.length}</strong></div><button class="primary" type="button" data-continue>Weiterlernen</button><button class="secondary" type="button" data-reset>Fortschritt löschen</button></div></div><nav class="topic-strip" aria-label="Kapitel" data-sb-course-tabs><div class="topic-strip-inner" role="tablist" aria-label="Kapitel auswählen">${content.topics.map((topic, index) => `<button class="topic-link${index === 0 ? " is-active" : ""}" id="tab-${esc(topic.id)}" type="button" role="tab" aria-selected="${index === 0 ? "true" : "false"}" aria-controls="topic-${esc(topic.id)}" tabindex="${index === 0 ? "0" : "-1"}" data-topic-tab="${esc(topic.id)}">${index + 1}. ${esc(topic.title)}</button>`).join("")}</div></nav></header>
 <section class="hero"><div class="hero-grid"><div><p class="kicker">Interaktiver Prüfungstrainer · quellenbasiert</p><h1>Mathematik wird durch Üben klar.</h1><p class="hero-lead">Elf Themen, konkrete Moodle-Aufgaben und nachvollziehbare Rechenwege. Lies nur so viel Theorie wie nötig – und arbeite dann im Kreuzerl- und Rechentraining.</p></div><aside class="scope-card"><strong>Trainingsumfang</strong><p>${esc(content.scopeNote)}</p><dl><div><dt>Aufgaben</dt><dd>${allExercises.length}</dd></div><div><dt>Kreuzerl</dt><dd>${crossCount}</dd></div><div><dt>Rechnen</dt><dd>${calculationCount}</dd></div><div><dt>Themen</dt><dd>${content.topics.length}</dd></div></dl></aside></div></section>
-<section class="course-map" data-sb-course-map aria-label="Kurslandkarte"><div class="map-item"><strong>1 · Grundlagen</strong><span>Folgen, Grenzwerte, Ableitungen</span></div><div class="map-item"><strong>2 · Anwenden</strong><span>Taylor und Kurvendiskussion</span></div><div class="map-item"><strong>3 · Integrieren</strong><span>Stammfunktionen, Flächen, uneigentliche Integrale</span></div><div class="map-item"><strong>4 · Modellieren</strong><span>Differentialgleichungen 1. und 2. Ordnung</span></div></section>
 <main id="main">${topicsHtml}</main>
 <footer class="sources" data-sb-sources><div class="sources-inner"><p class="eyebrow">Nachvollziehbar lernen</p><h2>Quellen & Abdeckungsgrenzen</h2><p>${esc(content.scopeNote)}</p><div class="source-grid">${content.sources.map((source) => `<article class="source"><strong>${esc(source.label)}</strong><p>${esc(source.coverage)}</p>${source.url ? `<a href="${esc(source.url)}">Moodle-Quelle (Login/Internet nötig)</a>` : ""}</article>`).join("")}</div><div class="footer-actions"><button class="secondary" type="button" data-reset>Lokalen Fortschritt löschen</button></div></div></footer>
 <div class="sr-live" aria-live="polite" data-live></div><script id="study-content" type="application/json">${contentJson}</script>
+<script>
+(()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',original=Storage.prototype.setItem,nested=['completed','drafts','selections','evaluated','revealed'];Storage.prototype.setItem=function(key,value){if(key===KEY){try{const current=JSON.parse(this.getItem(key)||'{}'),incoming=JSON.parse(String(value));for(const field of nested)incoming[field]={...(current[field]||{}),...(incoming[field]||{})};value=JSON.stringify({...current,...incoming})}catch{}}return original.call(this,key,value)}})();
+</script>
 <script>
 (()=>{'use strict';const C=JSON.parse(document.getElementById('study-content').textContent),KEY='study-buddy-maes2-standard-v1';let S={completed:{},drafts:{},last:''};try{S={...S,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{}const save=()=>localStorage.setItem(KEY,JSON.stringify(S));const byId=new Map(C.topics.flatMap(t=>t.exercises).map(x=>[x.id,x]));const norm=v=>String(v).trim().toLowerCase().replace(/,/g,'.').replace(/\\s+/g,'');function announce(v){document.querySelector('[data-live]').textContent=v}function update(){const total=byId.size,done=Object.keys(S.completed).filter(id=>S.completed[id]).length;document.querySelectorAll('[data-progress-text]').forEach(n=>n.textContent=done+' / '+total);document.querySelectorAll('[data-progress-bar]').forEach(n=>n.style.width=(total?done/total*100:0)+'%');C.topics.forEach(t=>{const d=t.exercises.filter(x=>S.completed[x.id]).length;const n=document.querySelector('[data-topic-status="'+CSS.escape(t.id)+'"]');if(n)n.textContent=d+' / '+t.exercises.length});document.querySelectorAll('.task').forEach(n=>n.classList.toggle('is-complete',!!S.completed[n.dataset.id]))}function feedback(card,html,good){const n=card.querySelector('.feedback');n.hidden=false;n.className='feedback '+(good?'good':'bad');n.innerHTML=html}document.querySelectorAll('.task').forEach(card=>{const id=card.dataset.id;if(S.drafts[id]!=null){const input=card.querySelector('.calc-answer');if(input)input.value=S.drafts[id]}if(S.completed[id])card.classList.add('is-complete')});document.addEventListener('input',e=>{const card=e.target.closest('.task');if(card&&e.target.matches('.calc-answer')){S.drafts[card.dataset.id]=e.target.value;save()}});document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const card=b.closest('.task');if(b.matches('[data-submit-cross]')&&card){const x=byId.get(card.dataset.id),chosen=[...card.querySelectorAll('input:checked')].map(n=>Number(n.value)),correct=x.options.map((o,i)=>o.correct?i:-1).filter(i=>i>=0),ok=chosen.length===correct.length&&chosen.every(i=>correct.includes(i));const rows=x.options.map((o,i)=>'<li><strong>'+(o.correct?'✓':'×')+'</strong> '+escapeHtml(o.text)+' – '+escapeHtml(o.feedback)+'</li>').join('');feedback(card,'<strong>'+(ok?'Richtig gelöst.':'Noch nicht ganz.')+'</strong><ul>'+rows+'</ul><p>'+escapeHtml(x.explanation)+'</p>',ok);if(ok)S.completed[x.id]=true;save();update();announce(ok?'Aufgabe richtig gelöst.':'Antwort ausgewertet; lies das Feedback.')}if(b.matches('[data-check-calc]')&&card){const x=byId.get(card.dataset.id),value=card.querySelector('.calc-answer').value;S.drafts[x.id]=value;const solution='<ol>'+x.steps.map(step=>'<li>'+escapeHtml(step)+'</li>').join('')+'</ol><p><strong>Typischer Fehler:</strong> '+escapeHtml(x.commonMistake)+'</p>';if(x.acceptedAnswers.includes('__self_check__'))feedback(card,'<strong>Vergleiche deinen Ansatz mit der Quellenlösung:</strong>'+solution+'<div class="self-check"><button type="button" class="primary" data-self-ok>Stimmt überein</button><button type="button" class="secondary" data-self-review>Noch üben</button></div>',false);else{const ok=x.acceptedAnswers.map(norm).includes(norm(value));feedback(card,(ok?'<strong>Richtig.</strong>':'<strong>Noch nicht.</strong>')+solution,ok);if(ok)S.completed[x.id]=true}save();update()}if(b.matches('[data-self-ok]')&&card){S.completed[card.dataset.id]=true;save();update();feedback(card,'<strong>Als verstanden markiert.</strong> Du kannst die Aufgabe später trotzdem wiederholen.',true)}if(b.matches('[data-self-review]')&&card){S.completed[card.dataset.id]=false;save();update();announce('Aufgabe bleibt zur Wiederholung offen.')}if(b.matches('[data-reveal-retrieval]')){const n=document.getElementById('retrieval-'+b.dataset.revealRetrieval);n.hidden=!n.hidden;b.textContent=n.hidden?'Antwort prüfen':'Antwort verbergen'}if(b.matches('[data-continue]')){const next=[...document.querySelectorAll('.task')].find(n=>!S.completed[n.dataset.id])||document.querySelector('.topic');next?.scrollIntoView({behavior:'smooth',block:'center'});next?.querySelector('input,button')?.focus()}if(b.matches('[data-reset]')&&confirm('Lokalen Lernfortschritt und Eingaben wirklich löschen?')){localStorage.removeItem(KEY);location.reload()}});document.querySelectorAll('.topic-link').forEach(a=>a.addEventListener('click',()=>{S.last=a.getAttribute('href');save()}));function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}update()})();
 </script><script>
@@ -60,32 +70,33 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
 (()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',tabs=[...document.querySelectorAll('[data-topic-tab]')],panels=[...document.querySelectorAll('[data-sb-topic]')];const read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}};const activate=(id,{focus=false,scroll=false}={})=>{const target=panels.find(panel=>panel.dataset.sbTopic===id)||panels[0];if(!target)return;panels.forEach(panel=>panel.hidden=panel!==target);tabs.forEach(tab=>{const active=tab.dataset.topicTab===target.dataset.sbTopic;tab.classList.toggle('is-active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1});localStorage.setItem(KEY,JSON.stringify({...read(),activeTopic:target.dataset.sbTopic}));if(scroll)target.scrollIntoView({behavior:'smooth',block:'start'});if(focus)tabs.find(tab=>tab.dataset.topicTab===target.dataset.sbTopic)?.focus()};tabs.forEach((tab,index)=>{tab.addEventListener('click',()=>activate(tab.dataset.topicTab,{scroll:true}));tab.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;activate(tabs[next].dataset.topicTab,{focus:true,scroll:true})})});document.addEventListener('click',event=>{const button=event.target.closest('[data-continue]');if(!button)return;event.preventDefault();event.stopImmediatePropagation();const next=[...document.querySelectorAll('.task')].find(task=>!read().completed?.[task.dataset.id])||document.querySelector('.task');const panel=next?.closest('[data-sb-topic]');if(panel){activate(panel.dataset.sbTopic);requestAnimationFrame(()=>{panel.scrollIntoView({behavior:'smooth',block:'start'});next.querySelector('input,textarea,button')?.focus()})}},true);activate(read().activeTopic||panels[0]?.dataset.sbTopic)})();
 </script><script>
 (()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',C=JSON.parse(document.getElementById('study-content').textContent),byId=new Map(C.topics.flatMap(topic=>topic.exercises).map(exercise=>[exercise.id,exercise])),read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}},write=value=>localStorage.setItem(KEY,JSON.stringify(value)),escapeHtml=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));function refresh(state){const total=byId.size,done=Object.keys(state.completed||{}).filter(id=>state.completed[id]).length;document.querySelectorAll('[data-progress-text]').forEach(node=>node.textContent=done+' / '+total);document.querySelectorAll('[data-progress-bar]').forEach(node=>node.style.width=(total?done/total*100:0)+'%');C.topics.forEach(topic=>{const topicDone=topic.exercises.filter(exercise=>state.completed?.[exercise.id]).length,node=document.querySelector('[data-topic-status="'+CSS.escape(topic.id)+'"]');if(node)node.textContent=topicDone+' / '+topic.exercises.length});document.querySelectorAll('.task').forEach(task=>task.classList.toggle('is-complete',!!state.completed?.[task.dataset.id]))}document.addEventListener('click',event=>{const button=event.target.closest('[data-submit-cross]');if(!button)return;const card=button.closest('.cross'),exercise=byId.get(card.dataset.id);if(!exercise)return;event.preventDefault();event.stopImmediatePropagation();const chosen=[...card.querySelectorAll('input:checked')].map(input=>Number(input.value)),correct=exercise.options.map((option,index)=>option.correct?index:-1).filter(index=>index>=0),ok=chosen.length===correct.length&&chosen.every(index=>correct.includes(index)),review=[...new Set([...chosen,...correct])],optionBodies=[...card.querySelectorAll('.option-content')],rows=review.map(index=>'<li><strong>'+(correct.includes(index)?'✓':'×')+'</strong> '+(optionBodies[index]?.innerHTML||escapeHtml(exercise.options[index].text))+' – '+escapeHtml(exercise.options[index].feedback)+'</li>').join(''),solution=card.querySelector('[data-solution]')?.innerHTML||'',feedback=card.querySelector('.feedback');feedback.hidden=false;feedback.className='feedback '+(ok?'good':'bad');feedback.innerHTML='<strong>'+(ok?'Richtig gelöst.':'Noch nicht ganz.')+'</strong><ul>'+rows+'</ul><div class="solution-copy"><strong>Erklärung:</strong> '+solution+'</div>';const state=read();state.completed=state.completed||{};state.selections=state.selections||{};state.evaluated=state.evaluated||{};if(ok)state.completed[exercise.id]=true;state.selections[exercise.id]=chosen;state.evaluated[exercise.id]=true;write(state);refresh(state);document.querySelector('[data-live]').textContent=ok?'Aufgabe richtig gelöst.':'Antwort ausgewertet; lies das Feedback.'},true)})();
+</script><script>
+(()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',C=JSON.parse(document.getElementById('study-content').textContent),read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}};function refresh(){const state=read(),exercises=C.topics.flatMap(topic=>topic.exercises),done=exercises.filter(exercise=>state.completed?.[exercise.id]).length;document.querySelectorAll('[data-progress-text]').forEach(node=>node.textContent=done+' / '+exercises.length);document.querySelectorAll('[data-progress-bar]').forEach(node=>node.style.width=(exercises.length?done/exercises.length*100:0)+'%');C.topics.forEach(topic=>{const topicDone=topic.exercises.filter(exercise=>state.completed?.[exercise.id]).length,node=document.querySelector('[data-topic-status="'+CSS.escape(topic.id)+'"]');if(node)node.textContent=topicDone+' / '+topic.exercises.length});document.querySelectorAll('.task').forEach(task=>task.classList.toggle('is-complete',!!state.completed?.[task.dataset.id]))}document.addEventListener('click',event=>{if(event.target.closest('[data-check-calc],[data-self-ok],[data-self-review]'))queueMicrotask(refresh)})})();
+</script><script>
+(()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',C=JSON.parse(document.getElementById('study-content').textContent),byId=new Map(C.topics.flatMap(topic=>topic.exercises).map(exercise=>[exercise.id,exercise])),read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}},write=state=>localStorage.setItem(KEY,JSON.stringify(state)),norm=value=>String(value).trim().toLowerCase().replace(/,/g,'.').split(' ').join('');function refresh(state){const exercises=[...byId.values()],done=exercises.filter(exercise=>state.completed?.[exercise.id]).length;document.querySelectorAll('[data-progress-text]').forEach(node=>node.textContent=done+' / '+exercises.length);document.querySelectorAll('[data-progress-bar]').forEach(node=>node.style.width=(exercises.length?done/exercises.length*100:0)+'%');C.topics.forEach(topic=>{const topicDone=topic.exercises.filter(exercise=>state.completed?.[exercise.id]).length,node=document.querySelector('[data-topic-status="'+CSS.escape(topic.id)+'"]');if(node)node.textContent=topicDone+' / '+topic.exercises.length})}document.addEventListener('click',event=>{const button=event.target.closest('[data-check-calc]');if(!button)return;const card=button.closest('.calculation'),exercise=byId.get(card?.dataset.id||'');if(!card||!exercise||exercise.type!=='calculation')return;event.preventDefault();event.stopImmediatePropagation();const input=card.querySelector('.calc-answer'),value=input?.value||'',solution=card.querySelector('[data-solution]')?.innerHTML||'',selfCheck=exercise.acceptedAnswers.includes('__self_check__'),correct=!selfCheck&&exercise.acceptedAnswers.map(norm).includes(norm(value)),feedback=card.querySelector('.feedback');feedback.hidden=false;feedback.className='feedback '+(correct?'good':'bad');feedback.innerHTML=(selfCheck?'<strong>Vergleiche deinen Ansatz mit der Quellenlösung:</strong>':correct?'<strong>Richtig.</strong>':'<strong>Noch nicht.</strong>')+solution+(selfCheck?'<div class="self-check"><button type="button" class="primary" data-self-ok>Stimmt überein</button><button type="button" class="secondary" data-self-review>Noch üben</button></div>':'');const state=read();state.drafts=state.drafts||{};state.revealed=state.revealed||{};state.completed=state.completed||{};state.drafts[exercise.id]=value;state.revealed[exercise.id]=true;if(correct)state.completed[exercise.id]=true;write(state);refresh(state)},true)})();
 </script></body></html>`;
 }
 
 function crossHtml(exercise: Extract<StudyGuideContent["topics"][number]["exercises"][number], { type: "cross" }>, index: number): string {
   const inputType = exercise.selectionMode === "multiple" ? "checkbox" : "radio";
-  return `<article class="task cross" data-sb-cross-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${exercise.selectionMode === "multiple" ? "Mehrfachauswahl" : exercise.selectionMode === "true-false" ? "Wahr / Falsch" : "Einfachauswahl"}</span><span class="task-source">${sourceLabel(exercise.source)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div><fieldset class="options"><legend class="sr-live">Antwortoptionen</legend>${exercise.options.map((option, optionIndex) => `<label class="option"><input type="${inputType}" name="${esc(exercise.id)}" value="${optionIndex}"><span class="option-letter" aria-hidden="true">${String.fromCharCode(65 + optionIndex)}</span><span class="option-content">${richMathText(option.text, true)}</span></label>`).join("")}</fieldset><template data-solution>${richMathText(exercise.explanation)}</template><div class="task-actions"><button class="primary" type="button" data-submit-cross>Antwort auswerten</button></div><div class="feedback" hidden></div></article>`;
+  return `<article class="task cross" data-sb-cross-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${exercise.selectionMode === "multiple" ? "Mehrfachauswahl" : exercise.selectionMode === "true-false" ? "Wahr / Falsch" : "Einfachauswahl"}</span><span class="task-source">${sourceLabel(exercise.source)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div><fieldset class="options"><legend class="sr-live">Antwortoptionen</legend>${exercise.options.map((option, optionIndex) => `<label class="option"><input type="${inputType}" name="${esc(exercise.id)}" value="${optionIndex}"><span class="option-letter" aria-hidden="true">${String.fromCharCode(65 + optionIndex)}</span><span class="option-content">${richMathText(option.text, true)}</span><template data-option-feedback>${richMathText(option.feedback)}</template></label>`).join("")}</fieldset><template data-solution>${richMathText(exercise.explanation)}</template><div class="task-actions"><button class="primary" type="button" data-submit-cross>Antwort auswerten</button></div><div class="feedback" hidden></div></article>`;
 }
 
 function calculationHtml(exercise: Extract<StudyGuideContent["topics"][number]["exercises"][number], { type: "calculation" }>, index: number): string {
-  return `<article class="task calculation" data-sb-calculation-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">Rechenweg</span><span class="task-source">${sourceLabel(exercise.source)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div>${exercise.givens.some((given) => !given.startsWith("Alle Größen")) ? `<ul>${exercise.givens.map((given) => `<li>${richMathText(given)}</li>`).join("")}</ul>` : ""}<div class="calc-input"><label><span class="block-label">Dein Ergebnis oder Ansatz</span><textarea class="calc-answer" autocomplete="off" inputmode="decimal" rows="2" aria-label="Dein Ergebnis oder Ansatz" placeholder="Ansatz oder Ergebnis mathematisch notieren …"></textarea></label><button class="primary" type="button" data-check-calc>Lösung vergleichen</button></div><details class="hints"><summary>Methodenhinweis</summary><p>Notiere zuerst die Voraussetzungen und wähle dann die passende Definition oder Rechenregel. Kontrolliere das Ergebnis unabhängig.</p></details><div class="feedback" hidden></div></article>`;
+  const hasClearAnswerPrompt = /\b(?:berechne|bestimme|ermittle|löse|gib\s+(?:den|die|das)|wie\s+(?:groß|lautet))\b/i.test(exercise.prompt);
+  const answerControl = hasClearAnswerPrompt
+    ? `<label><span class="block-label">Deine Kurzantwort</span><input class="calc-answer" type="text" autocomplete="off" inputmode="decimal" aria-label="Deine Kurzantwort" placeholder="Wert oder Ergebnis eingeben"></label>`
+    : `<input class="calc-answer" type="hidden" value="__solution_revealed__"><p class="solve-offline"><strong>Arbeite zuerst ohne Lösung.</strong><span>Nutze Papier oder dein Tablet und öffne den Rechenweg erst danach.</span></p>`;
+  const solution = `<ol>${exercise.steps.map((step) => `<li>${richMathText(step)}</li>`).join("")}</ol><p><strong>Typischer Fehler:</strong> ${richMathText(exercise.commonMistake)}</p>`;
+  return `<article class="task calculation${hasClearAnswerPrompt ? " calculation--answer" : " calculation--paper"}" data-sb-calculation-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${hasClearAnswerPrompt ? "Kurzantwort" : "Rechenauftrag"}</span><span class="task-source">${sourceLabel(exercise.source)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div>${exercise.givens.some((given) => !given.startsWith("Alle Größen")) ? `<ul>${exercise.givens.map((given) => `<li>${richMathText(given)}</li>`).join("")}</ul>` : ""}<div class="calc-input">${answerControl}<button class="primary" type="button" data-check-calc>${hasClearAnswerPrompt ? "Lösung vergleichen" : "Lösungsweg anzeigen"}</button></div><details class="hints"><summary>Methodenhinweis</summary><p>Notiere zuerst die Voraussetzungen und wähle dann die passende Definition oder Rechenregel. Kontrolliere das Ergebnis unabhängig.</p></details><template data-solution>${solution}</template><div class="feedback" hidden></div></article>`;
 }
 
 function richMathText(value: string, preferMath = false): string {
   const normalized = value.trim();
-  const mathDominant = preferMath && /[=∫Σ√≤≥≠]|_[{0-9n]/.test(normalized) && normalized.split(/\s+/).length <= 24;
+  const proseWords = normalized.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)?.filter((word) => !/^(?:lim|sin|cos|tan|exp|log)$/i.test(word)) ?? [];
+  const mathDominant = preferMath && normalized.length <= 240 && /[=∫Σ√≤≥≠^]|_[{0-9n]/.test(normalized) && proseWords.length === 0 && delimitersBalanced(normalized);
   if (mathDominant) return `<span class="math-inline">${mathml(normalized)}</span>`;
-  const candidate = /⟨[^⟩]+⟩|(?:[A-Za-zλΣ∞ℝ][^\s,;:.!?]*\s*)?(?:=|≤|≥|≠|↦)\s*[^\s,;:.!?]+(?:\s*[+−·*/]\s*[^\s,;:.!?]+)*/g;
-  let cursor = 0;
-  let html = "";
-  for (const match of normalized.matchAll(candidate)) {
-    const start = match.index ?? 0;
-    html += esc(normalized.slice(cursor, start));
-    html += `<span class="math-inline">${mathml(match[0].trim())}</span>`;
-    cursor = start + match[0].length;
-  }
-  return html + esc(normalized.slice(cursor));
+  return lightweightMathText(normalized);
 }
 
 function mathml(expression: string): string {
@@ -96,21 +107,24 @@ function mathml(expression: string): string {
 function renderMathTokens(tokens: string[]): string {
   const output: string[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
-    let node = mathToken(tokens[index]);
-    const script = tokens[index + 1];
-    if ((script === "_" || script === "^") && tokens[index + 2]) {
-      let scriptTokens: string[];
-      if (tokens[index + 2] === "{") {
-        const end = tokens.indexOf("}", index + 3);
-        const stop = end >= 0 ? end : index + 3;
-        scriptTokens = tokens.slice(index + 3, stop);
-        index = stop;
-      } else {
-        scriptTokens = [tokens[index + 2]];
-        index += 2;
-      }
-      node = `<${script === "_" ? "msub" : "msup"}>${node}<mrow>${renderMathTokens(scriptTokens)}</mrow></${script === "_" ? "msub" : "msup"}>`;
-    } else if (/^[₀-₉]+$/.test(script ?? "")) {
+    let node: string;
+    if (tokens[index] === "√") {
+      const radicand = readMathAtom(tokens, index + 1);
+      node = `<msqrt>${radicand.node}</msqrt>`;
+      index = radicand.end;
+    } else {
+      const atom = readMathAtom(tokens, index);
+      node = atom.node;
+      index = atom.end;
+    }
+    let script = tokens[index + 1];
+    while ((script === "_" || script === "^") && tokens[index + 2]) {
+      const argument = readMathAtom(tokens, index + 2, false);
+      node = `<${script === "_" ? "msub" : "msup"}>${node}<mrow>${argument.node}</mrow></${script === "_" ? "msub" : "msup"}>`;
+      index = argument.end;
+      script = tokens[index + 1];
+    }
+    if (/^[₀-₉]+$/.test(script ?? "")) {
       node = `<msub>${node}<mn>${esc(toNormalDigits(script))}</mn></msub>`;
       index += 1;
     } else if (/^[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(script ?? "")) {
@@ -118,17 +132,111 @@ function renderMathTokens(tokens: string[]): string {
       index += 1;
     }
     if (tokens[index + 1] === "/" && tokens[index + 2]) {
-      node = `<mfrac>${node}${mathToken(tokens[index + 2])}</mfrac>`;
-      index += 2;
+      const denominator = readMathAtom(tokens, index + 2, false);
+      node = `<mfrac>${node}${denominator.node}</mfrac>`;
+      index = denominator.end;
     }
     output.push(node);
   }
   return output.join("");
 }
 
+function readMathAtom(tokens: string[], start: number, preserveDelimiters = true): { node: string; end: number } {
+  const token = tokens[start] ?? "";
+  if (token !== "(" && token !== "{") return { node: mathToken(token), end: start };
+  const close = token === "(" ? ")" : "}";
+  let depth = 1;
+  let end = start + 1;
+  for (; end < tokens.length; end += 1) {
+    if (tokens[end] === token) depth += 1;
+    if (tokens[end] === close) depth -= 1;
+    if (depth === 0) break;
+  }
+  const inner = renderMathTokens(tokens.slice(start + 1, end));
+  const node = preserveDelimiters && token === "(" ? `<mrow><mo>(</mo>${inner}<mo>)</mo></mrow>` : `<mrow>${inner}</mrow>`;
+  return { node, end: Math.min(end, tokens.length - 1) };
+}
+
+function delimitersBalanced(value: string): boolean {
+  const pairs: Record<string, string> = { ")": "(", "}": "{" };
+  const stack: string[] = [];
+  for (const character of value) {
+    if (character === "(" || character === "{") stack.push(character);
+    else if (character === ")" || character === "}") {
+      if (stack.pop() !== pairs[character]) return false;
+    }
+  }
+  return stack.length === 0;
+}
+
+function lightweightMathText(value: string): string {
+  return esc(value)
+    .replace(/([∫Σ])_\{?([A-Za-z0-9=+−-]{1,20})\}?\^\{?([A-Za-z0-9∞+−-]{1,20})\}?/g, '<span class="bounded-operator" aria-label="$1 von $2 bis $3">$1<sub>$2</sub><sup>$3</sup></span>')
+    .replace(/\blim_\{?([A-Za-z0-9→∞+−-]{1,20})\}?/g, '<span class="bounded-operator" aria-label="Grenzwert für $1">lim<sub>$1</sub></span>')
+    .replace(/([A-Za-z])_\{([^{}]{1,20})\}/g, "<var>$1</var><sub>$2</sub>")
+    .replace(/([A-Za-z])_([0-9n])/g, "<var>$1</var><sub>$2</sub>")
+    .replace(/\^\{([^{}]{1,20})\}/g, "<sup>$1</sup>")
+    .replace(/\^\(([+−-]?[A-Za-z0-9]{1,20})\)/g, "<sup>$1</sup>")
+    .replace(/\^([−-]?[0-9]+|[A-Za-z])/g, "<sup>$1</sup>");
+}
+
+function clientContentForDisplay(content: StudyGuideContent): StudyGuideContent {
+  return {
+    ...content,
+    topics: content.topics.map((topic) => ({
+      ...topic,
+      learningGoals: topic.learningGoals.map(typographicScripts),
+      theory: {
+        ...topic.theory,
+        summary: typographicScripts(topic.theory.summary),
+        keyIdeas: topic.theory.keyIdeas.map(typographicScripts),
+      },
+      workedExamples: topic.workedExamples.map((example) => ({
+        ...example,
+        prompt: typographicScripts(example.prompt),
+        steps: example.steps.map(typographicScripts),
+        answer: typographicScripts(example.answer),
+      })),
+      exercises: topic.exercises.map((exercise) => exercise.type === "cross" ? {
+        ...exercise,
+        prompt: typographicScripts(exercise.prompt),
+        options: exercise.options.map((option) => ({
+          ...option,
+          text: typographicScripts(option.text),
+          feedback: typographicScripts(option.feedback),
+        })),
+        explanation: typographicScripts(exercise.explanation),
+      } : {
+        ...exercise,
+        prompt: typographicScripts(exercise.prompt),
+        givens: exercise.givens.map(typographicScripts),
+        steps: exercise.steps.map(typographicScripts),
+        commonMistake: typographicScripts(exercise.commonMistake),
+      }),
+      retrieval: topic.retrieval.map((item) => ({
+        prompt: typographicScripts(item.prompt),
+        answer: typographicScripts(item.answer),
+      })),
+    })),
+  };
+}
+
+function typographicScripts(value: string): string {
+  const superscript: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "−": "⁻", "+": "⁺", "a": "ᵃ", "b": "ᵇ", "i": "ⁱ", "k": "ᵏ", "m": "ᵐ", "n": "ⁿ", "t": "ᵗ", "x": "ˣ" };
+  const subscript: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "-": "₋", "−": "₋", "+": "₊", "n": "ₙ", "k": "ₖ" };
+  const convert = (raw: string, map: Record<string, string>) => [...raw].map((character) => map[character] ?? character).join("");
+  return value
+    .replace(/([∫Σ])_\{?([^{}\s^]+)\}?\^\{?([^{}\s,.;]+)\}?/g, "$1($2→$3)")
+    .replace(/\^\(([+−-]?[A-Za-z0-9]{1,20})\)/g, (_match, script: string) => convert(script, superscript))
+    .replace(/\^\{([+−-]?[0-9abikmntx]+)\}/g, (_match, script: string) => convert(script, superscript))
+    .replace(/\^([+−-]?[0-9abikmntx]+)/g, (_match, script: string) => convert(script, superscript))
+    .replace(/_\{([+−-]?[0-9nk]+)\}/g, (_match, script: string) => convert(script, subscript))
+    .replace(/_([0-9nk])/g, (_match, script: string) => convert(script, subscript));
+}
+
 function mathToken(token: string): string {
   if (/^\d/.test(token)) return `<mn>${esc(token)}</mn>`;
-  if (/^[A-Za-zÄÖÜäöüλΣ∞]+$/.test(token)) return `<mi>${esc(token)}</mi>`;
+  if (/^[A-Za-zÄÖÜäöüλΣ∞ℝ]+$/.test(token)) return `<mi>${esc(token)}</mi>`;
   return `<mo>${esc(token)}</mo>`;
 }
 

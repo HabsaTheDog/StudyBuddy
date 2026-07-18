@@ -24,9 +24,11 @@ import {
 } from "../studentFirstPolicy.js";
 import { resolveTaskBudget } from "../taskBudget.js";
 import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
+import { resolveTaskModelPolicy } from "../modelPolicy.js";
+import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-18.10-flowchart-policy";
+const CHAPTER_ANALYZER_VERSION = "2026-07-18.11-semantic-repair";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
@@ -60,6 +62,9 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
       // A run-level timeout/cancellation belongs to the graph runtime. It must
       // terminate the active run instead of becoming analyzer repair state.
       throwIfAborted(config.abortSignal);
+      if (error instanceof StudyBuddyCheckpointError) {
+        throw error;
+      }
       const nonRetryable = isNonRetryableCodexError(error);
       if (nonRetryable) {
         await config.diagnostics?.log(
@@ -179,6 +184,7 @@ async function analyzeCourseChapters(
         continue;
       }
       try {
+        ensureChapterRuntimeBudget(config, state, focus, results);
         const dense = isDenseChapter(state, focus);
         await config.diagnostics?.log(
           "info",
@@ -217,6 +223,9 @@ async function analyzeCourseChapters(
         // Do not aggregate a global abort as a chapter failure or advance to
         // another chapter. The outer node rethrows the same run-level reason.
         throwIfAborted(config.abortSignal);
+        if (error instanceof StudyBuddyCheckpointError) {
+          throw error;
+        }
         await config.diagnostics?.log(
           "error",
           "analyzer",
@@ -348,9 +357,11 @@ async function analyzeDenseChapter(
 
   for (const [index, slice] of slices.entries()) {
     throwIfAborted(config.abortSignal);
-    let sliceRepairFeedback = repairFeedback && sliceNeedsRepair(slice, repairFeedback)
-      ? repairFeedback
-      : null;
+    // Once the reviewer has localized a blocking finding to this chapter, its
+    // selected fragments must actually see that feedback. Previously generic
+    // contradictions (for example an incorrect direction-field definition)
+    // failed sliceNeedsRepair and silently reused the same cached fragment.
+    let sliceRepairFeedback = repairFeedback;
     const fingerprintBase = {
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
       prompt: config.prompt,
@@ -408,6 +419,7 @@ async function analyzeDenseChapter(
       );
       continue;
     }
+    ensureChapterRuntimeBudget(config, state, focus, []);
     await config.diagnostics?.log(
       "info",
       "analyzer",
@@ -450,6 +462,40 @@ async function analyzeDenseChapter(
     retrievalRequests,
   );
   return enrichCachedChapterHandoff(config, state, focus, materialized);
+}
+
+function ensureChapterRuntimeBudget(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+  completed: Array<ReturnType<typeof validateExtractedData> | undefined>,
+): void {
+  const telemetry = config.executionTelemetry?.getSnapshot();
+  if (!telemetry || config.maxRuntimeMs < 3 * 60_000) return;
+  const startedAt = Date.parse(telemetry.startedAt);
+  if (!Number.isFinite(startedAt)) return;
+
+  const policy = resolveTaskModelPolicy({
+    profile: config.executionProfile,
+    task: "content_analyzer",
+    attempt: state.retry_count + 1,
+    globalModel: config.codexModel,
+    globalReasoningEffort: config.codexReasoningEffort,
+    overrides: config.modelPolicyOverrides,
+  });
+  const remainingMs = config.maxRuntimeMs - (Date.now() - startedAt);
+  // Reserve one bounded analyzer call plus enough time to persist, normalize,
+  // and enter the extraction quality gates. A later recovery run receives a
+  // fresh budget and consumes these handoffs without crawling again.
+  const requiredMs = Math.min(policy.timeoutMs, 90_000) + 75_000;
+  if (remainingMs >= requiredMs) return;
+
+  const persistedCount = completed.filter(Boolean).length;
+  throw new StudyBuddyCheckpointError(
+    `Extraction checkpoint required: ${persistedCount} validated chapter handoff(s) persisted before ${focus.title}; ` +
+    `${Math.max(0, Math.round(remainingMs / 1_000))}s remained, ${Math.round(requiredMs / 1_000)}s required. ` +
+    "Resume from this run without crawling sources.",
+  );
 }
 
 function packSelectedSlices(
@@ -521,27 +567,6 @@ function allocateSliceBudgets(
     }
   }
   return allocations;
-}
-
-function sliceNeedsRepair(slice: ChapterSlice, feedback: string): boolean {
-  const sliceText = `${slice.label} ${slice.records.map((record) => record.content).join(" ")}`;
-  if (
-    /(?:beispiel|anwendung|rechen|nachvollzieh|reproduzier)/i.test(feedback) &&
-    /anwendungsblock/i.test(slice.label)
-  ) return true;
-  if (
-    /(?:tabelle|tb\s*\d|nennmaß|nennmass|grundabmaß|grundabmass)/i.test(feedback) &&
-    /(?:tabelle|tb\s*\d|toleranz|passung|h7|g8|ei|es)/i.test(sliceText)
-  ) return true;
-  if (
-    /(?:diagramm|kurve|ables)/i.test(feedback) &&
-    /(?:diagramm|kurve|viskosit|tribolog|schmier)/i.test(sliceText)
-  ) return true;
-  if (
-    /(?:widerspr|formel|definition|faktor)/i.test(feedback) &&
-    /(?:ersatz|elastiz|modul|formel)/i.test(sliceText)
-  ) return true;
-  return false;
 }
 
 function fragmentContainsIncompleteFormula(

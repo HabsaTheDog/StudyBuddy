@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runMoodleGraph } from "./graph.js";
 import { runInteractiveMoodleGraph } from "./interactive/graph.js";
 import { loadApprovedQuizPermission } from "./interactive/quizPermissions.js";
@@ -11,14 +13,23 @@ import {
   resolveTaskModelPolicy,
 } from "./modelPolicy.js";
 import { parseCodexPreflightMode } from "./config.js";
-import { acquireRunLease } from "../shared/runLease.js";
+import { acquireQueuedRunSlot, acquireRunLease } from "../shared/runLease.js";
+import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
+
+const GLOBAL_EXTRACTION_QUEUE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+  "output",
+  ".artifact-extraction-slots",
+);
 
 const program = new Command()
   .name("moodle-agent")
   .description("Run the quarantined Moodle-to-Typst LangGraph skill.")
   .argument("<prompt>", "User request for the Moodle agent")
   .requiredOption("--url <url>", "Moodle URL to inspect")
-  .option("--out <path>", "Output .typ path")
+  .option("--out <path>", "Deprecated alias for --deliver-to")
+  .option("--deliver-to <path>", "Publish validated user-facing files outside study-buddy-data")
   .option("--request-name <slug>", "Request-specific output directory name")
   .option("--run-dir <path>", "Explicit run directory")
   .option("--max-depth <number>", "Maximum same-domain crawl depth", parseNumber, 2)
@@ -71,6 +82,7 @@ const program = new Command()
 const options = program.opts<{
   url: string;
   out?: string;
+  deliverTo?: string;
   requestName?: string;
   runDir?: string;
   maxDepth: number;
@@ -133,9 +145,27 @@ const interactiveRequest =
 
 const releaseRunLease = await acquireRunLease(options.runDir);
 let releaseRecoverySourceLease: () => Promise<void> = async () => {};
+let releaseExtractionSlot: () => Promise<void> = async () => {};
 try {
 if (options.resumeExtractionRunDir) {
   releaseRecoverySourceLease = await acquireRunLease(options.resumeExtractionRunDir);
+}
+if (!interactiveRequest && options.stage === "extract" && !options.diagnosticOnly) {
+  // The production traces show two concurrent extraction/model streams stay
+  // healthy while a third remains queued until its 90-second call timeout.
+  const configuredSlots = Number(process.env.STUDY_BUDDY_MAX_CONCURRENT_EXTRACTIONS ?? "2");
+  const slots = Number.isInteger(configuredSlots)
+    ? Math.max(1, Math.min(2, configuredSlots))
+    : 1;
+  releaseExtractionSlot = await acquireQueuedRunSlot(GLOBAL_EXTRACTION_QUEUE_DIR, {
+    slots,
+    onWait: (active, total) => {
+      console.error(
+        `Extraction queued: ${active}/${total} global model slot(s) active. Runtime budget starts after admission.`,
+      );
+    },
+  });
+  console.error(`Extraction admitted to global model queue (${slots} slot${slots === 1 ? "" : "s"}).`);
 }
 if (interactiveRequest) {
   await runNativeQuizWorkflow({
@@ -162,7 +192,6 @@ if (interactiveRequest) {
   const result = await runMoodleGraph({
   prompt,
   moodleUrl: options.url,
-  outputPath: options.out,
   requestName: options.requestName,
   runDir: options.runDir,
   maxDepth: options.maxDepth,
@@ -201,8 +230,17 @@ if (interactiveRequest) {
   modelPolicyOverrides: options.profileOverridesJson,
 });
 
+  const publishedDeliverables = result.ok
+    ? await publishStudyBuddyDeliverables({
+        prompt,
+        runDir: result.runDir,
+        sourcePaths: [result.pdfPath, result.htmlPath],
+        deliverTo: options.deliverTo ?? options.out,
+      })
+    : [];
+
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ ...result, publishedDeliverables }, null, 2));
   } else if (result.ok) {
     console.log(`Run directory: ${result.runDir}`);
     if (result.outputPath) {
@@ -223,6 +261,9 @@ if (interactiveRequest) {
     if (result.htmlPath) {
       console.log(`Wrote HTML navigator: ${result.htmlPath}`);
     }
+    for (const deliverable of publishedDeliverables) {
+      console.log(`Published deliverable: ${deliverable.publishedPath}`);
+    }
     console.log(`Run metrics: ${result.metricsPath}`);
     console.log(`Run summary: ${result.runSummaryPath}`);
   } else {
@@ -233,6 +274,7 @@ if (interactiveRequest) {
   }
 }
 } finally {
+  await releaseExtractionSlot();
   await releaseRecoverySourceLease();
   await releaseRunLease();
 }

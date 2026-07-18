@@ -10,6 +10,7 @@ import {
 } from "../shared/modelPolicy.js";
 import { acquireRunLease } from "../shared/runLease.js";
 import { installCliBrokenPipeGuard } from "../shared/cliErrorGuard.js";
+import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
 
 installCliBrokenPipeGuard();
 
@@ -22,7 +23,8 @@ const program = new Command()
   .option("--asset <path>", "Local image asset; repeat for multiple files", collect, [])
   .option("--source-run-dir <path>", "Successful Moodle extraction run directory to consume")
   .option("--resume-run-dir <path>", "Resume from a prior web-layout run with a validated build")
-  .option("--out <path>", "Output .html path")
+  .option("--out <path>", "Deprecated alias for --deliver-to")
+  .option("--deliver-to <path>", "Publish the validated HTML outside study-buddy-data")
   .option("--request-name <slug>", "Request-specific output directory name")
   .option("--run-dir <path>", "Explicit run directory")
   .option("--language <language>", "Language: de or en", parseLanguage, "de")
@@ -47,6 +49,7 @@ const options = program.opts<{
   sourceRunDir?: string;
   resumeRunDir?: string;
   out?: string;
+  deliverTo?: string;
   requestName?: string;
   runDir?: string;
   language: "de" | "en";
@@ -74,7 +77,6 @@ const result = await runWebLayoutGraph({
   assetFiles: options.asset,
   sourceRunDir: options.sourceRunDir,
   resumeRunDir: options.resumeRunDir,
-  outputPath: options.out,
   requestName: options.requestName,
   runDir: options.runDir,
   language: options.language,
@@ -91,11 +93,23 @@ const result = await runWebLayoutGraph({
   modelPolicyOverrides: options.profileOverridesJson,
 });
 
+const publishedDeliverables = result.ok
+  ? await publishStudyBuddyDeliverables({
+      prompt,
+      runDir: result.runDir,
+      sourcePaths: [result.outputPath],
+      deliverTo: options.deliverTo ?? options.out,
+    })
+  : [];
+
 if (options.json) {
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify({ ...result, publishedDeliverables }, null, 2));
 } else if (result.ok) {
   console.log(`Run directory: ${result.runDir}`);
   console.log(`Wrote HTML document: ${result.outputPath}`);
+  for (const deliverable of publishedDeliverables) {
+    console.log(`Published deliverable: ${deliverable.publishedPath}`);
+  }
   console.log(`Run summary: ${result.runSummaryPath}`);
 } else {
   console.error(result.error || "Web layout graph failed.");

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { acquireRunLease } from "../../shared/runLease.js";
+import { acquireQueuedRunSlot, acquireRunLease } from "../../shared/runLease.js";
 
 describe("run lease", () => {
   it("rejects a second active process and releases idempotently", async () => {
@@ -46,5 +46,33 @@ describe("run lease", () => {
   it("is a no-op when no shared target exists", async () => {
     const release = await acquireRunLease(undefined);
     await expect(release()).resolves.toBeUndefined();
+  });
+
+  it("queues expensive workers until the active global slot is released", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "study-buddy-slot-"));
+    const releaseFirst = await acquireQueuedRunSlot(directory, { pollMs: 10 });
+    let secondAcquired = false;
+    const second = acquireQueuedRunSlot(directory, { pollMs: 10 }).then((release) => {
+      secondAcquired = true;
+      return release;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(secondAcquired).toBe(false);
+    await releaseFirst();
+
+    const releaseSecond = await second;
+    expect(secondAcquired).toBe(true);
+    await releaseSecond();
+  });
+
+  it("reclaims a malformed queued slot", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "study-buddy-slot-stale-"));
+    await writeFile(path.join(directory, "slot-1.json"), "not-json", "utf8");
+
+    const release = await acquireQueuedRunSlot(directory, { pollMs: 10 });
+    expect(JSON.parse(await readFile(path.join(directory, "slot-1.json"), "utf8")).pid)
+      .toBe(process.pid);
+    await release();
   });
 });

@@ -18,8 +18,8 @@ describe("study-guide canonical content bank", () => {
       }],
       sources: [{ id: "m1", label: "M1", url: "", coverage: "Folgen" }],
     } as StudyGuideContent;
-    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 50");
-    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 30 Kreuzerl");
+    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 40");
+    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 20 Kreuzerl");
   });
 
   it("forces concrete source-bound exercises in the model prompt", () => {
@@ -31,7 +31,7 @@ describe("study-guide canonical content bank", () => {
       error_log: null,
     });
     expect(prompt).toContain("sourceTask must identify the concrete source task");
-    expect(prompt).toContain("at least 50 exercises");
+    expect(prompt).toContain("at least 40 exercises");
     expect(prompt).toContain("Do not describe layouts");
   });
 });

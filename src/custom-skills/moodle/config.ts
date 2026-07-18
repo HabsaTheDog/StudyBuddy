@@ -20,6 +20,11 @@ import { classifyArtifactIntent } from "./studentFirstPolicy.js";
 import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
 import { resolveTaskBudget } from "./taskBudget.js";
 import type { CodexPreflightMode } from "./codexRuntime.js";
+import {
+  ensureStudyBuddyWorkspaceData,
+  resolveStudyBuddyWorkspaceDataPaths,
+  resolveStudyBuddyWorkspacePath,
+} from "../shared/workspaceData.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -32,8 +37,8 @@ const DEFAULT_QUICK_MAX_RUNTIME_MS = 12 * 60_000;
 // and receives the remaining three minutes. Environment/CLI overrides remain
 // available for explicitly requested long-form quality runs.
 const DEFAULT_ARTIFACT_MAX_RUNTIME_MS = 15 * 60_000;
-const DEFAULT_EXTRACTION_MAX_RUNTIME_MS = 12 * 60_000;
-const DEFAULT_RENDER_MAX_RUNTIME_MS = 3 * 60_000;
+const DEFAULT_EXTRACTION_MAX_RUNTIME_MS = 14 * 60_000;
+const DEFAULT_RENDER_MAX_RUNTIME_MS = 1 * 60_000;
 const DEFAULT_QUICK_IDLE_TIMEOUT_MS = 8 * 60_000;
 const DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS = 5 * 60_000;
 
@@ -48,10 +53,11 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   }
 
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
-  const workspaceRoot = resolveWorkspaceRoot();
-  const outputRoot = path.join(workspaceRoot, "output", requestName);
-  const explicitRunDir = input.runDir ? resolveWorkspacePath(input.runDir, workspaceRoot) : null;
-  const explicitOutputPath = input.outputPath ? resolveWorkspacePath(input.outputPath, workspaceRoot) : null;
+  const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
+  const workspaceRoot = workspaceData.workspaceRoot;
+  const outputRoot = path.join(workspaceData.runsRoot, requestName);
+  const explicitRunDir = input.runDir ? resolveStudyBuddyWorkspacePath(input.runDir, workspaceRoot) : null;
+  const explicitOutputPath = input.outputPath ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot) : null;
   const runDir = explicitRunDir || (explicitOutputPath ? path.dirname(explicitOutputPath) : path.resolve(outputRoot, timestampSlug()));
   mkdirSync(runDir, { recursive: true });
   const includeCis = input.includeCis ?? true;
@@ -137,10 +143,10 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
     sourceRunDir: input.sourceRunDir
-      ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
+      ? resolveStudyBuddyWorkspacePath(input.sourceRunDir, workspaceRoot)
       : undefined,
     resumeExtractionRunDir: input.resumeExtractionRunDir
-      ? resolveWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
+      ? resolveStudyBuddyWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
       : undefined,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
@@ -172,7 +178,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       input.codexPreflightMode ?? process.env.STUDY_BUDDY_CODEX_PREFLIGHT,
     ),
     codexModelExplicit: Boolean(codexModel),
-    runtimeCacheDir: path.join(workspaceRoot, "output", ".runtime-cache"),
+    runtimeCacheDir: workspaceData.cacheRoot,
     executionProfile: parseExecutionProfile(
       input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
     ),
@@ -295,18 +301,6 @@ function trimOptional(value: string | undefined): string | undefined {
 
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function resolveWorkspaceRoot(): string {
-  return path.resolve(
-    process.env.STUDY_BUDDY_WORKSPACE ||
-      process.env.T3CODE_CWD ||
-      process.cwd(),
-  );
-}
-
-function resolveWorkspacePath(value: string, workspaceRoot: string): string {
-  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
 }
 
 function inferRequestName(prompt: string): string {

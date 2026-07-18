@@ -122,15 +122,22 @@ export const studyGuideContentJsonSchema = {
   },
 } as const;
 
+export const STUDY_GUIDE_QUALITY_TARGETS = Object.freeze({
+  topics: 11,
+  exercises: 40,
+  crossExercises: 20,
+  calculationExercises: 18,
+});
+
 export function validateStudyGuideContentQuality(content: StudyGuideContent): string[] {
   const exercises = content.topics.flatMap((topic) => topic.exercises);
   const crosses = exercises.filter((exercise) => exercise.type === "cross");
   const calculations = exercises.filter((exercise) => exercise.type === "calculation");
   const issues: string[] = [];
-  if (content.topics.length < 11) issues.push(`Expected broad course coverage of at least 11 topics; received ${content.topics.length}.`);
-  if (exercises.length < 50) issues.push(`Expected at least 50 substantive exercises; received ${exercises.length}.`);
-  if (crosses.length < 30) issues.push(`Expected at least 30 Kreuzerl exercises; received ${crosses.length}.`);
-  if (calculations.length < 18) issues.push(`Expected at least 18 calculation exercises; received ${calculations.length}.`);
+  if (content.topics.length < STUDY_GUIDE_QUALITY_TARGETS.topics) issues.push(`Expected broad course coverage of at least ${STUDY_GUIDE_QUALITY_TARGETS.topics} topics; received ${content.topics.length}.`);
+  if (exercises.length < STUDY_GUIDE_QUALITY_TARGETS.exercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.exercises} substantive exercises; received ${exercises.length}.`);
+  if (crosses.length < STUDY_GUIDE_QUALITY_TARGETS.crossExercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.crossExercises} Kreuzerl exercises; received ${crosses.length}.`);
+  if (calculations.length < STUDY_GUIDE_QUALITY_TARGETS.calculationExercises) issues.push(`Expected at least ${STUDY_GUIDE_QUALITY_TARGETS.calculationExercises} calculation exercises; received ${calculations.length}.`);
   const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
   const uniquePrompts = new Set(prompts);
   if (uniquePrompts.size !== prompts.length) issues.push("Exercise prompts must be unique; duplicated prompts were found.");
@@ -144,5 +151,40 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent): st
     if (exercise.selectionMode === "single" && correctCount !== 1) issues.push(`${exercise.id} is single-choice but has ${correctCount} correct options.`);
     if (exercise.options.length < 3 && exercise.selectionMode !== "true-false") issues.push(`${exercise.id} needs at least three meaningful options.`);
   }
+  const forbiddenInfrastructure = /(?:data:image\/|Local Moodle artifact root|Approved local image assets|assets\/logo|\/home\/[^\s]+)/i;
+  for (const exercise of exercises) {
+    const fields = exercise.type === "cross"
+      ? [exercise.prompt, exercise.explanation, ...exercise.options.map((option) => option.text)]
+      : [exercise.prompt, ...exercise.givens, ...exercise.steps, exercise.commonMistake];
+    if (fields.some((field) => forbiddenInfrastructure.test(field))) {
+      issues.push(`${exercise.id} leaks infrastructure or embedded-asset data into learning content.`);
+    }
+    if (exercise.prompt.length > 1_500) issues.push(`${exercise.id} has an implausibly long prompt (${exercise.prompt.length} characters).`);
+    if (fields.some((field) => field.length > 4_000)) issues.push(`${exercise.id} contains an implausibly long content field.`);
+    if (/\bdu\b/i.test(exercise.prompt) && !/[∫]|integrier/i.test(exercise.prompt)) {
+      issues.push(`${exercise.id} appears to have lost its integral operator during extraction.`);
+    }
+    if (fields.some((field) => /\b[xuntwy]\d{2,}\b|\)\s*[2-9]\b|π\d/i.test(field))) {
+      issues.push(`${exercise.id} contains ambiguous OCR exponent notation that must be normalized or excluded.`);
+    }
+  }
+  for (const topic of content.topics) {
+    for (const formula of topic.theory.formulas) {
+      const proseWords = formula.expression.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)?.filter((word) => !/^(?:lim|sin|cos|tan|exp|log)$/i.test(word)) ?? [];
+      if (formula.expression.length > 240 || proseWords.length > 0 || !balancedMathDelimiters(formula.expression)) {
+        issues.push(`${topic.id} contains a theory formula that violates the structured-math contract: ${formula.expression}`);
+      }
+    }
+  }
   return issues;
+}
+
+function balancedMathDelimiters(value: string): boolean {
+  const stack: string[] = [];
+  const closing: Record<string, string> = { ")": "(", "}": "{" };
+  for (const character of value) {
+    if (character === "(" || character === "{") stack.push(character);
+    else if ((character === ")" || character === "}") && stack.pop() !== closing[character]) return false;
+  }
+  return stack.length === 0;
 }

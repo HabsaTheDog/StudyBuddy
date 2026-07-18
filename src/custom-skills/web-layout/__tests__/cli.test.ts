@@ -45,6 +45,12 @@ describe("web layout CLI", () => {
 
     const result = JSON.parse(stdout);
     expect(result.ok).toBe(true);
-    expect(result.outputPath).toContain(path.join(workspace, "output", "cli-test"));
+    expect(result.outputPath).toContain(
+      path.join(workspace, "study-buddy-data", "runs", "cli-test"),
+    );
+    expect(result.publishedDeliverables).toHaveLength(1);
+    expect(result.publishedDeliverables[0].publishedPath).toBe(
+      path.join(workspace, "build-flashcards.html"),
+    );
   });
 });

@@ -119,7 +119,9 @@ describe("moodle output paths", () => {
     });
     createdRunDir = config.runDir;
 
-    expect(path.dirname(config.runDir)).toBe(path.join(tempDir, "output", "generate-notes"));
+    expect(path.dirname(config.runDir)).toBe(
+      path.join(tempDir, "study-buddy-data", "runs", "generate-notes"),
+    );
     expect(config.outputPath).toBe(path.join(config.runDir, "document.typ"));
   });
 
