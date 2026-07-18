@@ -11,6 +11,7 @@ import {
 import { acquireRunLease } from "../shared/runLease.js";
 import { installCliBrokenPipeGuard } from "../shared/cliErrorGuard.js";
 import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
+import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 
 installCliBrokenPipeGuard();
 
@@ -27,7 +28,7 @@ const program = new Command()
   .option("--deliver-to <path>", "Publish the validated HTML outside study-buddy-data")
   .option("--request-name <slug>", "Request-specific output directory name")
   .option("--run-dir <path>", "Explicit run directory")
-  .option("--language <language>", "Language: de or en", parseLanguage, "de")
+  .option("--language <language>", "Language: auto, de, or en", parseLanguage, "auto")
   .option("--browser-headed", "Show browser window during Playwright validation")
   .option("--skip-browser-validation", "Skip Playwright validation")
   .option("--max-artifact-mb <number>", "Maximum final HTML size in decimal MB (1-250)", parseArtifactMegabytes, 100)
@@ -52,7 +53,7 @@ const options = program.opts<{
   deliverTo?: string;
   requestName?: string;
   runDir?: string;
-  language: "de" | "en";
+  language: OutputLanguagePreference;
   browserHeaded?: boolean;
   skipBrowserValidation?: boolean;
   maxArtifactMb: number;
@@ -149,9 +150,9 @@ function parseQuality(value: string): number {
   return parsed;
 }
 
-function parseLanguage(value: string): "de" | "en" {
-  if (value === "de" || value === "en") {
+function parseLanguage(value: string): OutputLanguagePreference {
+  if (value === "auto" || value === "de" || value === "en") {
     return value;
   }
-  throw new Error(`Expected language to be de or en, got ${value}`);
+  throw new Error(`Expected language to be auto, de, or en, got ${value}`);
 }

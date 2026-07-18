@@ -15,6 +15,16 @@ afterEach(async () => {
 });
 
 describe("web layout config", () => {
+  it("follows the user prompt language by default", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-language-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+
+    expect(createWebLayoutRuntimeConfig({ prompt: "Create interactive flashcards" }).language).toBe("en");
+    expect(createWebLayoutRuntimeConfig({ prompt: "Erstelle interaktive Lernkarten" }).language).toBe("de");
+    expect(createWebLayoutRuntimeConfig({ prompt: "Create flashcards", language: "de" }).language).toBe("de");
+  });
+
   it("accepts the integrated study-guide kind", async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
     tempDirs.push(workspace);

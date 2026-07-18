@@ -10,7 +10,12 @@ export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, code
   return async function studyGuideContentNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     if (config.kind !== "study-guide") return { study_guide_content: {}, error_log: null };
     try {
-      const deterministic = buildContentFromPracticeCorpus(state.source_text, state.layout_spec);
+      // The reusable MAES corpus is authored in German. English artifacts use
+      // the model-backed content builder so course material is translated
+      // instead of being mislabeled as English metadata around German prose.
+      const deterministic = config.language === "de"
+        ? buildContentFromPracticeCorpus(state.source_text, state.layout_spec)
+        : null;
       if (deterministic) {
         const parsed = studyGuideContentSchema.parse(deterministic);
         const issues = validateStudyGuideContentQuality(parsed);

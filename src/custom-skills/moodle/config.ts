@@ -25,6 +25,7 @@ import {
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../shared/workspaceData.js";
+import { resolveOutputLanguage } from "../shared/languagePolicy.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -111,9 +112,15 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   );
   const visualsEnabled = visualMode === "inline" || (stage === "render" && visualMode === "deferred");
   const codexModel = trimOptional(input.codexModel) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_MODEL);
+  const outputLanguage = resolveOutputLanguage({
+    prompt: input.prompt,
+    preference: input.outputLanguage,
+  });
 
   return {
     prompt: input.prompt,
+    outputLanguage: outputLanguage.language,
+    outputLanguageReason: outputLanguage.reason,
     moodleUrl,
     requestName,
     outputPath: explicitOutputPath || path.resolve(path.join(runDir, "document.typ")),
@@ -189,6 +196,8 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
 export function sanitizeConfig(config: MoodleRuntimeConfig) {
   return {
     prompt: config.prompt,
+    outputLanguage: config.outputLanguage,
+    outputLanguageReason: config.outputLanguageReason,
     moodleUrl: config.moodleUrl,
     outputPath: config.outputPath,
     requestName: config.requestName,

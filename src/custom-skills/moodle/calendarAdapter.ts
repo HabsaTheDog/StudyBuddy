@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import type { SupportedLanguage } from "../shared/languagePolicy.js";
 import path from "node:path";
 import ICAL from "ical.js";
 import {
@@ -280,14 +281,19 @@ export function formatCalendarEventsForWorkflow(events: CalendarEvent[]): string
   ].filter(Boolean).join("\n")).join("\n\n");
 }
 
-export function formatCalendarAnswer(events: CalendarEvent[]): string {
+export function formatCalendarAnswer(
+  events: CalendarEvent[],
+  language: SupportedLanguage = "de",
+): string {
   if (events.length === 0) {
-    return "Kein passender Termin im persönlichen Uni-Kalender gefunden.";
+    return language === "en"
+      ? "No matching event was found in the personal university calendar."
+      : "Kein passender Termin im persönlichen Uni-Kalender gefunden.";
   }
   return events.map((event) => {
     const start = new Date(event.start);
     const end = new Date(event.end);
-    const date = new Intl.DateTimeFormat("de-AT", {
+    const date = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "de-AT", {
       timeZone: CALENDAR_TIME_ZONE,
       weekday: "short",
       day: "2-digit",
@@ -295,8 +301,10 @@ export function formatCalendarAnswer(events: CalendarEvent[]): string {
       year: "numeric",
     }).format(start);
     const time = event.allDay
-      ? "ganztägig"
-      : `${formatTime(start)}–${formatTime(end)} Uhr`;
+      ? language === "en" ? "all day" : "ganztägig"
+      : language === "en"
+        ? `${formatTime(start)}–${formatTime(end)}`
+        : `${formatTime(start)}–${formatTime(end)} Uhr`;
     return `${event.title}: ${date}, ${time}${event.location ? `, ${event.location}` : ""}`;
   }).join("\n");
 }

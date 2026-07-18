@@ -20,6 +20,11 @@ import type {
   StudyBuddyReasoningEffort,
 } from "./modelPolicy.js";
 import type { CodexPreflightMode, CodexRuntimeReport } from "./codexRuntime.js";
+import type {
+  LanguageResolutionReason,
+  OutputLanguagePreference,
+  SupportedLanguage,
+} from "../shared/languagePolicy.js";
 
 export type BrowserBackend = "playwright" | "agent-browser";
 export type PipelineStage = "all" | "extract" | "render";
@@ -72,6 +77,7 @@ export interface MoodleGraphInput {
   codexPreflightMode?: CodexPreflightMode;
   executionProfile?: StudyBuddyExecutionProfile;
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
+  outputLanguage?: OutputLanguagePreference;
 }
 
 export interface MoodleGraphResult {
@@ -153,5 +159,7 @@ export interface MoodleRuntimeConfig {
   runtimeCacheDir: string;
   executionProfile: StudyBuddyExecutionProfile;
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
+  outputLanguage: SupportedLanguage;
+  outputLanguageReason: LanguageResolutionReason;
   executionTelemetry?: ExecutionTelemetry;
 }

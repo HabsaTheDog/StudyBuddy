@@ -48,18 +48,32 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
 }
 
 function deterministicStudyGuidePlan(config: WebLayoutRuntimeConfig) {
-  const titles = ["Folgen und Reihen", "Grenzwerte und Stetigkeit", "Ableitungsregeln", "Taylorpolynome", "Funktionsuntersuchung", "Stammfunktionen", "Bestimmte Integrale und Flächen", "Uneigentliche Integrale", "DGL-Grundlagen", "DGL erster Ordnung", "DGL zweiter Ordnung"];
+  const english = config.language === "en";
+  const titles = english
+    ? ["Sequences and series", "Limits and continuity", "Differentiation rules", "Taylor polynomials", "Function analysis", "Antiderivatives", "Definite integrals and areas", "Improper integrals", "Differential-equation foundations", "First-order differential equations", "Second-order differential equations"]
+    : ["Folgen und Reihen", "Grenzwerte und Stetigkeit", "Ableitungsregeln", "Taylorpolynome", "Funktionsuntersuchung", "Stammfunktionen", "Bestimmte Integrale und Flächen", "Uneigentliche Integrale", "DGL-Grundlagen", "DGL erster Ordnung", "DGL zweiter Ordnung"];
   return {
-    title: "MAES2 – Interaktiver Study Guide",
+    title: english ? "MAES2 – Interactive Study Guide" : "MAES2 – Interaktiver Study Guide",
     language: config.language,
     kind: "study-guide",
-    audience: "Studierende in einer quellenbasierten Prüfungsvorbereitung",
-    learningGoals: ["Alle belegten Kursthemen anhand konkreter Aufgaben trainieren", "Kreuzerl-Entscheidungen begründen", "Rechenwege schrittweise kontrollieren"],
-    sections: titles.map((title, index) => ({ id: `topic-${index + 1}`, title, purpose: "Standardisierter Lernpfad aus Orientierung, Theorie, Beispiel, Übung und Auswertung", interactionType: "Kreuzerl- und Rechentraining" })),
-    requiredInteractions: ["Sticky Hotbar ohne Sidebar", "Persistenter Fortschritt", "Quellengebundene Aufgaben und Rückmeldungen"],
+    audience: english ? "Students preparing for an exam with source-grounded material" : "Studierende in einer quellenbasierten Prüfungsvorbereitung",
+    learningGoals: english
+      ? ["Practice every supported course topic with concrete tasks", "Justify selection decisions", "Check calculation paths step by step"]
+      : ["Alle belegten Kursthemen anhand konkreter Aufgaben trainieren", "Kreuzerl-Entscheidungen begründen", "Rechenwege schrittweise kontrollieren"],
+    sections: titles.map((title, index) => ({
+      id: `topic-${index + 1}`,
+      title,
+      purpose: english ? "Standardized learning path from orientation through theory, example, practice, and review" : "Standardisierter Lernpfad aus Orientierung, Theorie, Beispiel, Übung und Auswertung",
+      interactionType: english ? "Selection and calculation practice" : "Kreuzerl- und Rechentraining",
+    })),
+    requiredInteractions: english
+      ? ["Sticky top bar without sidebar", "Persistent progress", "Source-grounded tasks and feedback"]
+      : ["Sticky Hotbar ohne Sidebar", "Persistenter Fortschritt", "Quellengebundene Aufgaben und Rückmeldungen"],
     dataModel: {},
-    designDirection: "Standardisiertes Study-Buddy-Blocksystem mit Top-Hotbar und horizontaler Themenleiste.",
-    accessibilityNotes: ["Tastaturbedienbare Controls", "Semantische Formulare und MathML", "Kein horizontaler Dokumentüberlauf"],
+    designDirection: english ? "Standardized Study Buddy block system with a top bar and horizontal topic navigation." : "Standardisiertes Study-Buddy-Blocksystem mit Top-Hotbar und horizontaler Themenleiste.",
+    accessibilityNotes: english
+      ? ["Keyboard-accessible controls", "Semantic forms and MathML", "No horizontal document overflow"]
+      : ["Tastaturbedienbare Controls", "Semantische Formulare und MathML", "Kein horizontaler Dokumentüberlauf"],
   };
 }
 

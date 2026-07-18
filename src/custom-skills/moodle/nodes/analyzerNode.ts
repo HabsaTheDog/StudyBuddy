@@ -30,9 +30,10 @@ import { resolveTaskBudget } from "../taskBudget.js";
 import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
+import { languageName } from "../../shared/languagePolicy.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-18.11-semantic-repair";
+const CHAPTER_ANALYZER_VERSION = "2026-07-18.12-output-language";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
@@ -103,7 +104,21 @@ async function analyzeWholeRequest(
     task: "content_analyzer",
     attempt: state.retry_count + 1,
   });
-  return validateExtractedData(parseJsonObjectOrArray(response));
+  return validateAnalyzerResponse(response, config);
+}
+
+function validateAnalyzerResponse(
+  response: string,
+  config: MoodleRuntimeConfig,
+): ReturnType<typeof validateExtractedData> {
+  const parsed = parseJsonObjectOrArray(response);
+  if (Array.isArray(parsed)) {
+    throw new Error("Analyzer must return one extracted-data object, not an array.");
+  }
+  return validateExtractedData({
+    ...parsed,
+    language: config.outputLanguage,
+  });
 }
 
 interface ChapterFocus {
@@ -169,7 +184,7 @@ async function analyzeCourseChapters(
       const cachePath = path.join(cacheDir, `${focus.key}.json`);
       const sharedCachePath = path.join(sharedCacheDir, `${fingerprint}.json`);
       const recovered = config.resumeExtractionRunDir && !invalidKeys.has(focus.key)
-        ? await readPersistedChapterHandoff(cachePath)
+        ? await readPersistedChapterHandoff(cachePath, config.outputLanguage)
         : null;
       const cached = invalidKeys.has(focus.key)
         ? null
@@ -209,14 +224,14 @@ async function analyzeCourseChapters(
               sliceBudgets[index],
               invalidKeys.has(focus.key) ? state.error_log : undefined,
             )
-          : validateExtractedData(parseJsonObjectOrArray(await codex.run(
+          : validateAnalyzerResponse(await codex.run(
               await buildAnalyzerPrompt(config, state, focus),
               {
                 outputSchema: extractedDataJsonSchema,
                 task: "content_analyzer",
                 attempt: state.retry_count + 1,
               },
-            )));
+            ), config);
         const data = ensureFocusLearningModule(analyzed, focus);
         throwIfAborted(config.abortSignal);
         assertChapterHandoff(data, focus);
@@ -260,7 +275,7 @@ async function analyzeCourseChapters(
       .map(({ focus, message }) => `Chapter analyzer failed for "${focus.title}": ${message}`)
       .join("\n"));
   }
-  return mergeChapterHandoffs(results, focuses);
+  return mergeChapterHandoffs(results, focuses, config);
 }
 
 type EvidenceRecord = LangGraphAgentState["evidence_package"]["records"][number];
@@ -774,7 +789,7 @@ export function buildChapterFragmentPrompt(
       caption_hint: candidate.caption_hint,
     }));
 
-  const documentLanguage = detectDocumentLanguage(config.prompt) === "de" ? "German" : "English";
+  const documentLanguage = languageName(config.outputLanguage);
   const toleranceGuidance = /(?:toleranz|passung)/i.test(focus.title)
     ? [
         "Bei Toleranzen/Passungen müssen EI, ES, ei, es, Nennmaßbereich, Toleranzgrad, Grundabmaß, Grenzmaße und Passungskennwerte in korrekter Reihenfolge erklärt werden.",
@@ -787,6 +802,7 @@ export function buildChapterFragmentPrompt(
 
   return [
     `Create a compact, technically deep part of the study guide in ${documentLanguage} for the actual course evidence.`,
+    `All learner-facing JSON content must be in ${documentLanguage}; retain official source titles, identifiers, and necessary quoted terminology in their original language.`,
     `Kapitel: ${focus.title}`,
     `Lernmodus: ${focus.contentMode ?? "mixed"}`,
     `Lernziele: ${JSON.stringify(focus.learningObjectives ?? [])}`,
@@ -894,7 +910,7 @@ function materializeDenseChapter(
     }));
   const courseTitle = state.resource_manifest.resources.find((resource) =>
     resource.activityType === "course"
-  )?.title ?? "Moodle-Kurs";
+  )?.title ?? (config.outputLanguage === "en" ? "Moodle course" : "Moodle-Kurs");
   const requiredExamples = buildDeterministicChapterExamples(state, focus);
   const modelExamples = fragments.flatMap((fragment) => fragment.worked_examples);
   // Quantitative examples are the most common source of late semantic-review
@@ -905,7 +921,7 @@ function materializeDenseChapter(
 
   return validateExtractedData({
     document_title: `${courseTitle} – Study Guide`,
-    language: detectDocumentLanguage(config.prompt),
+    language: config.outputLanguage,
     course: { title: courseTitle, url: state.resource_manifest.courseUrl },
     sources: resources.map(manifestResourceToSource),
     sections: mergeSections(fragments.flatMap((fragment) => fragment.sections)),
@@ -1412,12 +1428,6 @@ async function readVisualRetrievalRequests(runDir: string): Promise<VisualRetrie
   }
 }
 
-function detectDocumentLanguage(prompt: string): "de" | "en" {
-  const germanSignals = prompt.match(/\b(?:erstelle|ausführlich|prüfung|lern|kapitel|für|und|mit)\b/gi)?.length ?? 0;
-  const englishSignals = prompt.match(/\b(?:create|detailed|exam|learn|chapter|for|and|with)\b/gi)?.length ?? 0;
-  return germanSignals >= englishSignals ? "de" : "en";
-}
-
 function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
   const architecture = state.source_architect_decision.learningArchitecture;
   if (architecture?.modules.length) {
@@ -1571,13 +1581,18 @@ async function readChapterCache(
 
 async function readPersistedChapterHandoff(
   cachePath: string,
+  outputLanguage: MoodleRuntimeConfig["outputLanguage"],
 ): Promise<CachedChapterHandoff | null> {
   return readFile(cachePath, "utf8")
     .then((text) => JSON.parse(text) as CachedChapterHandoff)
-    .then((cached) => ({
-      fingerprint: cached.fingerprint,
-      data: validateExtractedData(cached.data),
-    }))
+    .then((cached) => cached.data.language === outputLanguage ? cached : null)
+    .then((cached) => {
+      if (!cached) return null;
+      return {
+        fingerprint: cached.fingerprint,
+        data: validateExtractedData(cached.data),
+      };
+    })
     .catch(() => null);
 }
 
@@ -1592,6 +1607,7 @@ function chapterFingerprint(
   return createHash("sha256").update(JSON.stringify({
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
     prompt: config.prompt,
+    outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
     profile: config.artifactIntent.profile,
     focus,
@@ -1614,6 +1630,7 @@ function assertChapterHandoff(
 function mergeChapterHandoffs(
   handoffs: Array<ReturnType<typeof validateExtractedData>>,
   focuses: ChapterFocus[],
+  config: MoodleRuntimeConfig,
 ): ReturnType<typeof validateExtractedData> {
   const namespaced = handoffs.map((handoff, index) => namespaceChapterHandoff(
     handoff,
@@ -1622,7 +1639,7 @@ function mergeChapterHandoffs(
   const first = namespaced[0];
   return validateExtractedData({
     document_title: first.document_title,
-    language: first.language,
+    language: config.outputLanguage,
     course: first.course,
     sources: uniqueBy(namespaced.flatMap((data) => data.sources), (source) => source.id),
     sections: namespaced.flatMap((data) => data.sections),
@@ -1782,7 +1799,8 @@ export async function buildAnalyzerPrompt(
       ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
       : "Infer the appropriate balance of concepts, calculations, cases, procedures, evidence interpretation, and argumentation from the course itself.",
     "Return only JSON matching the requested schema. Do not include Markdown fences.",
-    "Preserve German source language unless the user asks otherwise.",
+    `Output language is ${languageName(config.outputLanguage)}. Write every learner-facing title, explanation, learning objective, example, question, answer, caption, and warning in that language.`,
+    "Keep official course titles, source titles, identifiers, quotations, and specialized source terms in their original language when translating them would reduce traceability; explain them in the output language where useful.",
     "Represent formulas in Typst math syntax where possible.",
     "For every emitted formula, provide non-empty variables, units, and context metadata. State explicitly when a quantity is dimensionless instead of leaving units empty.",
     "Never invent source citations.",

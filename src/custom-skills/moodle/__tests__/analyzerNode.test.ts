@@ -20,7 +20,11 @@ import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js
 describe("analyzerNode", () => {
   it("hands selected page image paths to the model for direct visual reading", () => {
     const prompt = buildChapterFragmentPrompt(
-      moodleTestConfig({ prompt: "Create an English dynamics guide" }),
+      moodleTestConfig({
+        prompt: "Create an English dynamics guide",
+        outputLanguage: "en",
+        outputLanguageReason: "explicit_prompt",
+      }),
       moodleTestState(),
       {
         key: "kinematics",
@@ -94,6 +98,30 @@ describe("analyzerNode", () => {
       sections: [],
       formulas: [],
     });
+  });
+
+  it("enforces the resolved artifact language even when source-biased model metadata disagrees", async () => {
+    let receivedPrompt = "";
+    const codex: CodexClient = {
+      async run(prompt) {
+        receivedPrompt = prompt;
+        return JSON.stringify({
+          document_title: "Dynamics",
+          language: "de",
+          course: { title: "Dynamik" },
+        });
+      },
+    };
+    const config = moodleTestConfig({
+      prompt: "Make me a PDF about dynamics",
+      outputLanguage: "en",
+      outputLanguageReason: "prompt_language",
+    });
+
+    const result = await createAnalyzerNode(config, codex)(moodleTestState());
+
+    expect(receivedPrompt).toContain("Output language is English");
+    expect(result.extracted_data).toMatchObject({ language: "en" });
   });
 
   it("keeps invalid analyzer output in retry state", async () => {

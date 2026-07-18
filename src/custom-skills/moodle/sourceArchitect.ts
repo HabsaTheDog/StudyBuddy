@@ -7,6 +7,7 @@ import { canonicalizeResourceUrl, isResourceFailureStatus } from "./resourceAcqu
 import { stableResourceId } from "./resourceManifest.js";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { languageName } from "../shared/languagePolicy.js";
 import {
   acquireTargetedResources,
   type TargetedResourceRequest,
@@ -463,7 +464,7 @@ function buildArchitectPrompt(
     "You are the source architect for a course study-guide pipeline.",
     "Derive a domain-neutral learning architecture from the course itself. It may be technical, mathematical, medical, economic, legal, humanistic, or interdisciplinary.",
     "Create at most 12 meaningful learning modules. Never use organizational containers such as 'Präsenz 5', 'Week 3', announcements, or generic file/session names as module titles.",
-    "Write module titles, learning objectives, and assessment signals in the language requested by the user.",
+    `Write module titles, learning objectives, and assessment signals in ${languageName(config.outputLanguage)}, the resolved artifact language.`,
     "For each module choose the learning mode that the evidence demands: quantitative, conceptual, procedural, case_based, or mixed. Supply concrete learning objectives and assessment signals.",
     "A module may require calculations, cases, diagnosis/decision reasoning, source interpretation, procedures, comparisons, or argumentation. Do not force formulas or worked calculations into a conceptual course.",
     "Treat formula collections, glossaries, handbooks, lookup tables, and broad reference works as supportResources unless the course explicitly teaches their internal structure as content.",

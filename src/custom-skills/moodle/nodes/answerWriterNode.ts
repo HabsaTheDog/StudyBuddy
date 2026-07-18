@@ -37,7 +37,7 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
       ? []
       : scheduleEvidence?.missing ?? answerMissingItems(config, state.moodle_raw_text);
     const calendarAnswer = config.calendarSelection?.complete
-      ? formatCalendarAnswer(config.calendarSelection.events)
+      ? formatCalendarAnswer(config.calendarSelection.events, config.outputLanguage)
       : "";
     const extractedAnswer = calendarAnswer || scheduleEvidence?.answer || extractAnswerText(state.extracted_data);
     const fallbackAnswer = fallbackAnswerText(config, missing);
@@ -115,12 +115,20 @@ function extractAnswerText(extractedData: LangGraphAgentState["extracted_data"])
 
 function fallbackAnswerText(config: MoodleRuntimeConfig, missing: string[]): string {
   const target = extractCourseTargetHint(config.prompt).canonicalLabel ?? extractCourseTargetHint(config.prompt).requestedCodes.join(" / ");
+  const english = config.outputLanguage === "en";
   if (config.intentDecision?.intent === "schedule_answer") {
-    const label = target || "angefragten";
-    return `Kein kommender ${label} Prüfungstermin mit Datum, Uhrzeit und Raum gefunden.`;
+    const label = target || (english ? "requested course" : "angefragten");
+    return english
+      ? `No upcoming ${label} exam date with date, time, and room was found.`
+      : `Kein kommender ${label} Prüfungstermin mit Datum, Uhrzeit und Raum gefunden.`;
   }
-  return missing.length > 0
-    ? `Keine belastbare Antwort gefunden: ${missing.join("; ")}.`
+  if (missing.length > 0) {
+    return english
+      ? `No reliable answer was found: ${missing.join("; ")}.`
+      : `Keine belastbare Antwort gefunden: ${missing.join("; ")}.`;
+  }
+  return english
+    ? "No reliable answer was found in the evaluated sources."
     : "Keine belastbare Antwort in den gelesenen Quellen gefunden.";
 }
 
@@ -133,14 +141,18 @@ function answerMissingItems(config: MoodleRuntimeConfig, rawText: string): strin
     (target.requestedCodes.length > 0 || target.requestedNames.length > 0) &&
     !rawTextContainsRequestedCourse(config.prompt, rawText)
   ) {
-    missing.push(`Target Moodle course was not opened: ${targetLabel}`);
+    missing.push(config.outputLanguage === "en"
+      ? `Target Moodle course was not opened: ${targetLabel}`
+      : `Der angefragte Moodle-Kurs wurde nicht geöffnet: ${targetLabel}`);
   }
   if (
     config.intentDecision?.intent === "schedule_answer" &&
     /\b(?:prüfung|pruefung|exam)\b/i.test(config.prompt) &&
     !extractScheduleEvidence(config.prompt, rawText).answer
   ) {
-    missing.push(`${targetLabel || "Target"} direct source did not expose a future Prüfungstermin`);
+    missing.push(config.outputLanguage === "en"
+      ? `${targetLabel || "Target"} direct source did not expose a future exam date`
+      : `${targetLabel || "Zielkurs"} hat in der direkten Quelle keinen zukünftigen Prüfungstermin ausgewiesen`);
   }
   return missing;
 }

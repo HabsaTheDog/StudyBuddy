@@ -3,6 +3,7 @@ import type {
   StudyBuddyExecutionProfile,
   StudyBuddyModelPolicyOverrides,
 } from "../shared/modelPolicy.js";
+import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 
 export type WebLayoutKind =
   | "auto"
@@ -27,7 +28,7 @@ export interface WebLayoutInput {
   assetFiles?: string[];
   sourceRunDir?: string;
   resumeRunDir?: string;
-  language?: "de" | "en";
+  language?: OutputLanguagePreference;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   browserHeaded?: boolean;

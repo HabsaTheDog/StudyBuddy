@@ -13,19 +13,24 @@ export function renderDeterministicStudyDocument(
   coverage: SourceCoverage,
   context: { prompt?: string; profile?: ArtifactProfile } = {},
 ): string {
+  const english = data.language === "en";
   const requestedCourse = explicitCourseAlias(context.prompt ?? "");
   const title = requestedCourse
     ? `${requestedCourse} – Study Guide`
-    : data.document_title || "Study Buddy Lernunterlage";
+    : data.document_title || (english ? "Study Buddy Study Guide" : "Study Buddy Lernunterlage");
   const course = requestedCourse || data.course.title || "FH Technikum Wien";
   const body: string[] = [
-    heading(1, "Dokumenthinweis"),
+    heading(1, english ? "Document note" : "Dokumenthinweis"),
     paragraph(
-      "Konkrete Laborvorgaben stammen aus den im Quellenverzeichnis genannten Moodle- und CIS-Inhalten. Allgemeine Herleitungen sind als Fachtheorie gekennzeichnet; Messwerte müssen im Labor erhoben und dokumentiert werden.",
+      english
+        ? "Specific laboratory requirements come from the Moodle and CIS material listed in the references. General derivations are identified as subject theory; measurements must be collected and documented in the laboratory."
+        : "Konkrete Laborvorgaben stammen aus den im Quellenverzeichnis genannten Moodle- und CIS-Inhalten. Allgemeine Herleitungen sind als Fachtheorie gekennzeichnet; Messwerte müssen im Labor erhoben und dokumentiert werden.",
     ),
     sourceNote(
-      "Quellenabdeckung",
-      `Moodle: ${coverage.moodle.status}, ${coverage.moodle.pages} Seite(n). CIS: ${coverage.cis.status}, ${coverage.cis.pages} Seite(n).`,
+      english ? "Source coverage" : "Quellenabdeckung",
+      english
+        ? `Moodle: ${coverage.moodle.status}, ${coverage.moodle.pages} page(s). CIS: ${coverage.cis.status}, ${coverage.cis.pages} page(s).`
+        : `Moodle: ${coverage.moodle.status}, ${coverage.moodle.pages} Seite(n). CIS: ${coverage.cis.status}, ${coverage.cis.pages} Seite(n).`,
     ),
   ];
 
@@ -36,24 +41,24 @@ export function renderDeterministicStudyDocument(
   ));
 
   if (data.quiz_style_questions.length > 0) {
-    body.push(divider("Prüfen"), heading(1, "Kontrollfragen"));
+    body.push(divider(english ? "Review" : "Prüfen"), heading(1, english ? "Review questions" : "Kontrollfragen"));
     for (const [index, item] of data.quiz_style_questions.entries()) {
       body.push(
-        heading(2, `Frage ${index + 1}`),
+        heading(2, `${english ? "Question" : "Frage"} ${index + 1}`),
         paragraph(item.question),
         sourceLine(data, item.source_ids) ?? "",
-        paragraph(`Antwort: ${item.answer}`),
+        paragraph(`${english ? "Answer" : "Antwort"}: ${item.answer}`),
       );
     }
   }
 
-  body.push(divider("Nachweise"), heading(1, "Quellenverzeichnis"));
+  body.push(divider(english ? "Evidence" : "Nachweise"), heading(1, english ? "References" : "Quellenverzeichnis"));
   for (const source of data.sources) {
     body.push(sourceEntry(data, source.id));
   }
   if (data.warnings.length > 0) {
-    body.push(heading(1, "Quellenhinweise und Grenzen"));
-    body.push(callout("Gebündelte Quellenhinweise", "warning", bulletList(data.warnings)));
+    body.push(heading(1, english ? "Source notes and limitations" : "Quellenhinweise und Grenzen"));
+    body.push(callout(english ? "Consolidated source notes" : "Gebündelte Quellenhinweise", "warning", bulletList(data.warnings, data.language)));
   }
 
   return `#import "study-buddy-components.typ": *
@@ -62,10 +67,10 @@ export function renderDeterministicStudyDocument(
   title: ${typstString(title)},
   short-title: ${typstString(shortTitle(title))},
   course: ${typstString(course)},
-  kind: ${typstString(documentKind(context.profile))},
+  kind: ${typstString(documentKind(context.profile, data.language))},
   semester: ${typstString(currentSemester())},
-  status: "Validiert",
-  date: ${typstString(currentDate())},
+  status: ${typstString(english ? "Validated" : "Validiert")},
+  date: ${typstString(currentDate(data.language))},
   body: [
 ${body.map((part) => indent(part.trim(), 4)).join("\n\n")}
   ],
@@ -82,12 +87,13 @@ function explicitCourseAlias(prompt: string): string | null {
   return null;
 }
 
-function documentKind(profile: ArtifactProfile | undefined): string {
+function documentKind(profile: ArtifactProfile | undefined, language: ExtractedData["language"]): string {
+  const english = language === "en";
   switch (profile) {
-    case "practice_pack": return "Prüfungstraining";
-    case "exam_navigator": return "Prüfungsvorbereitung";
-    case "source_audit": return "Quellenbericht";
-    case "interactive_learning": return "Interaktive Lernunterlage";
+    case "practice_pack": return english ? "Exam Practice" : "Prüfungstraining";
+    case "exam_navigator": return english ? "Exam Preparation" : "Prüfungsvorbereitung";
+    case "source_audit": return english ? "Source Report" : "Quellenbericht";
+    case "interactive_learning": return english ? "Interactive Learning Guide" : "Interaktive Lernunterlage";
     default: return "Study Guide";
   }
 }
@@ -112,9 +118,9 @@ function renderLearningModules(data: ExtractedData): string[] {
 
     const pattern = teachingPattern(module, moduleIndex);
     body.push(
-      divider(patternLabel(pattern)),
+      divider(patternLabel(pattern, data.language)),
       heading(1, module.title),
-      renderModuleOpening(module, pattern),
+      renderModuleOpening(module, pattern, data.language),
     );
     const figuresBySection = assignToSections(figures, sections, (figure) =>
       `${figure.caption} ${figure.placement_hint}`
@@ -132,7 +138,7 @@ function renderLearningModules(data: ExtractedData): string[] {
       }
       const inlineFormulas = formulasBySection.get(sectionIndex) ?? [];
       if (inlineFormulas.length > 0) {
-        body.push(heading(3, formulaGroupLabel(pattern, section)));
+        body.push(heading(3, formulaGroupLabel(pattern, section, data.language)));
         body.push(...inlineFormulas.map((formula) => renderFormula(data, formula)));
       }
     }
@@ -148,7 +154,7 @@ function renderLearningModules(data: ExtractedData): string[] {
     }
 
     if (examples.length > 0) {
-      body.push(heading(2, exampleGroupLabel(pattern)));
+      body.push(heading(2, exampleGroupLabel(pattern, data.language)));
       body.push(...examples.map((example) => renderExample(data, example)));
     }
   }
@@ -169,7 +175,10 @@ function renderLearningModules(data: ExtractedData): string[] {
     remainingSections.length + remainingFormulas.length +
     remainingFigures.length + remainingExamples.length > 0
   ) {
-    body.push(divider("Ergänzen"), heading(1, "Ergänzende Kursinhalte"));
+    body.push(
+      divider(data.language === "en" ? "Additional material" : "Ergänzen"),
+      heading(1, data.language === "en" ? "Additional course content" : "Ergänzende Kursinhalte"),
+    );
     body.push(...renderFlatLearningContent({
       ...data,
       sections: remainingSections,
@@ -189,16 +198,22 @@ function renderFlatLearningContent(data: ExtractedData): string[] {
     body.push(heading(1, section.heading), paragraph(section.summary));
     const sectionSources = sourceLine(data, section.source_ids);
     if (sectionSources) body.push(sectionSources);
-    if (section.key_concepts.length > 0) body.push(renderKeyConcepts(section.key_concepts));
+    if (section.key_concepts.length > 0) body.push(renderKeyConcepts(section.key_concepts, data.language));
   }
   const figures = renderFigures(data);
-  if (figures.length > 0) body.push(heading(1, "Abbildungen und Visualisierungen"), ...figures);
+  if (figures.length > 0) body.push(heading(1, data.language === "en" ? "Figures and visualizations" : "Abbildungen und Visualisierungen"), ...figures);
   if (data.formulas.length > 0) {
-    body.push(divider("Rechnen"), heading(1, "Formeln und Berechnungen"));
+    body.push(
+      divider(data.language === "en" ? "Calculate" : "Rechnen"),
+      heading(1, data.language === "en" ? "Formulas and calculations" : "Formeln und Berechnungen"),
+    );
     body.push(...data.formulas.map((formula) => renderFormula(data, formula)));
   }
   if (data.worked_examples.length > 0) {
-    body.push(divider("Anwenden"), heading(1, "Durchgerechnete Beispiele"));
+    body.push(
+      divider(data.language === "en" ? "Apply" : "Anwenden"),
+      heading(1, data.language === "en" ? "Worked examples" : "Durchgerechnete Beispiele"),
+    );
     body.push(...data.worked_examples.map((example) => renderExample(data, example)));
   }
   return body;
@@ -227,30 +242,38 @@ function teachingPattern(module: LearningModule, index: number): TeachingPattern
   return patterns[index % patterns.length];
 }
 
-function patternLabel(pattern: TeachingPattern): string {
+function patternLabel(pattern: TeachingPattern, language: ExtractedData["language"]): string {
+  const english = language === "en";
   switch (pattern) {
-    case "lookup": return "Nachschlagen";
-    case "case": return "Entwerfen";
-    case "failure": return "Versagen prüfen";
-    case "path": return "Rechenweg";
-    case "visual": return "Modell verstehen";
+    case "lookup": return english ? "Look up" : "Nachschlagen";
+    case "case": return english ? "Design" : "Entwerfen";
+    case "failure": return english ? "Check failure" : "Versagen prüfen";
+    case "path": return english ? "Calculation path" : "Rechenweg";
+    case "visual": return english ? "Understand the model" : "Modell verstehen";
   }
 }
 
-function renderModuleOpening(module: LearningModule, pattern: TeachingPattern): string {
+function renderModuleOpening(
+  module: LearningModule,
+  pattern: TeachingPattern,
+  language: ExtractedData["language"],
+): string {
+  const english = language === "en";
   const goals = module.learning_objectives.slice(0, 4);
   const signals = module.assessment_signals.slice(0, 3);
   const titles: Record<TeachingPattern, string> = {
-    lookup: "Orientierung im Tabellenweg",
-    case: "Konstruktive Leitfrage",
-    failure: "Was muss der Nachweis verhindern?",
-    path: "Ziel des Rechenwegs",
-    visual: "Vom Bild zum Modell",
+    lookup: english ? "Orientation in the lookup path" : "Orientierung im Tabellenweg",
+    case: english ? "Guiding design question" : "Konstruktive Leitfrage",
+    failure: english ? "What must the verification prevent?" : "Was muss der Nachweis verhindern?",
+    path: english ? "Goal of the calculation path" : "Ziel des Rechenwegs",
+    visual: english ? "From the figure to the model" : "Vom Bild zum Modell",
   };
   const content = [
-    goals.length > 0 ? bulletList(goals) : text("Die Kernidee aus den folgenden Kursabschnitten sicher anwenden."),
+    goals.length > 0
+      ? bulletList(goals, language)
+      : text(english ? "Apply the core idea from the following course sections confidently." : "Die Kernidee aus den folgenden Kursabschnitten sicher anwenden."),
     signals.length > 0
-      ? `#v(3pt)\n#text(8pt, weight: "bold")[Prüfungssignale:] ${text(joinGermanList(signals))}`
+      ? `#v(3pt)\n#text(8pt, weight: "bold")[${english ? "Assessment signals" : "Prüfungssignale"}:] ${text(joinLocalizedList(signals, language))}`
       : "",
   ].filter(Boolean).join("\n");
   return callout(titles[pattern], pattern === "failure" ? "warning" : "info", content);
@@ -271,27 +294,40 @@ function renderModuleSection(
   if (section.key_concepts.length === 0) return body;
 
   if (pattern === "lookup") {
-    body.push(heading(3, index === 0 ? "Begriffe zuerst sauber trennen" : "Nachschlage- und Entscheidungsschritt"));
+    body.push(heading(3, data.language === "en"
+      ? index === 0 ? "Separate the terms first" : "Lookup and decision step"
+      : index === 0 ? "Begriffe zuerst sauber trennen" : "Nachschlage- und Entscheidungsschritt"));
     body.push(isOrderedList(section.key_concepts)
-      ? numberedList(section.key_concepts.map(stripLeadingNumber))
-      : bulletList(section.key_concepts));
+      ? numberedList(section.key_concepts.map(stripLeadingNumber), data.language)
+      : bulletList(section.key_concepts, data.language));
   } else if (pattern === "case") {
     const [consequence, ...details] = section.key_concepts;
-    body.push(heading(3, "Konstruktive Konsequenz"), paragraph(consequence));
-    if (details.length > 0) body.push(renderKeyConcepts(details));
+    body.push(heading(3, data.language === "en" ? "Design consequence" : "Konstruktive Konsequenz"), paragraph(consequence));
+    if (details.length > 0) body.push(renderKeyConcepts(details, data.language));
   } else if (pattern === "failure") {
-    body.push(heading(3, "Versagenscheck"), bulletList(section.key_concepts));
+    body.push(heading(3, data.language === "en" ? "Failure check" : "Versagenscheck"), bulletList(section.key_concepts, data.language));
   } else if (pattern === "visual") {
-    body.push(heading(3, "Worauf du im Modell achten solltest"), bulletList(section.key_concepts));
+    body.push(heading(3, data.language === "en" ? "What to look for in the model" : "Worauf du im Modell achten solltest"), bulletList(section.key_concepts, data.language));
   } else {
     body.push(isOrderedList(section.key_concepts)
-      ? numberedList(section.key_concepts.map(stripLeadingNumber))
-      : renderKeyConcepts(section.key_concepts));
+      ? numberedList(section.key_concepts.map(stripLeadingNumber), data.language)
+      : renderKeyConcepts(section.key_concepts, data.language));
   }
   return body;
 }
 
-function formulaGroupLabel(pattern: TeachingPattern, section: LearningSection): string {
+function formulaGroupLabel(
+  pattern: TeachingPattern,
+  section: LearningSection,
+  language: ExtractedData["language"],
+): string {
+  if (language === "en") {
+    if (pattern === "lookup") return `Calculation tools for “${section.heading}”`;
+    if (pattern === "failure") return "Verification equations for this failure mode";
+    if (pattern === "visual") return "From the model to the equation";
+    if (pattern === "case") return "Quantities used in the design";
+    return "Formulas for this calculation step";
+  }
   if (pattern === "lookup") return `Rechenwerkzeuge zu „${section.heading}“`;
   if (pattern === "failure") return "Nachweisgleichungen für diesen Versagensfall";
   if (pattern === "visual") return "Vom Modell zur Gleichung";
@@ -299,13 +335,14 @@ function formulaGroupLabel(pattern: TeachingPattern, section: LearningSection): 
   return "Formeln für diesen Rechenschritt";
 }
 
-function exampleGroupLabel(pattern: TeachingPattern): string {
+function exampleGroupLabel(pattern: TeachingPattern, language: ExtractedData["language"]): string {
+  const english = language === "en";
   switch (pattern) {
-    case "lookup": return "Den Tabellenweg vollständig anwenden";
-    case "case": return "Die Leitfrage als Entwurf durchrechnen";
-    case "failure": return "Die Nachweise in einem Lastfall bündeln";
-    case "path": return "Vom Ansatz bis zur Plausibilitätskontrolle";
-    case "visual": return "Vom Kontaktmodell zum Zahlenwert";
+    case "lookup": return english ? "Apply the complete lookup path" : "Den Tabellenweg vollständig anwenden";
+    case "case": return english ? "Work through the guiding design question" : "Die Leitfrage als Entwurf durchrechnen";
+    case "failure": return english ? "Combine the verifications in one load case" : "Die Nachweise in einem Lastfall bündeln";
+    case "path": return english ? "From the initial approach to the plausibility check" : "Vom Ansatz bis zur Plausibilitätskontrolle";
+    case "visual": return english ? "From the contact model to a numerical value" : "Vom Kontaktmodell zum Zahlenwert";
   }
 }
 
@@ -314,7 +351,7 @@ function renderFormula(data: ExtractedData, formula: LearningFormula): string {
   name: ${typstString(formula.name)},
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
-  source: ${sourceReferenceList(data, formula.source_ids) ?? typstString("Allgemeine Fachtheorie")},
+  source: ${sourceReferenceList(data, formula.source_ids) ?? typstString(data.language === "en" ? "General subject theory" : "Allgemeine Fachtheorie")},
   note: [${text(formula.context)}],
 )[
   ${math(formula.typst)}
@@ -327,10 +364,10 @@ function renderExample(data: ExtractedData, example: WorkedExample): string {
   title: ${typstString(example.learning_goal)},
   result: [${text(example.result)}],
 )[
-  #text(weight: "bold")[Ausgangslage:] ${text(example.prompt)}
+  #text(weight: "bold")[${data.language === "en" ? "Starting point" : "Ausgangslage"}:] ${text(example.prompt)}
   ${sourceLine(data, example.source_ids) ?? ""}
   #v(4pt)
-  ${numberedList(example.steps)}
+  ${numberedList(example.steps, data.language)}
 ]
 `;
 }
@@ -398,7 +435,7 @@ function renderFigure(
   const caption = sourceReferenceList(data, figure.source_ids)
     ? `[${text(figure.caption)} #h(3pt) ${sourceReferenceList(data, figure.source_ids)}]`
     : typstString(figure.caption);
-  return `#sb-figure(label-text: ${typstString(`Abb. ${index + 1}`)}, caption: ${caption})[
+  return `#sb-figure(label-text: ${typstString(`${data.language === "en" ? "Fig." : "Abb."} ${index + 1}`)}, caption: ${caption})[
   #image(${typstString(asset.relative_path)}, width: 90%)
 ]
 `;
@@ -512,27 +549,28 @@ function findMatchingParen(value: string, openIndex: number): number {
   return -1;
 }
 
-function renderKeyConcepts(items: string[]): string {
+function renderKeyConcepts(items: string[], language: ExtractedData["language"]): string {
+  const english = language === "en";
   const ordered = isOrderedList(items);
   const normalizedItems = ordered ? items.map(stripLeadingNumber) : items;
   if (items.length <= 4) {
-    return paragraph(`${ordered ? "Ablauf" : "Leitbegriffe"}: ${joinGermanList(normalizedItems)}.`);
+    return paragraph(`${ordered ? english ? "Process" : "Ablauf" : english ? "Key concepts" : "Leitbegriffe"}: ${joinLocalizedList(normalizedItems, language)}.`);
   }
-  return `${text(ordered ? "Ablauf:" : "Leitbegriffe:")}
+  return `${text(ordered ? english ? "Process:" : "Ablauf:" : english ? "Key concepts:" : "Leitbegriffe:")}
 
-${ordered ? numberedList(normalizedItems) : bulletList(normalizedItems)}`;
+${ordered ? numberedList(normalizedItems, language) : bulletList(normalizedItems, language)}`;
 }
 
-function bulletList(items: string[]): string {
+function bulletList(items: string[], language: ExtractedData["language"] = "de"): string {
   if (items.length === 0) {
-    return text("Keine Einträge.");
+    return text(language === "en" ? "No entries." : "Keine Einträge.");
   }
   return items.map((item) => `- ${text(item)}`).join("\n");
 }
 
-function numberedList(items: string[]): string {
+function numberedList(items: string[], language: ExtractedData["language"] = "de"): string {
   if (items.length === 0) {
-    return text("Keine Zwischenschritte angegeben.");
+    return text(language === "en" ? "No intermediate steps were provided." : "Keine Zwischenschritte angegeben.");
   }
   return items.map((item) => `+ ${text(item)}`).join("\n");
 }
@@ -565,7 +603,7 @@ function sourceLine(data: ExtractedData, ids: string[]): string | null {
     return null;
   }
   return `#text(8pt, fill: rgb("#5b667a"))[
-  #text(weight: "bold")[Quellen:] ${refs}
+  #text(weight: "bold")[${data.language === "en" ? "Sources" : "Quellen"}:] ${refs}
 ]`;
 }
 
@@ -579,7 +617,7 @@ function sourceEntry(data: ExtractedData, id: string): string {
   const parts = [
     source.url ? `#link(${typstString(source.url)})[${text(source.url)}]` : "",
     source.path ? text(source.path) : "",
-    source.page ? text(`Seite ${source.page}`) : "",
+    source.page ? text(`${data.language === "en" ? "Page" : "Seite"} ${source.page}`) : "",
   ].filter(Boolean);
   const coverage = parts.length > 0 ? `[${parts.join(" #text(\" · \") ")}]` : typstString(source.kind);
   return `${sourceNoteContent(sourceContent, coverage)} ${sourceAnchor(label)}`;
@@ -621,17 +659,18 @@ function stripLeadingNumber(item: string): string {
   return item.replace(/^\s*\d+[.)]\s+/, "");
 }
 
-function joinGermanList(items: string[]): string {
+function joinLocalizedList(items: string[], language: ExtractedData["language"]): string {
+  const conjunction = language === "en" ? "and" : "und";
   if (items.length === 0) {
-    return "keine gesondert extrahierten Begriffe";
+    return language === "en" ? "no separately extracted terms" : "keine gesondert extrahierten Begriffe";
   }
   if (items.length === 1) {
     return items[0];
   }
   if (items.length === 2) {
-    return `${items[0]} und ${items[1]}`;
+    return `${items[0]} ${conjunction} ${items[1]}`;
   }
-  return `${items.slice(0, -1).join(", ")} und ${items[items.length - 1]}`;
+  return `${items.slice(0, -1).join(", ")} ${conjunction} ${items[items.length - 1]}`;
 }
 
 function stringTuple(values: string[]): string {
@@ -654,8 +693,8 @@ function shortTitle(title: string): string {
   return title.length <= 48 ? title : `${title.slice(0, 45)}...`;
 }
 
-function currentDate(): string {
-  return new Intl.DateTimeFormat("de-AT", {
+function currentDate(language: ExtractedData["language"]): string {
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "de-AT", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
