@@ -26,7 +26,7 @@ import { resolveTaskBudget } from "../taskBudget.js";
 import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-18.4-domain-architecture";
+const CHAPTER_ANALYZER_VERSION = "2026-07-18.10-flowchart-policy";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
@@ -34,6 +34,8 @@ const FOCUSED_VISUAL_CANDIDATE_LIMIT = 6;
 const DENSE_CHAPTER_RECORD_LIMIT = 18;
 const DENSE_CHAPTER_CHARACTER_LIMIT = 13_000;
 const FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 9_000;
+const PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 18_000;
+const MAX_SLICES_PER_MODEL_CALL = 2;
 const FRAGMENT_RECORD_OVERLAP = 2;
 // Codex SDK threads in one process can contend without emitting any usage when
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
@@ -109,7 +111,9 @@ interface CachedChapterHandoff {
 }
 
 function shouldAnalyzeByChapter(config: MoodleRuntimeConfig, state: LangGraphAgentState): boolean {
-  return config.artifactIntent.profile === "study_guide" && chapterFocuses(state).length > 1;
+  return ["study_guide", "exam_navigator", "interactive_learning", "practice_pack"].includes(
+    config.artifactIntent.profile,
+  ) && chapterFocuses(state).length > 1;
 }
 
 async function analyzeCourseChapters(
@@ -121,15 +125,11 @@ async function analyzeCourseChapters(
   const focuses = chapterFocuses(state)
     .sort((left, right) => focusPriority(right) - focusPriority(left))
     .slice(0, analysisBudget.maxSelectedSlices);
-  const globalSliceBudget = Math.min(
-    analysisBudget.maxGlobalModelCalls,
-    Math.max(analysisBudget.maxSelectedSlices, focuses.length * 3),
-  );
-  const sliceBudgets = allocateSliceBudgets(
-    focuses,
-    globalSliceBudget,
+  const evidenceSlicesPerChapter = config.executionProfile === "quality" ? 4 : 2;
+  const sliceBudgets = focuses.map(() => Math.min(
+    evidenceSlicesPerChapter,
     analysisBudget.maxModelCallsPerModule,
-  );
+  ));
   const cacheDir = path.join(config.runDir, "chapter-handoffs");
   const sharedCacheDir = path.join(config.runtimeCacheDir, "chapter-handoffs");
   await Promise.all([
@@ -139,8 +139,9 @@ async function analyzeCourseChapters(
   const mentioned = focuses.filter((focus) =>
     focusMatchesError(focus, state.error_log)
   );
+  const localizedSemanticRepair = state.error_log?.startsWith("Semantic quality review failed:") ?? false;
   const invalidKeys = new Set(
-    state.error_log && mentioned.length === 0
+    state.error_log && mentioned.length === 0 && !localizedSemanticRepair
       ? focuses.map((focus) => focus.key)
       : mentioned.map((focus) => focus.key),
   );
@@ -155,9 +156,13 @@ async function analyzeCourseChapters(
       const fingerprint = chapterFingerprint(config, state, focus);
       const cachePath = path.join(cacheDir, `${focus.key}.json`);
       const sharedCachePath = path.join(sharedCacheDir, `${fingerprint}.json`);
+      const recovered = config.resumeExtractionRunDir && !invalidKeys.has(focus.key)
+        ? await readPersistedChapterHandoff(cachePath)
+        : null;
       const cached = invalidKeys.has(focus.key)
         ? null
-        : await readChapterCache(cachePath, fingerprint) ??
+        : recovered ??
+          await readChapterCache(cachePath, fingerprint) ??
           await readChapterCache(sharedCachePath, fingerprint);
       throwIfAborted(config.abortSignal);
       if (cached) {
@@ -183,7 +188,14 @@ async function analyzeCourseChapters(
             : `Analyzing chapter independently: ${focus.title}`,
         );
         const analyzed = dense
-          ? await analyzeDenseChapter(config, state, focus, codex, sliceBudgets[index])
+          ? await analyzeDenseChapter(
+              config,
+              state,
+              focus,
+              codex,
+              sliceBudgets[index],
+              invalidKeys.has(focus.key) ? state.error_log : undefined,
+            )
           : validateExtractedData(parseJsonObjectOrArray(await codex.run(
               await buildAnalyzerPrompt(config, state, focus),
               {
@@ -264,6 +276,7 @@ async function analyzeDenseChapter(
   focus: ChapterFocus,
   codex: CodexClient,
   maxSlices: number,
+  repairFeedbackOverride?: string | null,
 ): Promise<ReturnType<typeof validateExtractedData>> {
   const candidateSlices = buildChapterSlices(state, focus);
   const profileBudget = resolveAnalysisBudget(config.executionProfile);
@@ -313,26 +326,29 @@ async function analyzeDenseChapter(
       maxSelectedSlices: maxSlices,
     },
   });
-  const slices = selected.selected.map((candidate) => candidate.slice);
+  const slices = packSelectedSlices(selected.selected);
   await config.diagnostics?.log(
     selected.omittedCount > 0 ? "warn" : "info",
     "analyzer",
-    `Budgeted ${focus.title}: selected ${slices.length}/${candidateSlices.length} evidence slice(s).`,
+    `Budgeted ${focus.title}: retained ${selected.selected.length}/${candidateSlices.length} evidence slice(s) in ${slices.length} model call(s).`,
     {
       contentMode: focus.contentMode ?? "mixed",
       omittedSlices: selected.omittedCount,
+      modelCallPacks: slices.length,
       countsByResource: selected.countsByResource,
     },
   );
   const visualManifest = await readVisualManifest(config.runDir);
   const fragments: ChapterFragment[] = [];
-  const repairFeedback = focusMatchesError(focus, state.error_log) ? state.error_log : null;
+  const repairFeedback = repairFeedbackOverride === undefined
+    ? focusMatchesError(focus, state.error_log) ? state.error_log : null
+    : repairFeedbackOverride;
   const fragmentCacheDir = path.join(config.runtimeCacheDir, "chapter-fragments");
   await mkdir(fragmentCacheDir, { recursive: true });
 
   for (const [index, slice] of slices.entries()) {
     throwIfAborted(config.abortSignal);
-    const sliceRepairFeedback = repairFeedback && sliceNeedsRepair(slice, repairFeedback)
+    let sliceRepairFeedback = repairFeedback && sliceNeedsRepair(slice, repairFeedback)
       ? repairFeedback
       : null;
     const fingerprintBase = {
@@ -369,6 +385,19 @@ async function analyzeDenseChapter(
         ))
         .catch(() => null);
       if (cachedFragment) break;
+    }
+    if (
+      cachedFragment &&
+      repairFeedback &&
+      fragmentContainsIncompleteFormula(cachedFragment, repairFeedback)
+    ) {
+      cachedFragment = null;
+      sliceRepairFeedback = repairFeedback;
+      await config.diagnostics?.log(
+        "info",
+        "analyzer",
+        `Invalidated formula-metadata fragment ${index + 1}/${slices.length}: ${slice.label}`,
+      );
     }
     if (cachedFragment) {
       fragments.push(cachedFragment);
@@ -421,6 +450,41 @@ async function analyzeDenseChapter(
     retrievalRequests,
   );
   return enrichCachedChapterHandoff(config, state, focus, materialized);
+}
+
+function packSelectedSlices(
+  selected: Array<AnalysisSliceCandidate & { slice: ChapterSlice }>,
+): ChapterSlice[] {
+  const packed: ChapterSlice[] = [];
+  const packSizes: number[] = [];
+  for (const candidate of selected) {
+    const previousPack = packed.at(-1);
+    const combinedRecords = previousPack
+      ? uniqueBy([...previousPack.records, ...candidate.slice.records], (record) => record.id)
+      : candidate.slice.records;
+    const combinedCharacters = combinedRecords.reduce(
+      (sum, record) => sum + JSON.stringify(record).length,
+      0,
+    );
+    const previousPackSize = packSizes.at(-1) ?? 0;
+    if (
+      previousPack &&
+      previousPackSize < MAX_SLICES_PER_MODEL_CALL &&
+      combinedCharacters <= PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT
+    ) {
+      packed[packed.length - 1] = {
+        key: `${previousPack.key.startsWith("packed-") ? previousPack.key : `packed-${previousPack.key}`}-${candidate.slice.key}`,
+        label: `${previousPack.label} + ${candidate.slice.label}`,
+        resourceIds: [...new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds])],
+        records: combinedRecords,
+      };
+      packSizes[packSizes.length - 1] = previousPackSize + 1;
+    } else {
+      packed.push(candidate.slice);
+      packSizes.push(1);
+    }
+  }
+  return packed;
 }
 
 function dominantSliceRole(state: LangGraphAgentState, slice: ChapterSlice): string {
@@ -478,6 +542,20 @@ function sliceNeedsRepair(slice: ChapterSlice, feedback: string): boolean {
     /(?:ersatz|elastiz|modul|formel)/i.test(sliceText)
   ) return true;
   return false;
+}
+
+function fragmentContainsIncompleteFormula(
+  fragment: ChapterFragment,
+  feedback: string,
+): boolean {
+  const names = [...feedback.matchAll(/^\s*-?\s*Formula metadata incomplete:\s*(.+?)\s*$/gim)]
+    .map((match) => match[1]?.toLocaleLowerCase("de") ?? "")
+    .filter(Boolean);
+  if (names.length === 0) return false;
+  return fragment.formulas.some((formula) => {
+    const formulaName = formula.name.trim().toLocaleLowerCase("de");
+    return names.some((name) => formulaName === name);
+  });
 }
 
 export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFocus): ChapterSlice[] {
@@ -628,20 +706,37 @@ export function buildChapterFragmentPrompt(
       return pages?.size && candidate.source_page ? pages.has(candidate.source_page) : true;
     })
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
-    .slice(0, 8)
+    // Local image inspection is useful but expensive: each candidate can add
+    // a full PDF-page image to the model context. The visual planner has
+    // already ranked the dependency, so two candidates are enough for a
+    // chapter-level decision.
+    .slice(0, 2)
     .map((candidate) => ({
       id: candidate.id,
       kind: candidate.kind,
       source_id: candidate.source_id,
       source_page: candidate.source_page,
       title: candidate.title,
+      relative_path: candidate.relative_path,
+      source_path: candidate.source_path,
       width_px: candidate.width_px,
       height_px: candidate.height_px,
       caption_hint: candidate.caption_hint,
     }));
 
+  const documentLanguage = detectDocumentLanguage(config.prompt) === "de" ? "German" : "English";
+  const toleranceGuidance = /(?:toleranz|passung)/i.test(focus.title)
+    ? [
+        "Bei Toleranzen/Passungen müssen EI, ES, ei, es, Nennmaßbereich, Toleranzgrad, Grundabmaß, Grenzmaße und Passungskennwerte in korrekter Reihenfolge erklärt werden.",
+        "Bei Verweisen auf TB 2-1 bis TB 2-3 muss mindestens ein Beispiel jeden Nachschlageschritt ausdrücklich nennen: Nennmaßbereich finden, IT-Zeile/-Spalte wählen, Grundabmaß über Buchstabenfeld lesen, zweites Abmaß herleiten, Grenzmaße und Po/Pu/PT berechnen.",
+      ]
+    : [];
+  const elasticityGuidance = /(?:elastiz|ersatzmodul)/i.test(focus.title)
+    ? ["Unterscheide ähnlich benannte Formeln eindeutig nach Geltungsfall und erkläre Faktor-2-Konventionen beim Ersatz-Elastizitätsmodul ausdrücklich."]
+    : [];
+
   return [
-    "Erzeuge einen kompakten, fachlich tiefen Teil eines deutschsprachigen Study Guides für den tatsächlich vorliegenden Kurs.",
+    `Create a compact, technically deep part of the study guide in ${documentLanguage} for the actual course evidence.`,
     `Kapitel: ${focus.title}`,
     `Lernmodus: ${focus.contentMode ?? "mixed"}`,
     `Lernziele: ${JSON.stringify(focus.learningObjectives ?? [])}`,
@@ -649,16 +744,22 @@ export function buildChapterFragmentPrompt(
     `Teil ${index + 1}/${total}: ${slice.label}`,
     "Gib ausschließlich JSON gemäß Schema zurück.",
     "Bearbeite nur die bereitgestellte Evidenz. Wiederhole keine allgemeinen Einleitungen und fasse andere Kapitel nicht zusammen.",
+    "Halte diesen Kapitelbaustein bewusst begrenzt, aber didaktisch flexibel: Wähle je nach Stoff 3 bis 6 gehaltvolle Abschnitte, 2 bis 5 zentrale Formeln, 1 vollständig nachvollziehbares Anwendungsbeispiel, bis zu 2 wirklich notwendige Abbildungen und höchstens 2 Warnhinweise. Tiefe entsteht durch klare Auswahl und Rechenschritte, nicht durch Wiederholung.",
+    "Wähle für dieses konkrete Kapitel eine passende Lehrdramaturgie statt einer Standardschablone: zum Beispiel bildgestützter Modellaufbau, Tabellen-/Nachschlageweg, Versagensarten mit Nachweisen, konstruktiver Entscheidungsfall, Fehlerkontrast oder schrittweise Rechnung. Überschriften, Zusammenfassungen und key_concepts sollen diese Dramaturgie sichtbar tragen.",
+    "Vermeide die monotone Folge aus kurzem Definitionsabsatz und austauschbarer Stichpunktliste. Nutze key_concepts je nach Stoff als Entscheidungskriterien, Beobachtungsauftrag für eine Abbildung, geordneten Rechenweg, Fehlercheck, Vergleich oder konstruktive Konsequenzen.",
+    "Schlage kein Flowchart für bloß lineare Kapitelabschnitte, Formelfolgen oder normale Rechenschritte vor. Ein Flowchart ist nur sinnvoll, wenn die Evidenz eine echte Verzweigung, Rückkopplung, einen Kreislauf, Zustandsübergang oder komplexen Automatisierungsablauf zeigt. Jeder Knoten trägt dann nur ein bis drei Wörter; niemals Satz, Abschnittsüberschrift plus Untertitel oder erklärenden Fließtext in einen Knoten setzen.",
     "Die Abschnitte sollen den Stoff erklären: Bedeutung, Zusammenhänge, Erkennungsmerkmale, Vorgehen, Randbedingungen und typische Fehler — nicht nur Stichworte aufzählen.",
     "Formeln ausschließlich in Typst-Mathematiksyntax ohne LaTeX-Dollarzeichen oder LaTeX-Befehle ausgeben.",
+    "For every emitted formula, provide non-empty variables, units, and context metadata. State explicitly when a quantity is dimensionless instead of leaving units empty.",
     "Verwende in source_ids ausschließlich IDs aus der Ressourcenliste. Erfinde keine Quellen oder Zahlenwerte.",
     "Wähle die passende Anwendungsform für dieses Fach: vollständige Rechnung, klinischer oder wirtschaftlicher Fall, Quellen-/Dateninterpretation, Entscheidungsweg, Argumentationsanalyse oder schrittweise Prozedur. Ausgangslage, Ziel/Fragestellung, nachvollziehbare Schritte, Ergebnis/Entscheidung und Kontrolle müssen sichtbar sein, sofern die Evidenz dafür reicht.",
     "Wenn eine Quelllösung nur Ergebnisse oder unvollständige Zahlen enthält, kopiere diese Ergebnisse nicht als scheinbar gerechnetes Beispiel. Erzeuge stattdessen ein klar als derived markiertes, vollständig reproduzierbares Beispiel mit einfachen gewählten Werten und den in der Evidenz belegten Formeln/Regeln.",
     "Ein bereits in einer Lösung angegebener Tabellenwert ersetzt niemals die Nachschlagemethode.",
-    "Bei Toleranzen/Passungen müssen EI, ES, ei, es, Nennmaßbereich, Toleranzgrad, Grundabmaß, Grenzmaße und Passungskennwerte in korrekter Reihenfolge erklärt werden. Bei Verweisen auf TB 2-1 bis TB 2-3 muss mindestens ein Beispiel jeden Nachschlageschritt ausdrücklich nennen: Nennmaßbereich finden, IT-Zeile/-Spalte wählen, Grundabmaß über Buchstabenfeld lesen, zweites Abmaß herleiten, Grenzmaße und Po/Pu/PT berechnen.",
+    ...toleranceGuidance,
     "Benutze Tabellenwerte nur dann numerisch, wenn die bereitgestellte Evidenz oder der lesbare Tabellenkandidat den konkreten Wert zeigt. Andernfalls lehre den vollständigen Tabellenweg mit symbolischem Tabellenwert und führe ein separates, klar abgeleitetes Zahlenbeispiel aus.",
-    "Unterscheide ähnlich benannte Formeln eindeutig nach Geltungsfall. Gib niemals zwei widersprüchliche Definitionen unter demselben Formelnamen aus; erkläre insbesondere Faktor-2-Konventionen beim Ersatz-Elastizitätsmodul ausdrücklich.",
-    "Wenn ein Verfahren eine Tabelle, ein Diagramm oder eine Skizze benötigt, wähle höchstens zwei wirklich notwendige Kandidaten-IDs als figures und platziere sie direkt beim zugehörigen Lernschritt. Vollseitige Screenshots nur als letzte Wahl.",
+    ...elasticityGuidance,
+    "Wenn Verfügbare Bildkandidaten relative_path enthalten, inspiziere die lokalen Bilddateien mit deinem Bildwerkzeug. Lies Aufgabenstellung, Werte, Einheiten, Formeln, Tabellen und Diagramme direkt aus dem Bild; verlasse dich nicht auf Dateiname oder caption_hint. Wenn der Bildinhalt nicht sicher lesbar ist, kennzeichne die Lücke statt Zahlen zu erfinden.",
+    "Wenn ein Verfahren eine Tabelle, ein Diagramm oder eine Skizze benötigt, wähle bis zu zwei wirklich notwendige Kandidaten-IDs als figures. Formuliere placement_hint so konkret, dass der Renderer jede Abbildung unmittelbar nach der erklärenden Information oder direkt vor dem davon abhängigen Beispiel einmischen kann. Vollseitige Screenshots nur als letzte Wahl.",
     "Theorie- und Referenzblöcke dürfen ohne worked_example enden. Quantitative, prozedurale, fallbasierte und gemischte Anwendungsblöcke sollen ein passendes worked_example liefern; bei rein konzeptuellen Modulen genügt ein belastbares Erklär- oder Vergleichsbeispiel. Referenzblöcke liefern nur die für dieses Modul relevanten Definitionen, Formeln, Tabellen oder Nachschlagehinweise. Das Gesamtkapitel wird anschließend deterministisch aus allen Teilen zusammengesetzt.",
     `Nutzerauftrag: ${config.prompt}`,
     repairFeedback ? `Verbindliche Review-Rückmeldung für diesen Reparaturversuch:\n${repairFeedback}` : "",
@@ -745,6 +846,12 @@ function materializeDenseChapter(
     resource.activityType === "course"
   )?.title ?? "Moodle-Kurs";
   const requiredExamples = buildDeterministicChapterExamples(state, focus);
+  const modelExamples = fragments.flatMap((fragment) => fragment.worked_examples);
+  // Quantitative examples are the most common source of late semantic-review
+  // failures. When a chapter has a source-anchored deterministic example, use
+  // that single reproducible path instead of retaining a second model-created
+  // calculation whose arithmetic cannot be guaranteed.
+  const compatibleModelExamples = requiredExamples.length > 0 ? [] : modelExamples;
 
   return validateExtractedData({
     document_title: `${courseTitle} – Study Guide`,
@@ -757,7 +864,7 @@ function materializeDenseChapter(
       (formula) => `${formula.name.toLowerCase()}\u0000${formula.typst}`,
     ),
     worked_examples: uniqueBy(
-      [...requiredExamples, ...fragments.flatMap((fragment) => fragment.worked_examples)],
+      [...requiredExamples, ...compatibleModelExamples],
       (example) => example.prompt.toLowerCase().replace(/\s+/g, " ").trim(),
     ),
     quiz_style_questions: [],
@@ -828,8 +935,126 @@ function buildDeterministicChapterExamples(
 ): ChapterFragment["worked_examples"] {
   return [
     ...buildDeterministicToleranceLookupExamples(state, focus),
+    ...buildDeterministicAdhesiveExample(state, focus),
+    ...buildDeterministicRivetExample(state, focus),
     ...buildDeterministicSolderingExample(state, focus),
+    ...buildDeterministicHertzExample(state, focus),
   ];
+}
+
+function buildDeterministicAdhesiveExample(
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+): ChapterFragment["worked_examples"] {
+  if (!/(?:kleb|klebstoff)/i.test(focus.title)) return [];
+  const records = state.evidence_package.records.filter((record) =>
+    focus.resourceIds.includes(record.resourceId)
+  );
+  const sourceIds = [...new Set(records
+    .filter((record) => /(?:Kleb|Überlapp|Ueberlapp|Schubspannung)/i.test(record.content))
+    .map((record) => record.resourceId))];
+  if (sourceIds.length === 0) return [];
+  const force = 15_000;
+  const width = 50;
+  const overlap = 60;
+  const allowableStress = 8;
+  const stress = force / (width * overlap);
+  const safety = allowableStress / stress;
+  return [{
+    origin: "derived",
+    learning_goal: "Eine einfach überlappte Klebverbindung mit einem ausdrücklich vorgegebenen Übungskennwert prüfen",
+    prompt: "Selbst erstelltes Übungsbeispiel: Eine einfach überlappte Klebung mit b = 50 mm und lÜ = 60 mm überträgt F = 15 kN. Für diese Übung gilt tau_zul = 8 N/mm². Prüfe die mittlere Klebschubspannung und den Sicherheitsquotienten.",
+    steps: [
+      "1. Modellgrenze festhalten: gleichmäßige mittlere Schubspannung in einer einfach überlappten Klebfläche; Randspannungsspitzen werden in dieser Vorbemessung nicht aufgelöst.",
+      `2. Klebfläche: AK = b·lÜ = ${width}·${overlap} = ${width * overlap} mm². Die beiden Fügeteile liegen im Kraftfluss in Reihe; die Klebfläche wird daher nicht verdoppelt.`,
+      `3. Kraft umrechnen und Spannung berechnen: F = 15 kN = ${force} N; tauK = F/AK = ${force}/${width * overlap} = ${stress.toFixed(1).replace(".", ",")} N/mm².`,
+      `4. Nachweis mit dem ausdrücklich vorgegebenen Übungskennwert: tauK = ${stress.toFixed(1).replace(".", ",")} N/mm² < tau_zul = ${allowableStress} N/mm².`,
+      `5. Sicherheitsquotient: S = tau_zul/tauK = ${allowableStress}/${stress.toFixed(1)} = ${safety.toFixed(2).replace(".", ",")}. Für eine reale Bemessung müssen Kennwert, Temperatur, Alterung, Schichtdicke und Lastkollektiv aus den Aufgabendaten stammen.`,
+    ],
+    result: `AK = ${width * overlap} mm², tauK = ${stress.toFixed(1).replace(".", ",")} N/mm² und S = ${safety.toFixed(2).replace(".", ",")}; der vorgegebene Übungskennwert wird eingehalten.`,
+    source_ids: sourceIds,
+  }];
+}
+
+function buildDeterministicRivetExample(
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+): ChapterFragment["worked_examples"] {
+  if (!/(?:niet|niete)/i.test(focus.title)) return [];
+  const records = state.evidence_package.records.filter((record) =>
+    focus.resourceIds.includes(record.resourceId)
+  );
+  const sourceIds = [...new Set(records
+    .filter((record) => /(?:Niet|Lochleib|Abscher|Scher)/i.test(record.content))
+    .map((record) => record.resourceId))];
+  if (sourceIds.length === 0) return [];
+  const force = 40_000;
+  const rivets = 4;
+  const diameter = 12;
+  const thickness = 8;
+  const shearArea = Math.PI * diameter ** 2 / 4;
+  const shearStress = force / (rivets * shearArea);
+  const bearingStress = force / (rivets * diameter * thickness);
+  return [{
+    origin: "derived",
+    learning_goal: "Eine symmetrisch belastete einschnittige Nietgruppe gegen Abscheren und Lochleibung vorbemessen",
+    prompt: "Selbst erstelltes Übungsbeispiel: Vier gleichmäßig belastete Niete mit d = 12 mm verbinden Bleche der maßgebenden Dicke t = 8 mm und übertragen F = 40 kN. Bestimme Schub- und Lochleibungsspannung; für die Übung gelten tau_zul = 120 N/mm² und p_zul = 160 N/mm².",
+    steps: [
+      "1. Annahmen festhalten: vier gleichmäßig tragende Niete, je eine Scherfuge, keine Exzentrizität; F = 40 kN = 40000 N.",
+      `2. Scherfläche je Niet: AS = pi·d²/4 = pi·12²/4 = ${shearArea.toFixed(1).replace(".", ",")} mm².`,
+      `3. Abscherspannung: tau = F/(n·AS) = 40000/(4·${shearArea.toFixed(1)}) = ${shearStress.toFixed(1).replace(".", ",")} N/mm² < 120 N/mm².`,
+      `4. Projizierte Lochleibungsfläche: AL = n·d·t = 4·12·8 = ${rivets * diameter * thickness} mm².`,
+      `5. Lochleibungsspannung: p = F/(n·d·t) = 40000/${rivets * diameter * thickness} = ${bearingStress.toFixed(1).replace(".", ",")} N/mm² < 160 N/mm².`,
+      "6. Beide Einzelnachweise sind erfüllt. In einer vollständigen Bemessung folgen zusätzlich Rand-/Lochabstände, Nettoquerschnitt, Blockversagen und gegebenenfalls exzentrische Lastverteilung.",
+    ],
+    result: `tau = ${shearStress.toFixed(1).replace(".", ",")} N/mm² und p = ${bearingStress.toFixed(1).replace(".", ",")} N/mm²; beide Übungsgrenzen werden eingehalten.`,
+    source_ids: sourceIds,
+  }];
+}
+
+function buildDeterministicHertzExample(
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+): ChapterFragment["worked_examples"] {
+  if (!/(?:hertz|tribolog)/i.test(focus.title)) return [];
+  const records = state.evidence_package.records.filter((record) =>
+    focus.resourceIds.includes(record.resourceId)
+  );
+  const sourceIds = [...new Set(records
+    .filter((record) => /(?:Hertz|Ersatzradius|Ersatz-Elastiz|Pressung)/i.test(record.content))
+    .map((record) => record.resourceId))];
+  if (sourceIds.length === 0) return [];
+
+  const radius1 = 10;
+  const radius2 = 20;
+  const diameterParameter = 2 * radius1 * radius2 / (radius1 + radius2);
+  const youngsModulus = 200_000;
+  const poissonRatio = 0.3;
+  const effectiveModulus = 2 * youngsModulus ** 2 /
+    (2 * (1 - poissonRatio ** 2) * youngsModulus);
+  const normalForce = 1_000;
+  const contactLength = 20;
+  const pressure = Math.sqrt(
+    normalForce * effectiveModulus /
+    (2 * Math.PI * diameterParameter * contactLength),
+  );
+  const de = (value: number, digits = 3) => value.toFixed(digits).replace(".", ",");
+
+  return [{
+    origin: "derived",
+    learning_goal: "Ersatzradius, durchmesserbasierten Ersatzparameter und Hertzsche Pressung ohne Faktor-2- oder Einheitenfehler berechnen",
+    prompt: "Selbst erstelltes Übungsbeispiel: Zwei parallele Zylinder mit r1 = 10 mm und r2 = 20 mm, E1 = E2 = 200000 N/mm² und v1 = v2 = 0,30 werden mit FN = 1000 N über l = 20 mm belastet. Bestimme Ersatzradius rho, D, E und pH.",
+    steps: [
+      "1. Geltungsfall prüfen: idealisierte Hertzsche Linienberührung, homogene isotrope Körper, reine Normalkraft und kleine Kontaktzone.",
+      `2. Ersatzradius: rho = r1·r2/(r1+r2) = 10·20/(10+20) = ${de(diameterParameter / 2)} mm.`,
+      `3. Die verwendete Pressungsformel ist durchmesserbasiert; daher D = 2·rho = ${de(diameterParameter)} mm. Gleichwertige Kontrolle: D = d1·d2/(d1+d2) = 20·40/(20+40) = ${de(diameterParameter)} mm.`,
+      `4. Ersatz-Elastizitätsmodul nach der hier verwendeten Faktor-2-Konvention: E = 2·E1·E2/((1-v1²)·E2+(1-v2²)·E1) = ${de(effectiveModulus, 0)} N/mm².`,
+      `5. Pressung: pH = sqrt(FN·E/(2·pi·D·l)) = sqrt(1000·${de(effectiveModulus, 0)}/(2·pi·${de(diameterParameter)}·20)) = ${de(pressure, 1)} N/mm² = ${de(pressure, 1)} MPa.`,
+      `6. Plausibilitätskontrolle: Der Radikand beträgt rund ${de(pressure ** 2, 0)} N²/mm⁴; seine Wurzel liegt daher bei ${de(pressure, 1)} N/mm² und nicht im einstelligen Bereich.`,
+    ],
+    result: `rho = ${de(diameterParameter / 2)} mm, D = ${de(diameterParameter)} mm, E = ${de(effectiveModulus, 0)} N/mm² und pH = ${de(pressure, 1)} MPa.`,
+    source_ids: sourceIds,
+  }];
 }
 
 function buildDeterministicSolderingExample(
@@ -914,12 +1139,8 @@ async function enrichCachedChapterHandoff(
       generation_prompt: candidate.generation_prompt,
     }));
   const deterministicExamples = buildDeterministicChapterExamples(state, focus);
-  const compatibleCachedExamples = deterministicExamples.length > 0 && /(?:toleranz|passung)/i.test(focus.title)
-    ? cached.worked_examples.filter((example) => {
-        const serialized = JSON.stringify(example);
-        return !/(?:H7\s*\/\s*k6|TB\s*2-[123])/i.test(serialized) &&
-          !/(?:Tabellenwerte?[^.]{0,80}(?:nicht|keine)|nicht bereitgestellte TB|Evidenz nicht lesbar)/i.test(serialized);
-      })
+  const compatibleCachedExamples = deterministicExamples.length > 0
+    ? []
     : cached.worked_examples;
 
   return validateExtractedData({
@@ -955,7 +1176,9 @@ function ensureFocusLearningModule(
   data: ReturnType<typeof validateExtractedData>,
   focus: ChapterFocus,
 ): ReturnType<typeof validateExtractedData> {
-  if (data.learning_modules.length > 0) return data;
+  // The source architect owns the cross-document learning architecture. A
+  // chapter analyzer may summarize its local evidence, but it must not rename
+  // or split the module and thereby reintroduce Moodle-session headings.
   return validateExtractedData({
     ...data,
     learning_modules: [focusLearningModule(focus, focus.resourceIds)],
@@ -1228,7 +1451,23 @@ function semanticOverlap(left: string[], right: string[]): number {
 function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
   if (!errorLog) return false;
   const normalized = errorLog.toLowerCase();
-  if (focus.matchTerms.some((term) => normalized.includes(term))) return true;
+  const taggedChapters = [...errorLog.matchAll(/\[chapter:\s*([^\]]+)\]/gi)]
+    .map((match) => match[1]?.trim())
+    .filter((title): title is string => Boolean(title));
+  if (taggedChapters.length > 0) {
+    const focusTitle = normalizeChapterMatch(focus.title);
+    return taggedChapters.some((title) =>
+      normalizeChapterMatch(title) === focusTitle || safeChapterKey(title) === focus.key
+    );
+  }
+  if (normalized.includes(focus.title.toLowerCase())) return true;
+  // Review repair localization must be based on the chapter title, not on all
+  // learning-objective terms. Generic objective words such as "berechnen" or
+  // "erklären" previously invalidated almost every cached chapter.
+  const titleTerms = matchTerms(focus.title).filter((term) =>
+    term.length >= 5 && !/^(?:kapitel|grundlag|anwend|berechn|bestimm|erklär|präsenz|eigenstudium)$/.test(term)
+  );
+  if (titleTerms.some((term) => normalized.includes(term))) return true;
   const topicSignals: Array<[RegExp, RegExp]> = [
     [/(?:toleranz|passung|oberfläche)/i, /(?:\bH7\b|\bk6\b|\bg8\b|\bEI\b|\bES\b|\bei\b|\bes\b|TB\s*2-[123])/i],
     [/(?:kleb)/i, /(?:kleb|adhäs|kohäs)/i],
@@ -1243,6 +1482,15 @@ function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolea
   if (!chapterNumber) return false;
   const chapterLetter = String.fromCharCode(64 + Number(chapterNumber)).toLowerCase();
   return new RegExp(`\\bkapitel\\s+(?:${chapterNumber}|${chapterLetter})\\b`, "i").test(errorLog);
+}
+
+function normalizeChapterMatch(value: string): string {
+  return value
+    .toLocaleLowerCase("de")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function matchTerms(value: string): string[] {
@@ -1268,6 +1516,18 @@ async function readChapterCache(
   return readFile(cachePath, "utf8")
     .then((text) => JSON.parse(text) as CachedChapterHandoff)
     .then((cached) => cached.fingerprint === fingerprint ? cached : null)
+    .catch(() => null);
+}
+
+async function readPersistedChapterHandoff(
+  cachePath: string,
+): Promise<CachedChapterHandoff | null> {
+  return readFile(cachePath, "utf8")
+    .then((text) => JSON.parse(text) as CachedChapterHandoff)
+    .then((cached) => ({
+      fingerprint: cached.fingerprint,
+      data: validateExtractedData(cached.data),
+    }))
     .catch(() => null);
 }
 
@@ -1474,6 +1734,7 @@ export async function buildAnalyzerPrompt(
     "Return only JSON matching the requested schema. Do not include Markdown fences.",
     "Preserve German source language unless the user asks otherwise.",
     "Represent formulas in Typst math syntax where possible.",
+    "For every emitted formula, provide non-empty variables, units, and context metadata. State explicitly when a quantity is dimensionless instead of leaving units empty.",
     "Never invent source citations.",
     "Treat calendar_event as the primary source for dates, times, exams, and rooms.",
     "Treat CIS as the fallback for missing calendar facts and as the source for attendance or administrative LV information.",

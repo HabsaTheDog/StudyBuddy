@@ -37,6 +37,12 @@ describe("moodle graph retry routing", () => {
     expect(qualityFailureNeedsSourceAcquisition(
       "Semantic quality review failed:\n- Der gezeigte Zahlenwert widerspricht der Formel.",
     )).toBe(false);
+    expect(qualityFailureNeedsSourceAcquisition(
+      "Semantic quality review failed:\n- Die Kapitel brechen ab und die Übergabe enthält nur sourceIds ohne Quellenverzeichnis; der Formelbestand ist leer.",
+    )).toBe(false);
+    expect(qualityFailureNeedsSourceAcquisition(
+      "Semantic quality review failed:\n- Für Kapitel 9 fehlt eine zugängliche Kursdatei mit der Musterlösung.",
+    )).toBe(true);
     expect(qualityFailureNeedsSourceAcquisition("Quality reviewer failed: timeout")).toBe(false);
   });
 

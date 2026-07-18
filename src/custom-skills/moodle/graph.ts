@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { createCodexClient, type CodexClient } from "./codexClient.js";
@@ -62,6 +62,7 @@ import { buildEvidencePackage } from "./evidencePackage.js";
 import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
 import { buildStudyModel } from "./studyModel.js";
 import { reviewStudyModel } from "./studentFirstReview.js";
+import { parseLearningArchitectureModelJson } from "./learningArchitecture.js";
 import { resolveTaskBudget } from "./taskBudget.js";
 import { inspectExtractionTooling } from "./fileTextExtraction.js";
 import {
@@ -71,6 +72,10 @@ import {
 } from "./codexRuntime.js";
 
 const MAX_RETRIES = 3;
+// Extraction may perform one targeted semantic repair after its first review.
+// A second failed review is terminal; re-running whole chapters a third time
+// was the dominant cause of the 45-minute timeouts.
+const MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS = 2;
 // Source-architect rounds and analyzer/formatter/reviewer repair loops are each
 // independently bounded. The default LangGraph limit of 25 is too small for a
 // legitimate worst-case path through those bounded loops.
@@ -93,7 +98,9 @@ export async function runMoodleGraph(
   const baseConfig = createRuntimeConfig(input);
   const initialCoverage = baseConfig.stage === "render"
     ? await loadSourceCoverage(baseConfig.sourceRunDir)
-    : undefined;
+    : baseConfig.resumeExtractionRunDir
+      ? await loadSourceCoverage(baseConfig.resumeExtractionRunDir)
+      : undefined;
   const diagnostics = new RunDiagnostics({
     runDir: baseConfig.runDir,
     secrets: [
@@ -161,7 +168,11 @@ export async function runMoodleGraph(
           await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
         }
       }
-      if (config.stage !== "render" && config.intentDecision?.needsDownloadedFiles) {
+      if (
+        config.stage !== "render" &&
+        !config.resumeExtractionRunDir &&
+        config.intentDecision?.needsDownloadedFiles
+      ) {
         const extractionTooling = await inspectExtractionTooling();
         const toolingPath = path.join(config.runDir, "extraction-tooling.json");
         await writeJson(toolingPath, extractionTooling);
@@ -175,13 +186,25 @@ export async function runMoodleGraph(
       }
       const initialStateForStage = config.stage === "render"
         ? await loadRenderState(config)
-        : initialAgentState;
+        : config.resumeExtractionRunDir
+          ? await loadExtractionReviewState(config)
+          : initialAgentState;
+      if (config.resumeExtractionRunDir) {
+        await diagnostics.markSuccess("moodle", {
+          detail: `Reused persisted extraction handoff for normalization and quality review: ${config.resumeExtractionRunDir}`,
+          urls: [initialStateForStage.resource_manifest.courseUrl ?? config.moodleUrl],
+          pages: 1,
+          partial: initialStateForStage.coverage_assessment.status !== "complete",
+        });
+      }
       if (config.stage !== "extract" && !config.intentDecision?.wantsQuickAnswer) {
         await ensureTypstPreflight();
         await diagnostics.log("info", "typst", "Study Buddy Typst toolchain preflight passed.");
       }
       const graph = config.stage === "extract"
-        ? buildExtractionGraph(config, dependencies)
+        ? config.resumeExtractionRunDir
+          ? buildExtractionReviewGraph(config, dependencies)
+          : buildExtractionGraph(config, dependencies)
         : config.stage === "render"
           ? buildRenderGraph(config, dependencies)
           : config.intentDecision?.wantsQuickAnswer
@@ -223,8 +246,18 @@ export async function runMoodleGraph(
 
   const hasDocument = Boolean(state.final_document.trim());
   const hasExtractedData = Object.keys(state.extracted_data).length > 0;
+  if (config.stage === "extract" && hasExtractedData) {
+    try {
+      await persistFinalExtractionArtifact(config.runDir, state.extracted_data);
+    } catch (error) {
+      state = {
+        ...state,
+        error_log: `Failed to persist final extraction artifact: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
   const extractedDataPath = hasExtractedData
-    ? path.join(config.runDir, "extracted-data.json")
+    ? await existingFilePath(path.join(config.runDir, "extracted-data.json"))
     : undefined;
   const answerArtifactPath = config.intentDecision?.wantsQuickAnswer ? await existingFilePath(answerPath(config)) : undefined;
   const answerDataArtifactPath = config.intentDecision?.wantsQuickAnswer
@@ -583,6 +616,52 @@ export function buildExtractionGraph(
     .compile();
 }
 
+/**
+ * Recovery graph for a persisted extraction that reached extracted-data.json
+ * or persisted validated chapter handoffs before a timeout. It intentionally has
+ * no scraper, downloader, source architect, or visual planner edge. Review
+ * findings may trigger a bounded, targeted analyzer repair of the persisted
+ * chapter handoffs, but never a new source crawl.
+ */
+export function buildExtractionReviewGraph(
+  config: MoodleRuntimeConfig,
+  dependencies: GraphDependencies = {},
+) {
+  const codex = dependencies.codex ?? createCodexClient(config);
+  return new StateGraph(AgentStateAnnotation)
+    .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("studyModel", createStudyModelNode(config))
+    .addNode("review", createReviewNode(config))
+    .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
+    .addConditionalEdges(START, (state) =>
+      Object.keys(state.extracted_data).length > 0 ? "studyModel" : "analyzer", {
+      analyzer: "analyzer",
+      studyModel: "studyModel",
+    })
+    .addConditionalEdges("studyModel", routeAfterStudyModel, {
+      studyModel: "studyModel",
+      review: "review",
+      abort: END,
+    })
+    .addConditionalEdges("review", routeAfterExtractionRecoveryReview, {
+      analyzer: "analyzer",
+      qualityReviewer: "qualityReviewer",
+      abort: END,
+    })
+    .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
+      analyzer: "analyzer",
+      done: "studyModel",
+      abort: END,
+    })
+    .addConditionalEdges("qualityReviewer", routeAfterExtractionRecoveryQualityReview, {
+      analyzer: "analyzer",
+      qualityReviewer: "qualityReviewer",
+      done: END,
+      abort: END,
+    })
+    .compile();
+}
+
 export function buildRenderGraph(
   config: MoodleRuntimeConfig,
   dependencies: GraphDependencies = {},
@@ -787,15 +866,46 @@ function routeAfterExtractionQualityReview(
   if (!state.error_log) return "done";
   if (state.retry_count >= MAX_RETRIES) return "abort";
   if (isQualityReviewerExecutionFailure(state.error_log)) return "qualityReviewer";
+  if (
+    state.error_log.startsWith("Semantic quality review failed:") &&
+    state.retry_count >= MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS
+  ) return "abort";
   return qualityFailureNeedsSourceAcquisition(state.error_log)
     ? "sourceArchitect"
     : "contentAnalyzer";
 }
 
+function routeAfterExtractionRecoveryReview(
+  state: LangGraphAgentState,
+): "analyzer" | "qualityReviewer" | "abort" {
+  if (!state.error_log) return "qualityReviewer";
+  return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
+}
+
+function routeAfterExtractionRecoveryQualityReview(
+  state: LangGraphAgentState,
+): "analyzer" | "qualityReviewer" | "done" | "abort" {
+  if (!state.error_log) return "done";
+  if (state.retry_count >= MAX_RETRIES) return "abort";
+  if (
+    state.error_log.startsWith("Semantic quality review failed:") &&
+    state.retry_count >= MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS
+  ) return "abort";
+  return isQualityReviewerExecutionFailure(state.error_log) ? "qualityReviewer" : "analyzer";
+}
+
 export function qualityFailureNeedsSourceAcquisition(error: string): boolean {
   if (!error.startsWith("Semantic quality review failed:")) return false;
-  return /(?:quelle|quellen|source|evidenz|evidence|kursdatei|course file|ressourc|resource|unterlage|material|acquir|erwerb|coverage)/i
-    .test(error);
+  // Mentions of source IDs, a missing bibliography, weak traceability, or an
+  // empty/truncated analyzer field are output-repair problems. Sending those
+  // back to acquisition exhausts the bounded source rounds without changing
+  // the evidence, as the MAES regression demonstrated.
+  if (/(?:source[_ ]?ids?|quellenverzeichnis|bibliograph|traceab|nachvollzieh|abgebroch|truncat|gekürzt|gekuerzt|kurzüberblick|kurzueberblick|bestand(?:e|es)?\s+(?:ist|sind)?\s*leer)/i.test(error)) {
+    return false;
+  }
+  const missing = "(?:fehl(?:t|en|ende[rsn]?)|missing|unavailable|nicht\\s+(?:vorhanden|zugänglich|zugaenglich|erworben|geladen|verfügbar|verfuegbar)|zusätzliche[rsn]?|zusaetzliche[rsn]?|additional)";
+  const source = "(?:kursdatei(?:en)?|course\\s+files?|quelle(?:n)?|sources?|evidenz|evidence|ressourc(?:e|en)?|resources?|unterlage(?:n)?|material(?:ien)?|acquisition|akquisition|erwerb|coverage)";
+  return new RegExp(`${missing}.{0,100}${source}|${source}.{0,100}${missing}`, "i").test(error);
 }
 
 function isQualityReviewerExecutionFailure(error: string): boolean {
@@ -884,12 +994,125 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+async function persistFinalExtractionArtifact(
+  runDir: string,
+  extractedData: AgentState["extracted_data"],
+): Promise<void> {
+  const extractionDir = path.join(runDir, "extraction");
+  await mkdir(extractionDir, { recursive: true });
+  await Promise.all([
+    writeJson(path.join(runDir, "extracted-data.json"), extractedData),
+    writeJson(path.join(extractionDir, "extracted-data.json"), extractedData),
+  ]);
+}
+
 async function loadSourceCoverage(sourceRunDir: string | undefined): Promise<SourceCoverage> {
   if (!sourceRunDir) {
     throw new Error("Render stage requires --source-run-dir.");
   }
   const coveragePath = path.join(sourceRunDir, "source_coverage.json");
   return JSON.parse(await readFile(coveragePath, "utf8")) as SourceCoverage;
+}
+
+async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<AgentState> {
+  const sourceRunDir = config.resumeExtractionRunDir;
+  if (!sourceRunDir) {
+    throw new Error("Extraction review recovery requires --resume-extraction-run-dir.");
+  }
+  const [
+    summary,
+    errorLog,
+    rawText,
+    extractedText,
+    manifestText,
+    evidenceText,
+    coverageText,
+    architectureText,
+  ] = await Promise.all([
+    readFile(path.join(sourceRunDir, "run-summary.md"), "utf8"),
+    readFile(path.join(sourceRunDir, "error.log"), "utf8"),
+    readFile(path.join(sourceRunDir, "moodle_raw.txt"), "utf8"),
+    readOptional(path.join(sourceRunDir, "extracted-data.json")),
+    readFile(path.join(sourceRunDir, "source-map.json"), "utf8"),
+    readFile(path.join(sourceRunDir, "evidence-package.json"), "utf8"),
+    readFile(path.join(sourceRunDir, "coverage-report.json"), "utf8"),
+    readOptional(path.join(sourceRunDir, "learning-architecture.json")),
+  ]);
+  const downstreamReviewFailure = /^(?:Student-first review failed:|Semantic quality review failed:)/
+    .test(errorLog.trim());
+  const timedOutDuringAnalysis = /^Study Buddy run timed out after \d+ms\.$/.test(errorLog.trim());
+  const terminal = /^Run status:\s*(?:failed|timeout|partial|success)$/m.test(summary);
+  const interruptedAfterReview = /^Run status:\s*running$/m.test(summary) && downstreamReviewFailure;
+  if (!terminal && !interruptedAfterReview) {
+    throw new Error(`Extraction recovery source has no recoverable terminal/review state: ${sourceRunDir}`);
+  }
+  if (errorLog.trim() && !downstreamReviewFailure && !(timedOutDuringAnalysis && !extractedText)) {
+    throw new Error(
+      `Extraction recovery is allowed only after a downstream review failure or an analyzer timeout with persisted handoffs: ${sourceRunDir}`,
+    );
+  }
+  const extractedData = extractedText
+    ? await hydrateExtractedVisualAssets(
+        sourceRunDir,
+        validateExtractedData(JSON.parse(extractedText)),
+        config.visualCropMode,
+      )
+    : {};
+  if (!extractedText) {
+    const handoffs = await readdir(path.join(sourceRunDir, "chapter-handoffs")).catch(() => []);
+    if (!timedOutDuringAnalysis || !handoffs.some((name) => name.endsWith(".json"))) {
+      throw new Error(`Extraction timeout has no validated chapter handoff to resume: ${sourceRunDir}`);
+    }
+  }
+  await copyExtractionRecoveryCheckpoints(sourceRunDir, config.runDir);
+  const learningArchitecture = architectureText
+    ? parseLearningArchitectureModelJson(architectureText)
+    : undefined;
+  return {
+    ...initialAgentState,
+    moodle_raw_text: rawText,
+    extracted_data: extractedData,
+    resource_manifest: ResourceManifestSchema.parse(JSON.parse(manifestText)),
+    evidence_package: EvidencePackageSchema.parse(JSON.parse(evidenceText)),
+    coverage_assessment: CoverageAssessmentSchema.parse(JSON.parse(coverageText)),
+    source_architect_decision: {
+      round: 0,
+      status: "sufficient",
+      coverageSummary: extractedText
+        ? "Reused persisted extraction architecture for review recovery."
+        : "Resumed persisted chapter handoffs after analyzer timeout without crawling sources.",
+      requestedUrls: [],
+      remainingAvailable: 0,
+      reasons: ["Extraction recovery does not crawl or acquire sources."],
+      ...(learningArchitecture ? { learningArchitecture } : {}),
+    },
+  };
+}
+
+async function copyExtractionRecoveryCheckpoints(
+  sourceRunDir: string,
+  targetRunDir: string,
+): Promise<void> {
+  const relativePaths = [
+    "chapter-handoffs",
+    "source-map.json",
+    "evidence-package.json",
+    "coverage-report.json",
+    "assets/visuals",
+    "visual-candidates.json",
+    "visual-retrieval-plan.json",
+    "visual-page-index.json",
+    "learning-architecture.json",
+  ];
+  for (const relativePath of relativePaths) {
+    await cp(
+      path.join(sourceRunDir, relativePath),
+      path.join(targetRunDir, relativePath),
+      { recursive: true, force: false, errorOnExist: false },
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
 }
 
 async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState> {

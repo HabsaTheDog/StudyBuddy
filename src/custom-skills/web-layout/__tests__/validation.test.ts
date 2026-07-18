@@ -22,6 +22,15 @@ describe("single-file HTML validation", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("accepts the integrated study-guide contract and rejects missing practice", () => {
+    const valid = minimalValidStudyBuddyHtml({ title: "Study Guide", kind: "study-guide", language: "de" });
+    const invalid = valid.replace(/data-sb-practice/g, "data-legacy-practice");
+
+    expect(validateSingleFileHtml(valid, "study-guide").ok).toBe(true);
+    expect(validateSingleFileHtml(invalid, "study-guide").issues.map((entry) => entry.code))
+      .toContain("interaction-requirement");
+  });
+
   it("rejects CDN scripts", () => {
     const html = minimalValidStudyBuddyHtml({ title: "Flashcards", kind: "flashcards", language: "de" })
       .replace("</body>", "<script src=\"https://cdn.example/app.js\"></script></body>");
@@ -95,6 +104,15 @@ describe("single-file HTML validation", () => {
     expect(report.issues.map((issue) => issue.code)).toContain("sibling-reference");
   });
 
+  it("requires the standardized persistence contract for exam-practice artifacts", () => {
+    const valid = minimalValidStudyBuddyHtml({ title: "Exam", kind: "exam-practice", language: "de" });
+    const invalid = valid.replace(/data-sb-exam-draft/g, "data-legacy-draft");
+
+    expect(validateSingleFileHtml(valid, "exam-practice").ok).toBe(true);
+    expect(validateSingleFileHtml(invalid, "exam-practice").issues.map((entry) => entry.code))
+      .toContain("interaction-requirement");
+  });
+
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")("passes browser validation", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-browser-"));
     tempDirs.push(runDir);
@@ -106,4 +124,25 @@ describe("single-file HTML validation", () => {
 
     expect(report.ok).toBe(true);
   });
+
+  it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")(
+    "executes the real exam start, draft, reload, lock, timer, and finish flow",
+    async () => {
+      const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-exam-browser-"));
+      tempDirs.push(runDir);
+      const report = await validateWebLayoutHtml(
+        minimalValidStudyBuddyHtml({ title: "Exam", kind: "exam-practice", language: "de" }),
+        "exam-practice",
+        { runDir },
+      );
+
+      expect(report.ok, report.issues.map((entry) => entry.message).join("\n")).toBe(true);
+      expect(report.browserChecks).toEqual([
+        expect.objectContaining({
+          id: "exam-start-draft-reload-finish",
+          ok: true,
+        }),
+      ]);
+    },
+  );
 });

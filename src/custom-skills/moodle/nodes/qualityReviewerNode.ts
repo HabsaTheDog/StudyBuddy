@@ -31,16 +31,28 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
         attempt: state.retry_count + 1,
       });
       const parsed = validateQualityReview(parseJsonObjectOrArray(response));
+      const localized = localizeQualityFindings(parsed.findings, state);
       await writeFile(
         path.join(config.runDir, "quality-review.json"),
-        `${JSON.stringify(parsed, null, 2)}\n`,
+        `${JSON.stringify({
+          ...parsed,
+          blocking_findings: localized.blocking,
+          advisory_findings: localized.advisory,
+        }, null, 2)}\n`,
         "utf8",
       );
-      if (parsed.ok) {
+      if (parsed.ok || localized.blocking.length === 0) {
+        if (!parsed.ok && localized.advisory.length > 0) {
+          await config.diagnostics?.log(
+            "warn",
+            "analyzer",
+            `Semantic review returned ${localized.advisory.length} non-localized/presentation finding(s); extraction remains valid and rendering owns those concerns.`,
+          );
+        }
         await config.diagnostics?.log("info", "analyzer", "Semantic quality review passed.");
         return { error_log: null };
       }
-      const message = `Semantic quality review failed:\n- ${parsed.findings.join("\n- ")}`;
+      const message = `Semantic quality review failed:\n- ${localized.blocking.join("\n- ")}`;
       await config.diagnostics?.log("warn", "analyzer", message);
       return { error_log: message, retry_count: state.retry_count + 1 };
     } catch (error) {
@@ -62,7 +74,11 @@ export function buildQualityReviewPrompt(
   return [
     "Review this Study Buddy artifact for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Do not rewrite the artifact. Return JSON only. Mark ok=false only for concrete issues that require a new analysis or build attempt.",
+    "This is an extraction-handoff review, not the final PDF review. Do not reject missing layout, page structure, a learning schedule, study-plan presentation, navigation, or other elements owned by the deterministic renderer.",
+    "The deterministic review already enforces chapter depth, citations, formula metadata, and representative application. Focus your findings on concrete contradictions, broken mathematics/units, or an example whose shown inputs and steps cannot produce its result. Do not demand broader topic coverage from this compact view.",
+    "Every blocking finding must begin with `[chapter: EXACT TITLE]`, using exactly one title from the supplied chapter-title list. Split issues for different chapters into separate findings. If an issue cannot be assigned to one exact chapter, put it only in summary and keep findings empty.",
     "Review only the supplied artifact and deterministic review. Do not claim that omitted source material contains facts, formulas, or examples that are not present in this review input.",
+    "The structured review view includes a source index that maps opaque sourceIds to titles and Moodle URLs. Treat those mappings as valid citations; do not require the human-facing chapter text itself to repeat the full URL.",
     "Formula strings in structured study data use Typst math syntax, not TeX. Typst functions such as frac and dot intentionally have no leading backslash; do not flag that syntax as malformed TeX.",
     "Worked examples with origin='derived' are explicitly didactic examples. They are allowed when their method and result are reproducible from the cited source-backed rules or formulas; do not reject them merely because their numeric values were newly chosen.",
     "The study_guide profile intentionally keeps practiceItems empty; its application layer is workedExamples embedded in each chapter. Do not report an empty detached practice bank as a defect when chapter examples are complete.",
@@ -76,9 +92,80 @@ export function buildQualityReviewPrompt(
     "A missing optional formula, subtopic, or additional worked example is not a defect unless the user explicitly required it and the supplied artifact itself demonstrates that suitable source-backed material was available.",
     "Set ok=false only for a concrete factual contradiction, mathematical inconsistency, unusably shallow covered chapter, missing representative chapter example, invalid citation, or an example that cannot be followed from its stated givens. Put non-blocking coverage observations in summary, not findings.",
     `User request:\n${config.prompt}`,
+    `Allowed exact chapter titles:\n${JSON.stringify(state.study_model.courseChapters.map((chapter) => chapter.title))}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,
   ].join("\n\n");
+}
+
+function localizeQualityFindings(
+  findings: string[],
+  state: LangGraphAgentState,
+): { blocking: string[]; advisory: string[] } {
+  const chapters = state.study_model.courseChapters.map((chapter, index) => ({
+    title: chapter.title,
+    index: index + 1,
+    normalizedTitle: normalizeReviewText(chapter.title),
+    terms: reviewTerms(chapter.title),
+  }));
+  const blocking: string[] = [];
+  const advisory: string[] = [];
+
+  for (const finding of findings) {
+    const explicit = /\[chapter:\s*([^\]]+)\]/i.exec(finding)?.[1]?.trim();
+    let matched = explicit
+      ? chapters.filter((chapter) => chapter.normalizedTitle === normalizeReviewText(explicit))
+      : [];
+    if (matched.length === 0) {
+      const numbered = /\b(?:kapitel|chapter)\s+(\d{1,2})\b/i.exec(finding)?.[1];
+      if (numbered) {
+        matched = chapters.filter((chapter) => chapter.index === Number(numbered));
+      }
+    }
+    if (matched.length === 0) {
+      const normalizedFinding = normalizeReviewText(finding);
+      matched = chapters.filter((chapter) =>
+        normalizedFinding.includes(chapter.normalizedTitle) ||
+        chapter.terms.some((term) => normalizedFinding.includes(term))
+      );
+    }
+    // More than three matches usually means generic language rather than a
+    // localized defect. Do not invalidate most of a course from one sentence.
+    if (matched.length === 0 || matched.length > 3) {
+      advisory.push(finding);
+      continue;
+    }
+    const message = finding.replace(/\[chapter:\s*[^\]]+\]\s*/i, "").trim();
+    for (const chapter of matched) {
+      blocking.push(`[chapter: ${chapter.title}] ${message}`);
+    }
+  }
+  return {
+    blocking: [...new Set(blocking)],
+    advisory: [...new Set(advisory)],
+  };
+}
+
+function normalizeReviewText(value: string): string {
+  return value
+    .toLocaleLowerCase("de")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function reviewTerms(title: string): string[] {
+  const ignored = new Set([
+    "kapitel", "grundlagen", "anwendungen", "berechnen", "bestimmen", "auslegen",
+    "praesenz", "eigenstudium", "unter", "sowie", "erste", "zweite", "ordnung",
+  ]);
+  return [...new Set((normalizeReviewText(title).match(/[a-z0-9]{5,}/g) ?? [])
+    .flatMap((term) => [
+      term,
+      term.replace(/(?:ungen|ung|en|e|n|er|es)$/i, ""),
+    ])
+    .filter((term) => term.length >= 5 && !ignored.has(term)))];
 }
 
 function compactStudyModelForReview(state: LangGraphAgentState) {
@@ -119,7 +206,7 @@ function compactStudyModelForReview(state: LangGraphAgentState) {
         assessmentSignals: chapter.assessmentSignals,
         topics: topics.map((topic) => ({
           title: topic.title,
-          summary: topic.summary.slice(0, 300),
+          summary: topic.summary,
           learningGoals: topic.learningGoals,
           sourceIds: topic.sourceIds,
         })),
@@ -151,6 +238,12 @@ function compactStudyModelForReview(state: LangGraphAgentState) {
       };
     }),
     checklist: model.checklist.slice(0, 12),
+    sources: model.sources.slice(0, 80).map((source) => ({
+      id: source.id,
+      title: source.title,
+      kind: source.kind,
+      originUrl: source.originUrl,
+    })),
     deterministicFindings: state.review_report.findings,
   };
 }

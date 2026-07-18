@@ -140,7 +140,7 @@ describe("createRuntimeConfig", () => {
     expect(JSON.stringify(sanitized)).not.toContain("/opt/codex-preview/bin/codex");
   });
 
-  it("uses longer runtime budgets for staged document artifacts", async () => {
+  it("keeps the staged PDF workflow inside the default fifteen-minute budget", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-timeout-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
 
@@ -156,10 +156,10 @@ describe("createRuntimeConfig", () => {
       sourceRunDir: tempRoot,
     });
 
-    expect(extractionConfig.maxRuntimeMs).toBe(45 * 60_000);
-    expect(extractionConfig.idleTimeoutMs).toBe(15 * 60_000);
-    expect(renderConfig.maxRuntimeMs).toBe(20 * 60_000);
-    expect(renderConfig.idleTimeoutMs).toBe(15 * 60_000);
+    expect(extractionConfig.maxRuntimeMs).toBe(12 * 60_000);
+    expect(extractionConfig.idleTimeoutMs).toBe(5 * 60_000);
+    expect(renderConfig.maxRuntimeMs).toBe(3 * 60_000);
+    expect(renderConfig.idleTimeoutMs).toBe(5 * 60_000);
   });
 
   it("collects visuals inline by default for document artifact extraction", async () => {

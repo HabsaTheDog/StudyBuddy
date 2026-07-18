@@ -150,15 +150,20 @@ export function buildDeterministicLearningArchitecture(
   const records = mergeBriefsWithCatalog(input.briefs, input.catalog);
   const excludedResourceUrls = new Set<string>();
   const supportRecords: ResourceRecord[] = [];
+  const practiceRecords: ResourceRecord[] = [];
   const modules = new Map<string, ModuleAccumulator>();
 
   for (const record of records) {
-    if (isAdministrative(record)) {
+    if (isAdministrative(record) || isDiscardableShell(record)) {
       record.urls.forEach((url) => excludedResourceUrls.add(url));
       continue;
     }
     if (isSupportResource(record)) {
       supportRecords.push(record);
+      continue;
+    }
+    if (isPracticeResource(record)) {
+      practiceRecords.push(record);
       continue;
     }
     const title = deriveLearningTitle(record);
@@ -170,6 +175,15 @@ export function buildDeterministicLearningArchitecture(
     const accumulator = modules.get(key) ?? { title, records: [] };
     accumulator.records.push(record);
     modules.set(key, accumulator);
+  }
+
+  for (const practice of practiceRecords) {
+    const target = bestPracticeTarget(practice, modules);
+    if (target) {
+      target.records.push(practice);
+    } else {
+      practice.urls.forEach((url) => excludedResourceUrls.add(url));
+    }
   }
 
   const usedIds = new Set<string>();
@@ -252,6 +266,30 @@ function isSupportResource(record: ResourceRecord): boolean {
   return /\b(?:formula\s*(?:sheet|collection)|formelsammlung|formulary|reference|nachschlagewerk|handbook|tabellenbuch|lookup\s+table|glossar(?:y)?|symbol\s*(?:list|table)|cheat\s*sheet)\b/i.test(record.title);
 }
 
+function isPracticeResource(record: ResourceRecord): boolean {
+  if (["worked_example", "sample_exam", "exercise", "solution"].includes(record.role)) {
+    return true;
+  }
+  return /^\s*(?:(?:sample|mock|past|muster)\s+)?(?:mini\s*test|quiz|test|exam|prüfung|pruefung|worksheet|arbeitsblatt|exercise|übungs?(?:blatt|aufgaben?)?|uebungs?(?:blatt|aufgaben?)?|assignment|aufgabe|worked\s+(?:example|solution)|lösung|loesung)\b/i.test(record.title);
+}
+
+function isDiscardableShell(record: ResourceRecord): boolean {
+  const title = cleanWhitespace(record.title);
+  if (/^(?:-\s*)?link\s*\[\s*ref\s*=.*\burl\s*=|^https?:\/\//i.test(title)) return true;
+  if (/\b(?:tips?\s+(?:for|on)\s+(?:learning|studying)|how\s+to\s+study|lerntipps?|tipps?\s+(?:für|fuer|zum)\s+(?:das\s+)?lernen)\b/i.test(title)) {
+    return true;
+  }
+  if (/\b(?:gesamtskriptum|complete\s+course|whole\s+course|course\s+(?:script|notes|shell)|kurs(?:skript|unterlagen))\b/i.test(title)) {
+    return true;
+  }
+  // A catalog-only, supplementary author/title entry ending in a bare level
+  // number is normally a whole-course shell, not a teachable unit. Requiring
+  // all three conditions avoids dropping titled units such as "Method 2" from
+  // primary material.
+  return record.role === "supplementary" && !record.summary && !record.topic &&
+    /^[^:]{2,80}:\s*[„“"']?[\p{L}][\p{L}\s-]{1,60}\s+\d+\s*[“”"']?$/u.test(title);
+}
+
 function deriveLearningTitle(record: ResourceRecord): string | null {
   for (const candidate of [record.topic, record.sectionTitle, record.title]) {
     const cleaned = cleanLearningTitle(candidate ?? "");
@@ -264,10 +302,75 @@ function cleanLearningTitle(value: string): string {
   return cleanWhitespace(value)
     .replace(/\.(?:pdf|pptx?|docx?|xlsx?)$/i, "")
     .replace(/^\s*(?:\d+[._-]\s*)+/, "")
-    .replace(/^\s*(?:lecture|vorlesung|slides?|folien|chapter|kapitel|unit|einheit|week|woche|exercise|übung|uebung|worksheet|arbeitsblatt|notes?|skript)\s*\d*\s*[:._–—-]*\s*/i, "")
+    .replace(/^[^:]{2,80}:\s*(?=(?:(?:warmup|mathe)[- ]*)?(?:skriptum|script|studienbrief|study\s+letter|fact[- ]?sheet|lecture\s+notes?|vorlesungsunterlagen)\b)/i, "")
+    .replace(/^\s*(?:(?:warmup|mathe)[- ]*)?(?:skriptum|script|studienbrief|study\s+letter|fact[- ]?sheet|lecture\s+notes?|vorlesungsunterlagen)\s*\d*\s*[:._–—„“"'-]*\s*/i, "")
+    .replace(/^\s*(?:lecture|vorlesung|slides?|folien|chapter|kapitel|unit|einheit|week|woche|notes?)\s*\d*\s*[:._–—-]*\s*/i, "")
     .replace(/\s*[:._–—-]+\s*(?:lecture|vorlesung|slides?|folien|notes?|skript|worksheet|arbeitsblatt|exercise|übung|uebung|case\s+study|fallstudie)\s*$/i, "")
+    .replace(/^[„“"']+|[“”"']+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function bestPracticeTarget(
+  practice: ResourceRecord,
+  modules: ReadonlyMap<string, ModuleAccumulator>,
+): ModuleAccumulator | null {
+  const subject = practiceSubject(practice);
+  if (!subject) return null;
+  const subjectNormalized = normalizeForComparison(subject);
+  const subjectTokens = semanticTokens(subject);
+  let best: { module: ModuleAccumulator; score: number } | null = null;
+  for (const module of modules.values()) {
+    const moduleNormalized = normalizeForComparison(module.title);
+    const moduleTokens = semanticTokens([
+      module.title,
+      ...module.records.map((record) => `${record.topic ?? ""} ${record.summary.slice(0, 500)}`),
+    ].join(" "));
+    const shared = [...subjectTokens].filter((token) => moduleTokens.has(token)).length;
+    const overlap = shared / Math.max(1, subjectTokens.size);
+    const exact = subjectNormalized === moduleNormalized
+      ? 4
+      : subjectNormalized.includes(moduleNormalized) || moduleNormalized.includes(subjectNormalized)
+        ? 2
+        : 0;
+    const score = exact + overlap;
+    if (shared === 0 && exact === 0) continue;
+    if (!best || score > best.score || (score === best.score && module.title.length > best.module.title.length)) {
+      best = { module, score };
+    }
+  }
+  return best?.module ?? null;
+}
+
+function practiceSubject(record: ResourceRecord): string | null {
+  for (const candidate of [record.topic, record.sectionTitle]) {
+    const cleaned = cleanLearningTitle(candidate ?? "");
+    if (cleaned && !isGenericContainerTitle(cleaned)) return cleaned;
+  }
+  const marker = /\b(?:mini\s*test|quiz|test|exam|prüfung|pruefung|worksheet|arbeitsblatt|exercise|übungs?(?:blatt|aufgaben?)?|uebungs?(?:blatt|aufgaben?)?|assignment|aufgabe|worked\s+(?:example|solution)|lösung|loesung)\s*\d*\s*:\s*/i.exec(record.summary);
+  if (marker) {
+    const remainder = record.summary.slice(marker.index + marker[0].length);
+    const heading = remainder
+      .split(/\s+\d+\s*[.)]?\s*(?=(?:single|multiple|drag|drop|true|false|wahr|falsch|numeri(?:c|sch)|question|frage)\b)/i)[0]
+      .replace(/\s+\d+\s*$/g, "")
+      .replace(/[.:;,-]+\s*$/g, "")
+      .trim();
+    if (heading && heading.length <= 160 && !isGenericContainerTitle(heading)) return heading;
+  }
+  const fromTitle = cleanLearningTitle(record.title
+    .replace(/^\s*(?:(?:sample|mock|past|muster)\s+)?(?:mini\s*test|quiz|test|exam|prüfung|pruefung|worksheet|arbeitsblatt|exercise|übungs?(?:blatt|aufgaben?)?|uebungs?(?:blatt|aufgaben?)?|assignment|aufgabe|worked\s+(?:example|solution)|lösung|loesung)\s*\d*\s*[:._–—-]*\s*/i, "")
+    .replace(/^\s*(?:solutions?|lösungen?|loesungen?)\s*[:._–—-]*\s*/i, "")
+    .replace(/\s*[:._–—-]+\s*(?:solutions?|lösungen?|loesungen?|file|datei)\s*$/i, ""));
+  return fromTitle && !isGenericContainerTitle(fromTitle) ? fromTitle : null;
+}
+
+function semanticTokens(value: string): Set<string> {
+  const stopWords = new Set([
+    "and", "the", "for", "with", "from", "into", "und", "der", "die", "das", "den", "dem", "des", "mit", "von", "fur", "fuer", "zu",
+    "lecture", "vorlesung", "script", "skriptum", "studienbrief", "sheet", "blatt", "test", "minitest", "quiz", "exam", "prufung", "pruefung", "solution", "losung", "loesung", "file", "datei", "grundlagen",
+  ]);
+  return new Set(normalizeForComparison(value).split(" ")
+    .filter((token) => token.length >= 3 && !stopWords.has(token) && !/^\d+$/.test(token)));
 }
 
 function isGenericContainerTitle(value: string): boolean {

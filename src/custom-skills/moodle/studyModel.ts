@@ -79,12 +79,12 @@ export function buildStudyModel(
     };
   });
 
+  const formulaUnitEvidence = collectFormulaUnitEvidence(extracted.formulas);
   const formulas = extracted.formulas
     .filter(
       (formula) =>
         formula.source_ids.some((sourceId) => sourceIds.has(sourceId)) &&
         formula.variables.length > 0 &&
-        formula.units.length > 0 &&
         formula.context.trim().length > 0,
     )
     .map((formula) => ({
@@ -99,7 +99,9 @@ export function buildStudyModel(
       name: formula.name,
       expression: normalizeFormulaExpression(formula.name, formula.typst),
       variables: normalizeFormulaVariables(formula.name, formula.variables),
-      units: formula.units,
+      units: formula.units.length > 0
+        ? formula.units
+        : inferFormulaUnits(formula, formulaUnitEvidence),
       assumptions: normalizeFormulaAssumptions(formula.name, formula.context),
       sourceIds: formula.source_ids.filter((sourceId) => sourceIds.has(sourceId)),
     }));
@@ -215,6 +217,138 @@ export function buildStudyModel(
     sources,
     warnings: unique([...extracted.warnings, ...coverage.criticalMissing]),
   });
+}
+
+interface FormulaUnitEvidence {
+  formulaName: string;
+  symbol: string;
+  unit: string;
+  descriptorTokens: Set<string>;
+}
+
+function collectFormulaUnitEvidence(
+  formulas: ExtractedData["formulas"],
+): FormulaUnitEvidence[] {
+  const evidence: FormulaUnitEvidence[] = [];
+  for (const formula of formulas) {
+    const variables = formula.variables.map((entry) => {
+      const [symbol, ...description] = entry.split(":");
+      return {
+        symbol: normalizeUnitSymbol(symbol),
+        descriptorTokens: unitDescriptorTokens(description.join(":")),
+      };
+    });
+    for (const unitEntry of formula.units) {
+      for (const assignment of parseUnitAssignments(unitEntry)) {
+        const normalizedSymbol = normalizeUnitSymbol(assignment.symbol);
+        const variable = variables.find((entry) => entry.symbol === normalizedSymbol);
+        evidence.push({
+          formulaName: normalizeUnitText(formula.name),
+          symbol: normalizedSymbol,
+          unit: assignment.unit,
+          descriptorTokens: variable?.descriptorTokens ?? new Set<string>(),
+        });
+      }
+    }
+  }
+  return evidence;
+}
+
+function inferFormulaUnits(
+  formula: ExtractedData["formulas"][number],
+  evidence: FormulaUnitEvidence[],
+): string[] {
+  const normalizedName = normalizeUnitText(formula.name);
+  const sameFormulaUnits = unique(
+    evidence
+      .filter((entry) => entry.formulaName === normalizedName)
+      .map((entry) => `${displayUnitSymbol(entry.symbol)}: ${entry.unit}`),
+  );
+  if (sameFormulaUnits.length > 0) return sameFormulaUnits;
+
+  const inferred: string[] = [];
+  for (const variable of formula.variables) {
+    const [rawSymbol, ...description] = variable.split(":");
+    const symbol = normalizeUnitSymbol(rawSymbol);
+    const descriptorTokens = unitDescriptorTokens(description.join(":"));
+    const ranked = evidence
+      .map((candidate) => ({
+        candidate,
+        score: unitEvidenceScore(symbol, descriptorTokens, candidate),
+      }))
+      .filter((entry) => entry.score >= 4)
+      .sort((left, right) => right.score - left.score);
+    const best = ranked[0];
+    if (!best) continue;
+    const competingUnit = ranked.find((entry) =>
+      entry.candidate.unit !== best.candidate.unit && entry.score === best.score
+    );
+    if (competingUnit) continue;
+    inferred.push(`${rawSymbol.trim()}: ${best.candidate.unit}`);
+  }
+  return unique(inferred);
+}
+
+function parseUnitAssignments(value: string): Array<{ symbol: string; unit: string }> {
+  const assignments: Array<{ symbol: string; unit: string }> = [];
+  for (const rawSegment of value.split(";")) {
+    const segment = rawSegment.trim();
+    if (!segment) continue;
+    const bracketed = /^(.+?)\s*\[([^\]]+)\]$/.exec(segment);
+    const separated = /^(.+?)\s*(?::|\bin\b)\s*(.+)$/i.exec(segment);
+    const dimensional = /^\[([^\]]+)\]\s*=\s*(.+)$/.exec(segment);
+    const match = bracketed
+      ? { symbols: bracketed[1], unit: bracketed[2] }
+      : dimensional
+        ? { symbols: dimensional[1], unit: dimensional[2] }
+        : separated
+          ? { symbols: separated[1], unit: separated[2] }
+          : null;
+    if (!match || !match.unit.trim()) continue;
+    for (const symbol of match.symbols.split(/,|\band\b|\bund\b/i)) {
+      if (symbol.trim()) assignments.push({ symbol: symbol.trim(), unit: match.unit.trim() });
+    }
+  }
+  return assignments;
+}
+
+function unitEvidenceScore(
+  symbol: string,
+  descriptorTokens: Set<string>,
+  evidence: FormulaUnitEvidence,
+): number {
+  const shared = [...descriptorTokens].filter((token) => evidence.descriptorTokens.has(token));
+  const rareShared = shared.filter((token) => token.length >= 7);
+  const symbolScore = symbol && symbol === evidence.symbol ? 4 : 0;
+  const descriptorScore = shared.length * 2 + rareShared.length * 2;
+  return symbolScore + descriptorScore;
+}
+
+function normalizeUnitSymbol(value: string): string {
+  return value
+    .replace(/\b(?:bold|vec)\(([^)]+)\)/gi, "$1")
+    .replace(/[\[\]{}()]/g, "")
+    .replace(/[^\p{L}\p{N}_]+/gu, "")
+    .toLocaleLowerCase("de");
+}
+
+function displayUnitSymbol(value: string): string {
+  return value || "Größe";
+}
+
+function unitDescriptorTokens(value: string): Set<string> {
+  const stopWords = new Set(["der", "die", "das", "des", "den", "dem", "ein", "eine", "einer", "eines", "von", "auf", "fur", "fuer", "und", "the", "of", "for"]);
+  return new Set(normalizeUnitText(value).split(" ")
+    .filter((token) => token.length >= 3 && !stopWords.has(token)));
+}
+
+function normalizeUnitText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("de")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function normalizeFormulaExpression(name: string, expression: string): string {

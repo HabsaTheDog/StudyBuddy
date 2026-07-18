@@ -43,6 +43,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         const document = renderDeterministicStudyDocument(
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
+          { prompt: config.prompt, profile: config.artifactIntent.profile },
         );
         const validation = await validateGeneratedDocument(document, config);
         if (!validation.ok) {
@@ -73,6 +74,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         const fallback = renderDeterministicStudyDocument(
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
+          { prompt: config.prompt, profile: config.artifactIntent.profile },
         );
         const fallbackValidation = await validateGeneratedDocument(fallback, config);
         if (!fallbackValidation.ok) {

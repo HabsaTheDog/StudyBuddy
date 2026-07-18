@@ -46,6 +46,55 @@ describe("web layout source node", () => {
     expect(result.source_text).toContain("moodle text");
   });
 
+  it("adds bounded extracted quizzes and exercises as a full practice corpus", async () => {
+    const workspace = await tempWorkspace();
+    const handoff = path.join(workspace, "practice-handoff");
+    await writeSuccessfulHandoff(handoff);
+    await mkdir(path.join(handoff, "sources"), { recursive: true });
+    await Promise.all([
+      writeFile(path.join(handoff, "sources", "Minitest-1.extracted.txt"), "1. Multiple Choice: exact exercise", "utf8"),
+      writeFile(path.join(handoff, "sources", "Lecture-Script.extracted.txt"), "large theory excerpt", "utf8"),
+    ]);
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build a mathematics study guide",
+      sourceRunDir: handoff,
+    });
+
+    const result = await createSourceNode(config)();
+
+    expect(result.error_log).toBeNull();
+    expect(result.source_text).toContain("## Full extracted practice corpus");
+    expect(result.source_text).toContain("1. Multiple Choice: exact exercise");
+    expect(result.source_text).not.toContain("large theory excerpt");
+  });
+
+  it("summarizes large evidence packages instead of overflowing the model prompt", async () => {
+    const workspace = await tempWorkspace();
+    const handoff = path.join(workspace, "large-evidence-handoff");
+    await writeSuccessfulHandoff(handoff);
+    const repeatedDetail = "evidence-detail-that-must-not-be-copied ".repeat(20);
+    await writeFile(path.join(handoff, "evidence-package.json"), JSON.stringify({
+      records: Array.from({ length: 2_000 }, (_, index) => ({
+        kind: index % 2 === 0 ? "claim" : "exercise",
+        resourceId: `resource-${index % 12}`,
+        content: repeatedDetail,
+      })),
+      warnings: ["one warning"],
+    }), "utf8");
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build a MAES study guide",
+      sourceRunDir: handoff,
+    });
+
+    const result = await createSourceNode(config)();
+
+    expect(result.error_log).toBeNull();
+    expect(result.source_text).toContain('"recordCount": 2000');
+    expect(result.source_text).toContain('"claim": 1000');
+    expect(result.source_text).not.toContain(repeatedDetail.trim());
+    expect(result.source_text?.length).toBeLessThan(100_000);
+  });
+
   it("rejects a failed Moodle extraction handoff", async () => {
     const workspace = await tempWorkspace();
     const handoff = path.join(workspace, "failed-handoff");

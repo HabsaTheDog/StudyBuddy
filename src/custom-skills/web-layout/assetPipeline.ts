@@ -282,7 +282,12 @@ async function optimizeSourceAsset(
   let selectedPath = originalOutput;
   let selectedMime = source.mimeType;
   let convertedToWebp = false;
-  const canConvert = source.mimeType !== "image/svg+xml" && await hasImageMagick();
+  // A WebP data URI extracted during a repair/resume pass is already in the
+  // target format. Re-converting it would make webpPath equal originalOutput;
+  // the rejected-conversion cleanup would then delete the source bundle asset.
+  const canConvert = source.mimeType !== "image/svg+xml" &&
+    source.mimeType !== "image/webp" &&
+    await hasImageMagick();
   if (canConvert) {
     const webpPath = path.join(outputDir, `${safeBase}-${hash}.webp`);
     const args = [
@@ -386,8 +391,14 @@ function splitEditableSource(html: string): { html: string; css: string; js: str
 
 function inlineEditableSource(indexHtml: string, css: string, js: string): string {
   return indexHtml
-    .replace(/<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*\bhref=["']styles\.css["'])[^>]*>/i, `<style>\n${css}</style>`)
-    .replace(/<script\b(?=[^>]*\bsrc=["']app\.js["'])[^>]*>\s*<\/script>/i, `<script>\n${js}</script>`);
+    .replace(
+      /<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*\bhref=["']styles\.css["'])[^>]*>/i,
+      () => `<style>\n${css}</style>`,
+    )
+    .replace(
+      /<script\b(?=[^>]*\bsrc=["']app\.js["'])[^>]*>\s*<\/script>/i,
+      () => `<script>\n${js}</script>`,
+    );
 }
 
 function createValidationProjection(html: string): string {

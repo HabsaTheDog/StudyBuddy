@@ -11,6 +11,7 @@ import {
   resolveTaskModelPolicy,
 } from "./modelPolicy.js";
 import { parseCodexPreflightMode } from "./config.js";
+import { acquireRunLease } from "../shared/runLease.js";
 
 const program = new Command()
   .name("moodle-agent")
@@ -33,6 +34,7 @@ const program = new Command()
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--stage <stage>", "Pipeline stage: all, extract, or render", parseStage, "all")
   .option("--source-run-dir <path>", "Successful extraction run consumed by the render stage")
+  .option("--resume-extraction-run-dir <path>", "Re-run extraction normalization and quality gates from an existing persisted handoff without crawling")
   .option("--source-mode <mode>", "Source mode: auto, moodle, cis, or both", parseSourceMode, "auto")
   .option("--download-concurrency <number>", "Parallel source-file downloads, clamped to 1..4", parseNumber)
   .option("--typst-validation <mode>", "Typst validation mode: strict or balanced", parseTypstValidation, "balanced")
@@ -86,6 +88,7 @@ const options = program.opts<{
   json?: boolean;
   stage: "all" | "extract" | "render";
   sourceRunDir?: string;
+  resumeExtractionRunDir?: string;
   sourceMode: "auto" | "moodle" | "cis" | "both";
   downloadConcurrency?: number;
   typstValidation: "strict" | "balanced";
@@ -128,6 +131,12 @@ const interactiveRequest =
   (options.autoAnswer && isQuizExecutionPrompt(prompt)) ||
   isAssignmentExecutionPrompt(prompt);
 
+const releaseRunLease = await acquireRunLease(options.runDir);
+let releaseRecoverySourceLease: () => Promise<void> = async () => {};
+try {
+if (options.resumeExtractionRunDir) {
+  releaseRecoverySourceLease = await acquireRunLease(options.resumeExtractionRunDir);
+}
 if (interactiveRequest) {
   await runNativeQuizWorkflow({
     prompt,
@@ -170,6 +179,7 @@ if (interactiveRequest) {
   idleTimeoutMs: options.idleTimeoutMs,
   stage: options.stage,
   sourceRunDir: options.sourceRunDir,
+  resumeExtractionRunDir: options.resumeExtractionRunDir,
   sourceMode: options.sourceMode,
   downloadConcurrency: options.downloadConcurrency,
   typstValidationMode: options.typstValidation,
@@ -221,6 +231,10 @@ if (interactiveRequest) {
     console.error(`Run summary: ${result.runSummaryPath}`);
     process.exitCode = 1;
   }
+}
+} finally {
+  await releaseRecoverySourceLease();
+  await releaseRunLease();
 }
 
 function parseNumber(value: string): number {

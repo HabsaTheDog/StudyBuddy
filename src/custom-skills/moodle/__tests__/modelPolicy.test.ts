@@ -10,15 +10,15 @@ describe("modelPolicy", () => {
   it("keeps each built-in worker matrix role-specific", () => {
     const cases = [
       ["fast", "artifact_planner", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
-      ["fast", "content_analyzer", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
+      ["fast", "content_analyzer", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "high"],
       ["fast", "quiz_solver", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
       ["fast", "artifact_builder", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
       ["fast", "quality_reviewer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["balanced", "artifact_planner", "gpt-5.6-terra", "medium", "gpt-5.6-sol", "medium"],
-      ["balanced", "content_analyzer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
+      ["balanced", "content_analyzer", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "medium"],
       ["balanced", "quiz_solver", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["balanced", "artifact_builder", "gpt-5.6-sol", "medium", "gpt-5.6-sol", "high"],
-      ["balanced", "quality_reviewer", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
+      ["balanced", "quality_reviewer", "gpt-5.6-terra", "medium", "gpt-5.6-terra", "medium"],
       ["quality", "artifact_planner", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["quality", "content_analyzer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["quality", "quiz_solver", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
@@ -44,8 +44,8 @@ describe("modelPolicy", () => {
       reasoningEffort: "medium",
     });
     expect(resolveTaskModelPolicy({ profile: "balanced", task: "content_analyzer" })).toMatchObject({
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
+      model: "gpt-5.6-luna",
+      reasoningEffort: "medium",
     });
     expect(resolveTaskModelPolicy({ profile: "balanced", task: "quiz_solver" })).toMatchObject({
       model: "gpt-5.6-terra",
@@ -60,7 +60,7 @@ describe("modelPolicy", () => {
     expect(retry).toMatchObject({
       model: "gpt-5.6-terra",
       reasoningEffort: "high",
-      timeoutMs: 6 * 60_000,
+      timeoutMs: 90_000,
     });
   });
 
@@ -76,15 +76,15 @@ describe("modelPolicy", () => {
       attempt: 2,
     });
 
-    expect(primary).toMatchObject({ model: "gpt-5.6-terra", timeoutMs: 4 * 60_000 });
-    expect(retry).toMatchObject({ model: "gpt-5.6-sol", timeoutMs: 3 * 60_000 });
+    expect(primary).toMatchObject({ model: "gpt-5.6-luna", timeoutMs: 90_000 });
+    expect(retry).toMatchObject({ model: "gpt-5.6-terra", timeoutMs: 90_000 });
   });
 
   it("uses a bounded fast-first analyzer for auto and keeps other roles production-aligned", () => {
     expect(resolveTaskModelPolicy({ profile: "auto", task: "content_analyzer", attempt: 1 }))
-      .toMatchObject({ model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 2 * 60_000 });
+      .toMatchObject({ model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000 });
     expect(resolveTaskModelPolicy({ profile: "auto", task: "content_analyzer", attempt: 2 }))
-      .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 3 * 60_000 });
+      .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 90_000 });
     expect(resolveTaskModelPolicy({ profile: "auto", task: "quality_reviewer", attempt: 1 }))
       .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 2 * 60_000 });
     expect(resolveTaskModelPolicy({ profile: "auto", task: "quality_reviewer", attempt: 2 }))

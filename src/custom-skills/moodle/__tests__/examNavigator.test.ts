@@ -554,7 +554,7 @@ describe("student-centric exam navigator contracts", () => {
         name: "Passung",
         typst: "P_o = G_\"oB\" - G_\"uW\" = ES - ei",
         variables: ["P: Passung"],
-        units: ["mm"],
+        units: [],
         context: "Differenz der Istmaße.",
         source_ids: ["src_tolerances"],
       }],
@@ -611,6 +611,7 @@ describe("student-centric exam navigator contracts", () => {
     ]);
     expect(model.courseChapters.map((chapter) => chapter.status)).toEqual(["covered", "missing"]);
     expect(model.formulas[0].chapterId).toBe(model.topics[0].chapterId);
+    expect(model.formulas[0].units).toEqual([]);
     expect(model.figures[0].chapterId).toBe(model.topics[0].chapterId);
     expect(typst).toContain('label-text: "Beispielbild 1"');
     expect(typst).toContain("Kursbeispiel 1");
@@ -619,6 +620,70 @@ describe("student-centric exam navigator contracts", () => {
     expect(typst).toContain('$ P_o = G_"oB" - G_"uW" = "ES" - "ei" $');
     expect(typst.indexOf("A. Eigenstudium")).toBeLessThan(typst.indexOf("B. Eigenstudium"));
     expect(typst.indexOf("Formelwerkzeug")).toBeLessThan(typst.lastIndexOf("B. Eigenstudium"));
+  });
+
+  it("reconciles missing formula units only from matching evidence in the same corpus", () => {
+    const sourceUrl = "https://moodle.example/mod/resource/view.php?id=30";
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [node("dynamics", sourceUrl, "resource", "acquired")],
+    });
+    const extracted = moodleExtractedData({
+      sources: [{
+        id: "src_dynamics",
+        title: "Dynamik",
+        kind: "pdf",
+        url: sourceUrl,
+        path: "/tmp/dynamics.pdf",
+        page: null,
+      }],
+      sections: [{
+        heading: "Impuls",
+        summary: "Der Gesamtimpuls verbindet Masse und Schwerpunktgeschwindigkeit.",
+        key_concepts: ["Impulssatz anwenden"],
+        source_ids: ["src_dynamics"],
+      }],
+      formulas: [{
+        name: "Impuls und Schwerpunktgeschwindigkeit",
+        typst: "P = M v_S",
+        variables: ["P: Gesamtimpuls", "M: Gesamtmasse", "v_S: Schwerpunktgeschwindigkeit"],
+        units: ["P: N s", "M: kg", "v_S: m/s"],
+        context: "Referenzformel mit expliziten Einheiten.",
+        source_ids: ["src_dynamics"],
+      }, {
+        name: "Schwerpunktgeschwindigkeit",
+        typst: "v_S = P / M",
+        variables: ["v_S: Schwerpunktgeschwindigkeit", "P: Gesamtimpuls", "M: Gesamtmasse"],
+        units: [],
+        context: "Dieselbe belegte Größenfamilie, aber ohne wiederholte Einheitenliste.",
+        source_ids: ["src_dynamics"],
+      }, {
+        name: "Dimensionslose Kennzahl",
+        typst: "q = a / b",
+        variables: ["q: Kennzahl", "a: Zähler", "b: Nenner"],
+        units: [],
+        context: "Ohne passende Einheitenevidenz.",
+        source_ids: ["src_dynamics"],
+      }],
+    });
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, {
+      status: "complete",
+      detail: "Complete.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 1,
+      acquiredResources: 1,
+      failedResources: 0,
+      usableEvidenceRecords: 1,
+    });
+
+    expect(model.formulas.find((formula) => formula.name === "Schwerpunktgeschwindigkeit")?.units)
+      .toEqual(expect.arrayContaining(["v_S: m/s", "P: N s", "M: kg"]));
+    expect(model.formulas.find((formula) => formula.name === "Dimensionslose Kennzahl")?.units)
+      .toEqual([]);
   });
 
   it("omits unresolved visual workflow prompts instead of rendering fake figures", () => {

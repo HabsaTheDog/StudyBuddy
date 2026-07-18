@@ -13,6 +13,8 @@ import { createPlannerNode } from "./nodes/plannerNode.js";
 import { createSourceNode } from "./nodes/sourceNode.js";
 import { createValidatorNode } from "./nodes/validatorNode.js";
 import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
+import { createStudyGuideContentNode } from "./nodes/studyGuideContentNode.js";
+import { acquireRunLease } from "../shared/runLease.js";
 
 const MAX_RETRIES = 3;
 
@@ -20,6 +22,7 @@ export interface WebLayoutGraphDependencies {
   codex?: CodexClient;
   sourceNode?: ReturnType<typeof createSourceNode>;
   plannerNode?: ReturnType<typeof createPlannerNode>;
+  studyGuideContentNode?: ReturnType<typeof createStudyGuideContentNode>;
   generatorNode?: ReturnType<typeof createGeneratorNode>;
   validatorNode?: ReturnType<typeof createValidatorNode>;
   qualityReviewerNode?: ReturnType<typeof createQualityReviewerNode>;
@@ -31,6 +34,8 @@ export async function runWebLayoutGraph(
   dependencies: WebLayoutGraphDependencies = {},
 ): Promise<WebLayoutResult> {
   const baseConfig = createWebLayoutRuntimeConfig(input);
+  const releaseOutputLease = await acquireRunLease(baseConfig.runDir, { reentrant: true });
+  try {
   const diagnostics = new WebLayoutRunDiagnostics({ runDir: baseConfig.runDir });
   await diagnostics.init();
   const abortController = new AbortController();
@@ -103,6 +108,9 @@ export async function runWebLayoutGraph(
     validationReportPath: validationReportExists ? validationReportPath : undefined,
     screenshotPaths,
   };
+  } finally {
+    await releaseOutputLease();
+  }
 }
 
 export function buildWebLayoutGraph(
@@ -112,6 +120,7 @@ export function buildWebLayoutGraph(
   const codex =
     dependencies.codex ??
     (!dependencies.plannerNode ||
+    (config.kind === "study-guide" && !dependencies.studyGuideContentNode) ||
     !dependencies.generatorNode ||
     !dependencies.qualityReviewerNode
       ? createCodexClient(config)
@@ -119,6 +128,7 @@ export function buildWebLayoutGraph(
   return new StateGraph(WebLayoutStateAnnotation)
     .addNode("source", dependencies.sourceNode ?? createSourceNode(config))
     .addNode("planner", dependencies.plannerNode ?? createPlannerNode(config, codex!))
+    .addNode("studyGuideContent", dependencies.studyGuideContentNode ?? createStudyGuideContentNode(config, codex!))
     .addNode("generator", dependencies.generatorNode ?? createGeneratorNode(config, codex!))
     .addNode("validator", dependencies.validatorNode ?? createValidatorNode(config))
     .addNode("resumeValidator", createResumeValidatorNode(config))
@@ -141,9 +151,15 @@ export function buildWebLayoutGraph(
     })
     .addConditionalEdges("planner", (state) => routeAfterPlanner(config, state), {
       planner: "planner",
+      studyGuideContent: "studyGuideContent",
       generator: "generator",
       resumeValidator: "resumeValidator",
       qualityReviewer: "qualityReviewer",
+      abort: END,
+    })
+    .addConditionalEdges("studyGuideContent", routeAfterStudyGuideContent, {
+      studyGuideContent: "studyGuideContent",
+      generator: "generator",
       abort: END,
     })
     .addConditionalEdges("generator", routeAfterGenerator, {
@@ -193,14 +209,23 @@ function routeAfterSource(
 function routeAfterPlanner(
   config: WebLayoutRuntimeConfig,
   state: LangGraphWebLayoutState,
-): "planner" | "generator" | "resumeValidator" | "qualityReviewer" | "abort" {
+): "planner" | "studyGuideContent" | "generator" | "resumeValidator" | "qualityReviewer" | "abort" {
   if (!state.error_log) {
     if (config.resumeRunDir && state.html_document.trim()) {
       return Object.keys(state.validation_report).length === 0 ? "resumeValidator" : "qualityReviewer";
     }
-    return "generator";
+    return config.kind === "study-guide" && Object.keys(state.study_guide_content).length === 0
+      ? "studyGuideContent"
+      : "generator";
   }
   return state.planner_retry_count >= MAX_RETRIES ? "abort" : "planner";
+}
+
+function routeAfterStudyGuideContent(
+  state: LangGraphWebLayoutState,
+): "studyGuideContent" | "generator" | "abort" {
+  if (!state.error_log) return "generator";
+  return state.content_retry_count >= MAX_RETRIES ? "abort" : "studyGuideContent";
 }
 
 function createResumeValidatorNode(config: WebLayoutRuntimeConfig) {
@@ -242,7 +267,16 @@ function createResumeValidatorNode(config: WebLayoutRuntimeConfig) {
         };
       }
       await config.diagnostics?.log("info", "validator", "Resumed bundled HTML validation passed.");
-      return { validation_report: validationReport, error_log: null };
+      return {
+        validation_report: validationReport,
+        // A persisted semantic review is repair context for the generator, not
+        // a technical validation failure. Preserve it after validating the
+        // copied build so resume does not spend another model call rediscovering
+        // the same findings.
+        error_log: state.error_log?.startsWith("Semantic quality review failed:")
+          ? state.error_log
+          : null,
+      };
     } catch (error) {
       const message = `Resumed HTML validation failed: ${error instanceof Error ? error.message : String(error)}`;
       await config.diagnostics?.log("warn", "validator", message);
@@ -282,6 +316,7 @@ async function persistRunArtifacts(config: WebLayoutRuntimeConfig, state: WebLay
   await Promise.all([
     writeFile(path.join(config.runDir, "source.txt"), state.source_text, "utf8"),
     writeJson(path.join(config.runDir, "layout-spec.json"), state.layout_spec),
+    writeJson(path.join(config.runDir, "study-guide-content.json"), state.study_guide_content),
     writeJson(path.join(config.runDir, "validation-report.json"), state.validation_report),
     writeJson(path.join(config.runDir, "state.json"), {
       ...state,
@@ -299,40 +334,111 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayoutState> {
   const resumeDir = config.resumeRunDir;
   if (!resumeDir) return initialWebLayoutState;
-  const [persistedSourceText, layoutSpec] = await Promise.all([
+  const [persistedSourceText, layoutSpec, studyGuideContent, qualityReview] = await Promise.all([
     readFile(path.join(resumeDir, "source.txt"), "utf8").catch(() => ""),
     readOptionalResumeJson(path.join(resumeDir, "layout-spec.json")),
+    readOptionalResumeJson(path.join(resumeDir, "study-guide-content.json")),
+    readOptionalResumeJson(path.join(resumeDir, "quality-review.json")),
   ]);
-  const sourceText = persistedSourceText.trim()
-    ? persistedSourceText
-    : await rebuildResumeSourceText(config, resumeDir);
-  const sourceBuildPath = await firstNonEmptyFile([
+  // A resume source.txt may contain only an earlier repair prompt. Whenever a
+  // canonical handoff or local source is configured (explicitly or inherited),
+  // rebuild from that evidence instead of trusting the stale snapshot.
+  const hasConfiguredCanonicalSource = Boolean(config.sourceRunDir || config.sourceFiles.length);
+  const sourceText = hasConfiguredCanonicalSource
+    ? await rebuildResumeSourceText(config, resumeDir)
+    : persistedSourceText.trim()
+      ? persistedSourceText
+      : await rebuildResumeSourceText(config, resumeDir);
+  const sourceBuildPath = await newestNonEmptyFile([
     path.join(resumeDir, ".build", "document.html"),
     path.join(resumeDir, "document.html"),
+    path.join(resumeDir, ".repair", "document.html"),
   ]);
   if (!sourceBuildPath) {
     throw new Error(`Resume run has no non-empty validated HTML build: ${resumeDir}`);
   }
   const htmlDocument = await readFile(sourceBuildPath, "utf8");
+  const resumeLayoutSpec = hasLayoutSpec(layoutSpec)
+    ? layoutSpec
+    : recoveredResumeLayoutSpec(config, htmlDocument);
   const targetBuildPath = path.join(config.runDir, ".build", "document.html");
   await mkdir(path.dirname(targetBuildPath), { recursive: true });
   await copyFile(sourceBuildPath, targetBuildPath);
-  await config.diagnostics?.log("info", "config", `Resuming validated web-layout build from ${resumeDir}.`);
+  await config.diagnostics?.log(
+    "info",
+    "config",
+    `Resuming latest non-empty web-layout checkpoint from ${resumeDir}; it will be validated before review.`,
+  );
+  const qualityFindings = qualityReview?.ok === false && Array.isArray(qualityReview.findings)
+    ? qualityReview.findings.filter((finding): finding is string => typeof finding === "string")
+    : [];
   return {
     source_text: sourceText,
-    layout_spec: layoutSpec ?? {},
+    layout_spec: resumeLayoutSpec,
+    study_guide_content: studyGuideContent ?? {},
     html_document: htmlDocument,
     // A failed source run may contain a stale validation report for a rejected
     // candidate even though .build/document.html has already been restored to
     // the last-known-good artifact. Always validate the copied resume build so
     // quality review receives evidence for the HTML it is actually reviewing.
     validation_report: {},
-    error_log: null,
+    error_log: qualityFindings.length > 0
+      ? `Semantic quality review failed:\n- ${qualityFindings.join("\n- ")}`
+      : null,
     retry_count: 0,
     planner_retry_count: 0,
+    content_retry_count: 0,
     generator_retry_count: 0,
     validator_retry_count: 0,
     quality_retry_count: 0,
+  };
+}
+
+function hasLayoutSpec(
+  value: WebLayoutState["layout_spec"] | null,
+): value is WebLayoutState["layout_spec"] {
+  return Boolean(value && Object.keys(value).length > 0);
+}
+
+function recoveredResumeLayoutSpec(
+  config: WebLayoutRuntimeConfig,
+  htmlDocument: string,
+): WebLayoutState["layout_spec"] {
+  const title = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(htmlDocument)?.[1]
+    ?.replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "Study Buddy Lernwerkzeug";
+  const kind = config.kind === "auto" ? "reference" : config.kind;
+  return {
+    title,
+    language: config.language,
+    kind,
+    audience: config.language === "de" ? "Studierende" : "Students",
+    learningGoals: [
+      config.language === "de"
+        ? "Den vorhandenen fachlichen Umfang erhalten und gezielt reparieren"
+        : "Preserve the existing subject coverage while applying targeted repairs",
+    ],
+    sections: [{
+      id: "existing-document",
+      title,
+      purpose: config.language === "de"
+        ? "Vorhandenes validiertes Lernwerkzeug fortsetzen"
+        : "Resume the existing validated learning tool",
+      interactionType: kind,
+    }],
+    requiredInteractions: [
+      config.language === "de"
+        ? "Vorhandene Interaktionen erhalten und beanstandete Funktionen reparieren"
+        : "Preserve existing interactions and repair reported failures",
+    ],
+    dataModel: {},
+    designDirection: "Preserve the existing Study Buddy design and information architecture.",
+    accessibilityNotes: [
+      config.language === "de"
+        ? "Vorhandene Tastaturbedienung, Fokuszustände und mobile Darstellung erhalten"
+        : "Preserve keyboard access, focus states, and mobile behavior",
+    ],
   };
 }
 
@@ -350,7 +456,7 @@ async function rebuildResumeSourceText(
   await config.diagnostics?.log(
     "info",
     "source",
-    `Reconstructed resume source from configured local handoff/files because ${resumeDir}/source.txt was empty.`,
+    `Reconstructed resume source from configured local handoff/files; stale or empty ${resumeDir}/source.txt was not used as canonical evidence.`,
   );
   return result.source_text;
 }
@@ -366,13 +472,17 @@ async function readOptionalResumeJson(
     : null;
 }
 
-async function firstNonEmptyFile(filePaths: string[]): Promise<string | null> {
-  for (const filePath of filePaths) {
-    if (await fileExistsAndNonEmpty(filePath)) return filePath;
-  }
-  return null;
+async function newestNonEmptyFile(filePaths: string[]): Promise<string | null> {
+  const candidates = await Promise.all(filePaths.map(async (filePath, priority) => {
+    const fileStat = await stat(filePath).catch(() => null);
+    return fileStat?.isFile() && fileStat.size > 0
+      ? { filePath, mtimeMs: fileStat.mtimeMs, priority }
+      : null;
+  }));
+  return candidates
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || a.priority - b.priority)[0]?.filePath ?? null;
 }
-
 
 async function fileExistsAndNonEmpty(filePath: string): Promise<boolean> {
   const fileStat = await stat(filePath).catch(() => null);
