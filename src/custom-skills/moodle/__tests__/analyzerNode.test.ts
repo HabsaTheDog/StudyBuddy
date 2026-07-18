@@ -8,11 +8,54 @@ import {
   type CodexClient,
 } from "../codexClient.js";
 import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.js";
-import { createAnalyzerNode } from "../nodes/analyzerNode.js";
+import { buildChapterFragmentPrompt, createAnalyzerNode } from "../nodes/analyzerNode.js";
 import { StudyBuddyTimeoutError } from "../runtimeAbort.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
+  it("hands selected page image paths to the model for direct visual reading", () => {
+    const prompt = buildChapterFragmentPrompt(
+      moodleTestConfig({ prompt: "Create an English dynamics guide" }),
+      moodleTestState(),
+      {
+        key: "kinematics",
+        title: "Vector kinematics",
+        resourceIds: ["res_example"],
+        matchTerms: ["vector", "kinematics"],
+        contentMode: "quantitative",
+      },
+      { key: "example", label: "Example", resourceIds: ["res_example"], records: [] },
+      0,
+      1,
+      {
+        tooling: { pdfinfo: true, pdftotext: true, pdftoppm: true, pdfimages: true, magick: true },
+        warnings: [],
+        candidates: [{
+          id: "page-image",
+          kind: "moodle_pdf_page",
+          title: "Worked example page",
+          relative_path: "assets/visuals/example-page-1.png",
+          mime_type: "image/png",
+          width_px: 1200,
+          height_px: 1600,
+          source_id: "res_example",
+          source_url: null,
+          source_path: "/tmp/example.pdf",
+          source_page: 1,
+          confidence: 1,
+          caption_hint: "Example page",
+          relevance_reason: "Selected worked example",
+          generation_prompt: null,
+        }],
+      },
+      [{ resourceId: "res_example", pages: [1], purpose: "worked_example", priority: "high", placementHint: "chapter", reason: "read values" }],
+    );
+
+    expect(prompt).toContain("assets/visuals/example-page-1.png");
+    expect(prompt).toContain("inspiziere die lokalen Bilddateien");
+    expect(prompt).toContain("in English");
+  });
+
   it("parses Codex JSON, validates defaults, and passes the schema hint", async () => {
     let receivedPrompt = "";
     let receivedSchema: unknown;
@@ -223,7 +266,106 @@ describe("analyzerNode", () => {
     }
   });
 
-  it("splits a dense chapter into bounded theory and paired practice fragments", async () => {
+  it("regenerates only the cached fragment containing a formula with incomplete metadata", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-formula-repair-"));
+    try {
+      const prompts: string[] = [];
+      let repairPass = false;
+      const codex: CodexClient = {
+        async run(prompt) {
+          prompts.push(prompt);
+          const impulse = prompt.includes("Impulssatz");
+          const formulaName = impulse ? "Impulssatz" : "Erlösfunktion";
+          return JSON.stringify({
+            sections: [{
+              heading: formulaName,
+              summary: `${formulaName} wird mit Voraussetzungen und Kontrolle erklärt.`,
+              key_concepts: [formulaName],
+              source_ids: [impulse ? "res_impulse" : "res_revenue"],
+            }],
+            formulas: [{
+              name: formulaName,
+              typst: impulse ? "dot(P) = sum F" : "E = p q",
+              variables: impulse ? ["P: Impuls", "F: äußere Kraft"] : ["E: Erlös", "p: Preis", "q: Menge"],
+              units: impulse && !repairPass ? [] : [impulse ? "P: kg m/s; F: N" : "E: EUR; p: EUR/Stück; q: Stück"],
+              context: impulse ? "Abgeschlossenes System mit äußeren Kräften." : "Konstanter Stückpreis.",
+              source_ids: [impulse ? "res_impulse" : "res_revenue"],
+            }],
+            worked_examples: [{
+              origin: "derived",
+              learning_goal: `${formulaName} anwenden`,
+              prompt: `${formulaName} anhand gegebener Werte anwenden.`,
+              steps: ["Größen mit Einheiten erfassen", "Formel einsetzen", "Ergebnis kontrollieren"],
+              result: "Das Ergebnis ist mit Einheit und Kontrolle dokumentiert.",
+              source_ids: [impulse ? "res_impulse" : "res_revenue"],
+            }],
+            figures: [],
+            warnings: [],
+          });
+        },
+      };
+      const resources = [
+        chapterResource("impulse", "Impulssatz", "Dynamik", "primary_lecture"),
+        chapterResource("revenue", "Erlösfunktion", "Wirtschaft", "primary_lecture"),
+      ];
+      const evidenceRecords = resources.flatMap((resource) =>
+        Array.from({ length: 19 }, (_, index) => ({
+          id: `${resource.id}_${index}`,
+          resourceId: resource.id,
+          kind: "claim" as const,
+          locator: { page: index + 1 },
+          content: `${resource.title} Formel Definition Beispiel ${index}`,
+          confidence: 1,
+          pairId: null,
+          sourceUrl: resource.originUrl,
+          localPath: resource.localPath,
+        }))
+      );
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      });
+      const baseState = moodleTestState({
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources,
+        },
+        evidence_package: {
+          schemaVersion: "1.0",
+          generatedAt: new Date().toISOString(),
+          records: evidenceRecords,
+          warnings: [],
+        },
+      });
+
+      await createAnalyzerNode(config, codex)(baseState);
+      const firstPassCalls = prompts.length;
+      repairPass = true;
+      const repaired = await createAnalyzerNode(config, codex)({
+        ...baseState,
+        error_log: "Student-first review failed:\n- Formula metadata incomplete: Impulssatz",
+        retry_count: 1,
+      });
+
+      expect(prompts).toHaveLength(firstPassCalls + 1);
+      expect(prompts.at(-1)).toContain("Formula metadata incomplete: Impulssatz");
+      expect(prompts.at(-1)).toContain("non-empty variables, units, and context metadata");
+      expect(repaired.error_log).toBeNull();
+      const formulas = (repaired.extracted_data as {
+        formulas: Array<{ name: string; units: string[] }>;
+      } | undefined)?.formulas;
+      expect(formulas).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "Impulssatz", units: ["P: kg m/s; F: N"] }),
+      ]));
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
+  it("packs bounded theory and paired practice evidence into one dense-chapter call", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-dense-chapter-"));
     try {
       const schemas: unknown[] = [];
@@ -317,14 +459,13 @@ describe("analyzerNode", () => {
         },
       }));
 
-      expect(schemas.slice(0, 2)).toEqual([chapterFragmentJsonSchema, chapterFragmentJsonSchema]);
-      expect(schemas[2]).toBe(extractedDataJsonSchema);
+      expect(schemas[0]).toBe(chapterFragmentJsonSchema);
+      expect(schemas[1]).toBe(extractedDataJsonSchema);
       expect(prompts.some((prompt) => prompt.includes("Foliensatz: Toleranzen – Theorieblock"))).toBe(true);
       expect(prompts.some((prompt) => prompt.includes("Angabe A – Anwendungsblock"))).toBe(true);
       expect(result.error_log).toBeNull();
       expect(result.extracted_data).toMatchObject({
         sections: [
-          { heading: "Toleranzgrundlagen" },
           { heading: "H7/k6 nachschlagen" },
           { heading: "Kleben" },
         ],
@@ -396,19 +537,30 @@ describe("analyzerNode", () => {
             quiz_style_questions: [],
             visual_assets: [],
             figures: [],
-            learning_modules: [],
+            learning_modules: [{
+              id: "model-invented-session",
+              title: "Präsenz 15",
+              priority: "supplementary",
+              content_mode: "conceptual",
+              learning_objectives: [],
+              assessment_signals: [],
+              resource_ids: ["res_case"],
+            }],
             warnings: [],
           });
         },
       };
       const mathUrl = "https://moodle.example/math.pdf";
       const caseUrl = "https://moodle.example/case.pdf";
+      const referenceUrl = "https://moodle.example/course-reference.pdf";
       const resources = [
         chapterResource("math", "Differentialgleichungen", "Präsenz 15", "primary_lecture"),
         chapterResource("case", "Clinical cases", "Präsenz 15", "primary_lecture"),
+        chapterResource("reference", "Course-wide reference", "Präsenz 15", "primary_lecture"),
       ].map((resource, index) => ({
         ...resource,
-        originUrl: index === 0 ? mathUrl : caseUrl,
+        originUrl: index === 0 ? mathUrl : index === 1 ? caseUrl : referenceUrl,
+        selection: index === 2 ? { ...resource.selection!, role: "external_reference" as const } : resource.selection,
       }));
       const denseMathEvidence = Array.from({ length: 80 }, (_, index) => ({
         id: `ev_math_${index}`,
@@ -425,7 +577,7 @@ describe("analyzerNode", () => {
         runDir,
         runtimeCacheDir: path.join(runDir, "runtime-cache"),
         executionProfile: "balanced",
-        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "interactive_learning" },
       });
       const state = moodleTestState({
         source_architect_decision: {
@@ -454,7 +606,12 @@ describe("analyzerNode", () => {
               assessmentSignals: ["Fallprüfung"],
               resourceUrls: [caseUrl],
             }],
-            supportResources: [],
+            supportResources: [{
+              id: "course-reference",
+              title: "Course-wide reference",
+              purpose: "general_reference",
+              resourceUrls: [referenceUrl],
+            }],
             excludedResourceUrls: [],
           },
         },
@@ -477,6 +634,16 @@ describe("analyzerNode", () => {
             pairId: null,
             sourceUrl: caseUrl,
             localPath: "/tmp/case.pdf",
+          }, {
+            id: "ev_reference",
+            resourceId: "res_reference",
+            kind: "claim" as const,
+            locator: { page: 1 },
+            content: "GLOBAL_REFERENCE_SENTINEL with course-wide explanatory material.",
+            confidence: 1,
+            pairId: null,
+            sourceUrl: referenceUrl,
+            localPath: "/tmp/reference.pdf",
           }],
           warnings: [],
         },
@@ -485,9 +652,11 @@ describe("analyzerNode", () => {
       const result = await createAnalyzerNode(config, codex)(state);
       const fragmentPrompts = prompts.filter((prompt) => prompt.includes("Teil "));
 
-      expect(fragmentPrompts.length).toBeLessThanOrEqual(6);
+      expect(fragmentPrompts.length).toBeLessThanOrEqual(2);
       expect(prompts.some((prompt) => prompt.includes("Lernmodus: quantitative"))).toBe(true);
       expect(prompts.some((prompt) => prompt.includes("Learning mode: case_based"))).toBe(true);
+      expect(prompts.filter((prompt) => prompt.includes("GLOBAL_REFERENCE_SENTINEL")).length)
+        .toBeGreaterThanOrEqual(2);
       expect(result.error_log).toBeNull();
       expect(result.extracted_data).toMatchObject({
         learning_modules: [

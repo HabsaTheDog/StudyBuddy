@@ -49,6 +49,8 @@ export interface MoodleGraphInput {
   idleTimeoutMs?: number;
   stage?: PipelineStage;
   sourceRunDir?: string;
+  /** Re-run normalization and extraction quality gates from a persisted handoff without crawling sources. */
+  resumeExtractionRunDir?: string;
   includeCis?: boolean;
   sourceMode?: SourceMode;
   downloadConcurrency?: number;
@@ -123,6 +125,7 @@ export interface MoodleRuntimeConfig {
   idleTimeoutMs: number;
   stage: PipelineStage;
   sourceRunDir?: string;
+  resumeExtractionRunDir?: string;
   includeCis: boolean;
   sourceMode: SourceMode;
   downloadConcurrency: number;

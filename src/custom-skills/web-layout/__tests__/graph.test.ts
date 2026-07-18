@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -68,7 +68,7 @@ describe("web layout graph", () => {
 
     expect(result.ok).toBe(false);
     expect(result.state.retry_count).toBe(3);
-    expect(result.error).toContain("HTML validation failed");
+    expect(result.error).toContain("incomplete document");
   });
 
   it("keeps validator and semantic quality retry budgets independent", async () => {
@@ -165,9 +165,189 @@ describe("web layout graph", () => {
     expect(resumed.ok).toBe(true);
     expect(resumed.runDir).toContain(path.join(workspace, "output", "resume-target"));
     expect(sourceCalls).toBe(0);
-    expect(plannerCalls).toBe(1);
+    expect(plannerCalls).toBe(0);
     expect(generatorCalls).toBe(0);
     expect(qualityCalls).toBe(1);
+  });
+
+  it("resumes a persisted failed quality review directly at generator repair", async () => {
+    const workspace = await tempWorkspace();
+    const first = await runWebLayoutGraph(
+      {
+        prompt: "Build flashcards",
+        kind: "flashcards",
+        requestName: "resume-quality-source",
+        skipBrowserValidation: true,
+      },
+      {
+        sourceNode: async () => ({ source_text: "source", error_log: null }),
+        plannerNode: async () => ({ layout_spec: validLayoutSpec(), error_log: null }),
+        generatorNode: async () => ({
+          html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" }),
+          error_log: null,
+        }),
+        qualityReviewerNode: async () => ({ error_log: null }),
+      },
+    );
+    await writeFile(path.join(first.runDir, "quality-review.json"), JSON.stringify({
+      ok: false,
+      summary: "Needs repair",
+      findings: ["Persist answers."],
+    }), "utf8");
+
+    let generatorCalls = 0;
+    let receivedRepair = "";
+    const resumed = await runWebLayoutGraph(
+      {
+        prompt: "Resume flashcards",
+        kind: "flashcards",
+        requestName: "resume-quality-target",
+        resumeRunDir: first.runDir,
+        skipBrowserValidation: true,
+      },
+      {
+        generatorNode: async (state) => {
+          generatorCalls += 1;
+          receivedRepair = state.error_log ?? "";
+          return {
+            html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" }),
+            error_log: null,
+          };
+        },
+        qualityReviewerNode: async () => ({ error_log: null }),
+      },
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(generatorCalls).toBe(1);
+    expect(receivedRepair).toContain("Persist answers.");
+    expect(resumed.runDir).toContain(path.join(workspace, "output", "resume-quality-target"));
+  });
+
+  it("resumes the latest repaired checkpoint instead of repeating edits from the older build", async () => {
+    const workspace = await tempWorkspace();
+    const resumeDir = path.join(workspace, "output", "repair-checkpoint", "run");
+    const buildPath = path.join(resumeDir, ".build", "document.html");
+    const repairPath = path.join(resumeDir, ".repair", "document.html");
+    await mkdir(path.join(resumeDir, ".build"), { recursive: true });
+    await mkdir(path.join(resumeDir, ".repair"), { recursive: true });
+    await writeFile(path.join(resumeDir, "source.txt"), "source", "utf8");
+    await writeFile(path.join(resumeDir, "layout-spec.json"), `${JSON.stringify(validLayoutSpec())}\n`, "utf8");
+    await writeFile(
+      buildPath,
+      minimalValidStudyBuddyHtml({ title: "OLDER BUILD", kind: "flashcards", language: "de" }),
+      "utf8",
+    );
+    await writeFile(
+      repairPath,
+      minimalValidStudyBuddyHtml({ title: "LATEST REPAIR", kind: "flashcards", language: "de" }),
+      "utf8",
+    );
+    await utimes(buildPath, new Date(1_000), new Date(1_000));
+    await utimes(repairPath, new Date(2_000), new Date(2_000));
+    let reviewedHtml = "";
+
+    const resumed = await runWebLayoutGraph(
+      {
+        prompt: "Resume repaired checkpoint",
+        kind: "flashcards",
+        requestName: "repair-checkpoint-target",
+        resumeRunDir: resumeDir,
+        skipBrowserValidation: true,
+      },
+      {
+        qualityReviewerNode: async (state) => {
+          reviewedHtml = state.html_document;
+          return { error_log: null };
+        },
+      },
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(reviewedHtml).toContain("LATEST REPAIR");
+    expect(reviewedHtml).not.toContain("OLDER BUILD");
+  });
+
+  it("prefers a newer bundled build over an older editable repair with local assets", async () => {
+    const workspace = await tempWorkspace();
+    const resumeDir = path.join(workspace, "output", "bundled-checkpoint", "run");
+    const repairPath = path.join(resumeDir, ".repair", "document.html");
+    const buildPath = path.join(resumeDir, ".build", "document.html");
+    await mkdir(path.dirname(repairPath), { recursive: true });
+    await mkdir(path.dirname(buildPath), { recursive: true });
+    await writeFile(path.join(resumeDir, "source.txt"), "source", "utf8");
+    await writeFile(path.join(resumeDir, "layout-spec.json"), `${JSON.stringify(validLayoutSpec())}\n`, "utf8");
+    await writeFile(
+      repairPath,
+      minimalValidStudyBuddyHtml({ title: "EDITABLE REPAIR", kind: "flashcards", language: "de" })
+        .replace("</main>", '<img src="assets/logo.png" alt="Study Buddy"></main>'),
+      "utf8",
+    );
+    await writeFile(
+      buildPath,
+      minimalValidStudyBuddyHtml({ title: "LATEST BUNDLED BUILD", kind: "flashcards", language: "de" }),
+      "utf8",
+    );
+    await utimes(repairPath, new Date(1_000), new Date(1_000));
+    await utimes(buildPath, new Date(2_000), new Date(2_000));
+    let reviewedHtml = "";
+
+    const resumed = await runWebLayoutGraph(
+      {
+        prompt: "Resume bundled checkpoint",
+        kind: "flashcards",
+        requestName: "bundled-checkpoint-target",
+        resumeRunDir: resumeDir,
+        skipBrowserValidation: true,
+      },
+      {
+        qualityReviewerNode: async (state) => {
+          reviewedHtml = state.html_document;
+          return { error_log: null };
+        },
+      },
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(reviewedHtml).toContain("LATEST BUNDLED BUILD");
+    expect(reviewedHtml).not.toContain("EDITABLE REPAIR");
+  });
+
+  it("rebuilds resume evidence from configured sources instead of stale repair text", async () => {
+    const workspace = await tempWorkspace();
+    const resumeDir = path.join(workspace, "output", "source-priority", "run");
+    const sourceFile = path.join(workspace, "canonical-notes.txt");
+    await mkdir(path.join(resumeDir, ".build"), { recursive: true });
+    await writeFile(sourceFile, "CANONICAL SOURCE EVIDENCE", "utf8");
+    await writeFile(path.join(resumeDir, "source.txt"), "STALE REPAIR PROMPT", "utf8");
+    await writeFile(
+      path.join(resumeDir, ".build", "document.html"),
+      minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" }),
+      "utf8",
+    );
+    await writeFile(path.join(resumeDir, "layout-spec.json"), `${JSON.stringify(validLayoutSpec())}\n`, "utf8");
+    let reviewedSource = "";
+
+    const resumed = await runWebLayoutGraph(
+      {
+        prompt: "Repair with canonical evidence",
+        kind: "flashcards",
+        requestName: "source-priority-target",
+        resumeRunDir: resumeDir,
+        sourceFiles: [sourceFile],
+        skipBrowserValidation: true,
+      },
+      {
+        qualityReviewerNode: async (state) => {
+          reviewedSource = state.source_text;
+          return { error_log: null };
+        },
+      },
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(reviewedSource).toContain("CANONICAL SOURCE EVIDENCE");
+    expect(reviewedSource).not.toContain("STALE REPAIR PROMPT");
   });
 });
 

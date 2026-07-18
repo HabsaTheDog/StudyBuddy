@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { prepareWebLayoutArtifact } from "../assetPipeline.js";
 import { validateWebLayoutFile, validationReportToJson } from "../validation.js";
@@ -8,6 +8,27 @@ import type { WebLayoutKind, WebLayoutRuntimeConfig } from "../types.js";
 
 export function createValidatorNode(config: WebLayoutRuntimeConfig) {
   return async function validatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
+    if (!isCompleteHtmlCandidate(state.html_document)) {
+      const message = "HTML generator returned prose or an incomplete document; preserved the existing source workspace and build.";
+      await config.diagnostics?.log("warn", "validator", message);
+      return {
+        validation_report: { ok: false, issues: [{ code: "incomplete-generator-output", message }] },
+        error_log: message,
+        retry_count: state.retry_count + 1,
+        validator_retry_count: state.validator_retry_count + 1,
+      };
+    }
+    const contentCoverageIssues = validateStudyGuideRenderCoverage(state.html_document, state.study_guide_content);
+    if (effectiveKind(config.kind, state) === "study-guide" && contentCoverageIssues.length > 0) {
+      const message = `Study-guide render coverage failed:\n- ${contentCoverageIssues.join("\n- ")}`;
+      await config.diagnostics?.log("warn", "validator", message);
+      return {
+        validation_report: { ok: false, issues: contentCoverageIssues.map((entry) => ({ code: "study-guide-content-coverage", message: entry })) },
+        error_log: message,
+        retry_count: state.retry_count + 1,
+        validator_retry_count: state.validator_retry_count + 1,
+      };
+    }
     const backupPath = await backupExistingBuild(config.runDir);
     let prepared;
     try {
@@ -21,7 +42,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         await config.diagnostics?.log("warn", "bundle", warning);
       }
     } catch (error) {
-      await restorePreviousBuild(backupPath, config.runDir);
+      const restoredHtml = await restorePreviousBuild(backupPath, config.runDir);
       const message = `Artifact preparation failed: ${error instanceof Error ? error.message : String(error)}`;
       await config.diagnostics?.log("warn", "bundle", message);
       return {
@@ -29,6 +50,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         error_log: message,
         retry_count: state.retry_count + 1,
         validator_retry_count: state.validator_retry_count + 1,
+        ...(restoredHtml ? { html_document: restoredHtml } : {}),
       };
     }
     let report;
@@ -44,7 +66,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         },
       );
     } catch (error) {
-      await restorePreviousBuild(backupPath, config.runDir);
+      const restoredHtml = await restorePreviousBuild(backupPath, config.runDir);
       const message = `Browser validation failed: ${error instanceof Error ? error.message : String(error)}`;
       await config.diagnostics?.log("warn", "validator", message);
       return {
@@ -56,6 +78,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         error_log: message,
         retry_count: state.retry_count + 1,
         validator_retry_count: state.validator_retry_count + 1,
+        ...(restoredHtml ? { html_document: restoredHtml } : {}),
       };
     }
     const validationReport: JsonObject = {
@@ -63,7 +86,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
       artifact: artifactSummary(prepared.report),
     };
     if (!report.ok) {
-      await restorePreviousBuild(backupPath, config.runDir);
+      const restoredHtml = await restorePreviousBuild(backupPath, config.runDir);
       const message = `HTML validation failed:\n- ${report.issues.map((entry) => entry.message).join("\n- ")}`;
       await config.diagnostics?.log("warn", "validator", message);
       return {
@@ -71,6 +94,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         error_log: message,
         retry_count: state.retry_count + 1,
         validator_retry_count: state.validator_retry_count + 1,
+        ...(restoredHtml ? { html_document: restoredHtml } : {}),
       };
     }
     await config.diagnostics?.log("info", "validator", "HTML validation passed.");
@@ -79,6 +103,38 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
       error_log: null,
     };
   };
+}
+
+export function validateStudyGuideRenderCoverage(html: string, content: JsonObject): string[] {
+  const topics = Array.isArray(content.topics) ? content.topics : [];
+  if (topics.length === 0) return ["The canonical study-guide content bank is missing."];
+  const records = topics.filter(isJsonObject);
+  const exercises = records.flatMap((topic) => Array.isArray(topic.exercises) ? topic.exercises : [])
+    .filter(isJsonObject);
+  const missingIds = exercises
+    .map((exercise) => typeof exercise.id === "string" ? exercise.id : "")
+    .filter((id) => id && !html.includes(id));
+  const issues: string[] = [];
+  if (missingIds.length > 0) issues.push(`The rendered artifact omits ${missingIds.length} canonical exercise IDs (for example ${missingIds.slice(0, 3).join(", ")}).`);
+  if (!/data-sb-cross-exercise/i.test(html)) issues.push("The renderer does not expose the standardized Kreuzerl block marker.");
+  if (!/data-sb-calculation-exercise/i.test(html)) issues.push("The renderer does not expose the standardized calculation block marker.");
+  if (/function\s+(?:qs|calc|makeQuestion)\s*\(/i.test(html)) issues.push("Generic exercise factory functions are forbidden; render the canonical content records directly.");
+  if (/<math\b[^>]*>[\s\S]{0,120}<mtext>[^<]*(?:[=+\-*/^]|lim|int|sqrt)[^<]*<\/mtext>/i.test(html)) issues.push("A mathematical expression is flattened into mtext instead of structured MathML.");
+  return issues;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && !Array.isArray(value) && typeof value === "object";
+}
+
+function isCompleteHtmlCandidate(html: string): boolean {
+  const trimmed = html.trim();
+  return /^<!doctype html>/i.test(trimmed) &&
+    /<html\b/i.test(trimmed) &&
+    /<head\b/i.test(trimmed) &&
+    /<body\b/i.test(trimmed) &&
+    /<style\b[^>]*>[\s\S]*?<\/style>/i.test(trimmed) &&
+    /<script\b[^>]*>[\s\S]*?<\/script>/i.test(trimmed);
 }
 
 async function backupExistingBuild(runDir: string): Promise<string | null> {
@@ -91,9 +147,11 @@ async function backupExistingBuild(runDir: string): Promise<string | null> {
   return backupPath;
 }
 
-async function restorePreviousBuild(backupPath: string | null, runDir: string): Promise<void> {
-  if (!backupPath) return;
+async function restorePreviousBuild(backupPath: string | null, runDir: string): Promise<string | null> {
+  if (!backupPath) return null;
+  const html = await readFile(backupPath, "utf8");
   await copyFile(backupPath, path.join(runDir, ".build", "document.html"));
+  return html;
 }
 
 function artifactSummary(report: WebLayoutArtifactReport): JsonObject {
@@ -115,6 +173,7 @@ function artifactSummary(report: WebLayoutArtifactReport): JsonObject {
 function effectiveKind(fallback: WebLayoutKind, state: LangGraphWebLayoutState): WebLayoutKind {
   const kind = state.layout_spec.kind;
   if (
+    kind === "study-guide" ||
     kind === "flashcards" ||
     kind === "concept-visualization" ||
     kind === "simulation" ||

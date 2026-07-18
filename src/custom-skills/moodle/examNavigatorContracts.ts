@@ -183,7 +183,10 @@ export const StudyFormulaSchema = z.object({
   name: z.string().min(1),
   expression: z.string().min(1),
   variables: z.array(z.string().min(1)).min(1),
-  units: z.array(z.string().min(1)).min(1),
+  // Pure mathematics and other dimensionless domains legitimately have no
+  // physical unit. Keep units explicit when present without discarding valid
+  // formulas solely because the array is empty.
+  units: z.array(z.string().min(1)),
   assumptions: z.string().min(1),
   sourceIds: z.array(z.string().min(1)).min(1),
 });

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
@@ -6,6 +6,9 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 const MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_HANDOFF_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_COMBINED_SOURCE_BYTES = 50 * 1024 * 1024;
+const MAX_PRACTICE_FILE_BYTES = 160 * 1024;
+const MAX_PRACTICE_CORPUS_BYTES = 750 * 1024;
+const PRACTICE_FILE_PATTERN = /(?:minitest|quiz|test|lösung|loesung|übungs|uebungs|worksheet|practice|example|assignment)/i;
 
 export function createSourceNode(config: WebLayoutRuntimeConfig) {
   return async function sourceNode(): Promise<Partial<LangGraphWebLayoutState>> {
@@ -77,6 +80,7 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     evidencePackage,
     studyModel,
     reviewReport,
+    practiceCorpus,
   ] = await Promise.all([
     readRequired(path.join(sourceRunDir, "run-summary.md")),
     readRequired(path.join(sourceRunDir, "error.log")),
@@ -87,6 +91,7 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     readOptional(path.join(sourceRunDir, "evidence-package.json")),
     readOptional(path.join(sourceRunDir, "study-model.json")),
     readOptional(path.join(sourceRunDir, "review-report.json")),
+    readPracticeCorpus(sourceRunDir),
   ]);
   if (!/^Run status:\s*(?:success|partial)$/m.test(summary)) {
     throw new Error(`Moodle handoff is not a successful extraction run: ${sourceRunDir}`);
@@ -109,11 +114,56 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     "## Extracted data",
     extractedData.trim(),
     sourceMap ? `## Resource graph\n${sourceMap.trim()}` : "",
-    evidencePackage ? `## Evidence package\n${evidencePackage.trim()}` : "",
+    evidencePackage ? `## Evidence package summary\n${summarizeEvidencePackage(evidencePackage)}` : "",
     studyModel ? `## Validated study model\n${studyModel.trim()}` : "",
     reviewReport ? `## Student-first review\n${reviewReport.trim()}` : "",
+    practiceCorpus ? `## Full extracted practice corpus\n${practiceCorpus}` : "",
     studyModel ? "" : `## Raw source text\n${rawText.trim()}`,
   ].join("\n\n");
+}
+
+async function readPracticeCorpus(sourceRunDir: string): Promise<string> {
+  const sourcesDir = path.join(sourceRunDir, "sources");
+  const entries = await readdir(sourcesDir, { withFileTypes: true }).catch(() => []);
+  const candidates = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".extracted.txt") && PRACTICE_FILE_PATTERN.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b, "de"));
+  const chunks: string[] = [];
+  let totalBytes = 0;
+  for (const name of candidates) {
+    const filePath = path.join(sourcesDir, name);
+    const details = await stat(filePath).catch(() => null);
+    if (!details?.isFile() || details.size === 0 || details.size > MAX_PRACTICE_FILE_BYTES) continue;
+    if (totalBytes + details.size > MAX_PRACTICE_CORPUS_BYTES) break;
+    const text = (await readFile(filePath, "utf8")).trim();
+    if (!text) continue;
+    chunks.push(`### Practice source: ${name}\n${text}`);
+    totalBytes += details.size;
+  }
+  return chunks.join("\n\n");
+}
+
+function summarizeEvidencePackage(value: string): string {
+  const parsed = JSON.parse(value) as {
+    records?: Array<{ kind?: unknown; resourceId?: unknown }>;
+    warnings?: unknown[];
+  };
+  const records = Array.isArray(parsed.records) ? parsed.records : [];
+  const byKind: Record<string, number> = {};
+  const resourceIds = new Set<string>();
+  for (const record of records) {
+    const kind = typeof record.kind === "string" ? record.kind : "unknown";
+    byKind[kind] = (byKind[kind] ?? 0) + 1;
+    if (typeof record.resourceId === "string") resourceIds.add(record.resourceId);
+  }
+  return JSON.stringify({
+    recordCount: records.length,
+    resourceCount: resourceIds.size,
+    byKind,
+    warningCount: Array.isArray(parsed.warnings) ? parsed.warnings.length : 0,
+    note: "Full evidence records remain in the canonical Moodle run; the web planner receives the validated extracted data, source map, and study model instead of duplicating the multi-megabyte evidence package.",
+  }, null, 2);
 }
 
 async function readRequired(filePath: string): Promise<string> {

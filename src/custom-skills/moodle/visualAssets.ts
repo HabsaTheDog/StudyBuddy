@@ -117,7 +117,12 @@ export async function discoverVisualCandidates(
         continue;
       }
       const artifactPlannedPages = artifact.resourceId ? plannedPages.get(artifact.resourceId) ?? [] : [];
-      const extracted = tooling.pdfimages
+      // `pdfimages` without a page boundary scans the complete document. On a
+      // 298-page script this created hundreds of temporary images even though
+      // the visual planner had requested only a few pages. Embedded extraction
+      // is therefore restricted to explicitly planned pages; page screenshots
+      // remain the deterministic fallback for every PDF.
+      const extracted = tooling.pdfimages && artifactPlannedPages.length > 0
         ? await extractEmbeddedPdfImages({
             pdfPath: visualPath,
             resourceId: artifact.resourceId,
@@ -785,22 +790,35 @@ async function extractEmbeddedPdfImages(input: {
   hasMagick: boolean;
 }): Promise<VisualCandidate[]> {
   const baseName = safeFileName(path.basename(input.pdfPath, ".pdf"));
-  const prefix = path.join(
-    input.visualDir,
-    safeFileName(`${input.startIndex + 1}-${baseName}-embedded`),
-  );
-  const result = await runCommand("pdfimages", [
-    "-png",
-    "-j",
-    "-p",
-    "-print-filenames",
-    input.pdfPath,
-    prefix,
-  ]);
-  if (result.code !== 0) {
-    throw new Error(result.stderr || result.stdout || `pdfimages exited with code ${result.code}`);
+  const plannedPages = [...new Set(input.plannedPages)]
+    .filter((page) => Number.isInteger(page) && page > 0)
+    .sort((left, right) => left - right)
+    .slice(0, 12);
+  if (plannedPages.length === 0) return [];
+  const outputs: string[] = [];
+  for (const page of plannedPages) {
+    const prefix = path.join(
+      input.visualDir,
+      safeFileName(`${input.startIndex + 1}-${baseName}-embedded-page-${page}`),
+    );
+    const result = await runCommand("pdfimages", [
+      "-png",
+      "-j",
+      "-p",
+      "-print-filenames",
+      "-f",
+      String(page),
+      "-l",
+      String(page),
+      input.pdfPath,
+      prefix,
+    ]);
+    if (result.code !== 0) {
+      throw new Error(result.stderr || result.stdout || `pdfimages exited with code ${result.code}`);
+    }
+    outputs.push(result.stdout);
   }
-  const files = result.stdout
+  const files = outputs.join("\n")
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
@@ -851,15 +869,19 @@ async function extractEmbeddedPdfImages(input: {
       page: page ? Number(page) : null,
     });
   }
-  const planned = new Set(input.plannedPages);
-  return ranked
+  const planned = new Set(plannedPages);
+  const selected = ranked
     .sort((left, right) =>
       Number(planned.has(right.page ?? -1)) - Number(planned.has(left.page ?? -1)) ||
       ((right.width ?? 0) * (right.height ?? 0) || right.size) -
       ((left.width ?? 0) * (left.height ?? 0) || left.size)
     )
-    .slice(0, input.maxImages)
-    .map((image, offset) => {
+    .slice(0, input.maxImages);
+  const selectedPaths = new Set(selected.map((image) => image.filePath));
+  await Promise.all(ranked
+    .filter((image) => !selectedPaths.has(image.filePath))
+    .map((image) => rm(image.filePath, { force: true })));
+  return selected.map((image, offset) => {
       const fileName = path.basename(image.filePath);
       const extension = path.extname(fileName).toLowerCase();
       return {

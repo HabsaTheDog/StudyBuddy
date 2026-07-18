@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.8";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.10-resumable-pdf";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -49,10 +49,10 @@ const PROFILE_POLICIES: Record<
     content_analyzer: {
       model: "gpt-5.6-luna",
       reasoningEffort: "medium",
-      timeoutMs: 2 * 60_000,
+      timeoutMs: 90_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "medium",
-      escalationTimeoutMs: 3 * 60_000,
+      escalationTimeoutMs: 90_000,
     },
     quiz_solver: {
       model: "gpt-5.6-terra",
@@ -90,11 +90,13 @@ const PROFILE_POLICIES: Record<
     },
     content_analyzer: {
       model: "gpt-5.6-luna",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
+      // Luna high-effort requests can remain queued without token usage on the
+      // current runtime. Medium is the validated low-latency operating point.
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
       escalationModel: "gpt-5.6-terra",
       escalationEffort: "high",
-      escalationTimeoutMs: 6 * 60_000,
+      escalationTimeoutMs: 90_000,
     },
     quiz_solver: {
       model: "gpt-5.6-luna",
@@ -131,12 +133,15 @@ const PROFILE_POLICIES: Record<
       escalationTimeoutMs: 3 * 60_000,
     },
     content_analyzer: {
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      // A study guide is analyzed chapter-by-chapter with bounded evidence.
+      // Luna keeps the normal path inside the PDF workflow budget; a failed
+      // validation still escalates to Terra for the targeted chapter only.
+      model: "gpt-5.6-luna",
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-5.6-terra",
       escalationEffort: "medium",
-      escalationTimeoutMs: 3 * 60_000,
+      escalationTimeoutMs: 90_000,
     },
     quiz_solver: {
       model: "gpt-5.6-terra",
@@ -155,12 +160,12 @@ const PROFILE_POLICIES: Record<
       escalationTimeoutMs: 6 * 60_000,
     },
     quality_reviewer: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 6 * 60_000,
+      model: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-5.6-terra",
+      escalationEffort: "medium",
+      escalationTimeoutMs: 2 * 60_000,
     },
   },
   quality: {

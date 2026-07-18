@@ -88,6 +88,50 @@ describe("web layout media pipeline", () => {
     expect(prepared.report.assets[0].mimeType).toBe("image/webp");
     expect(prepared.report.assets[0].optimizedBytes).toBeLessThan(prepared.report.assets[0].originalBytes);
   });
+
+  it("keeps an inline WebP available when preparing a repaired artifact", async () => {
+    const workspace = await tempWorkspace();
+    const imagePath = path.join(workspace, "inline.webp");
+    const available = await execFileAsync("magick", ["-version"]).then(() => true).catch(() => false);
+    if (!available) return;
+    await execFileAsync("magick", ["-size", "32x20", "xc:#19254b", imagePath]);
+    const dataUri = `data:image/webp;base64,${(await readFile(imagePath)).toString("base64")}`;
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Repair a guide with its embedded logo",
+      requestName: "inline-webp-repair-test",
+      skipBrowserValidation: true,
+    });
+    const html = minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" })
+      .replace("</main>", `<img src="${dataUri}" alt="Study Buddy"></main>`);
+
+    const prepared = await prepareWebLayoutArtifact(html, config);
+    const finalHtml = await readFile(prepared.report.buildPath, "utf8");
+
+    expect(prepared.report.assets).toHaveLength(1);
+    expect(prepared.report.assets[0].mimeType).toBe("image/webp");
+    expect(prepared.report.assets[0].convertedToWebp).toBe(false);
+    expect(finalHtml).toContain("data:image/webp;base64,");
+    expect(validateSingleFileHtml(finalHtml, "flashcards").ok).toBe(true);
+  });
+
+  it("inlines JavaScript replacement tokens literally without duplicating or corrupting HTML", async () => {
+    await tempWorkspace();
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Bundle JavaScript containing replacement tokens",
+      requestName: "literal-replacement-token-test",
+      skipBrowserValidation: true,
+    });
+    const html = minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" })
+      .replace("</script>", () => "const replacementTokens = \"$& $` $'\";</script>");
+
+    const prepared = await prepareWebLayoutArtifact(html, config);
+    const finalHtml = await readFile(prepared.report.buildPath, "utf8");
+
+    expect(finalHtml).toContain('const replacementTokens = "$& $` $\'";');
+    expect(finalHtml).not.toContain('src="app.js"');
+    expect(finalHtml.match(/<main\b/g)).toHaveLength(1);
+    expect(validateSingleFileHtml(finalHtml, "flashcards").ok).toBe(true);
+  });
 });
 
 async function tempWorkspace(): Promise<string> {

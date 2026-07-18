@@ -27,10 +27,15 @@ const DEFAULT_BROWSER_BACKEND = "agent-browser";
 const DEFAULT_MOODLE_URL = "https://moodle.technikum-wien.at/my/";
 const DEFAULT_CIS_URL = "https://cis.technikum-wien.at/cis.php/";
 const DEFAULT_QUICK_MAX_RUNTIME_MS = 12 * 60_000;
-const DEFAULT_ARTIFACT_MAX_RUNTIME_MS = 45 * 60_000;
-const DEFAULT_RENDER_MAX_RUNTIME_MS = 20 * 60_000;
+// A staged PDF workflow must fit into one useful interactive wait window.
+// Extraction owns most of the budget; the standardized render is deterministic
+// and receives the remaining three minutes. Environment/CLI overrides remain
+// available for explicitly requested long-form quality runs.
+const DEFAULT_ARTIFACT_MAX_RUNTIME_MS = 15 * 60_000;
+const DEFAULT_EXTRACTION_MAX_RUNTIME_MS = 12 * 60_000;
+const DEFAULT_RENDER_MAX_RUNTIME_MS = 3 * 60_000;
 const DEFAULT_QUICK_IDLE_TIMEOUT_MS = 8 * 60_000;
-const DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS = 15 * 60_000;
+const DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS = 5 * 60_000;
 
 loadEnvFiles();
 
@@ -134,6 +139,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     sourceRunDir: input.sourceRunDir
       ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
       : undefined,
+    resumeExtractionRunDir: input.resumeExtractionRunDir
+      ? resolveWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
+      : undefined,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
     downloadConcurrency: clampConcurrency(
@@ -204,6 +212,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     idleTimeoutMs: config.idleTimeoutMs,
     stage: config.stage,
     sourceRunDir: config.sourceRunDir,
+    resumeExtractionRunDir: config.resumeExtractionRunDir,
     includeCis: config.includeCis,
     sourceMode: config.sourceMode,
     downloadConcurrency: config.downloadConcurrency,
@@ -373,11 +382,13 @@ function parseMaxRuntimeMs(
       : !wantsQuickAnswer
         ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS
         : undefined;
-  const fallback = stage === "render"
-    ? DEFAULT_RENDER_MAX_RUNTIME_MS
-    : wantsQuickAnswer
-      ? DEFAULT_QUICK_MAX_RUNTIME_MS
-      : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
+  const fallback = stage === "extract"
+    ? DEFAULT_EXTRACTION_MAX_RUNTIME_MS
+    : stage === "render"
+      ? DEFAULT_RENDER_MAX_RUNTIME_MS
+      : wantsQuickAnswer
+        ? DEFAULT_QUICK_MAX_RUNTIME_MS
+        : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
   return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
 }
 

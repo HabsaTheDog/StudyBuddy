@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyStudyBuddyIntent } from "../taskIntent.js";
 import {
   createSourceArchitectNode,
+  canPublishWithDocumentedSourceGaps,
   isLookupOnlySourceBlock,
   routeAfterSourceArchitect,
 } from "../sourceArchitect.js";
@@ -20,6 +21,52 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
+  it("does not turn unacquired catalog entries into deterministic learning modules", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-fallback-"));
+    directories.push(runDir);
+    const acquiredUrl = "https://moodle.example/differential-equations.pdf";
+    const failedUrl = "https://moodle.example/unread-week-15.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(acquiredUrl, "Differential equations", true, 900), role: "primary_lecture" },
+        { ...entry(failedUrl, "Unread catalog topic", false, 800), role: "primary_lecture" },
+      ],
+    }));
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          resource(stableResourceId(acquiredUrl), acquiredUrl, "Differential equations", "Course", "/tmp/differential.pdf", "primary_lecture"),
+          { ...resource(stableResourceId(failedUrl), failedUrl, "Unread catalog topic", "Course", null, "primary_lecture"), status: "failed", failureReason: "download failed" },
+        ],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "ev_diff",
+          resourceId: stableResourceId(acquiredUrl),
+          kind: "claim",
+          locator: { page: 1 },
+          content: "Solve and check first-order differential equations.",
+          confidence: 1,
+          pairId: null,
+          sourceUrl: acquiredUrl,
+          localPath: "/tmp/differential.pdf",
+        }],
+        warnings: [],
+      },
+    });
+
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir }), { run: vi.fn() })(state);
+    const titles = result.source_architect_decision?.learningArchitecture?.modules.map((module) => module.title);
+    expect(titles).toContain("Differential equations");
+    expect(titles).not.toContain("Unread catalog topic");
+  });
+
   it("recognizes a direct block whose only unresolved issue is visual lookup verification", () => {
     expect(isLookupOnlySourceBlock({
       round: 3,
@@ -28,6 +75,58 @@ describe("source architect", () => {
       requestedUrls: [],
       remainingAvailable: 10,
       reasons: ["Die Tabelle muss visuell geprüft werden."],
+    })).toBe(true);
+  });
+
+  it("publishes documented isolated gaps when every learning module has acquired evidence", () => {
+    const acquiredUrl = "https://moodle.example/module-one.pdf";
+    const state = moodleTestState({
+      coverage_assessment: {
+        status: "partial",
+        detail: "One stale exercise solution is unavailable.",
+        criticalMissing: [],
+        omittedTopics: ["Optional exercise solution"],
+        retryActions: [],
+        discoveredResources: 2,
+        acquiredResources: 1,
+        failedResources: 1,
+        usableEvidenceRecords: 5,
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [resource(
+          stableResourceId(acquiredUrl),
+          acquiredUrl,
+          "Module one",
+          "Module one",
+          "/tmp/module-one.pdf",
+          "primary_lecture",
+        )],
+      },
+    });
+    expect(canPublishWithDocumentedSourceGaps(state, {
+      round: 4,
+      status: "blocked",
+      coverageSummary: "All course chapters have evidence; one exercise solution is stale.",
+      requestedUrls: [],
+      remainingAvailable: 0,
+      reasons: ["The unavailable solution is documented."],
+      learningArchitecture: {
+        schemaVersion: 1,
+        modules: [{
+          id: "module-one",
+          title: "Module one",
+          priority: "essential",
+          contentMode: "conceptual",
+          learningObjectives: ["Explain the module."],
+          assessmentSignals: ["Course exercise"],
+          resourceUrls: [acquiredUrl],
+        }],
+        supportResources: [],
+        excludedResourceUrls: [],
+      },
     })).toBe(true);
   });
 
@@ -270,8 +369,8 @@ describe("source architect", () => {
 
     expect(result.source_architect_decision).toMatchObject({
       round: 3,
-      status: "request_more",
-      requestedUrls: [taskUrl, solutionUrl],
+      status: "blocked",
+      requestedUrls: [],
     });
   });
 
@@ -440,6 +539,75 @@ describe("source architect", () => {
       requestedUrls: [],
     });
     expect(result.source_architect_decision?.reasons.join(" ")).toContain("deterministic review");
+  });
+
+  it("continues with documented limitations after bounded acquisition when essential modules are covered", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-bounded-limitations-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=901";
+    const unavailablePracticeUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=902";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "Calculus", true, 900), role: "primary_lecture" },
+        { ...entry(unavailablePracticeUrl, "Stale solution", false, 300), role: "worked_example" },
+      ],
+    }));
+    const lectureId = stableResourceId(lectureUrl);
+    const state = moodleTestState({
+      source_architect_decision: {
+        round: 3,
+        status: "request_more",
+        coverageSummary: "Bounded acquisitions completed.",
+        requestedUrls: [],
+        remainingAvailable: 1,
+        reasons: [],
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [resource(lectureId, lectureUrl, "Calculus", "Calculus", "/tmp/calculus.pdf", "primary_lecture")],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{ id: "ev_calc", resourceId: lectureId, kind: "claim", locator: { page: 1 }, content: "Derivatives and integrals with worked methods.", confidence: 1, pairId: null, sourceUrl: lectureUrl, localPath: "/tmp/calculus.pdf" }],
+        warnings: [],
+      },
+    });
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "blocked",
+        coverage_summary: "A separate solution file remains unavailable.",
+        requested_urls: [],
+        reasons: ["The stale solution has no replacement."],
+        learning_architecture: {
+          schemaVersion: 1,
+          modules: [{ id: "calculus", title: "Calculus", priority: "essential", contentMode: "quantitative", learningObjectives: ["Apply calculus methods."], assessmentSignals: ["Exam exercises."], resourceUrls: [lectureUrl] }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      })),
+    };
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      prompt: "Create a calculus study guide",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt: "Create a calculus study guide",
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    }), codex)(state);
+
+    expect(result.error_log).toBeNull();
+    expect(result.source_architect_decision).toMatchObject({ round: 4, status: "sufficient", requestedUrls: [] });
+    expect(result.source_architect_decision?.coverageSummary).toContain("explicit limitations");
   });
 });
 

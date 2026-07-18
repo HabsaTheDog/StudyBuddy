@@ -8,12 +8,16 @@ import {
   parseReasoningEffort,
   type StudyBuddyModelPolicyOverrides,
 } from "../shared/modelPolicy.js";
+import { acquireRunLease } from "../shared/runLease.js";
+import { installCliBrokenPipeGuard } from "../shared/cliErrorGuard.js";
+
+installCliBrokenPipeGuard();
 
 const program = new Command()
   .name("web-layout-agent")
   .description("Generate a self-contained offline Study Buddy interactive HTML learning tool.")
   .argument("<prompt>", "User request for the web layout agent")
-  .option("--kind <kind>", "Layout kind: auto, flashcards, concept-visualization, simulation, exam-practice, quiz, worksheet, reference", "auto")
+  .option("--kind <kind>", "Layout kind: auto, study-guide, flashcards, concept-visualization, simulation, exam-practice, quiz, worksheet, reference", "auto")
   .option("--source-file <path>", "UTF-8 source text file; repeat for multiple files", collect, [])
   .option("--asset <path>", "Local image asset; repeat for multiple files", collect, [])
   .option("--source-run-dir <path>", "Successful Moodle extraction run directory to consume")
@@ -61,6 +65,8 @@ const options = program.opts<{
 }>();
 
 const prompt = program.args.join(" ");
+const releaseRunLease = await acquireRunLease(options.runDir ?? options.resumeRunDir);
+try {
 const result = await runWebLayoutGraph({
   prompt,
   kind: options.kind,
@@ -96,6 +102,9 @@ if (options.json) {
   console.error(`Run directory: ${result.runDir}`);
   console.error(`Run summary: ${result.runSummaryPath}`);
   process.exitCode = 1;
+}
+} finally {
+  await releaseRunLease();
 }
 
 function collect(value: string, previous: string[]): string[] {

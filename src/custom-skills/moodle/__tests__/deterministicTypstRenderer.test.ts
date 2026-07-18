@@ -19,6 +19,21 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("reconciles an explicit course alias and study-guide document type from the render request", () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        document_title: "Blöcke – Study Guide",
+        course: { title: "Blöcke", url: "https://moodle.example/course" },
+      }),
+      structuredClone(initialSourceCoverage),
+      { prompt: "Rendere den DYN2 Study Guide als PDF", profile: "study_guide" },
+    );
+
+    expect(source).toContain('title: "DYN2 – Study Guide"');
+    expect(source).toContain('course: "DYN2"');
+    expect(source).toContain('kind: "Study Guide"');
+  });
+
   it("renders validated analyzer data into a compilable standardized document", async () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
@@ -49,6 +64,14 @@ describe("deterministic Typst renderer", () => {
             context: "Kontinuierlicher Betrieb.",
             source_ids: ["script"],
           },
+          {
+            name: "Steinerscher Satz in Indexschreibweise",
+            typst: 'I_d = I_"SP" + M (d^2 δ_(μν) - d_μ d_ν)',
+            variables: ["μ, ν: Tensorindizes"],
+            units: ["I: kg m²"],
+            context: "Verschiebung des Bezugspunkts.",
+            source_ids: ["script"],
+          },
         ],
         worked_examples: [
           {
@@ -73,6 +96,7 @@ describe("deterministic Typst renderer", () => {
     expect(source).not.toContain("#sb-checklist");
     expect(source.match(/#sb-source-note/g)).toHaveLength(2);
     expect(source).toContain("$ U_a = d U_e $");
+    expect(source).toContain('$ I_d = I_"SP" + M (d^2 δ_(μ ν) - d_μ d_ν) $');
     expect(source).not.toContain("#raw(");
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles()),
@@ -122,6 +146,66 @@ describe("deterministic Typst renderer", () => {
     );
 
     expect(source).toContain("#image(\"assets/visuals/diagram.svg\", width: 90%)");
+    await expect(
+      validateTypst(source, await getStudyBuddyTypstSupportFiles(), { assetBaseDir: runDir }),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders chapter-specific teaching patterns and interleaves figures with their explanation", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-module-render-"));
+    await mkdir(path.join(runDir, "assets", "visuals"), { recursive: true });
+    await writeFile(
+      path.join(runDir, "assets", "visuals", "rivet.svg"),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="90"><rect width="180" height="90" fill="white"/><circle cx="90" cy="45" r="25" fill="none" stroke="black"/></svg>`,
+      "utf8",
+    );
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        sources: [{ id: "rivet", title: "Nietverbindungen", kind: "pdf", url: null, path: null, page: 4 }],
+        learning_modules: [{
+          id: "rivets",
+          title: "Nietverbindungen bemessen",
+          priority: "essential",
+          content_mode: "quantitative",
+          learning_objectives: ["Versagensarten unterscheiden", "Nachweise führen"],
+          assessment_signals: ["Lochleibung"],
+          resource_ids: ["rivet"],
+        }],
+        sections: [
+          { heading: "Lastpfad", summary: "Die Kraft wird auf die Niete verteilt.", key_concepts: ["Kraftfluss prüfen"], source_ids: ["rivet"] },
+          { heading: "Lochleibung", summary: "Die projizierte Fläche begrenzt die Pressung.", key_concepts: ["Blechdicke beachten"], source_ids: ["rivet"] },
+          { heading: "Abscheren", summary: "Die Zahl der Scherfugen bestimmt die Fläche.", key_concepts: ["Scherfugen zählen"], source_ids: ["rivet"] },
+        ],
+        formulas: [{ name: "Lochleibung", typst: "p = F/(n d t)", variables: ["F: Kraft"], units: ["p: N/mm²"], context: "Projizierte Fläche.", source_ids: ["rivet"] }],
+        visual_assets: [{
+          id: "rivet-figure", kind: "moodle_pdf_page", title: "Lochleibungsskizze",
+          relative_path: "assets/visuals/rivet.svg", mime_type: "image/svg+xml",
+          width_px: 180, height_px: 90, source_id: "rivet", source_url: null,
+          source_path: "/tmp/rivet.pdf", source_page: 4, confidence: 1,
+          caption_hint: "Lochleibung", relevance_reason: "Nachweisbild", generation_prompt: null,
+        }],
+        figures: [{
+          asset_id: "rivet-figure",
+          caption: "Lochleibung und projizierte Fläche",
+          placement_hint: "Direkt nach dem Abschnitt Lochleibung",
+          source_ids: ["rivet"],
+        }],
+        worked_examples: [{
+          origin: "derived", learning_goal: "Nietgruppe vollständig prüfen", prompt: "Prüfe vier Niete.",
+          steps: ["Last je Niet", "Abscheren", "Lochleibung"], result: "Beide Nachweise erfüllt.",
+          source_ids: ["rivet"],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).toContain('#sb-divider(label: "Versagen prüfen")');
+    expect(source).not.toContain("#sb-flowchart-linear");
+    expect(source).toContain("Versagenscheck");
+    expect(source.indexOf("Lochleibung und projizierte Fläche"))
+      .toBeGreaterThan(source.indexOf("Die projizierte Fläche begrenzt die Pressung"));
+    expect(source.indexOf("Lochleibung und projizierte Fläche"))
+      .toBeLessThan(source.indexOf("Die Nachweise in einem Lastfall bündeln"));
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles(), { assetBaseDir: runDir }),
     ).resolves.toEqual({ ok: true });
@@ -215,6 +299,30 @@ describe("deterministic Typst renderer", () => {
 
     expect(source).toContain('T_"ON"');
     expect(source).toContain('T_"OFF"');
+    await expect(
+      validateTypst(source, await getStudyBuddyTypstSupportFiles()),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes digit-prefixed multi-letter subscripts from course formulas", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        formulas: [
+          {
+            name: "Zulässige Normalspannung",
+            typst: "sigma_(1zul) = sigma_(1B) / S approx 200 N/mm^2",
+            variables: ["sigma_(1zul): zulässige Spannung"],
+            units: ["sigma: N/mm²"],
+            context: "Maschinenelemente-Regressionsfall.",
+            source_ids: [],
+          },
+        ],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).toContain('sigma_"1zul"');
+    expect(source).toContain('sigma_"1B"');
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles()),
     ).resolves.toEqual({ ok: true });

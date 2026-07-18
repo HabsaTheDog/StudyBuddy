@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
@@ -15,6 +15,17 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   }
   const workspaceRoot = resolveWorkspaceRoot();
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
+  const resumeRunDir = input.resumeRunDir
+    ? resolveWorkspacePath(input.resumeRunDir, workspaceRoot)
+    : undefined;
+  const inheritedSources = !input.sourceRunDir && !(input.sourceFiles?.length)
+    ? inheritedResumeSources(resumeRunDir, workspaceRoot)
+    : {};
+  const sourceRunDir = input.sourceRunDir
+    ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
+    : inheritedSources.sourceRunDir;
+  const sourceFiles = (input.sourceFiles?.length ? input.sourceFiles : inheritedSources.sourceFiles ?? [])
+    .map((file) => resolveWorkspacePath(file, workspaceRoot));
   const explicitRunDir = input.runDir ? resolveWorkspacePath(input.runDir, workspaceRoot) : null;
   const outputRoot = path.join(workspaceRoot, "output", requestName);
   const runDir = explicitRunDir || path.join(outputRoot, timestampSlug());
@@ -34,11 +45,11 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     requestName,
     runDir,
     outputPath,
-    sourceFiles: (input.sourceFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot)),
+    sourceFiles,
     assetFiles,
-    sourceRunDir: input.sourceRunDir ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot) : undefined,
-    resumeRunDir: input.resumeRunDir ? resolveWorkspacePath(input.resumeRunDir, workspaceRoot) : undefined,
-    sourceMode: inferSourceMode(input),
+    sourceRunDir,
+    resumeRunDir,
+    sourceMode: inferSourceMode(sourceRunDir, sourceFiles),
     language: input.language ?? "de",
     maxRuntimeMs: input.maxRuntimeMs ?? 20 * 60_000,
     idleTimeoutMs: input.idleTimeoutMs ?? 5 * 60_000,
@@ -116,14 +127,50 @@ function trimOptional(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-function inferSourceMode(input: WebLayoutInput): WebLayoutSourceMode {
-  if (input.sourceRunDir) {
+function inferSourceMode(sourceRunDir: string | undefined, sourceFiles: string[]): WebLayoutSourceMode {
+  if (sourceRunDir) {
     return "moodle-handoff";
   }
-  if (input.sourceFiles?.length) {
+  if (sourceFiles.length) {
     return "text-file";
   }
   return "prompt";
+}
+
+function inheritedResumeSources(
+  resumeRunDir: string | undefined,
+  workspaceRoot: string,
+): { sourceRunDir?: string; sourceFiles?: string[] } {
+  let current = resumeRunDir;
+  const visited = new Set<string>();
+  for (let depth = 0; current && depth < 24; depth += 1) {
+    const resolvedCurrent = resolveWorkspacePath(current, workspaceRoot);
+    if (visited.has(resolvedCurrent)) break;
+    visited.add(resolvedCurrent);
+    const configPath = path.join(resolvedCurrent, "config.json");
+    if (!existsSync(configPath)) break;
+    let record: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(readFileSync(configPath, "utf8")) as unknown;
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") break;
+      record = parsed as Record<string, unknown>;
+    } catch {
+      break;
+    }
+    if (typeof record.sourceRunDir === "string" && record.sourceRunDir.trim()) {
+      return { sourceRunDir: resolveWorkspacePath(record.sourceRunDir, workspaceRoot) };
+    }
+    if (Array.isArray(record.sourceFiles)) {
+      const files = record.sourceFiles.filter(
+        (entry): entry is string => typeof entry === "string" && Boolean(entry.trim()),
+      );
+      if (files.length) return { sourceFiles: files };
+    }
+    current = typeof record.resumeRunDir === "string" && record.resumeRunDir.trim()
+      ? record.resumeRunDir
+      : undefined;
+  }
+  return {};
 }
 
 function parseKind(value: string): WebLayoutKind {

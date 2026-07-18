@@ -1,7 +1,7 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { STUDY_BUDDY_HTML_MARKS, STUDY_BUDDY_HTML_TOKENS } from "./designGuidelines.js";
 import { OFFLINE_CSP } from "./htmlShell.js";
 import type { JsonObject } from "./state.js";
@@ -12,10 +12,17 @@ export interface HtmlValidationIssue {
   message: string;
 }
 
+export interface BrowserValidationCheck {
+  id: string;
+  ok: boolean;
+  evidence: string;
+}
+
 export interface HtmlValidationReport {
   ok: boolean;
   issues: HtmlValidationIssue[];
   screenshotPaths: string[];
+  browserChecks: BrowserValidationCheck[];
 }
 
 export interface BrowserValidationOptions {
@@ -35,11 +42,12 @@ export async function validateWebLayoutHtml(
   }
   const previewPath = path.join(options.runDir, "validation-preview.html");
   await writeFile(previewPath, html, "utf8");
-  const browserReport = await validateHtmlFileInBrowser(previewPath, options);
+  const browserReport = await validateHtmlFileInBrowser(previewPath, kind, options);
   return {
     ok: browserReport.ok,
     issues: [...staticReport.issues, ...browserReport.issues],
     screenshotPaths: browserReport.screenshotPaths,
+    browserChecks: browserReport.browserChecks,
   };
 }
 
@@ -51,11 +59,12 @@ export async function validateWebLayoutFile(
 ): Promise<HtmlValidationReport> {
   const staticReport = validateSingleFileHtml(validationHtml, kind);
   if (!staticReport.ok || options.skip) return staticReport;
-  const browserReport = await validateHtmlFileInBrowser(filePath, options);
+  const browserReport = await validateHtmlFileInBrowser(filePath, kind, options);
   return {
     ok: browserReport.ok,
     issues: [...staticReport.issues, ...browserReport.issues],
     screenshotPaths: browserReport.screenshotPaths,
+    browserChecks: browserReport.browserChecks,
   };
 }
 
@@ -127,7 +136,7 @@ export function validateSingleFileHtml(html: string, kind: WebLayoutKind = "auto
     }
   }
 
-  return { ok: issues.length === 0, issues, screenshotPaths: [] };
+  return { ok: issues.length === 0, issues, screenshotPaths: [], browserChecks: [] };
 }
 
 function validateOfflineCsp(html: string, issues: HtmlValidationIssue[]): void {
@@ -161,11 +170,21 @@ export function validationReportToJson(report: HtmlValidationReport): JsonObject
       message: entry.message,
     })),
     screenshotPaths: report.screenshotPaths,
+    browserChecks: report.browserChecks.map((entry) => ({
+      id: entry.id,
+      ok: entry.ok,
+      evidence: entry.evidence,
+    })),
   };
 }
 
-async function validateHtmlFileInBrowser(filePath: string, options: BrowserValidationOptions): Promise<HtmlValidationReport> {
+async function validateHtmlFileInBrowser(
+  filePath: string,
+  kind: WebLayoutKind,
+  options: BrowserValidationOptions,
+): Promise<HtmlValidationReport> {
   const issues: HtmlValidationIssue[] = [];
+  const browserChecks: BrowserValidationCheck[] = [];
   const screenshotsDir = path.join(options.runDir, "screenshots");
   await mkdir(screenshotsDir, { recursive: true });
   const screenshotPaths = [
@@ -216,11 +235,15 @@ async function validateHtmlFileInBrowser(filePath: string, options: BrowserValid
       }
     }
 
-    const firstButton = page.locator("button").first();
-    if (await firstButton.count()) {
-      await firstButton.click({ timeout: 5_000 }).catch((error: unknown) => {
-        issues.push(issue("button-click", error instanceof Error ? error.message : String(error)));
-      });
+    if (kind === "exam-practice") {
+      browserChecks.push(await validateExamPersistenceInBrowser(page, issues));
+    } else {
+      const firstButton = page.locator("button").first();
+      if (await firstButton.count()) {
+        await firstButton.click({ timeout: 5_000 }).catch((error: unknown) => {
+          issues.push(issue("button-click", error instanceof Error ? error.message : String(error)));
+        });
+      }
     }
     for (const message of pageErrors) {
       issues.push(issue("page-error", message));
@@ -237,7 +260,126 @@ async function validateHtmlFileInBrowser(filePath: string, options: BrowserValid
   } finally {
     await browser.close();
   }
-  return { ok: issues.length === 0, issues, screenshotPaths };
+  return { ok: issues.length === 0, issues, screenshotPaths, browserChecks };
+}
+
+async function validateExamPersistenceInBrowser(
+  page: Page,
+  issues: HtmlValidationIssue[],
+): Promise<BrowserValidationCheck> {
+  const marker = `study-buddy-reload-${Date.now()}`;
+  const start = page.locator("[data-sb-exam-start]").first();
+  const surface = page.locator("[data-sb-exam-surface]").first();
+  const draft = page.locator("[data-sb-exam-draft]").first();
+  const finish = page.locator("[data-sb-exam-end]").first();
+  const result = page.locator("[data-sb-exam-result]").first();
+  try {
+    await start.click({ timeout: 5_000 });
+    await surface.waitFor({ state: "visible", timeout: 5_000 });
+    await draft.fill(marker, { timeout: 5_000 });
+    await draft.dispatchEvent("change");
+    await page.waitForTimeout(1_100);
+    const before = await examBrowserSnapshot(page);
+    if (!before.active) {
+      issues.push(issue("exam-active-state", "Exam start did not set body[data-sb-exam-active='true']."));
+    }
+    if (!before.storageEntries) {
+      issues.push(issue("exam-persistence-storage", "Exam start and draft input did not persist state to localStorage."));
+    }
+    if (!Number.isFinite(before.remainingMs) || before.remainingMs <= 0) {
+      issues.push(issue("exam-timer", "Exam timer did not expose a positive numeric data-remaining-ms value."));
+    }
+    if (!before.lockedCount || !before.allLocked) {
+      issues.push(issue("exam-lock", "Exam navigation/help/formula/source regions were not unavailable while the exam was active."));
+    }
+
+    await page.reload({ waitUntil: "load", timeout: 20_000 });
+    await surface.waitFor({ state: "visible", timeout: 5_000 });
+    const after = await examBrowserSnapshot(page);
+    const restoredDraft = await page.locator("[data-sb-exam-draft]").first().inputValue();
+    if (!after.active) {
+      issues.push(issue("exam-reload-active", "Reload did not restore the active exam surface and active-state marker."));
+    }
+    if (restoredDraft !== marker) {
+      issues.push(issue("exam-reload-draft", "Reload did not restore the unsubmitted exam draft."));
+    }
+    if (!Number.isFinite(after.remainingMs) || after.remainingMs <= 0 || after.remainingMs > before.remainingMs) {
+      issues.push(issue("exam-reload-timer", "Reload did not restore a non-increasing positive exam countdown."));
+    }
+    if (after.score !== before.score) {
+      issues.push(issue("exam-reload-score", "Reload changed the current exam score."));
+    }
+    if (!after.lockedCount || !after.allLocked) {
+      issues.push(issue("exam-reload-lock", "Reload did not restore exam navigation/help/formula/source locks."));
+    }
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await finish.click({ timeout: 5_000 });
+    await surface.waitFor({ state: "hidden", timeout: 5_000 });
+    await result.waitFor({ state: "visible", timeout: 5_000 });
+    const ended = await examBrowserSnapshot(page);
+    if (ended.active) {
+      issues.push(issue("exam-finish-active", "Finishing the exam did not clear the active-state marker."));
+    }
+    const flowIssues = issues.filter((entry) => entry.code.startsWith("exam-"));
+    return {
+      id: "exam-start-draft-reload-finish",
+      ok: flowIssues.length === 0,
+      evidence: flowIssues.length === 0
+        ? "Playwright started an exam, persisted a draft on input/change, observed a positive countdown and locked study regions, reloaded the file, verified the active surface, draft, non-increasing timer, score and locks, then finished and observed the persistent result."
+        : `Playwright completed the exam persistence flow with ${flowIssues.length} failed assertion(s).`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    issues.push(issue(
+      "exam-persistence-flow",
+      `Real exam start → draft → reload → finish validation failed: ${message}`,
+    ));
+    return {
+      id: "exam-start-draft-reload-finish",
+      ok: false,
+      evidence: `Playwright could not complete the real exam persistence flow: ${message}`,
+    };
+  }
+}
+
+async function examBrowserSnapshot(page: Page): Promise<{
+  active: boolean;
+  remainingMs: number;
+  score: string;
+  storageEntries: number;
+  lockedCount: number;
+  allLocked: boolean;
+}> {
+  return page.evaluate(() => {
+    const timer = document.querySelector<HTMLElement>("[data-sb-exam-timer]");
+    const locked = Array.from(document.querySelectorAll<HTMLElement>("[data-sb-exam-lock]"));
+    let allLocked = locked.length > 0;
+    for (const element of locked) {
+      const style = getComputedStyle(element);
+      const disabled = element instanceof HTMLButtonElement ||
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLSelectElement ||
+        element instanceof HTMLTextAreaElement
+        ? element.disabled
+        : false;
+      const unavailable = disabled || element.inert || element.getAttribute("aria-hidden") === "true" ||
+        style.display === "none" || style.visibility === "hidden" ||
+        element.getClientRects().length === 0;
+      if (!unavailable) {
+        allLocked = false;
+        break;
+      }
+    }
+    return {
+      active: document.body.dataset.sbExamActive === "true",
+      remainingMs: Number(timer?.dataset.remainingMs ?? Number.NaN),
+      score: document.querySelector<HTMLElement>("[data-sb-exam-score]")?.textContent?.trim() ?? "",
+      storageEntries: localStorage.length,
+      lockedCount: locked.length,
+      allLocked,
+    };
+  });
 }
 
 function findExternalReferences(html: string): string[] {
@@ -332,6 +474,16 @@ function missingInteractionRequirements(html: string, kind: WebLayoutKind): Html
   const required: Record<WebLayoutKind, Array<[RegExp, string]>> = {
     auto: [],
     reference: [],
+    "study-guide": [
+      [/data-sb-hotbar/i, "Study guides require the standardized top hotbar."],
+      [/data-sb-course-tabs/i, "Study guides require standardized chapter tabs."],
+      [/data-sb-course-map/i, "Study guides require a compact course map."],
+      [/data-sb-topic/i, "Study guides require standardized topic blocks."],
+      [/data-sb-learning-content/i, "Study guides require readable learning content."],
+      [/data-sb-practice/i, "Study guides require an applied practice workspace."],
+      [/data-sb-progress/i, "Study guides require persistent learning progress."],
+      [/data-sb-sources/i, "Study guides require a grouped source register."],
+    ],
     flashcards: [
       [/progress|fortschritt|data-progress/i, "Flashcards require progress."],
       [/flip|umdrehen|is-flipped|data-card/i, "Flashcards require flip interaction."],
@@ -348,6 +500,14 @@ function missingInteractionRequirements(html: string, kind: WebLayoutKind): Html
     "exam-practice": [
       [/score|punkte|bewertung/i, "Exam practice requires scoring."],
       [/review|auswertung|lösung/i, "Exam practice requires review or solution state."],
+      [/data-sb-exam-start/i, "Exam practice requires a data-sb-exam-start control."],
+      [/data-sb-exam-surface/i, "Exam practice requires a data-sb-exam-surface container."],
+      [/data-sb-exam-draft/i, "Exam practice requires a representative data-sb-exam-draft input."],
+      [/data-sb-exam-timer/i, "Exam practice requires a data-sb-exam-timer countdown."],
+      [/data-sb-exam-score/i, "Exam practice requires a data-sb-exam-score readout."],
+      [/data-sb-exam-end/i, "Exam practice requires a data-sb-exam-end control."],
+      [/data-sb-exam-result/i, "Exam practice requires a persistent data-sb-exam-result view."],
+      [/data-sb-exam-lock/i, "Exam practice requires data-sb-exam-lock regions."],
     ],
     quiz: [
       [/feedback|richtig|falsch|correct|incorrect/i, "Quizzes require immediate feedback."],

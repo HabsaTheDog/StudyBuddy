@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,6 +15,19 @@ afterEach(async () => {
 });
 
 describe("web layout config", () => {
+  it("accepts the integrated study-guide kind", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Erstelle einen vollständigen Study Guide",
+      kind: "study-guide",
+    });
+
+    expect(config.kind).toBe("study-guide");
+  });
+
   it("creates a request-specific timestamped run directory", async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
     tempDirs.push(workspace);
@@ -69,6 +82,59 @@ describe("web layout config", () => {
     });
 
     expect(config.resumeRunDir).toBe(path.join(workspace, "output", "previous", "run"));
+  });
+
+  it("inherits the Moodle handoff through a resume chain", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+    const extraction = path.join(workspace, "output", "moodle", "extraction");
+    const firstRun = path.join(workspace, "output", "first", "run");
+    const secondRun = path.join(workspace, "output", "second", "run");
+    await Promise.all([
+      mkdir(extraction, { recursive: true }),
+      mkdir(firstRun, { recursive: true }),
+      mkdir(secondRun, { recursive: true }),
+    ]);
+    await writeFile(
+      path.join(firstRun, "config.json"),
+      JSON.stringify({ sourceRunDir: extraction, resumeRunDir: null }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(secondRun, "config.json"),
+      JSON.stringify({ sourceRunDir: null, resumeRunDir: firstRun }),
+      "utf8",
+    );
+
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Setze den Moodle-Lauf fort",
+      resumeRunDir: secondRun,
+    });
+
+    expect(config.sourceRunDir).toBe(extraction);
+    expect(config.sourceMode).toBe("moodle-handoff");
+  });
+
+  it("stops safely on a cyclic resume chain", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+    const cycleRun = path.join(workspace, "output", "cycle", "run");
+    await mkdir(cycleRun, { recursive: true });
+    await writeFile(
+      path.join(cycleRun, "config.json"),
+      JSON.stringify({ sourceRunDir: null, resumeRunDir: cycleRun }),
+      "utf8",
+    );
+
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Setze den Lauf fort",
+      resumeRunDir: cycleRun,
+    });
+
+    expect(config.sourceRunDir).toBeUndefined();
+    expect(config.sourceMode).toBe("prompt");
   });
 });
 

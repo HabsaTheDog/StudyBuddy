@@ -6,6 +6,7 @@ import type {
 
 export type WebLayoutKind =
   | "auto"
+  | "study-guide"
   | "flashcards"
   | "concept-visualization"
   | "simulation"

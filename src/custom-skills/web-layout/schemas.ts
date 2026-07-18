@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const webLayoutKindSchema = z.enum([
   "auto",
+  "study-guide",
   "flashcards",
   "concept-visualization",
   "simulation",
