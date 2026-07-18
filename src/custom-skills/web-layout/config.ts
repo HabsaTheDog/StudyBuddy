@@ -3,6 +3,11 @@ import path from "node:path";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
 import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
+import {
+  ensureStudyBuddyWorkspaceData,
+  resolveStudyBuddyWorkspaceDataPaths,
+  resolveStudyBuddyWorkspacePath,
+} from "../shared/workspaceData.js";
 
 export const DEFAULT_MAX_ARTIFACT_BYTES = 100_000_000;
 export const ABSOLUTE_MAX_ARTIFACT_BYTES = 250_000_000;
@@ -13,28 +18,33 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
   }
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
+  const workspaceRoot = workspaceData.workspaceRoot;
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
   const resumeRunDir = input.resumeRunDir
-    ? resolveWorkspacePath(input.resumeRunDir, workspaceRoot)
+    ? resolveStudyBuddyWorkspacePath(input.resumeRunDir, workspaceRoot)
     : undefined;
   const inheritedSources = !input.sourceRunDir && !(input.sourceFiles?.length)
     ? inheritedResumeSources(resumeRunDir, workspaceRoot)
     : {};
   const sourceRunDir = input.sourceRunDir
-    ? resolveWorkspacePath(input.sourceRunDir, workspaceRoot)
+    ? resolveStudyBuddyWorkspacePath(input.sourceRunDir, workspaceRoot)
     : inheritedSources.sourceRunDir;
   const sourceFiles = (input.sourceFiles?.length ? input.sourceFiles : inheritedSources.sourceFiles ?? [])
-    .map((file) => resolveWorkspacePath(file, workspaceRoot));
-  const explicitRunDir = input.runDir ? resolveWorkspacePath(input.runDir, workspaceRoot) : null;
-  const outputRoot = path.join(workspaceRoot, "output", requestName);
+    .map((file) => resolveStudyBuddyWorkspacePath(file, workspaceRoot));
+  const explicitRunDir = input.runDir
+    ? resolveStudyBuddyWorkspacePath(input.runDir, workspaceRoot)
+    : null;
+  const outputRoot = path.join(workspaceData.runsRoot, requestName);
   const runDir = explicitRunDir || path.join(outputRoot, timestampSlug());
   const outputPath = input.outputPath
-    ? resolveWorkspacePath(input.outputPath, workspaceRoot)
+    ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot)
     : path.join(runDir, "document.html");
   mkdirSync(runDir, { recursive: true });
   const canonicalLogoPath = path.join(workspaceRoot, "CI", "logo.png");
-  const assetFiles = [...(input.assetFiles ?? []).map((file) => resolveWorkspacePath(file, workspaceRoot))];
+  const assetFiles = [
+    ...(input.assetFiles ?? []).map((file) => resolveStudyBuddyWorkspacePath(file, workspaceRoot)),
+  ];
   if (existsSync(canonicalLogoPath) && !assetFiles.some((file) => path.resolve(file) === canonicalLogoPath)) {
     assetFiles.unshift(canonicalLogoPath);
   }
@@ -144,7 +154,7 @@ function inheritedResumeSources(
   let current = resumeRunDir;
   const visited = new Set<string>();
   for (let depth = 0; current && depth < 24; depth += 1) {
-    const resolvedCurrent = resolveWorkspacePath(current, workspaceRoot);
+    const resolvedCurrent = resolveStudyBuddyWorkspacePath(current, workspaceRoot);
     if (visited.has(resolvedCurrent)) break;
     visited.add(resolvedCurrent);
     const configPath = path.join(resolvedCurrent, "config.json");
@@ -158,7 +168,9 @@ function inheritedResumeSources(
       break;
     }
     if (typeof record.sourceRunDir === "string" && record.sourceRunDir.trim()) {
-      return { sourceRunDir: resolveWorkspacePath(record.sourceRunDir, workspaceRoot) };
+      return {
+        sourceRunDir: resolveStudyBuddyWorkspacePath(record.sourceRunDir, workspaceRoot),
+      };
     }
     if (Array.isArray(record.sourceFiles)) {
       const files = record.sourceFiles.filter(
@@ -175,14 +187,6 @@ function inheritedResumeSources(
 
 function parseKind(value: string): WebLayoutKind {
   return webLayoutKindSchema.parse(value);
-}
-
-function resolveWorkspaceRoot(): string {
-  return path.resolve(process.env.STUDY_BUDDY_WORKSPACE || process.env.T3CODE_CWD || process.cwd());
-}
-
-function resolveWorkspacePath(value: string, workspaceRoot: string): string {
-  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
 }
 
 function timestampSlug(): string {

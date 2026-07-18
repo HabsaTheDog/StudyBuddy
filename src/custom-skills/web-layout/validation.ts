@@ -235,7 +235,9 @@ async function validateHtmlFileInBrowser(
       }
     }
 
-    if (kind === "exam-practice") {
+    if (kind === "study-guide") {
+      browserChecks.push(await validateStudyGuideInteractionMatrix(page, issues, options.runDir));
+    } else if (kind === "exam-practice") {
       browserChecks.push(await validateExamPersistenceInBrowser(page, issues));
     } else {
       const firstButton = page.locator("button").first();
@@ -261,6 +263,136 @@ async function validateHtmlFileInBrowser(
     await browser.close();
   }
   return { ok: issues.length === 0, issues, screenshotPaths, browserChecks };
+}
+
+async function validateStudyGuideInteractionMatrix(
+  page: Page,
+  issues: HtmlValidationIssue[],
+  runDir: string,
+): Promise<BrowserValidationCheck> {
+  const audit: Array<Record<string, unknown>> = [];
+  const viewports = [
+    { name: "desktop", width: 1440, height: 900 },
+    { name: "mobile", width: 390, height: 844 },
+  ];
+  let failureCount = 0;
+  for (const viewport of viewports) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "load", timeout: 20_000 });
+    const tabCount = await page.locator('[role="tab"]').count();
+    if (tabCount === 0) {
+      issues.push(issue("study-guide-tab-matrix", `No chapter tabs were available at ${viewport.name} viewport.`));
+      failureCount += 1;
+      continue;
+    }
+    for (let index = 0; index < tabCount; index += 1) {
+      const tab = page.locator('[role="tab"]').nth(index);
+      const tabName = (await tab.textContent())?.trim() || `tab-${index + 1}`;
+      await tab.click();
+      await page.evaluate(() => {
+        const content = JSON.parse(document.querySelector<HTMLScriptElement>("#study-content")?.textContent || "{\"topics\":[]}");
+        const exercises = new Map((content.topics || []).flatMap((topic: { exercises?: Array<{ id: string }> }) => topic.exercises || []).map((exercise: { id: string }) => [exercise.id, exercise]));
+        const panel = Array.from(document.querySelectorAll<HTMLElement>('[role="tabpanel"]')).find((candidate) => !candidate.hidden);
+        panel?.querySelectorAll<HTMLDetailsElement>("details").forEach((details) => { details.open = true; });
+        panel?.querySelectorAll<HTMLElement>(".cross").forEach((card) => {
+          const exercise = exercises.get(card.dataset.id || "") as { options?: Array<{ correct?: boolean }> } | undefined;
+          card.querySelectorAll<HTMLInputElement>("input").forEach((input, optionIndex) => { input.checked = Boolean(exercise?.options?.[optionIndex]?.correct); });
+          card.querySelector<HTMLButtonElement>("[data-submit-cross]")?.click();
+        });
+        panel?.querySelectorAll<HTMLButtonElement>("[data-check-calc]").forEach((button) => button.click());
+      });
+      await page.waitForTimeout(10);
+      const measurement = await page.evaluate(async () => {
+        const panel = Array.from(document.querySelectorAll<HTMLElement>('[role="tabpanel"]')).find((candidate) => !candidate.hidden);
+        const visiblePanels = Array.from(document.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((candidate) => !candidate.hidden && getComputedStyle(candidate).display !== "none");
+        const mathIssues = Array.from(panel?.querySelectorAll<MathMLElement>("math") || []).flatMap((math) => {
+          const label = math.getAttribute("aria-label") || "";
+          const proseWords = (label.match(/\b[A-Za-zÄÖÜäöüß]{4,}\b/g) || []).filter((word) => !/^(?:lim|sin|cos|tan|exp|log|sqrt)$/i.test(word));
+          const owner = math.closest<HTMLElement>(".math-inline,.math-scroll,.option-content,.feedback,.worked-body,.question-content,.result,.problem,.steps li");
+          const mathRect = math.getBoundingClientRect();
+          const ownerRect = owner?.getBoundingClientRect();
+          const overflow = ownerRect ? Math.max(0, mathRect.right - ownerRect.right, ownerRect.left - mathRect.left) : 0;
+          const scrollable = owner ? ["auto", "scroll"].includes(getComputedStyle(owner).overflowX) : false;
+          const malformedRoot = math.querySelector("mo")?.textContent === "√" || Boolean(math.querySelector("mo:nth-child(n)")) && Array.from(math.querySelectorAll("mo")).some((node) => node.textContent === "√");
+          const invalid = !label || /data:image|assets\/logo|Local Moodle artifact|\/home\//i.test(label) || proseWords.length > 1 || malformedRoot || (overflow > 2 && !scrollable);
+          return invalid ? [{ label: label.slice(0, 180), overflow: Math.round(overflow), scrollable, proseWords: proseWords.slice(0, 4), malformedRoot }] : [];
+        });
+        const feedbackIssues = Array.from(panel?.querySelectorAll<HTMLElement>(".feedback:not([hidden])") || []).flatMap((feedback) => {
+          const length = feedback.innerText.length;
+          const overflow = Math.max(0, feedback.scrollWidth - feedback.clientWidth);
+          return length > 8_000 || overflow > 2 ? [{ task: feedback.closest<HTMLElement>(".task")?.dataset.id || "unknown", length, overflow }] : [];
+        });
+        const visibleText = panel?.innerText || "";
+        const rawNotationIssues = [
+          ...visibleText.matchAll(/[A-Za-z0-9)}]\s*\^\s*\{?[+−-]?[A-Za-z0-9∞]/g),
+          ...visibleText.matchAll(/[A-Za-z0-9)}]\s*\^\s*\([+−-]?[A-Za-z0-9]+\)/g),
+          ...visibleText.matchAll(/\b[A-Za-z]\s*_\s*\{?[A-Za-z0-9]/g),
+          ...visibleText.matchAll(/[∫Σ]\s*_\s*\{?[A-Za-z0-9]/g),
+          ...visibleText.matchAll(/\blim\s*_\s*\{?[A-Za-z0-9]/g),
+        ].slice(0, 12).map((match) => match[0]);
+        let contentIssue: { maxStringLength: number; hasBinaryOrPath: boolean } | null = null;
+        const contentNode = document.querySelector<HTMLScriptElement>("#study-content");
+        if (contentNode) {
+          const raw = contentNode.textContent || "";
+          let maxStringLength = 0;
+          try {
+            const pending: unknown[] = [JSON.parse(raw)];
+            while (pending.length > 0) {
+              const value = pending.pop();
+              if (typeof value === "string") maxStringLength = Math.max(maxStringLength, value.length);
+              else if (Array.isArray(value)) pending.push(...value);
+              else if (value && typeof value === "object") pending.push(...Object.values(value));
+            }
+          } catch { maxStringLength = Number.MAX_SAFE_INTEGER; }
+          contentIssue = { maxStringLength, hasBinaryOrPath: /data:image|Local Moodle artifact root|Approved local image assets|\/home\//i.test(raw) };
+        }
+        const scrollStep = Math.max(320, Math.floor(innerHeight * 0.72));
+        const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+        let scrollSteps = 0;
+        let blankCenters = 0;
+        for (let y = 0; y <= maxScroll; y += scrollStep) {
+          scrollTo(0, y);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          scrollSteps += 1;
+          if (!document.elementFromPoint(innerWidth / 2, innerHeight / 2)) blankCenters += 1;
+        }
+        scrollTo(0, 0);
+        return {
+          visiblePanels: visiblePanels.length,
+          pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+          panelOverflow: panel ? Math.max(0, panel.scrollWidth - panel.clientWidth) : 0,
+          mathCount: panel?.querySelectorAll("math").length || 0,
+          mathIssues,
+          feedbackCount: panel?.querySelectorAll(".feedback:not([hidden])").length || 0,
+          feedbackIssues,
+          rawNotationIssues,
+          openDetails: panel?.querySelectorAll("details[open]").length || 0,
+          contentIssue,
+          scrollSteps,
+          blankCenters,
+        };
+      });
+      const failed = measurement.visiblePanels !== 1 || measurement.pageOverflow > 2 || measurement.panelOverflow > 2 || measurement.mathIssues.length > 0 || measurement.feedbackIssues.length > 0 || measurement.rawNotationIssues.length > 0 || measurement.blankCenters > 0 || !measurement.contentIssue || measurement.contentIssue.maxStringLength > 8_000 || measurement.contentIssue.hasBinaryOrPath;
+      audit.push({ viewport: viewport.name, tab: tabName, ...measurement, ok: !failed });
+      if (failed) {
+        failureCount += 1;
+        const message = `${viewport.name} · ${tabName}: panels=${measurement.visiblePanels}, page overflow=${measurement.pageOverflow}px, panel overflow=${measurement.panelOverflow}px, math issues=${measurement.mathIssues.length}, feedback issues=${measurement.feedbackIssues.length}, raw notation issues=${measurement.rawNotationIssues.length}, max content field=${measurement.contentIssue?.maxStringLength ?? "missing"}.`;
+        issues.push(issue("study-guide-interaction-matrix", message));
+        const safeName = tabName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `tab-${index + 1}`;
+        await page.screenshot({ path: path.join(runDir, "screenshots", `audit-failure-${viewport.name}-${safeName}.png`), fullPage: true }).catch(() => undefined);
+      }
+    }
+  }
+  const reportPath = path.join(runDir, "interaction-audit.json");
+  await writeFile(reportPath, `${JSON.stringify({ ok: failureCount === 0, failureCount, auditedStates: audit.length, states: audit }, null, 2)}\n`, "utf8");
+  return {
+    id: "study-guide-all-tabs-all-states",
+    ok: failureCount === 0,
+    evidence: failureCount === 0
+      ? `Playwright opened, exercised, and scrolled all ${audit.length} desktop/mobile chapter states without deterministic layout or math violations. Report: ${reportPath}`
+      : `Playwright found ${failureCount} failing desktop/mobile chapter states. Report: ${reportPath}`,
+  };
 }
 
 async function validateExamPersistenceInBrowser(

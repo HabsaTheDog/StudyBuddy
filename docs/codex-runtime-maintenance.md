@@ -12,7 +12,7 @@ npm run moodle:doctor
 ```
 
 Successful model checks are cached for 24 hours under
-`output/.runtime-cache/`. Every Study Buddy run writes a redacted
+`study-buddy-data/cache/`. Every Study Buddy run writes a redacted
 `codex-runtime.json` and includes the effective runtime in `run-summary.md`.
 
 The preflight validates SDK/CLI package pairing, relevant `codex doctor` checks,

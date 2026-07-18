@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import path from "node:path";
 import { Command } from "commander";
 import {
   CodexRuntimePreflightError,
@@ -8,6 +7,10 @@ import {
 } from "./codexRuntime.js";
 import { resolveTaskModelPolicy } from "./modelPolicy.js";
 import { inspectExtractionTooling } from "./fileTextExtraction.js";
+import {
+  ensureStudyBuddyWorkspaceData,
+  resolveStudyBuddyWorkspaceDataPaths,
+} from "../shared/workspaceData.js";
 
 const program = new Command()
   .name("moodle-doctor")
@@ -38,8 +41,9 @@ const models = options.model.length > 0
 
 try {
   const extractionTooling = await inspectExtractionTooling();
+  const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
   const report = await preflightCodexRuntime({
-    cacheDir: path.resolve("output", ".runtime-cache"),
+    cacheDir: workspaceData.cacheRoot,
     codexPath: options.codexPath ?? process.env.STUDY_BUDDY_CODEX_PATH,
     models,
     explicitModel: options.model.length > 0,

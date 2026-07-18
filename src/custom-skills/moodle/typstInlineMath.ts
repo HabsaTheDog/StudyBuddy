@@ -83,7 +83,7 @@ export function quoteBareMathText(value: string): string {
       return part
         .replace(/µm/g, '"µm"')
         .replace(/°C/g, '"°C"')
-        .replace(/\b[A-Za-z]{2,}\d*\b/g, (token) =>
+        .replace(/(?<![\p{L}\p{N}_"])[\p{L}]{2,}\d*(?![\p{L}\p{N}_"])/gu, (token) =>
           mathKeywords.has(token) ? token : `"${token}"`
         );
     })

@@ -10,6 +10,11 @@ import type {
 } from "./types.js";
 import { assertApprovedQuizTarget } from "./quizPermissions.js";
 import { assertApprovedAssignmentTarget } from "./assignmentPermissions.js";
+import {
+  ensureStudyBuddyWorkspaceData,
+  resolveStudyBuddyWorkspaceDataPaths,
+  resolveStudyBuddyWorkspacePath,
+} from "../../shared/workspaceData.js";
 
 const DEFAULT_BROWSER_BACKEND = "playwright";
 const DEFAULT_BROWSER_MAX_OUTPUT = 50_000;
@@ -31,12 +36,17 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
 
   const environment = loadEnvFiles(defaultEnvFileCandidates(process.env), process.env);
   const accessMode = parseQuizAccessMode(environment.MOODLE_QUIZ_ACCESS_MODE);
-  const workspaceRoot = resolveWorkspaceRoot(environment);
-  const outputRoot = path.join(workspaceRoot, "output", requestSlug(input.prompt));
+  const workspaceData = ensureStudyBuddyWorkspaceData(
+    resolveStudyBuddyWorkspaceDataPaths(environment),
+  );
+  const workspaceRoot = workspaceData.workspaceRoot;
+  const outputRoot = path.join(workspaceData.runsRoot, requestSlug(input.prompt));
   const explicitOutputPath = input.outputPath
-    ? resolveWorkspacePath(input.outputPath, workspaceRoot)
+    ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot)
     : null;
-  const explicitRunDir = input.runDir ? resolveWorkspacePath(input.runDir, workspaceRoot) : null;
+  const explicitRunDir = input.runDir
+    ? resolveStudyBuddyWorkspacePath(input.runDir, workspaceRoot)
+    : null;
   const runDir =
     explicitRunDir ??
     (explicitOutputPath
@@ -133,7 +143,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     quizSafetyPolicy,
     approvedQuizPermission: input.approvedQuizPermission,
     assignmentFiles: (input.assignmentFiles ?? []).map((file) =>
-      resolveWorkspacePath(file, workspaceRoot),
+      resolveStudyBuddyWorkspacePath(file, workspaceRoot),
     ),
     approvedAssignmentPermission: input.approvedAssignmentPermission,
     codexModel: trimOptional(input.codexModel) ?? trimOptional(environment.STUDY_BUDDY_CODEX_MODEL),
@@ -344,14 +354,6 @@ function quizAccessModePolicy(accessMode: QuizAccessMode): QuizSafetyPolicy {
 
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function resolveWorkspaceRoot(environment: NodeJS.ProcessEnv): string {
-  return path.resolve(environment.STUDY_BUDDY_WORKSPACE || environment.T3CODE_CWD || process.cwd());
-}
-
-function resolveWorkspacePath(value: string, workspaceRoot: string): string {
-  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
 }
 
 function requestSlug(prompt: string): string {

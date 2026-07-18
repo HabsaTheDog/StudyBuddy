@@ -4,7 +4,8 @@
 - Do not modify host routing, state, or UI files for the Moodle skill.
 - Treat `reference repo Study Buddy 1.0/` as read-only unless the user explicitly asks to modify it.
 - Keep `t3code-fork/` edits minimal, scoped, and merge-friendly; do not place generated study artifacts there.
-- Store generated study artifacts under `output/<request-name>/`; create a new request-specific subdirectory for every artifact-producing request.
+- Store Study Buddy pipeline data under `study-buddy-data/`. In regular projects, isolate runs below `threads/<thread-id>/runs/<request-name>/`; in Quick Chats, use `runs/<request-name>/` directly because the workspace is already thread-specific.
+- Keep canonical workflow deliverables inside their run directory, then publish verified user-facing copies outside `study-buddy-data/` in the surrounding workspace.
 - Do not place generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, or temporary source files inside `t3code-fork/`, `reference repo Study Buddy 1.0/`, or other reference repos.
 - Use the current 2.0 TypeScript contracts for Moodle data shapes, study-document expectations, quiz workflows, and Typst conventions.
 - Govern the Moodle pipeline with LangGraph, not a linear script.

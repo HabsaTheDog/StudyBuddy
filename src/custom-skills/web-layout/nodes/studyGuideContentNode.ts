@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
-import { studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideContentQuality } from "../studyGuideContent.js";
+import { STUDY_GUIDE_QUALITY_TARGETS, studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideContentQuality } from "../studyGuideContent.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import { buildContentFromPracticeCorpus } from "../practiceCorpusContent.js";
@@ -52,7 +52,7 @@ export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, sta
     "Never manufacture generic prompts such as 'Welche Aussage trifft zu?', 'Wähle alle sinnvollen Schritte', or 'Berechne den Wert' without a complete mathematical statement.",
     "Kreuzerl distractors must encode plausible course-specific misconceptions and each option needs targeted feedback.",
     "Calculation exercises must be fully specified, include accepted exact/decimal answers as needed, and include a real derivation plus a concrete common mistake.",
-    "Cover the full evidenced MAES2 topic range. Target 11 or more topics, at least 50 exercises total, at least 30 Kreuzerl/selection exercises, and at least 18 calculation exercises.",
+    `Cover the full evidenced MAES2 topic range. Target ${STUDY_GUIDE_QUALITY_TARGETS.topics} or more topics, at least ${STUDY_GUIDE_QUALITY_TARGETS.exercises} exercises total, at least ${STUDY_GUIDE_QUALITY_TARGETS.crossExercises} Kreuzerl/selection exercises, and at least ${STUDY_GUIDE_QUALITY_TARGETS.calculationExercises} calculation exercises.`,
     "Write readable theory and worked examples for every topic. Formula strings must contain normal mathematical notation suitable for deterministic MathML rendering later; never output HTML or MathML here.",
     "Do not claim official exam scoring. Explain gaps such as inaccessible Minitests in scopeNote.",
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these content-bank validation findings:\n${state.error_log}` : "",

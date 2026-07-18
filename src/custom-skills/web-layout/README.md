@@ -7,7 +7,7 @@ The web-layout graph produces one portable offline `document.html` while retaini
 Each successful run contains:
 
 ```text
-output/<request>/<timestamp>/
+study-buddy-data/runs/<request>/<timestamp>/
 ├── document.html
 ├── source/
 │   ├── index.html

@@ -43,7 +43,9 @@ describe("web layout graph", () => {
 
     expect(result.ok).toBe(true);
     expect(generatorCalls).toBe(2);
-    expect(result.outputPath).toContain(path.join(workspace, "output", "retry-test"));
+    expect(result.outputPath).toContain(
+      path.join(workspace, "study-buddy-data", "runs", "retry-test"),
+    );
   });
 
   it("aborts after three invalid generations", async () => {
@@ -163,7 +165,9 @@ describe("web layout graph", () => {
     );
 
     expect(resumed.ok).toBe(true);
-    expect(resumed.runDir).toContain(path.join(workspace, "output", "resume-target"));
+    expect(resumed.runDir).toContain(
+      path.join(workspace, "study-buddy-data", "runs", "resume-target"),
+    );
     expect(sourceCalls).toBe(0);
     expect(plannerCalls).toBe(0);
     expect(generatorCalls).toBe(0);
@@ -221,7 +225,9 @@ describe("web layout graph", () => {
     expect(resumed.ok).toBe(true);
     expect(generatorCalls).toBe(1);
     expect(receivedRepair).toContain("Persist answers.");
-    expect(resumed.runDir).toContain(path.join(workspace, "output", "resume-quality-target"));
+    expect(resumed.runDir).toContain(
+      path.join(workspace, "study-buddy-data", "runs", "resume-quality-target"),
+    );
   });
 
   it("resumes the latest repaired checkpoint instead of repeating edits from the older build", async () => {
