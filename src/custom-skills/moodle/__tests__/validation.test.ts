@@ -23,7 +23,7 @@ describe("validation", () => {
     });
   });
 
-  it("rejects raw tables, text arrows, and missing title metadata", () => {
+  it("rejects raw tables and missing title metadata while allowing arrows in prose", () => {
     const validation = validateStudyBuddyDocumentStructure(`#import "study-buddy-components.typ": *
 #sb-document(title: "Bad", body: [
   #table(columns: 2, [A], [B])
@@ -34,8 +34,8 @@ describe("validation", () => {
     expect(validation.errors).toEqual(expect.arrayContaining([
       expect.stringContaining("missing the 'short-title:'"),
       expect.stringContaining("raw table/grid"),
-      expect.stringContaining("text arrow glyphs"),
     ]));
+    expect(validation.errors.join("\n")).not.toContain("text arrow glyphs");
   });
 
   it("rejects verbatim raw code inside formula components", () => {
@@ -49,6 +49,17 @@ describe("validation", () => {
     expect(validation.errors).toEqual(expect.arrayContaining([
       expect.stringContaining("Do not use #raw"),
     ]));
+  });
+
+  it("rejects math delimiters printed literally inside text strings", () => {
+    const validation = validateStudyBuddyDocumentStructure(studyBuddyTypstDocument(`
+      #text("Bei der Nettofläche verwenden: $A_(net) = A - Delta A$.")
+    `));
+
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toEqual([
+      expect.stringContaining("Do not place '$...$' math markup inside #text"),
+    ]);
   });
 
   it("rejects images outside managed visual assets", () => {

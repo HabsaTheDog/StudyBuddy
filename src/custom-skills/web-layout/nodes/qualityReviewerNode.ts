@@ -3,6 +3,8 @@ import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
+import { adaptiveQualityCriteria } from "../learningInteractionGuidance.js";
+import { balancedExcerpt, compactHtmlForModel } from "../modelText.js";
 
 const qualityReviewSchema = {
   type: "object",
@@ -57,11 +59,12 @@ function buildPrompt(config: WebLayoutRuntimeConfig, state: LangGraphWebLayoutSt
     "Review this offline interactive Study Buddy page for source fidelity, mathematical correctness, pedagogy, usability, and appropriate interaction design.",
     "Do not rewrite it. Return JSON only. Mark ok=false only for concrete issues the HTML generator must repair.",
     "Do not reject a clearly labelled unsourced demo merely because course materials were not supplied. Reject only unsupported claims that present themselves as real course facts.",
+    adaptiveQualityCriteria(),
     `Requested kind: ${config.kind}`,
     `User request:\n${config.prompt}`,
     `Browser and static validation:\n${JSON.stringify(state.validation_report)}`,
-    `Source:\n${state.source_text.slice(0, 60_000)}`,
-    `HTML:\n${state.html_document.slice(0, 90_000)}`,
+    `Source:\n${balancedExcerpt(state.source_text, 100_000)}`,
+    `HTML:\n${compactHtmlForModel(state.html_document)}`,
   ].join("\n\n");
 }
 

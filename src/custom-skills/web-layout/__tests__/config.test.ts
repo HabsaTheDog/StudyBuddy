@@ -57,6 +57,19 @@ describe("web layout config", () => {
 
     expect(config.codexModel).toBe("gpt-selected");
   });
+
+  it("resolves a resume run directory inside the workspace", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Setze den Lauf fort",
+      resumeRunDir: "output/previous/run",
+    });
+
+    expect(config.resumeRunDir).toBe(path.join(workspace, "output", "previous", "run"));
+  });
 });
 
 function restoreOptionalEnv(key: string, value: string | undefined) {

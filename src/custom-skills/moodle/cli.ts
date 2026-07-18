@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { runMoodleGraph } from "./graph.js";
+import { runInteractiveMoodleGraph } from "./interactive/graph.js";
+import { loadApprovedQuizPermission } from "./interactive/quizPermissions.js";
+import { loadApprovedAssignmentPermission } from "./interactive/assignmentPermissions.js";
 import {
   parseExecutionProfile,
   parseModelPolicyOverrides,
@@ -122,13 +122,14 @@ const visualMode =
       ? "deferred"
       : undefined;
 
-if (
+const interactiveRequest =
   options.approveQuizRequest ||
   options.approveAssignmentRequest ||
   (options.autoAnswer && isQuizExecutionPrompt(prompt)) ||
-  isAssignmentExecutionPrompt(prompt)
-) {
-  runNativeQuizWorkflow({
+  isAssignmentExecutionPrompt(prompt);
+
+if (interactiveRequest) {
+  await runNativeQuizWorkflow({
     prompt,
     url: options.url,
     runDir: options.runDir,
@@ -146,10 +147,10 @@ if (
     approveQuizRequest: options.approveQuizRequest,
     assignmentFiles: options.assignmentFile,
     approveAssignmentRequest: options.approveAssignmentRequest,
+    json: options.json,
   });
-}
-
-const result = await runMoodleGraph({
+} else {
+  const result = await runMoodleGraph({
   prompt,
   moodleUrl: options.url,
   outputPath: options.out,
@@ -190,35 +191,36 @@ const result = await runMoodleGraph({
   modelPolicyOverrides: options.profileOverridesJson,
 });
 
-if (options.json) {
-  console.log(JSON.stringify(result, null, 2));
-} else if (result.ok) {
-  console.log(`Run directory: ${result.runDir}`);
-  if (result.outputPath) {
-    console.log(`Wrote Typst document: ${result.outputPath}`);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else if (result.ok) {
+    console.log(`Run directory: ${result.runDir}`);
+    if (result.outputPath) {
+      console.log(`Wrote Typst document: ${result.outputPath}`);
+    }
+    if (result.answerPath) {
+      console.log(`Wrote answer: ${result.answerPath}`);
+    }
+    if (result.answerJsonPath) {
+      console.log(`Wrote answer data: ${result.answerJsonPath}`);
+    }
+    if (result.extractedDataPath) {
+      console.log(`Wrote extracted data: ${result.extractedDataPath}`);
+    }
+    if (result.pdfPath) {
+      console.log(`Wrote PDF document: ${result.pdfPath}`);
+    }
+    if (result.htmlPath) {
+      console.log(`Wrote HTML navigator: ${result.htmlPath}`);
+    }
+    console.log(`Run metrics: ${result.metricsPath}`);
+    console.log(`Run summary: ${result.runSummaryPath}`);
+  } else {
+    console.error(result.error || "Moodle graph failed.");
+    console.error(`Run directory: ${result.runDir}`);
+    console.error(`Run summary: ${result.runSummaryPath}`);
+    process.exitCode = 1;
   }
-  if (result.answerPath) {
-    console.log(`Wrote answer: ${result.answerPath}`);
-  }
-  if (result.answerJsonPath) {
-    console.log(`Wrote answer data: ${result.answerJsonPath}`);
-  }
-  if (result.extractedDataPath) {
-    console.log(`Wrote extracted data: ${result.extractedDataPath}`);
-  }
-  if (result.pdfPath) {
-    console.log(`Wrote PDF document: ${result.pdfPath}`);
-  }
-  if (result.htmlPath) {
-    console.log(`Wrote HTML navigator: ${result.htmlPath}`);
-  }
-  console.log(`Run metrics: ${result.metricsPath}`);
-  console.log(`Run summary: ${result.runSummaryPath}`);
-} else {
-  console.error(result.error || "Moodle graph failed.");
-  console.error(`Run directory: ${result.runDir}`);
-  console.error(`Run summary: ${result.runSummaryPath}`);
-  process.exitCode = 1;
 }
 
 function parseNumber(value: string): number {
@@ -313,7 +315,7 @@ function isAssignmentExecutionPrompt(value: string): boolean {
   );
 }
 
-function runNativeQuizWorkflow(input: {
+async function runNativeQuizWorkflow(input: {
   prompt: string;
   url: string;
   runDir?: string;
@@ -331,27 +333,17 @@ function runNativeQuizWorkflow(input: {
   approveQuizRequest?: string;
   assignmentFiles: string[];
   approveAssignmentRequest?: string;
-}): never {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const rootDir = path.resolve(moduleDir, "../../..");
-  const quizCli = path.join(
-    rootDir,
-    "t3code-fork/apps/server/src/custom-skills/moodle/cli.ts",
-  );
-  const args = [
-    quizCli,
-    input.prompt,
-    "--url",
-    input.url,
-    "--max-depth",
-    String(input.maxDepth),
-    "--max-pages",
-    String(input.maxPages),
-    "--max-cis-pages",
-    String(input.maxCisPages),
-    "--execution-profile",
-    input.executionProfile,
-  ];
+  json?: boolean;
+}): Promise<void> {
+  const approvedQuizPermission = input.approveQuizRequest
+    ? await loadApprovedQuizPermission(input.approveQuizRequest)
+    : undefined;
+  const approvedAssignmentPermission = input.approveAssignmentRequest
+    ? await loadApprovedAssignmentPermission(input.approveAssignmentRequest)
+    : undefined;
+  if (approvedQuizPermission && approvedAssignmentPermission) {
+    throw new Error("Quiz and assignment approvals cannot be combined.");
+  }
   const primaryQuizSolver = resolveTaskModelPolicy({
     profile: input.executionProfile,
     task: "quiz_solver",
@@ -368,39 +360,37 @@ function runNativeQuizWorkflow(input: {
     globalReasoningEffort: input.codexReasoningEffort,
     overrides: input.profileOverrides,
   });
-  args.push(
-    "--quiz-solver-model",
-    primaryQuizSolver.model,
-    "--quiz-solver-reasoning-effort",
-    primaryQuizSolver.reasoningEffort,
-    "--quiz-solver-retry-model",
-    retryQuizSolver.model,
-    "--quiz-solver-retry-reasoning-effort",
-    retryQuizSolver.reasoningEffort,
-  );
-  if (input.runDir) args.push("--run-dir", input.runDir);
-  if (input.browserBackend) args.push("--browser-backend", input.browserBackend);
-  if (input.browserHeaded) args.push("--browser-headed");
-  if (input.autoAnswer) args.push("--auto-answer");
-  if (!input.downloads) args.push("--no-downloads");
-  if (input.codexModel) args.push("--codex-model", input.codexModel);
-  if (input.codexReasoningEffort) {
-    args.push("--codex-reasoning-effort", input.codexReasoningEffort);
-  }
-  if (input.approveQuizRequest) {
-    args.push("--approve-quiz-request", input.approveQuizRequest);
-  }
-  for (const assignmentFile of input.assignmentFiles) {
-    args.push("--assignment-file", assignmentFile);
-  }
-  if (input.approveAssignmentRequest) {
-    args.push("--approve-assignment-request", input.approveAssignmentRequest);
-  }
-  const result = spawnSync(process.env.BUN_PATH || "bun", args, {
-    cwd: rootDir,
-    env: process.env,
-    stdio: "inherit",
+  const result = await runInteractiveMoodleGraph({
+    prompt: input.prompt,
+    moodleUrl:
+      approvedQuizPermission?.targetUrl ?? approvedAssignmentPermission?.targetUrl ?? input.url,
+    runDir: input.runDir,
+    maxDepth: input.maxDepth,
+    maxPages: input.maxPages,
+    maxCisPages: input.maxCisPages,
+    browserBackend: input.browserBackend,
+    browserHeaded: input.browserHeaded,
+    autoAnswer: input.autoAnswer,
+    allowFileDownloads: input.downloads,
+    codexModel: input.codexModel,
+    quizSolverModel: primaryQuizSolver.model,
+    quizSolverReasoningEffort: primaryQuizSolver.reasoningEffort,
+    quizSolverRetryModel: retryQuizSolver.model,
+    quizSolverRetryReasoningEffort: retryQuizSolver.reasoningEffort,
+    approvedQuizPermission,
+    assignmentFiles:
+      approvedAssignmentPermission?.files.map((file) => file.path) ?? input.assignmentFiles,
+    approvedAssignmentPermission,
   });
-  if (result.error) throw result.error;
-  process.exit(result.status ?? 1);
+  if (input.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Run directory: ${result.runDir}`);
+    console.log(`Workflow status: ${result.workflowStatus}`);
+    if (result.permissionRequestPath) {
+      console.log(`Permission request: ${result.permissionRequestPath}`);
+    }
+    if (!result.ok) console.error(result.error || "Moodle interaction failed.");
+  }
+  if (!result.ok) process.exitCode = 1;
 }

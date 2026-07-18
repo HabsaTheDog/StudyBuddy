@@ -3,6 +3,7 @@ import type { SourceCoverage } from "./runDiagnostics.js";
 import {
   cleanVisibleMathText,
   normalizeInlineMathSource,
+  quoteBareMathText,
   renderTypstInlineText,
 } from "./typstInlineMath.js";
 
@@ -175,18 +176,19 @@ function stripMathDelimiters(value: string): string {
 }
 
 function normalizeTypstMath(value: string): string {
-  return replaceTypstMathFunctionCalls(
-    normalizeInlineMathSource(value)
+  const normalized = normalizeInlineMathSource(value)
       .replace(/µm/g, '"µm"')
       .replace(/°C/g, '"°C"')
       .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]+)\)/g, (_, label: string) => `_"${label.trim()}"`)
       .replace(/([\p{Script=Greek}])(?=[A-Za-z])/gu, "$1 ")
       .replace(/([A-Za-z])(?=[\p{Script=Greek}])/gu, "$1 ")
       .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
-      .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)"),
+      .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)");
+  return quoteBareMathText(replaceTypstMathFunctionCalls(
+    normalized,
     "ddot",
     (argument) => `accent(${argument}, dot.double)`,
-  );
+  ));
 }
 
 function replaceTypstMathFunctionCalls(

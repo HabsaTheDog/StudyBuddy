@@ -17,6 +17,7 @@ const program = new Command()
   .option("--source-file <path>", "UTF-8 source text file; repeat for multiple files", collect, [])
   .option("--asset <path>", "Local image asset; repeat for multiple files", collect, [])
   .option("--source-run-dir <path>", "Successful Moodle extraction run directory to consume")
+  .option("--resume-run-dir <path>", "Resume from a prior web-layout run with a validated build")
   .option("--out <path>", "Output .html path")
   .option("--request-name <slug>", "Request-specific output directory name")
   .option("--run-dir <path>", "Explicit run directory")
@@ -40,6 +41,7 @@ const options = program.opts<{
   sourceFile: string[];
   asset: string[];
   sourceRunDir?: string;
+  resumeRunDir?: string;
   out?: string;
   requestName?: string;
   runDir?: string;
@@ -65,6 +67,7 @@ const result = await runWebLayoutGraph({
   sourceFiles: options.sourceFile,
   assetFiles: options.asset,
   sourceRunDir: options.sourceRunDir,
+  resumeRunDir: options.resumeRunDir,
   outputPath: options.out,
   requestName: options.requestName,
   runDir: options.runDir,

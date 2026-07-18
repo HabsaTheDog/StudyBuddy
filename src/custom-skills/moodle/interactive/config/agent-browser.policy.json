@@ -1,0 +1,16 @@
+{
+  "default": "deny",
+  "allow": [
+    "navigate",
+    "snapshot",
+    "evaluate",
+    "get",
+    "click",
+    "fill",
+    "type",
+    "press",
+    "scroll",
+    "wait",
+    "download"
+  ]
+}

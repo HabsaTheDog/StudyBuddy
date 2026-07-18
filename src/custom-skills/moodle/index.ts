@@ -1,4 +1,9 @@
 export { runMoodleGraph, buildMoodleGraph } from "./graph.js";
+export {
+  buildInteractiveMoodleGraph,
+  deriveWorkflowStatus as deriveInteractiveWorkflowStatus,
+  runInteractiveMoodleGraph,
+} from "./interactive/graph.js";
 export { validateStudyBuddyDocumentStructure } from "./typstDocumentRules.js";
 export { planSources, planSourcesForPrompt } from "./sourcePlanner.js";
 export { assessFollowUpCrawl } from "./sourceNeedAssessment.js";
@@ -28,6 +33,11 @@ export {
   QuizPolicyViolation,
 } from "./quizPolicy.js";
 export type { MoodleGraphInput, MoodleGraphResult } from "./types.js";
+export type {
+  MoodleGraphInput as InteractiveMoodleGraphInput,
+  MoodleGraphResult as InteractiveMoodleGraphResult,
+  MoodleWorkflowStatus,
+} from "./interactive/types.js";
 export type { AgentState, JsonArray, JsonObject, JsonValue } from "./state.js";
 export type { TypstStructureValidation } from "./typstDocumentRules.js";
 export type { SourcePlan, SourceTarget } from "./sourcePlanner.js";

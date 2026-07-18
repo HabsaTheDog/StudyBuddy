@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -113,6 +113,61 @@ describe("web layout graph", () => {
     expect(result.state.validator_retry_count).toBe(2);
     expect(result.state.quality_retry_count).toBe(1);
     expect(result.state.retry_count).toBe(3);
+  });
+
+  it("resumes a validated build directly at semantic quality review", async () => {
+    const workspace = await tempWorkspace();
+    const first = await runWebLayoutGraph(
+      {
+        prompt: "Build flashcards",
+        kind: "flashcards",
+        requestName: "resume-source",
+        skipBrowserValidation: true,
+      },
+      {
+        sourceNode: async () => ({ source_text: "source", error_log: null }),
+        plannerNode: async () => ({ layout_spec: validLayoutSpec(), error_log: null }),
+        generatorNode: async () => ({
+          html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "flashcards", language: "de" }),
+          error_log: null,
+        }),
+        qualityReviewerNode: async () => ({ error_log: null }),
+      },
+    );
+    expect(first.ok).toBe(true);
+    await writeFile(path.join(first.runDir, "source.txt"), "", "utf8");
+    await writeFile(path.join(first.runDir, "layout-spec.json"), "{}\n", "utf8");
+    await writeFile(path.join(first.runDir, "validation-report.json"), "{}\n", "utf8");
+
+    let sourceCalls = 0;
+    let plannerCalls = 0;
+    let generatorCalls = 0;
+    let qualityCalls = 0;
+    const resumed = await runWebLayoutGraph(
+      {
+        prompt: "Resume flashcards",
+        kind: "flashcards",
+        requestName: "resume-target",
+        resumeRunDir: first.runDir,
+        skipBrowserValidation: true,
+      },
+      {
+        sourceNode: async () => { sourceCalls += 1; return { error_log: "must not run" }; },
+        plannerNode: async () => {
+          plannerCalls += 1;
+          return { layout_spec: validLayoutSpec(), error_log: null };
+        },
+        generatorNode: async () => { generatorCalls += 1; return { error_log: "must not run" }; },
+        qualityReviewerNode: async () => { qualityCalls += 1; return { error_log: null }; },
+      },
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(resumed.runDir).toContain(path.join(workspace, "output", "resume-target"));
+    expect(sourceCalls).toBe(0);
+    expect(plannerCalls).toBe(1);
+    expect(generatorCalls).toBe(0);
+    expect(qualityCalls).toBe(1);
   });
 });
 

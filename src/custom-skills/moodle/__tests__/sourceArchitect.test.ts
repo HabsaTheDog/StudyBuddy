@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyStudyBuddyIntent } from "../taskIntent.js";
 import {
   createSourceArchitectNode,
+  isLookupOnlySourceBlock,
   routeAfterSourceArchitect,
 } from "../sourceArchitect.js";
 import { stableResourceId } from "../resourceManifest.js";
@@ -19,6 +20,17 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
+  it("recognizes a direct block whose only unresolved issue is visual lookup verification", () => {
+    expect(isLookupOnlySourceBlock({
+      round: 3,
+      status: "blocked",
+      coverageSummary: "Die fünf Fachkapitel sind inhaltlich abgedeckt. Nicht ausreichend ist nur die lesbare Tabelle TB 2-1 bis TB 2-3.",
+      requestedUrls: [],
+      remainingAvailable: 10,
+      reasons: ["Die Tabelle muss visuell geprüft werden."],
+    })).toBe(true);
+  });
+
   it("requests exact missing catalog resources from compact document briefs", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-"));
     directories.push(runDir);
@@ -118,6 +130,83 @@ describe("source architect", () => {
     expect(routeAfterSourceArchitect({ ...state, ...result })).toBe("targetedAcquisition");
     const briefs = JSON.parse(await readFile(path.join(runDir, "document-briefs.json"), "utf8"));
     expect(briefs.briefs[0]).toMatchObject({ checksum: "abc", evidenceRecords: 1 });
+  });
+
+  it("accepts a domain-neutral model architecture but removes invented resource URLs", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-domain-architecture-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=clinical";
+    const availableUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=cases";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "Acute chest pain", true, 900), role: "primary_lecture" },
+        { ...entry(availableUrl, "Additional cases", false, 600), role: "worked_example" },
+      ],
+    }));
+    const lectureId = stableResourceId(lectureUrl);
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.technikum-wien.at/course/view.php?id=medicine",
+        generatedAt: new Date().toISOString(),
+        resources: [resource(
+          lectureId,
+          lectureUrl,
+          "Acute chest pain",
+          "Clinical reasoning",
+          "/tmp/clinical.pdf",
+          "primary_lecture",
+        )],
+      },
+    });
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "sufficient",
+        coverage_summary: "The clinical reasoning module is covered.",
+        requested_urls: [],
+        reasons: [],
+        learning_architecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "acute-chest-pain",
+            title: "Acute chest pain",
+            priority: "essential",
+            contentMode: "case_based",
+            learningObjectives: ["Assess a patient vignette and justify the next step."],
+            assessmentSignals: ["Case discussion in the lecture."],
+            resourceUrls: [lectureUrl, "https://invented.example/fake.pdf"],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      })),
+    };
+    const config = moodleTestConfig({
+      runDir,
+      prompt: "Create a study guide for clinical medicine",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt: "Create a study guide for clinical medicine",
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    });
+
+    const result = await createSourceArchitectNode(config, codex)(state);
+
+    expect(result.source_architect_decision?.learningArchitecture?.modules.find((module) =>
+      module.title === "Acute chest pain"
+    )).toMatchObject({
+      title: "Acute chest pain",
+      contentMode: "case_based",
+      resourceUrls: [lectureUrl],
+    });
+    const persisted = JSON.parse(await readFile(path.join(runDir, "learning-architecture.json"), "utf8"));
+    expect(JSON.stringify(persisted)).not.toContain("invented.example");
   });
 
   it("does not accept lecture-only coverage when a matching task and solution are cataloged", async () => {
@@ -287,6 +376,11 @@ describe("source architect", () => {
         generatedAt: new Date().toISOString(),
         resources: [
           resource(lectureId, lectureUrl, "Foliensatz Toleranzen", "Eigenstudium 1", "/tmp/tolerances.pdf", "primary_lecture"),
+          {
+            ...resource("res_failed_book", "https://books.example/tables.pdf", "Tabellenbuch", "Eigenstudium 1", null, "supplementary"),
+            status: "tls_failure" as const,
+            failureReason: "Certificate chain unavailable.",
+          },
         ],
       },
       evidence_package: {
@@ -302,15 +396,25 @@ describe("source architect", () => {
           pairId: null,
           sourceUrl: lectureUrl,
           localPath: "/tmp/tolerances.pdf",
+        }, {
+          id: "ev_failed_book",
+          resourceId: "res_failed_book",
+          kind: "claim",
+          locator: { page: 1 },
+          content: "Tabellenbuch TB 2-1",
+          confidence: 0.5,
+          pairId: null,
+          sourceUrl: "https://books.example/tables.pdf",
+          localPath: null,
         }],
         warnings: [],
       },
     });
     const codex = {
       run: vi.fn().mockResolvedValue(JSON.stringify({
-        status: "request_more",
+        status: "blocked",
         coverage_summary: "The table is not visible in the text brief.",
-        requested_urls: [unrelatedUrl],
+        requested_urls: [],
         reasons: ["TB 2-1 must be verified visually."],
       })),
     };

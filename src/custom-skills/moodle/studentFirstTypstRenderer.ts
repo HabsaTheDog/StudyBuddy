@@ -2,6 +2,7 @@ import type { StudyModel } from "./examNavigatorContracts.js";
 import {
   cleanVisibleMathText,
   normalizeInlineMathSource,
+  quoteBareMathText,
   renderTypstInlineText,
 } from "./typstInlineMath.js";
 
@@ -287,16 +288,29 @@ function figuresForExample(
       figure.sourceIds.every((sourceId) => exampleSources.has(sourceId))
     )
     .sort((left, right) =>
-      visualSpecificity(right) - visualSpecificity(left) ||
+      visualSpecificity(right, example) - visualSpecificity(left, example) ||
       left.title.localeCompare(right.title, "de")
     )
     .slice(0, limit);
 }
 
-function visualSpecificity(figure: StudyModel["figures"][number]): number {
+function visualSpecificity(
+  figure: StudyModel["figures"][number],
+  example?: StudyModel["workedExamples"][number],
+): number {
   const value = `${figure.title} ${figure.caption}`.toLocaleLowerCase("de");
+  const exampleValue = example
+    ? `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")}`.toLocaleLowerCase("de")
+    : "";
+  const mandatoryMatch =
+    (/(?:tb\s*2-|h7\s*\/\s*k6|toleranzgrad|grundabmaß)/i.test(exampleValue) &&
+      /(?:tb\s*2-|h7\s*\/\s*k6|lernausschnitt)/i.test(value)) ||
+    (/(?:roloff|matek|viskositäts?-temperatur|diagrammables)/i.test(exampleValue) &&
+      /(?:roloff|matek|viskositäts?-temperatur|diagrammabbildung)/i.test(value));
   return (
+    (mandatoryMatch ? 20 : 0) +
     (/\b(?:tabelle|table|diagramm|skizze|beispiel|rechnung|plot|kennlinie|schema|passung|toleranz)\b/.test(value) ? 2 : 0) +
+    (figure.kind === "typst_diagram" ? 2 : 0) +
     (figure.kind === "moodle_pdf_image" ? 1 : 0)
   );
 }
@@ -336,7 +350,7 @@ function bulletList(items: string[]): string {
 }
 
 function numberedList(items: string[]): string {
-  return items.map((item) => `+ ${text(item)}`).join("\n");
+  return items.map((item) => `+ ${text(item.replace(/^\s*\d+\.\s*/, ""))}`).join("\n");
 }
 
 function text(value: string): string {
@@ -366,50 +380,6 @@ function separateGreekLatinSymbols(value: string): string {
   return value
     .replace(/([\p{Script=Greek}])(?=[A-Za-z])/gu, "$1 ")
     .replace(/([A-Za-z])(?=[\p{Script=Greek}])/gu, "$1 ");
-}
-
-function quoteBareMathText(value: string): string {
-  const mathKeywords = new Set([
-    "and",
-    "approx",
-    "cos",
-    "dif",
-    "div",
-    "dot",
-    "dots",
-    "exp",
-    "frac",
-    "lim",
-    "ln",
-    "log",
-    "max",
-    "min",
-    "or",
-    "pi",
-    "quad",
-    "sin",
-    "sqrt",
-    "sum",
-    "tan",
-    "times",
-    "sigma",
-    "tau",
-    "gamma",
-    "nu",
-    "Delta",
-  ]);
-  return value
-    .split(/("[^"]*")/)
-    .map((part) => {
-      if (part.startsWith('"') && part.endsWith('"')) return part;
-      return part
-        .replace(/µm/g, '"µm"')
-        .replace(/°C/g, '"°C"')
-        .replace(/\b[A-Za-z]{2,}\b/g, (token) =>
-          mathKeywords.has(token) ? token : `"${token}"`
-        );
-    })
-    .join("");
 }
 
 export function formatFormulaMath(value: string): string {

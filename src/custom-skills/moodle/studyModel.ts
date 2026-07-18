@@ -23,7 +23,7 @@ export function buildStudyModel(
   const profile = config.artifactIntent.profile;
   const sources = sourceEntries(extracted, manifest);
   const sourceIds = new Set(sources.map((source) => source.id));
-  const chapterDrafts = buildCourseChapters(manifest);
+  const chapterDrafts = buildCourseChapters(manifest, extracted);
   const topics = extracted.sections
     .filter((section) => !isOrganizationalSection(section.heading))
     .filter((section) => section.source_ids.some((sourceId) => sourceIds.has(sourceId)))
@@ -297,7 +297,22 @@ function sourceEntries(extracted: ExtractedData, manifest: ResourceManifest): St
   return sources;
 }
 
-function buildCourseChapters(manifest: ResourceManifest): CourseChapter[] {
+function buildCourseChapters(manifest: ResourceManifest, extracted: ExtractedData): CourseChapter[] {
+  if (extracted.learning_modules.length > 0) {
+    return extracted.learning_modules.map((module, index) => ({
+      id: stableId(module.id || module.title, "chapter"),
+      title: module.title,
+      subject: module.title,
+      order: index,
+      priority: module.priority,
+      contentMode: module.content_mode,
+      learningObjectives: module.learning_objectives,
+      assessmentSignals: module.assessment_signals,
+      status: "missing" as const,
+      topicIds: [],
+      resourceIds: module.resource_ids,
+    }));
+  }
   const chapters: CourseChapter[] = [];
   for (const resource of manifest.resources) {
     for (const sectionTitle of resource.sectionPath) {
@@ -312,6 +327,10 @@ function buildCourseChapters(manifest: ResourceManifest): CourseChapter[] {
           title: sectionTitle,
           subject: parsed.subject,
           order: parsed.order,
+          priority: "important",
+          contentMode: "mixed",
+          learningObjectives: [],
+          assessmentSignals: [],
           status: "missing",
           topicIds: [],
           resourceIds: [],
@@ -349,6 +368,10 @@ function selectChapterId(
   );
   const votes = new Map<string, number>();
   const sourceContext: string[] = [label];
+  for (const chapter of chapters) {
+    const directMatches = sourceIds.filter((sourceId) => chapter.resourceIds.includes(sourceId)).length;
+    if (directMatches > 0) votes.set(chapter.id, directMatches * 10);
+  }
   for (const sourceId of sourceIds) {
     const source = extractedSources.get(sourceId);
     const resource = source?.url
