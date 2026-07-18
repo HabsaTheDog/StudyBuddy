@@ -87,7 +87,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           timeoutMs: policy.timeoutMs,
         });
         try {
-          const turn = await thread.run(prompt, {
+          const turn = await thread.run(sanitizeUnicode(prompt), {
             outputSchema: options?.outputSchema,
             signal,
           });
@@ -183,7 +183,11 @@ function shouldTryModelFallback(
   status: "completed" | "failed" | "timeout" | "canceled",
   classification: CodexErrorClassification | null,
 ): boolean {
-  if (status === "timeout") return true;
+  // A timeout is a bounded stage failure. LangGraph owns the retry and can
+  // preserve successful chapter handoffs while escalating only the failed
+  // chapter. An inline fallback would silently add both model timeouts and can
+  // turn one slow chapter into a ten-minute call.
+  if (status === "timeout") return false;
   return classification?.category === "model_capacity" ||
     classification?.category === "model_unavailable" ||
     classification?.category === "rate_limit";
@@ -249,6 +253,28 @@ async function recordCall(input: {
 
 function combineSignals(primary: AbortSignal | undefined, timeout: AbortSignal): AbortSignal {
   return primary ? AbortSignal.any([primary, timeout]) : timeout;
+}
+
+/** Replace lone UTF-16 surrogates produced by some PDF text extractors. */
+export function sanitizeUnicode(value: string): string {
+  let output = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        output += value[index] + value[index + 1];
+        index += 1;
+      } else {
+        output += "�";
+      }
+    } else if (code >= 0xDC00 && code <= 0xDFFF) {
+      output += "�";
+    } else {
+      output += value[index];
+    }
+  }
+  return output;
 }
 
 export function classifyCodexError(error: unknown): CodexErrorClassification {

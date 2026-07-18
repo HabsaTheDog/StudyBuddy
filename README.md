@@ -104,7 +104,7 @@ npm test
 Study Buddy/
 ├── src/
 │   └── custom-skills/
-│       └── moodle/          # Moodle/CIS pipeline (LangGraph)
+│       └── moodle/          # Canonical Moodle/CIS, quiz, and assignment LangGraph runtime
 ├── docs/                    # Internal documentation
 ├── output/                  # Generated artifacts (gitignored)
 ├── t3code-fork/             # Git submodule — T3 Code integration
@@ -114,6 +114,10 @@ Study Buddy/
 ├── .env.local               # Local overrides (NOT committed)
 └── package.json
 ```
+
+`t3code-fork/` contains only the T3 UI/server adapter for Study Buddy settings
+and connection checks. Its `moodle:agent` command delegates to the canonical
+runtime above; it does not carry a second scraper or LangGraph implementation.
 
 ## Cross-Platform Notes
 

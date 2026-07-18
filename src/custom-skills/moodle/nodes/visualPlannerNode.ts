@@ -90,7 +90,7 @@ function buildVisualPlannerPrompt(
     })),
     warnings: state.evidence_package.warnings,
   };
-  const chapters = state.resource_manifest.resources
+  const resources = state.resource_manifest.resources
     .filter((resource) => resource.sectionPath.length > 0)
     .map((resource) => ({
       id: resource.id,
@@ -104,7 +104,7 @@ function buildVisualPlannerPrompt(
     "Return only JSON matching the schema. Do not include Markdown fences.",
     "Planning principles:",
     "- Visuals are usually valuable for learning. Prefer requesting useful pages over being overly conservative.",
-    "- Request pages for worked examples, exercises, solutions, tables, diagrams, formula reference pages, chapter-opening context, and relevant cover/title pages.",
+    "- Request pages for worked examples, cases, exercises, solutions, tables, diagrams, anatomical/process illustrations, charts, maps, financial statements, formula/reference pages, and meaningful chapter context.",
     "- If examples or solutions are near the end of a PDF, explicitly request those late pages.",
     "- A worked example that explicitly says to use a table, table book (for example TB 2-1), diagram, characteristic curve, or nomogram is not self-contained without that lookup asset. Request both the example page and the relevant table/diagram pages, including nearby preceding reference pages.",
     "- Spread requests over Moodle chapters and sources; do not spend all requests on the first chapter unless the course material genuinely only covers that chapter.",
@@ -113,7 +113,8 @@ function buildVisualPlannerPrompt(
     "- Do not invent facts. Base page choices on page index signals, evidence records, and Moodle chapter/resource names.",
     `Artifact profile: ${config.artifactIntent.profile}.`,
     `User request:\n${config.prompt}`,
-    `Moodle resource/chapter map:\n${JSON.stringify(chapters, null, 2)}`,
+    `Model-derived learning architecture:\n${JSON.stringify(state.source_architect_decision.learningArchitecture ?? null, null, 2)}`,
+    `Moodle resource map (section paths are metadata, not necessarily learning modules):\n${JSON.stringify(resources, null, 2)}`,
     `Evidence summary:\n${JSON.stringify(evidence, null, 2)}`,
     `Visual page index:\n${JSON.stringify(compactVisualPageIndexForPrompt(pageIndex), null, 2)}`,
   ].join("\n\n");

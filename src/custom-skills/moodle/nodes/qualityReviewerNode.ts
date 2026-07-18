@@ -52,31 +52,107 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
   };
 }
 
-function buildQualityReviewPrompt(
+export function buildQualityReviewPrompt(
   config: MoodleRuntimeConfig,
   state: LangGraphAgentState,
 ): string {
   const artifact = state.final_document.trim()
-    ? `Generated artifact:\n${state.final_document.slice(0, 90_000)}`
-    : `Structured study model:\n${JSON.stringify(state.study_model).slice(0, 90_000)}`;
+    ? `Generated artifact:\n${state.final_document.slice(0, 45_000)}`
+    : `Structured study model review view:\n${JSON.stringify(compactStudyModelForReview(state))}`;
   return [
-    "Review this Study Buddy artifact for factual grounding, mathematical consistency, pedagogical usefulness, and alignment with the requested output.",
+    "Review this Study Buddy artifact for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Do not rewrite the artifact. Return JSON only. Mark ok=false only for concrete issues that require a new analysis or build attempt.",
     "Review only the supplied artifact and deterministic review. Do not claim that omitted source material contains facts, formulas, or examples that are not present in this review input.",
     "Formula strings in structured study data use Typst math syntax, not TeX. Typst functions such as frac and dot intentionally have no leading backslash; do not flag that syntax as malformed TeX.",
     "Worked examples with origin='derived' are explicitly didactic examples. They are allowed when their method and result are reproducible from the cited source-backed rules or formulas; do not reject them merely because their numeric values were newly chosen.",
     "The study_guide profile intentionally keeps practiceItems empty; its application layer is workedExamples embedded in each chapter. Do not report an empty detached practice bank as a defect when chapter examples are complete.",
-    "For a study guide, reject chapter-sized content that functions only as a short overview. A learner needs explanations, conditions, methods, and worked application—not just one paragraph and a few bullets.",
+    "For a study guide, reject chapter-sized content that functions only as a short overview. A learner needs explanations, relationships, conditions and the form of application appropriate to the discipline—not just one paragraph and a few bullets.",
     "A publicationStatus or chapter status of 'partial' is not by itself a blocking defect. A guide may publish with a clearly named, narrowly scoped source gap when the supplied evidence does not support that subtopic. Never demand invented material merely to turn partial coverage into complete coverage.",
-    "Judge each chapter by whether it contains at least one complete representative application. Do not require one example to cover every formula, strength proof, or calculation method in the chapter.",
+    "Respect each chapter's contentMode. Quantitative chapters need a reproducible calculation or derivation; case_based chapters need a traceable case analysis and justified decision; procedural chapters need an executable sequence with decision/error points; mixed chapters need an appropriate combination. Purely conceptual chapters may instead demonstrate depth through explanations, distinctions, evidence interpretation, argument structure, or an illustrative comparison and must not be forced into a fake calculation or case.",
+    "Do not require one example to cover every formula, case type, argument, or method in the chapter.",
     "An example is blocking only when it presents itself as reproducible but omits necessary givens, substitutions, units, or reasoning, or when its result contradicts its shown method. A clearly scoped limitation is acceptable.",
     "When the supplied evidence or deterministic review identifies a mandatory table/diagram lookup, reject an example that merely copies the looked-up values from a solution. The learner must see the lookup asset and the row/column or interval-selection method before subsequent calculations.",
+    "A compact didactic lookup-table excerpt is a valid lookup asset when it is visibly labeled as an excerpt rather than a complete norm table, shows the exact interval/field selections and values needed by the example, and traces those values to the supplied course evidence. Do not demand a full copyrighted norm table in addition. A decorative diagram or an unstructured list of finished values does not satisfy this exception.",
     "A missing optional formula, subtopic, or additional worked example is not a defect unless the user explicitly required it and the supplied artifact itself demonstrates that suitable source-backed material was available.",
     "Set ok=false only for a concrete factual contradiction, mathematical inconsistency, unusably shallow covered chapter, missing representative chapter example, invalid citation, or an example that cannot be followed from its stated givens. Put non-blocking coverage observations in summary, not findings.",
     `User request:\n${config.prompt}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,
   ].join("\n\n");
+}
+
+function compactStudyModelForReview(state: LangGraphAgentState) {
+  const model = state.study_model;
+  return {
+    profile: model.profile,
+    title: model.title,
+    courseTitle: model.courseTitle,
+    publicationStatus: model.publicationStatus,
+    scopeNote: model.scopeNote,
+    chapters: model.courseChapters.map((chapter) => {
+      const lookupPattern = /(?:TB\s*\d|tabelle|nennmaßbereich|nennmassbereich|toleranzgrad|grundabmaß|grundabmass|EI|ES|ei|es)/i;
+      const mandatoryAssetPattern = /(?:TB\s*\d|lernausschnitt|roloff|matek|viskositäts?-temperatur|viscosity-temperature|diagrammabbildung|nachschlag)/i;
+      const priorityScore = (value: string) =>
+        Number(mandatoryAssetPattern.test(value)) * 100 + Number(lookupPattern.test(value)) * 10;
+      const prioritizeLookup = <T>(values: T[], text: (value: T) => string) => [...values].sort(
+        (left, right) => priorityScore(text(right)) - priorityScore(text(left)),
+      );
+      const topics = prioritizeLookup(
+        model.topics.filter((topic) => topic.chapterId === chapter.id),
+        (topic) => `${topic.title} ${topic.summary} ${topic.learningGoals.join(" ")}`,
+      ).slice(0, 3);
+      const examples = prioritizeLookup(
+        model.workedExamples.filter((example) => example.chapterId === chapter.id),
+        (example) => `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")}`,
+      ).slice(0, 2);
+      const figures = prioritizeLookup(
+        model.figures.filter((figure) => figure.chapterId === chapter.id),
+        (figure) => `${figure.title} ${figure.caption}`,
+      ).slice(0, 2);
+      return {
+        id: chapter.id,
+        title: chapter.title,
+        status: chapter.status,
+        priority: chapter.priority,
+        contentMode: chapter.contentMode,
+        learningObjectives: chapter.learningObjectives,
+        assessmentSignals: chapter.assessmentSignals,
+        topics: topics.map((topic) => ({
+          title: topic.title,
+          summary: topic.summary.slice(0, 300),
+          learningGoals: topic.learningGoals,
+          sourceIds: topic.sourceIds,
+        })),
+        formulas: model.formulas
+          .filter((formula) => formula.chapterId === chapter.id)
+          .slice(0, 4)
+          .map((formula) => ({
+            name: formula.name,
+            expression: formula.expression,
+            variables: formula.variables,
+            units: formula.units,
+            assumptions: formula.assumptions.slice(0, 300),
+          })),
+        workedExamples: examples.map((example) => ({
+          origin: example.origin,
+          learningGoal: example.learningGoal,
+            prompt: example.prompt.slice(0, 500),
+            steps: example.steps.slice(0, 8).map((step) => step.slice(0, 350)),
+            result: example.result.slice(0, 500),
+          sourceIds: example.sourceIds,
+        })),
+        figures: figures.map((figure) => ({
+          kind: figure.kind,
+          title: figure.title,
+          caption: figure.caption.slice(0, 400),
+          relativePath: figure.relativePath,
+          sourcePage: figure.sourcePage,
+        })),
+      };
+    }),
+    checklist: model.checklist.slice(0, 12),
+    deterministicFindings: state.review_report.findings,
+  };
 }
 
 function validateQualityReview(value: unknown): {

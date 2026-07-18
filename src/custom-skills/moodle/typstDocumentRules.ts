@@ -36,7 +36,6 @@ export function validateStudyBuddyDocumentStructure(source: string): TypstStruct
     [/#(?:rect|line|circle|polygon)\s*\(/, "Do not draw raw geometry in a generated document."],
     [/\bcetz\.canvas\s*\(/, "Do not use inline CeTZ; use the approved diagram components."],
     [/@preview\/cetz|@local\/cetz/, "Do not import CeTZ directly in generated documents."],
-    [/[↘↙↗↖→←↓↑]/, "Do not use text arrow glyphs as diagram edges."],
     [/[┌┐└┘├┤┬┴┼─│]/, "Do not use box-drawing or ASCII-art diagrams."],
   ];
   for (const [pattern, message] of prohibitedPatterns) {
@@ -51,6 +50,17 @@ export function validateStudyBuddyDocumentStructure(source: string): TypstStruct
 
   if (/#sb-formula\s*\([\s\S]*?\)\s*\[[\s\S]{0,1600}#raw\s*\(/.test(source)) {
     errors.push("Do not use #raw(...) inside #sb-formula; formula bodies must use editable Typst math delimited with '$'.");
+  }
+
+  const textStringCalls = source.matchAll(/#text\s*\(\s*"((?:\\.|[^"\\])*)"\s*\)/g);
+  for (const textCall of textStringCalls) {
+    const visibleText = textCall[1];
+    if (/\$[^$\n]*(?:=|[_^]|\\(?:frac|sqrt|Delta|sigma|tau)\b)[^$\n]*\$/.test(visibleText)) {
+      errors.push(
+        "Do not place '$...$' math markup inside #text(\"...\"); render it as editable Typst math instead.",
+      );
+      break;
+    }
   }
 
   const calloutCount = (source.match(/#sb-callout\s*\(/g) ?? []).length;

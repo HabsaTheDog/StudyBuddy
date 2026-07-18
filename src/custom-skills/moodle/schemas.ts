@@ -81,6 +81,16 @@ export const FigureSchema = z.object({
   source_ids: z.array(z.string()).default([]),
 });
 
+export const LearningModuleSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  priority: z.enum(["essential", "important", "supplementary"]),
+  content_mode: z.enum(["quantitative", "conceptual", "procedural", "case_based", "mixed"]),
+  learning_objectives: z.array(z.string().min(1)).default([]),
+  assessment_signals: z.array(z.string().min(1)).default([]),
+  resource_ids: z.array(z.string().min(1)).default([]),
+});
+
 export const ExtractedDataSchema = z.object({
   document_title: z.string().min(1),
   language: z.enum(["de", "en"]).default("de"),
@@ -95,6 +105,7 @@ export const ExtractedDataSchema = z.object({
   quiz_style_questions: z.array(QuizStyleQuestionSchema).default([]),
   visual_assets: z.array(VisualAssetSchema).default([]),
   figures: z.array(FigureSchema).default([]),
+  learning_modules: z.array(LearningModuleSchema).default([]),
   warnings: z.array(z.string()).default([]),
 });
 
@@ -235,6 +246,31 @@ export const extractedDataJsonSchema = {
       },
       required: ["asset_id", "caption", "placement_hint", "source_ids"],
     },
+    learning_module: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        priority: { type: "string", enum: ["essential", "important", "supplementary"] },
+        content_mode: {
+          type: "string",
+          enum: ["quantitative", "conceptual", "procedural", "case_based", "mixed"],
+        },
+        learning_objectives: { type: "array", items: { type: "string" } },
+        assessment_signals: { type: "array", items: { type: "string" } },
+        resource_ids: { type: "array", items: { type: "string" } },
+      },
+      required: [
+        "id",
+        "title",
+        "priority",
+        "content_mode",
+        "learning_objectives",
+        "assessment_signals",
+        "resource_ids",
+      ],
+    },
   },
   properties: {
     document_title: { type: "string" },
@@ -255,6 +291,7 @@ export const extractedDataJsonSchema = {
     quiz_style_questions: { type: "array", items: { "$ref": "#/$defs/quiz_style_question" } },
     visual_assets: { type: "array", items: { "$ref": "#/$defs/visual_asset" } },
     figures: { type: "array", items: { "$ref": "#/$defs/figure" } },
+    learning_modules: { type: "array", items: { "$ref": "#/$defs/learning_module" } },
     warnings: { type: "array", items: { type: "string" } },
   },
   required: [
@@ -268,6 +305,41 @@ export const extractedDataJsonSchema = {
     "quiz_style_questions",
     "visual_assets",
     "figures",
+    "learning_modules",
     "warnings"
   ],
+} as const;
+
+/**
+ * Bounded analyzer handoff used when a chapter is too dense for one model turn.
+ * Course/source metadata and the selected visual assets are reconstructed from
+ * the validated manifests, so the model only has to produce learning content.
+ */
+export const ChapterFragmentSchema = z.object({
+  sections: z.array(SectionSchema).default([]),
+  formulas: z.array(FormulaSchema).default([]),
+  worked_examples: z.array(WorkedExampleSchema).default([]),
+  figures: z.array(FigureSchema).default([]),
+  warnings: z.array(z.string()).default([]),
+});
+
+export type ChapterFragment = z.infer<typeof ChapterFragmentSchema>;
+
+export const chapterFragmentJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  $defs: {
+    section: extractedDataJsonSchema.$defs.section,
+    formula: extractedDataJsonSchema.$defs.formula,
+    worked_example: extractedDataJsonSchema.$defs.worked_example,
+    figure: extractedDataJsonSchema.$defs.figure,
+  },
+  properties: {
+    sections: { type: "array", items: { "$ref": "#/$defs/section" } },
+    formulas: { type: "array", items: { "$ref": "#/$defs/formula" } },
+    worked_examples: { type: "array", items: { "$ref": "#/$defs/worked_example" } },
+    figures: { type: "array", items: { "$ref": "#/$defs/figure" } },
+    warnings: { type: "array", items: { type: "string" } },
+  },
+  required: ["sections", "formulas", "worked_examples", "figures", "warnings"],
 } as const;

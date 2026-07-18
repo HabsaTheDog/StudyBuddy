@@ -2,6 +2,7 @@ import { access, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "
 import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { sanitizeUnicode } from "./codexClient.js";
 import type { ExtractedData } from "./schemas.js";
 import { safeFileName, type SourceCoverage } from "./runDiagnostics.js";
 import type { LangGraphAgentState } from "./state.js";
@@ -193,7 +194,15 @@ export async function discoverVisualCandidates(
       `Visual budget: ${visualBudget.mode}, candidateLimit=${Math.max(visualBudget.candidateLimit, plannedPageCount * 2)}, estimatedPdfPages=${visualBudget.estimatedPdfPages}, plannedPages=${plannedPageCount}. Final figure count is decided by usefulness, not by this candidate budget.`,
     ],
   };
-  await writeFile(path.join(config.runDir, "visual-candidates.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  await writeFile(
+    path.join(config.runDir, "visual-candidates.json"),
+    `${JSON.stringify(
+      manifest,
+      (_key, value) => typeof value === "string" ? sanitizeUnicode(value) : value,
+      2,
+    )}\n`,
+    "utf8",
+  );
   return manifest;
 }
 
@@ -238,16 +247,20 @@ export async function hydrateExtractedVisualAssets(
   if (!manifest) return data;
   const hydrated = {
     ...data,
-    visual_assets: data.visual_assets.map((asset) => {
-      if (asset.relative_path) return asset;
+    visual_assets: await Promise.all(data.visual_assets.map(async (asset) => {
+      if (asset.relative_path) {
+        const existingPath = ensureInside(sourceRunDir, path.join(sourceRunDir, asset.relative_path));
+        const existing = await stat(existingPath).catch(() => null);
+        if (existing?.isFile()) return asset;
+      }
       if (
         cropMode !== "original" &&
         (asset.kind === "typst_diagram" || asset.kind === "placeholder_prompt")
       ) {
-        return asset;
+        return { ...asset, relative_path: null, mime_type: null };
       }
       const match = bestVisualCandidate(asset, manifest.candidates, cropMode);
-      if (!match) return asset;
+      if (!match) return { ...asset, relative_path: null, mime_type: null };
       return {
         ...asset,
         kind: match.kind,
@@ -259,7 +272,7 @@ export async function hydrateExtractedVisualAssets(
         source_path: match.source_path ?? asset.source_path,
         source_page: match.source_page ?? asset.source_page,
       };
-    }),
+    })),
   };
   return addMissingExampleVisuals(hydrated, manifest.candidates, cropMode);
 }

@@ -99,6 +99,7 @@ export function moodleExtractedData(overrides: Partial<ExtractedData> = {}): Ext
     quiz_style_questions: [],
     visual_assets: [],
     figures: [],
+    learning_modules: [],
     warnings: [],
     ...overrides,
   };

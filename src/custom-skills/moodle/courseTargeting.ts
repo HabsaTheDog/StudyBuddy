@@ -19,9 +19,9 @@ interface CourseAlias {
 
 const COURSE_ALIASES: CourseAlias[] = [
   { code: "MEL", aliases: ["MEL", "MEL1", "Maschinenelemente", "Maschinenelemente 1"] },
-  { code: "DYN2", aliases: ["DYN2", "Anwendungen der Dynamik"] },
+  { code: "DYN2", aliases: ["DYN2", "Anwendung der Dynamik", "Anwendungen der Dynamik"] },
   { code: "PHDYN", aliases: ["PHDYN", "Physikalische Grundlagen der Dynamik"] },
-  { code: "MAES2", aliases: ["MAES2", "Mathematik für Engineering Science 2"] },
+  { code: "MAES2", aliases: ["MAES", "MAES2", "Mathematik für Engineering Science 2"] },
   { code: "ETLB2", aliases: ["ETLB2", "Elektrotechnik Labor 2"] },
   { code: "TEZEI", aliases: ["TEZEI", "Technisches Zeichnen", "Grundlagen des technischen Zeichnens"] },
 ];
@@ -36,7 +36,11 @@ export function extractCourseTargetHint(prompt: string): CourseTargetHint {
   for (const course of COURSE_ALIASES) {
     if (
       requestedCodes.includes(course.code) ||
-      course.aliases.some((alias) => alias.length > 3 && textIncludesPhrase(prompt, alias))
+      course.aliases.some((alias) =>
+        alias.length > 3 &&
+        textIncludesPhrase(prompt, alias) &&
+        !mentionIsNegated(prompt, alias)
+      )
     ) {
       canonicalLabel ??= `${course.code} / ${course.aliases[course.aliases.length - 1]}`;
       for (const alias of course.aliases) {
@@ -119,7 +123,9 @@ export function rawTextContainsRequestedCourse(prompt: string, rawText: string):
 
 export function explicitCourseCodesFromText(text: string): string[] {
   const codes = text.match(/\b[A-ZÄÖÜ]{2,8}\d{0,3}\b/g) ?? [];
-  return [...new Set(codes.filter((code) => !GENERIC_CODE_STOPWORDS.has(code)))];
+  return [...new Set(codes.filter((code) =>
+    !GENERIC_CODE_STOPWORDS.has(code) && !mentionIsNegated(text, code)
+  ))];
 }
 
 /**
@@ -169,6 +175,37 @@ function textIncludesPhrase(text: string, phrase: string): boolean {
   }
   for (let index = 0; index <= textWords.length - phraseWords.length; index += 1) {
     if (phraseWords.every((word, offset) => textWords[index + offset] === word)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Course prompts often contain an exclusion such as "Verwechsle MAES nicht
+ * mit MEL". Treating the excluded course as a second positive target can make
+ * an exact-but-wrong dashboard match beat the requested course. Keep the
+ * heuristic deliberately local to the mention so ordinary negation elsewhere
+ * in the prompt does not suppress a valid target.
+ */
+function mentionIsNegated(text: string, phrase: string): boolean {
+  const textWords = textTokens(text);
+  const phraseWords = textTokens(phrase);
+  if (phraseWords.length === 0) return false;
+
+  for (let index = 0; index <= textWords.length - phraseWords.length; index += 1) {
+    if (!phraseWords.every((word, offset) => textWords[index + offset] === word)) continue;
+    const prefix = textWords.slice(Math.max(0, index - 8), index);
+    const last = prefix.at(-1) ?? "";
+    const previous = prefix.at(-2) ?? "";
+    const hasNegatingInstruction = prefix.some((word) =>
+      ["nicht", "not", "never", "exclude", "excluding", "ohne"].includes(word) ||
+      word.startsWith("kein")
+    );
+    const comparisonMarker = ["mit", "als", "with", "as"].includes(last);
+    const directNegation = ["nicht", "not", "never", "ohne"].includes(last) || last.startsWith("kein");
+    const pairedNegation = ["nicht", "not"].includes(previous) && comparisonMarker;
+    if (directNegation || pairedNegation || (comparisonMarker && hasNegatingInstruction)) {
       return true;
     }
   }

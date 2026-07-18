@@ -55,11 +55,12 @@ export async function reviewStudyModel(
           `Chapter is too shallow to learn from (${learningCharacters}/1200 learning characters): ${chapter.title}`,
         ));
       }
-      if (!model.workedExamples.some((example) => example.chapterId === chapter.id)) {
+      const needsApplication = chapter.contentMode !== "conceptual";
+      if (needsApplication && !model.workedExamples.some((example) => example.chapterId === chapter.id)) {
         findings.push(error(
           "student_value",
           "chapter-example-missing",
-          `Covered technical chapter has no worked example: ${chapter.title}`,
+          `Covered ${chapter.contentMode} chapter has no worked example, case, or applied procedure: ${chapter.title}`,
         ));
       }
     }

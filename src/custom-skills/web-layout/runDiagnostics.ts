@@ -15,6 +15,7 @@ export class WebLayoutRunDiagnostics {
   private readonly eventsPath: string;
   private readonly summaryPath: string;
   private lastEventAt = Date.now();
+  private lastProgressAt = Date.now();
 
   constructor(input: { runDir: string }) {
     this.runDir = input.runDir;
@@ -27,7 +28,7 @@ export class WebLayoutRunDiagnostics {
   }
 
   get lastActivityAt(): number {
-    return this.lastEventAt;
+    return this.lastProgressAt;
   }
 
   async init(): Promise<void> {
@@ -49,6 +50,9 @@ export class WebLayoutRunDiagnostics {
     data?: Record<string, unknown>,
   ): Promise<void> {
     this.lastEventAt = Date.now();
+    if (phase !== "cleanup" || !message.startsWith("Heartbeat:")) {
+      this.lastProgressAt = this.lastEventAt;
+    }
     const event: WebLayoutRunEvent = {
       timestamp: new Date().toISOString(),
       level,

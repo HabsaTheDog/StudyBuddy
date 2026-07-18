@@ -25,6 +25,7 @@ export interface WebLayoutInput {
   sourceFiles?: string[];
   assetFiles?: string[];
   sourceRunDir?: string;
+  resumeRunDir?: string;
   language?: "de" | "en";
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
@@ -59,6 +60,7 @@ export interface WebLayoutRuntimeConfig {
   sourceFiles: string[];
   assetFiles: string[];
   sourceRunDir?: string;
+  resumeRunDir?: string;
   sourceMode: WebLayoutSourceMode;
   language: "de" | "en";
   maxRuntimeMs: number;

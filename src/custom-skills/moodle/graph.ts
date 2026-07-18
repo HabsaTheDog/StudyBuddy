@@ -326,7 +326,7 @@ export async function runMoodleGraph(
 
 function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
   const tasks: StudyBuddyModelTask[] = config.stage === "render"
-    ? ["artifact_builder", "quality_reviewer"]
+    ? ["artifact_builder"]
     : config.stage === "extract"
       ? [
           ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
@@ -574,6 +574,7 @@ export function buildExtractionGraph(
       abort: END,
     })
     .addConditionalEdges("qualityReviewer", routeAfterExtractionQualityReview, {
+      sourceArchitect: "sourceArchitect",
       contentAnalyzer: "analyzer",
       qualityReviewer: "qualityReviewer",
       done: END,
@@ -590,7 +591,6 @@ export function buildRenderGraph(
   return new StateGraph(AgentStateAnnotation)
     .addNode("visualAssetResolver", createVisualAssetResolverNode(config))
     .addNode("formatter", createFormatterNode(config, codex))
-    .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addNode("diskWriter", createDiskWriterNode(config))
     .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "visualAssetResolver")
@@ -600,13 +600,7 @@ export function buildRenderGraph(
     })
     .addConditionalEdges("formatter", routeAfterFormatter, {
       formatter: "formatter",
-      diskWriter: "qualityReviewer",
-      abort: END,
-    })
-    .addConditionalEdges("qualityReviewer", routeAfterArtifactQualityReview, {
-      artifactBuilder: "formatter",
-      qualityReviewer: "qualityReviewer",
-      done: "diskWriter",
+      diskWriter: "diskWriter",
       abort: END,
     })
     .addEdge("diskWriter", "bundleWriter")
@@ -789,12 +783,19 @@ function routeAfterArtifactQualityReview(
 
 function routeAfterExtractionQualityReview(
   state: LangGraphAgentState,
-): "contentAnalyzer" | "qualityReviewer" | "done" | "abort" {
+): "sourceArchitect" | "contentAnalyzer" | "qualityReviewer" | "done" | "abort" {
   if (!state.error_log) return "done";
   if (state.retry_count >= MAX_RETRIES) return "abort";
-  return isQualityReviewerExecutionFailure(state.error_log)
-    ? "qualityReviewer"
+  if (isQualityReviewerExecutionFailure(state.error_log)) return "qualityReviewer";
+  return qualityFailureNeedsSourceAcquisition(state.error_log)
+    ? "sourceArchitect"
     : "contentAnalyzer";
+}
+
+export function qualityFailureNeedsSourceAcquisition(error: string): boolean {
+  if (!error.startsWith("Semantic quality review failed:")) return false;
+  return /(?:quelle|quellen|source|evidenz|evidence|kursdatei|course file|ressourc|resource|unterlage|material|acquir|erwerb|coverage)/i
+    .test(error);
 }
 
 function isQualityReviewerExecutionFailure(error: string): boolean {

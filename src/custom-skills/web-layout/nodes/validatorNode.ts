@@ -1,3 +1,5 @@
+import { copyFile, mkdir, stat } from "node:fs/promises";
+import path from "node:path";
 import { prepareWebLayoutArtifact } from "../assetPipeline.js";
 import { validateWebLayoutFile, validationReportToJson } from "../validation.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
@@ -6,6 +8,7 @@ import type { WebLayoutKind, WebLayoutRuntimeConfig } from "../types.js";
 
 export function createValidatorNode(config: WebLayoutRuntimeConfig) {
   return async function validatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
+    const backupPath = await backupExistingBuild(config.runDir);
     let prepared;
     try {
       prepared = await prepareWebLayoutArtifact(state.html_document, config);
@@ -18,6 +21,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         await config.diagnostics?.log("warn", "bundle", warning);
       }
     } catch (error) {
+      await restorePreviousBuild(backupPath, config.runDir);
       const message = `Artifact preparation failed: ${error instanceof Error ? error.message : String(error)}`;
       await config.diagnostics?.log("warn", "bundle", message);
       return {
@@ -40,6 +44,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
         },
       );
     } catch (error) {
+      await restorePreviousBuild(backupPath, config.runDir);
       const message = `Browser validation failed: ${error instanceof Error ? error.message : String(error)}`;
       await config.diagnostics?.log("warn", "validator", message);
       return {
@@ -58,6 +63,7 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
       artifact: artifactSummary(prepared.report),
     };
     if (!report.ok) {
+      await restorePreviousBuild(backupPath, config.runDir);
       const message = `HTML validation failed:\n- ${report.issues.map((entry) => entry.message).join("\n- ")}`;
       await config.diagnostics?.log("warn", "validator", message);
       return {
@@ -73,6 +79,21 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
       error_log: null,
     };
   };
+}
+
+async function backupExistingBuild(runDir: string): Promise<string | null> {
+  const buildPath = path.join(runDir, ".build", "document.html");
+  const buildStat = await stat(buildPath).catch(() => null);
+  if (!buildStat?.isFile() || buildStat.size === 0) return null;
+  const backupPath = path.join(runDir, ".build", "last-known-good.html");
+  await mkdir(path.dirname(backupPath), { recursive: true });
+  await copyFile(buildPath, backupPath);
+  return backupPath;
+}
+
+async function restorePreviousBuild(backupPath: string | null, runDir: string): Promise<void> {
+  if (!backupPath) return;
+  await copyFile(backupPath, path.join(runDir, ".build", "document.html"));
 }
 
 function artifactSummary(report: WebLayoutArtifactReport): JsonObject {

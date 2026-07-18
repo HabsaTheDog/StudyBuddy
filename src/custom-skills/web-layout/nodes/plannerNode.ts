@@ -2,6 +2,7 @@ import { layoutSpecJsonSchema, layoutSpecSchema } from "../schemas.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
+import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
@@ -35,6 +36,7 @@ export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<L
     `Requested kind: ${config.kind}`,
     `Language: ${config.language}`,
     "Keep scope proportional to the request. Choose one primary learning interaction and only add supporting interactions that directly serve it.",
+    adaptiveLearningInteractionGuidance(),
     "Do not invent authoring systems, editable content builders, imports, exports, source search/filter interfaces, or modal source browsers unless the user explicitly requested them.",
     config.sourceMode === "prompt"
       ? "Only the user prompt is available. Plan a clearly labelled demo without course-specific factual claims, citations, or source-management UI."

@@ -48,6 +48,9 @@ export function cleanVisibleMathText(value: string): string {
 export function normalizeInlineMathSource(value: string): string {
   return value
     .trim()
+    .replace(/(?<!")\b([A-Z]\d{1,2}\s*\/\s*[a-z]\d{1,2})\b(?!")/g, (_, fit: string) =>
+      `"${fit.replace(/\s+/g, "")}"`
+    )
     .replace(/\\(?:cdot|dot)\b/g, " dot ")
     .replace(/\\times\b/g, " times ")
     .replace(/\\approx\b/g, " approx ")
@@ -63,6 +66,28 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9]*\([^)]+\))\)/g, (_, label: string) => `_"${label}"`)
     .replace(/_([A-Za-z][A-Za-z0-9]{1,})\b/g, (_, label: string) => `_"${label}"`);
+}
+
+export function quoteBareMathText(value: string): string {
+  const mathKeywords = new Set([
+    "accent", "alpha", "and", "approx", "beta", "chi", "cos", "delta", "dif", "div", "dot",
+    "dots", "double", "epsilon", "eta", "exp", "frac", "gamma", "kappa", "lambda", "lim",
+    "ln", "log", "max", "min", "mu", "nu", "omega", "or", "phi", "pi", "psi", "quad",
+    "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "zeta",
+    "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
+  ]);
+  return value
+    .split(/("[^"]*")/)
+    .map((part) => {
+      if (part.startsWith('"') && part.endsWith('"')) return part;
+      return part
+        .replace(/µm/g, '"µm"')
+        .replace(/°C/g, '"°C"')
+        .replace(/\b[A-Za-z]{2,}\d*\b/g, (token) =>
+          mathKeywords.has(token) ? token : `"${token}"`
+        );
+    })
+    .join("");
 }
 
 type InlinePart = { kind: "text" | "math"; value: string };

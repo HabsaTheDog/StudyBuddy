@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildAnswerGraph, buildExtractionGraph, buildMoodleGraph, runMoodleGraph } from "../graph.js";
+import {
+  buildAnswerGraph,
+  buildExtractionGraph,
+  buildMoodleGraph,
+  qualityFailureNeedsSourceAcquisition,
+  runMoodleGraph,
+} from "../graph.js";
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
 import { classifyStudyBuddyIntent } from "../taskIntent.js";
@@ -24,6 +30,16 @@ afterEach(async () => {
 });
 
 describe("moodle graph retry routing", () => {
+  it("distinguishes source-coverage quality failures from content-only repairs", () => {
+    expect(qualityFailureNeedsSourceAcquisition(
+      "Semantic quality review failed:\n- Zwei Kapitel fehlen, obwohl weitere Kursdateien und Quellen verfügbar sind.",
+    )).toBe(true);
+    expect(qualityFailureNeedsSourceAcquisition(
+      "Semantic quality review failed:\n- Der gezeigte Zahlenwert widerspricht der Formel.",
+    )).toBe(false);
+    expect(qualityFailureNeedsSourceAcquisition("Quality reviewer failed: timeout")).toBe(false);
+  });
+
   it("writes schedule answers without Typst or PDF artifacts", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-answer-"));
     const prompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin mit exactem Datum, Uhrzeit, Raum und pruefungsrelevanten Lernunterlagen aus dem zugehoerigen MEL Moodle-Kurs.";

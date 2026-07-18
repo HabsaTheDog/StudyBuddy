@@ -3,6 +3,8 @@ import { applyOfflineSecurityPolicy, stripHtmlFence } from "../htmlShell.js";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
+import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
+import { compactHtmlForModel } from "../modelText.js";
 
 export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function generatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
@@ -31,7 +33,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
 
 export function buildGeneratorPrompt(
   config: WebLayoutRuntimeConfig,
-  state: Pick<LangGraphWebLayoutState, "source_text" | "layout_spec" | "error_log" | "validation_report">,
+  state: Pick<LangGraphWebLayoutState, "source_text" | "layout_spec" | "html_document" | "error_log" | "validation_report">,
 ): string {
   return [
     "Generate one complete Study Buddy interactive learning webpage.",
@@ -48,6 +50,7 @@ export function buildGeneratorPrompt(
     "- Large PDFs and videos must remain user-triggered HTTPS Moodle/source links; label that they require connectivity or login.",
     "Interaction requirements:",
     interactionGuidance(config.kind),
+    adaptiveLearningInteractionGuidance(),
     "Scope control:",
     "- Implement one coherent primary learning interaction. Prefer a smaller complete experience over a broad dashboard of loosely related tools.",
     "- Do not add content editors, authoring workflows, import/export/download controls, source search/filtering, or modal source previews unless explicitly requested.",
@@ -65,6 +68,13 @@ export function buildGeneratorPrompt(
     `Language: ${config.language}`,
     `Validated layout spec:\n${JSON.stringify(state.layout_spec, null, 2)}`,
     state.error_log ? `Validator or generator error to repair:\n${state.error_log}` : "",
+    state.error_log && state.html_document.trim()
+      ? [
+          "Existing complete HTML to repair:",
+          "Preserve every valid feature and source-backed task not implicated by the error. Return the full repaired HTML, not a patch.",
+          compactHtmlForModel(state.html_document),
+        ].join("\n")
+      : "",
     Object.keys(state.validation_report).length
       ? `Previous validation report:\n${JSON.stringify(state.validation_report, null, 2)}`
       : "",
