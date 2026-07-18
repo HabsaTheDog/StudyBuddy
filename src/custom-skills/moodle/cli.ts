@@ -19,6 +19,10 @@ const program = new Command()
   .name("moodle-agent")
   .description("Run the quarantined Moodle-to-Typst LangGraph skill.")
   .argument("<prompt>", "User request for the Moodle agent")
+  .option(
+    "--original-user-prompt <prompt>",
+    "Exact untranslated user request used to lock the response/artifact language",
+  )
   .requiredOption("--url <url>", "Moodle URL to inspect")
   .option("--out <path>", "Deprecated alias for --deliver-to")
   .option("--deliver-to <path>", "Publish validated user-facing files outside study-buddy-data")
@@ -74,6 +78,7 @@ const program = new Command()
 
 const options = program.opts<{
   url: string;
+  originalUserPrompt?: string;
   out?: string;
   deliverTo?: string;
   requestName?: string;
@@ -121,6 +126,9 @@ const options = program.opts<{
 }>();
 
 const prompt = program.args.join(" ");
+const intentPrompt = options.originalUserPrompt
+  ? `${options.originalUserPrompt}\n${prompt}`
+  : prompt;
 const visualsEnabled = program.getOptionValueSource("visuals") === "cli"
   ? options.visuals
   : undefined;
@@ -134,8 +142,8 @@ const visualMode =
 const interactiveRequest =
   options.approveQuizRequest ||
   options.approveAssignmentRequest ||
-  (options.autoAnswer && isQuizExecutionPrompt(prompt)) ||
-  isAssignmentExecutionPrompt(prompt);
+  (options.autoAnswer && isQuizExecutionPrompt(intentPrompt)) ||
+  isAssignmentExecutionPrompt(intentPrompt);
 
 const releaseRunLease = await acquireRunLease(options.runDir);
 let releaseRecoverySourceLease: () => Promise<void> = async () => {};
@@ -146,6 +154,8 @@ if (options.resumeExtractionRunDir) {
 if (interactiveRequest) {
   await runNativeQuizWorkflow({
     prompt,
+    originalUserPrompt: options.originalUserPrompt,
+    outputLanguage: options.language,
     url: options.url,
     runDir: options.runDir,
     maxDepth: options.maxDepth,
@@ -167,6 +177,7 @@ if (interactiveRequest) {
 } else {
   const result = await runMoodleGraph({
   prompt,
+  originalUserPrompt: options.originalUserPrompt,
   moodleUrl: options.url,
   requestName: options.requestName,
   runDir: options.runDir,
@@ -341,7 +352,7 @@ function collectFormat(
 }
 
 function isQuizExecutionPrompt(value: string): boolean {
-  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selfcheck)\b/i.test(value);
+  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selbsttest|selfcheck|self[ -]?quiz)\b/i.test(value);
 }
 
 function isAssignmentExecutionPrompt(value: string): boolean {
@@ -354,6 +365,8 @@ function isAssignmentExecutionPrompt(value: string): boolean {
 
 async function runNativeQuizWorkflow(input: {
   prompt: string;
+  originalUserPrompt?: string;
+  outputLanguage: OutputLanguagePreference;
   url: string;
   runDir?: string;
   maxDepth: number;
@@ -399,6 +412,8 @@ async function runNativeQuizWorkflow(input: {
   });
   const result = await runInteractiveMoodleGraph({
     prompt: input.prompt,
+    originalUserPrompt: input.originalUserPrompt,
+    outputLanguage: input.outputLanguage,
     moodleUrl:
       approvedQuizPermission?.targetUrl ?? approvedAssignmentPermission?.targetUrl ?? input.url,
     runDir: input.runDir,
@@ -428,6 +443,9 @@ async function runNativeQuizWorkflow(input: {
       console.log(`Permission request: ${result.permissionRequestPath}`);
     }
     if (!result.ok) console.error(result.error || "Moodle interaction failed.");
+    if (result.quizUrl) {
+      console.log(`\n[Quiz in Moodle öffnen](${result.quizUrl})`);
+    }
   }
   if (!result.ok) process.exitCode = 1;
 }

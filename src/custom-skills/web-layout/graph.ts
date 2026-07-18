@@ -83,7 +83,8 @@ export async function runWebLayoutGraph(
   const ok = !state.error_log && outputExists && validationReportExists;
   await diagnostics.writeSummary({
     status: ok ? "success" : state.error_log?.startsWith("Study Buddy web layout run timed out") ? "timeout" : "failed",
-    prompt: config.prompt,
+    prompt: config.originalUserPrompt,
+    taskPrompt: config.prompt,
     outputPath: ok ? config.outputPath : undefined,
     validationReportPath: validationReportExists ? validationReportPath : undefined,
     screenshotPaths,

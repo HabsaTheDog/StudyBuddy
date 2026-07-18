@@ -66,6 +66,7 @@ export async function runInteractiveMoodleGraph(
   state = sanitizeGraphState(state, config);
   const workflowStatus = deriveWorkflowStatus(state);
   const ok = workflowStatus === "completed" || workflowStatus === "permission_required";
+  const quizUrl = extractQuizResultUrl(state, config);
   await persistRunDiagnostics(config, state);
   return {
     ok,
@@ -75,17 +76,39 @@ export async function runInteractiveMoodleGraph(
     state,
     sourceCoverage: state.source_coverage,
     permissionRequestPath: extractPermissionRequestPath(config, state),
+    ...(quizUrl ? { quizUrl } : {}),
     ...(!ok || state.error_log
       ? { error: state.error_log || workflowFailureMessage(workflowStatus) }
       : {}),
   };
 }
 
+export function extractQuizResultUrl(
+  state: AgentState,
+  config?: Pick<MoodleRuntimeConfig, "moodleUrl">,
+): string | undefined {
+  const data = state.extracted_data as Record<string, unknown>;
+  const workflow = data.quiz_workflow as Record<string, unknown> | undefined;
+  const reviewTarget = data.kind === "quiz_review" ? data.target_url : undefined;
+  const candidates = [
+    workflow?.target_url,
+    reviewTarget,
+    ...state.source_coverage.moodle.urls,
+    config?.moodleUrl,
+  ];
+  return candidates.find(
+    (candidate): candidate is string =>
+      typeof candidate === "string" &&
+      /^https?:\/\/[^\s]+\/mod\/quiz\//i.test(candidate),
+  );
+}
+
 export function buildInteractiveMoodleGraph(
   config: MoodleRuntimeConfig,
   dependencies: InteractiveGraphDependencies = {},
 ) {
-  if (!isQuizPrompt(config.prompt) && !isAssignmentSubmissionPrompt(config.prompt)) {
+  const requestPrompt = requestContextPrompt(config);
+  if (!isQuizPrompt(requestPrompt) && !isAssignmentSubmissionPrompt(requestPrompt)) {
     throw new Error("The interactive Moodle graph only accepts quiz or assignment actions.");
   }
   const browser = dependencies.browser ?? createBrowserClient(config);
@@ -131,7 +154,15 @@ export function buildInteractiveMoodleGraph(
 }
 
 function routeInitial(config: MoodleRuntimeConfig): "assignmentWorkflow" | "quizTarget" {
-  return isAssignmentSubmissionPrompt(config.prompt) ? "assignmentWorkflow" : "quizTarget";
+  return isAssignmentSubmissionPrompt(requestContextPrompt(config))
+    ? "assignmentWorkflow"
+    : "quizTarget";
+}
+
+function requestContextPrompt(config: MoodleRuntimeConfig): string {
+  return config.originalUserPrompt === config.prompt
+    ? config.prompt
+    : `${config.originalUserPrompt}\n${config.prompt}`;
 }
 
 function routeAfterQuizStep(state: LangGraphAgentState): "quizPage" | "end" {
@@ -224,6 +255,9 @@ async function persistRunDiagnostics(
       path.join(config.runDir, "interaction-config.json"),
       `${JSON.stringify({
         prompt: config.prompt,
+        originalUserPrompt: config.originalUserPrompt,
+        outputLanguage: config.outputLanguage,
+        outputLanguageReason: config.outputLanguageReason,
         moodleUrl: config.moodleUrl,
         runDir: config.runDir,
         maxPages: config.maxPages,

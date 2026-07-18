@@ -309,7 +309,8 @@ export async function runMoodleGraph(
   await diagnostics.writeSummary({
     route,
     status: ok ? (coverageComplete ? "success" : "partial") : timedOut ? "timeout" : "failed",
-    prompt: config.prompt,
+    prompt: config.originalUserPrompt,
+    taskPrompt: config.prompt,
     error: state.error_log ?? undefined,
     outputPath: ok && hasDocument && !config.intentDecision?.wantsQuickAnswer ? config.outputPath : undefined,
     pdfPath: config.intentDecision?.wantsQuickAnswer ? undefined : pdfPath,

@@ -12,6 +12,9 @@ describe("agentBrowserClient", () => {
   it("builds npx-backed commands with session and safety options", () => {
     const spec = buildAgentBrowserCommandSpec({
       prompt: "test",
+      originalUserPrompt: "test",
+      outputLanguage: "en",
+      outputLanguageReason: "prompt_language",
       moodleUrl: "https://moodle.example",
       outputPath: "/tmp/document.typ",
       runDir: "/tmp",

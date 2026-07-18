@@ -19,6 +19,7 @@ import {
   persistPendingQuizPermission,
 } from "../quizPermissions.js";
 import {
+  appendQuizLinkToReport,
   buildQuestionPacket,
   buildQuizReviewReport,
   clickSafeNextPage,
@@ -95,7 +96,7 @@ export function createQuizTargetNode(
       : [
           "= Moodle Quiz Review",
           "",
-          `Prompt: ${config.prompt}`,
+          `Prompt: ${config.originalUserPrompt}`,
           "",
           "No matching Moodle quiz target was found in the inspected 2.0 crawl.",
           "",
@@ -334,11 +335,14 @@ export function createQuizSolverNode(
           workflow.metadata,
         );
       }
-      const packet = buildQuestionPacket({
-        page: workflow.page,
-        question,
-        pageNumber: workflow.page_number,
-      });
+      const packet = {
+        ...buildQuestionPacket({
+          page: workflow.page,
+          question,
+          pageNumber: workflow.page_number,
+        }),
+        output_language: config.outputLanguage,
+      };
       const questionDir = path.join(
         pageDir,
         `question-${String(question.question_index).padStart(3, "0")}`,
@@ -579,7 +583,10 @@ async function stopQuizWorkflowForPolicy(
     fillResults,
   });
   const finalReport = permissionRequestPath
-    ? `${report}\n\n== Native approval required\n\nPermission request: ${permissionRequestPath}\n`
+    ? appendQuizLinkToReport(
+        `${report}\n\n== Native approval required\n\nPermission request: ${permissionRequestPath}\n`,
+        target,
+      )
     : report;
   await persistQuizArtifacts(config, {
     report: finalReport,

@@ -36,6 +36,8 @@ export type VisualCropMode = "auto" | "focused" | "context" | "original";
 
 export interface MoodleGraphInput {
   prompt: string;
+  /** Exact, untranslated user request. Language is resolved from this boundary value. */
+  originalUserPrompt?: string;
   moodleUrl: string;
   outputPath?: string;
   requestName?: string;
@@ -102,6 +104,7 @@ export interface MoodleGraphResult {
 
 export interface MoodleRuntimeConfig {
   prompt: string;
+  originalUserPrompt: string;
   moodleUrl: string;
   outputPath: string;
   requestName: string;

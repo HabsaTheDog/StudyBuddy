@@ -525,6 +525,7 @@ export async function generateAnswerSpec(
     "Answer this Moodle quiz question for a study assistant.",
     "Return strict JSON with answer/answers, confidence, citations, rationale, and risk_flags.",
     "Also return a complete control_answers plan keyed by the exact control_id values from the packet.",
+    "Write learner-facing rationale and risk explanations in the packet's output_language.",
     "Do not invent unsupported answers. If insufficiently sourced, use confidence 0.",
     "",
     JSON.stringify(packet, null, 2),
@@ -1435,7 +1436,22 @@ export function buildQuizReviewReport(input: {
     }
     lines.push("");
   }
-  return `${lines.join("\n")}\n`;
+  return appendQuizLinkToReport(`${lines.join("\n")}\n`, input.target);
+}
+
+export function appendQuizLinkToReport(report: string, quizUrl: string): string {
+  const body = report.replace(
+    /\n== Quiz öffnen\n\n#link\([^\n]*\)\[Quiz in Moodle öffnen\]\n?/g,
+    "",
+  );
+  return [
+    body.trimEnd(),
+    "",
+    "== Quiz öffnen",
+    "",
+    `#link(${JSON.stringify(quizUrl)})[Quiz in Moodle öffnen]`,
+    "",
+  ].join("\n");
 }
 
 function buildNoQuizReport(prompt: string): string {
@@ -1475,6 +1491,8 @@ export async function persistQuizArtifacts(
         {
           captured_at: new Date().toISOString(),
           prompt: config.prompt,
+          original_user_prompt: config.originalUserPrompt,
+          output_language: config.outputLanguage,
           target_url: payload.targetUrl,
           questions: payload.questions,
           candidates: payload.candidates,
@@ -1529,7 +1547,10 @@ async function stopForQuizPolicy(
     fillResults,
   });
   const finalReport = permissionRequestPath
-    ? `${report}\n\n== Native approval required\n\nPermission request: ${permissionRequestPath}\n`
+    ? appendQuizLinkToReport(
+        `${report}\n\n== Native approval required\n\nPermission request: ${permissionRequestPath}\n`,
+        target,
+      )
     : report;
   await persistQuizArtifacts(config, {
     report: finalReport,

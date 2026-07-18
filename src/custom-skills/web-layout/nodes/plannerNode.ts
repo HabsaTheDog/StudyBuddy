@@ -6,12 +6,13 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
 import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 import { studyGuideBlockGuidance } from "../studyGuideBlockContract.js";
+import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      if (config.kind === "study-guide" && state.source_text.includes("## Full extracted practice corpus")) {
-        const parsed = layoutSpecSchema.parse(deterministicStudyGuidePlan(config)) as JsonObject;
+      if (config.kind === "study-guide" && state.source_text.includes("## Extracted data")) {
+        const parsed = layoutSpecSchema.parse(deterministicStudyGuidePlan(config, state.source_text)) as JsonObject;
         await writeFile(path.join(config.runDir, "layout-spec.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
         await config.diagnostics?.log("info", "planner", "Built standardized study-guide layout plan deterministically from the reusable block contract.");
         return { layout_spec: parsed, error_log: null };
@@ -47,30 +48,29 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
   };
 }
 
-function deterministicStudyGuidePlan(config: WebLayoutRuntimeConfig) {
+function deterministicStudyGuidePlan(config: WebLayoutRuntimeConfig, sourceText: string) {
   const english = config.language === "en";
-  const titles = english
-    ? ["Sequences and series", "Limits and continuity", "Differentiation rules", "Taylor polynomials", "Function analysis", "Antiderivatives", "Definite integrals and areas", "Improper integrals", "Differential-equation foundations", "First-order differential equations", "Second-order differential equations"]
-    : ["Folgen und Reihen", "Grenzwerte und Stetigkeit", "Ableitungsregeln", "Taylorpolynome", "Funktionsuntersuchung", "Stammfunktionen", "Bestimmte Integrale und Flächen", "Uneigentliche Integrale", "DGL-Grundlagen", "DGL erster Ordnung", "DGL zweiter Ordnung"];
+  const requirements = deriveStudyGuideRequirements(sourceText);
+  const titles = requirements.sectionTitles.slice(0, requirements.topicTarget);
   return {
-    title: english ? "MAES2 – Interactive Study Guide" : "MAES2 – Interaktiver Study Guide",
+    title: `${requirements.courseCode} – ${english ? "Interactive Study Guide" : "Interaktiver Study Guide"}`,
     language: config.language,
     kind: "study-guide",
     audience: english ? "Students preparing for an exam with source-grounded material" : "Studierende in einer quellenbasierten Prüfungsvorbereitung",
     learningGoals: english
-      ? ["Practice every supported course topic with concrete tasks", "Justify selection decisions", "Check calculation paths step by step"]
-      : ["Alle belegten Kursthemen anhand konkreter Aufgaben trainieren", "Kreuzerl-Entscheidungen begründen", "Rechenwege schrittweise kontrollieren"],
+      ? ["Cover every supported course topic in a meaningful learning sequence", "Reinforce knowledge through evidence-appropriate application", "Diagnose mistakes with concrete feedback"]
+      : ["Alle belegten Kursthemen in einer sinnvollen Lernreihenfolge erschließen", "Wissen durch passende Anwendung festigen", "Fehler mit konkreter Rückmeldung diagnostizieren"],
     sections: titles.map((title, index) => ({
       id: `topic-${index + 1}`,
       title,
       purpose: english ? "Standardized learning path from orientation through theory, example, practice, and review" : "Standardisierter Lernpfad aus Orientierung, Theorie, Beispiel, Übung und Auswertung",
-      interactionType: english ? "Selection and calculation practice" : "Kreuzerl- und Rechentraining",
+      interactionType: english ? `Evidence-adaptive ${requirements.archetype} practice` : `Evidenzadaptives ${requirements.archetype} Training`,
     })),
     requiredInteractions: english
-      ? ["Sticky top bar without sidebar", "Persistent progress", "Source-grounded tasks and feedback"]
-      : ["Sticky Hotbar ohne Sidebar", "Persistenter Fortschritt", "Quellengebundene Aufgaben und Rückmeldungen"],
-    dataModel: {},
-    designDirection: english ? "Standardized Study Buddy block system with a top bar and horizontal topic navigation." : "Standardisiertes Study-Buddy-Blocksystem mit Top-Hotbar und horizontaler Themenleiste.",
+      ? ["Sticky top bar without sidebar", "Responsive chapter dropdown", "Persistent progress", "Source-grounded or visibly derived tasks and feedback"]
+      : ["Sticky Hotbar ohne Sidebar", "Responsives Kapitel-Dropdown", "Persistenter Fortschritt", "Quellengebundene oder sichtbar abgeleitete Aufgaben und Rückmeldungen"],
+    dataModel: { studyGuideProfile: requirements },
+    designDirection: english ? `Standardized Study Buddy block system adapted to a ${requirements.archetype} course profile.` : `Standardisiertes Study-Buddy-Blocksystem für ein ${requirements.archetype} Kursprofil; Blöcke werden nur verwendet, wenn die Evidenz sie trägt.`,
     accessibilityNotes: english
       ? ["Keyboard-accessible controls", "Semantic forms and MathML", "No horizontal document overflow"]
       : ["Tastaturbedienbare Controls", "Semantische Formulare und MathML", "Kein horizontaler Dokumentüberlauf"],

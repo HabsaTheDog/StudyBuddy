@@ -23,6 +23,13 @@ describe("web layout config", () => {
     expect(createWebLayoutRuntimeConfig({ prompt: "Create interactive flashcards" }).language).toBe("en");
     expect(createWebLayoutRuntimeConfig({ prompt: "Erstelle interaktive Lernkarten" }).language).toBe("de");
     expect(createWebLayoutRuntimeConfig({ prompt: "Create flashcards", language: "de" }).language).toBe("de");
+    expect(createWebLayoutRuntimeConfig({
+      prompt: "Erstelle interaktive Lernkarten",
+      originalUserPrompt: "Create interactive flashcards",
+    })).toMatchObject({
+      originalUserPrompt: "Create interactive flashcards",
+      language: "en",
+    });
   });
 
   it("accepts the integrated study-guide kind", async () => {

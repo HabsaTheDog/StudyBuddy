@@ -19,6 +19,10 @@ const program = new Command()
   .name("web-layout-agent")
   .description("Generate a self-contained offline Study Buddy interactive HTML learning tool.")
   .argument("<prompt>", "User request for the web layout agent")
+  .option(
+    "--original-user-prompt <prompt>",
+    "Exact untranslated user request used to lock the artifact language",
+  )
   .option("--kind <kind>", "Layout kind: auto, study-guide, flashcards, concept-visualization, simulation, exam-practice, quiz, worksheet, reference", "auto")
   .option("--source-file <path>", "UTF-8 source text file; repeat for multiple files", collect, [])
   .option("--asset <path>", "Local image asset; repeat for multiple files", collect, [])
@@ -45,6 +49,7 @@ const program = new Command()
 
 const options = program.opts<{
   kind: WebLayoutKind;
+  originalUserPrompt?: string;
   sourceFile: string[];
   asset: string[];
   sourceRunDir?: string;
@@ -73,6 +78,7 @@ const releaseRunLease = await acquireRunLease(options.runDir ?? options.resumeRu
 try {
 const result = await runWebLayoutGraph({
   prompt,
+  originalUserPrompt: options.originalUserPrompt,
   kind: options.kind,
   sourceFiles: options.sourceFile,
   assetFiles: options.asset,

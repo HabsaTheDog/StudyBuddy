@@ -111,13 +111,15 @@ export function validateStudyGuideRenderCoverage(html: string, content: JsonObje
   const records = topics.filter(isJsonObject);
   const exercises = records.flatMap((topic) => Array.isArray(topic.exercises) ? topic.exercises : [])
     .filter(isJsonObject);
+  const crossCount = exercises.filter((exercise) => exercise.type === "cross").length;
+  const calculationCount = exercises.filter((exercise) => exercise.type === "calculation").length;
   const missingIds = exercises
     .map((exercise) => typeof exercise.id === "string" ? exercise.id : "")
     .filter((id) => id && !html.includes(id));
   const issues: string[] = [];
   if (missingIds.length > 0) issues.push(`The rendered artifact omits ${missingIds.length} canonical exercise IDs (for example ${missingIds.slice(0, 3).join(", ")}).`);
-  if (!/data-sb-cross-exercise/i.test(html)) issues.push("The renderer does not expose the standardized Kreuzerl block marker.");
-  if (!/data-sb-calculation-exercise/i.test(html)) issues.push("The renderer does not expose the standardized calculation block marker.");
+  if (crossCount > 0 && !/data-sb-cross-exercise/i.test(html)) issues.push("The renderer does not expose the standardized selection-practice block marker required by the content bank.");
+  if (calculationCount > 0 && !/data-sb-calculation-exercise/i.test(html)) issues.push("The renderer does not expose the standardized calculation block marker required by the content bank.");
   if (/function\s+(?:qs|calc|makeQuestion)\s*\(/i.test(html)) issues.push("Generic exercise factory functions are forbidden; render the canonical content records directly.");
   if (/<math\b[^>]*>[\s\S]{0,120}<mtext>[^<]*(?:[=+\-*/^]|lim|int|sqrt)[^<]*<\/mtext>/i.test(html)) issues.push("A mathematical expression is flattened into mtext instead of structured MathML.");
   return issues;

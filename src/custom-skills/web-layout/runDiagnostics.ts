@@ -70,6 +70,9 @@ export class WebLayoutRunDiagnostics {
       "# Study Buddy Web Layout Run Summary",
       "",
       `Prompt: ${input.prompt || "n/a"}`,
+      ...(input.taskPrompt && input.taskPrompt !== input.prompt
+        ? [`Task prompt: ${input.taskPrompt}`]
+        : []),
       "",
       `Run status: ${input.status}`,
       `Last event at: ${new Date(this.lastEventAt).toISOString()}`,

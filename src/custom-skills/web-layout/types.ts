@@ -20,6 +20,8 @@ export type WebLayoutSourceMode = "prompt" | "text-file" | "moodle-handoff";
 
 export interface WebLayoutInput {
   prompt: string;
+  /** Exact, untranslated user request. Language is resolved from this boundary value. */
+  originalUserPrompt?: string;
   kind?: WebLayoutKind;
   requestName?: string;
   runDir?: string;
@@ -55,6 +57,7 @@ export interface WebLayoutResult {
 
 export interface WebLayoutRuntimeConfig {
   prompt: string;
+  originalUserPrompt: string;
   kind: WebLayoutKind;
   requestName: string;
   runDir: string;
@@ -103,6 +106,7 @@ export type WebLayoutRunPhase =
 export interface WebLayoutRunSummaryInput {
   status: "running" | "success" | "failed" | "timeout";
   prompt: string;
+  taskPrompt?: string;
   outputPath?: string;
   validationReportPath?: string;
   screenshotPaths?: string[];

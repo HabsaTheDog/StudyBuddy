@@ -19,6 +19,10 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
   }
+  if (input.originalUserPrompt !== undefined && !input.originalUserPrompt.trim()) {
+    throw new Error("originalUserPrompt must not be empty when provided.");
+  }
+  const originalUserPrompt = input.originalUserPrompt ?? input.prompt;
   const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
   const workspaceRoot = workspaceData.workspaceRoot;
   const requestName = safeSlug(input.requestName || inferRequestName(input.prompt));
@@ -52,6 +56,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
 
   return {
     prompt: input.prompt,
+    originalUserPrompt,
     kind: parseKind(input.kind ?? "auto"),
     requestName,
     runDir,
@@ -62,7 +67,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     resumeRunDir,
     sourceMode: inferSourceMode(sourceRunDir, sourceFiles),
     language: resolveOutputLanguage({
-      prompt: input.prompt,
+      prompt: originalUserPrompt,
       preference: input.language,
     }).language,
     maxRuntimeMs: input.maxRuntimeMs ?? 20 * 60_000,
@@ -98,6 +103,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
 export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
   return {
     prompt: config.prompt,
+    originalUserPrompt: config.originalUserPrompt,
     kind: config.kind,
     requestName: config.requestName,
     runDir: config.runDir,

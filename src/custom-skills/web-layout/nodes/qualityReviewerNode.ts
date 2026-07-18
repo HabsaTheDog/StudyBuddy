@@ -6,7 +6,7 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 import { adaptiveQualityCriteria } from "../learningInteractionGuidance.js";
 import { balancedExcerpt, compactHtmlForModel } from "../modelText.js";
 import { studyGuideBlockQualityCriteria } from "../studyGuideBlockContract.js";
-import { STUDY_GUIDE_QUALITY_TARGETS } from "../studyGuideContent.js";
+import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 
 const qualityReviewSchema = {
   type: "object",
@@ -73,15 +73,18 @@ export function createQualityReviewerNode(config: WebLayoutRuntimeConfig, codex:
 
 function deterministicStandardGuideFindings(state: LangGraphWebLayoutState, html: string): string[] {
   const findings: string[] = [];
+  const requirements = deriveStudyGuideRequirements(state.source_text);
   const topics = Array.isArray(state.study_guide_content.topics) ? state.study_guide_content.topics : [];
   const exercises = topics.flatMap((topic) => topic && !Array.isArray(topic) && typeof topic === "object" && Array.isArray(topic.exercises) ? topic.exercises : []);
-  if (topics.length < STUDY_GUIDE_QUALITY_TARGETS.topics) findings.push(`Nur ${topics.length} statt mindestens ${STUDY_GUIDE_QUALITY_TARGETS.topics} Themen gerendert.`);
-  if (exercises.length < STUDY_GUIDE_QUALITY_TARGETS.exercises) findings.push(`Nur ${exercises.length} statt mindestens ${STUDY_GUIDE_QUALITY_TARGETS.exercises} Aufgaben gerendert.`);
+  const formulas = topics.flatMap((topic) => topic && !Array.isArray(topic) && typeof topic === "object" && topic.theory && !Array.isArray(topic.theory) && typeof topic.theory === "object" && Array.isArray(topic.theory.formulas) ? topic.theory.formulas : []);
+  if (topics.length < requirements.topicTarget) findings.push(`Nur ${topics.length} statt mindestens ${requirements.topicTarget} evidenzbasierte Themen gerendert.`);
+  if (exercises.length < requirements.exerciseTarget) findings.push(`Nur ${exercises.length} statt mindestens ${requirements.exerciseTarget} Aufgaben für das Profil ${requirements.archetype} gerendert.`);
   if (!/data-sb-hotbar/i.test(html) || /class="[^"]*(?:sidebar|side-nav|navigation-rail)/i.test(html)) findings.push("Hotbar-/Sidebar-Vertrag verletzt.");
   if (!/data-sb-course-tabs/i.test(html) || !/role="tab"/i.test(html) || !/role="tabpanel"/i.test(html)) findings.push("Standardisierte Kapitel-Tabs mit Tab-Semantik fehlen.");
   if (!/localStorage/i.test(html) || !/drafts/i.test(html) || !/completed/i.test(html)) findings.push("Persistenz von Entwürfen und Fortschritt fehlt.");
-  if (!/<math\b/i.test(html) || !/<(?:msup|msub|mi|mn|mo)\b/i.test(html)) findings.push("Strukturiertes MathML fehlt.");
-  if (!/data-sb-cross-exercise/i.test(html) || !/data-sb-calculation-exercise/i.test(html)) findings.push("Kreuzerl- oder Rechenblock fehlt.");
+  if (formulas.length > 0 && (!/<math\b/i.test(html) || !/<(?:msup|msub|mi|mn|mo)\b/i.test(html))) findings.push("Strukturiertes MathML für vorhandene Formeln fehlt.");
+  if (requirements.selectionTarget > 0 && !/data-sb-cross-exercise/i.test(html)) findings.push("Der für dieses Kursprofil erforderliche Auswahl-/Retrievalblock fehlt.");
+  if (requirements.calculationTarget > 0 && !/data-sb-calculation-exercise/i.test(html)) findings.push("Der für dieses quantitative Kursprofil erforderliche Rechenblock fehlt.");
   if (!/data-sb-sources/i.test(html)) findings.push("Quellenregister fehlt.");
   return findings;
 }

@@ -431,6 +431,9 @@ describe("Playwright credential broker", () => {
 function runtimeConfig(origin: string): MoodleRuntimeConfig {
   return {
     prompt: "test",
+    originalUserPrompt: "test",
+    outputLanguage: "en",
+    outputLanguageReason: "prompt_language",
     moodleUrl: `${origin}/home`,
     outputPath: "/tmp/document.typ",
     runDir: "/tmp",
