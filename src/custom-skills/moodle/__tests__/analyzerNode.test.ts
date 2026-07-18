@@ -3,12 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  ModelCallTimeoutError,
   NonRetryableCodexError,
   classifyCodexError,
   type CodexClient,
 } from "../codexClient.js";
 import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.js";
 import { buildChapterFragmentPrompt, createAnalyzerNode } from "../nodes/analyzerNode.js";
+import {
+  persistPendingExtractionRepairs,
+  readPendingExtractionRepairs,
+} from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbort.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
@@ -164,6 +169,48 @@ describe("analyzerNode", () => {
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain("First chapter");
       expect(prompts[0]).not.toContain("Second chapter");
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
+  it("checkpoints on the first tokenless chapter timeout instead of consuming later chapters", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-capacity-checkpoint-"));
+    try {
+      let calls = 0;
+      const codex: CodexClient = {
+        async run() {
+          calls += 1;
+          throw new ModelCallTimeoutError({
+            task: "content_analyzer",
+            model: "gpt-5.6-luna",
+            timeoutMs: 90_000,
+            queueWaitMs: 2_000,
+          });
+        },
+      };
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        stage: "extract",
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      });
+      const state = moodleTestState({
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources: [
+            chapterResource("first", "First chapter", "Topic 1", "primary_lecture"),
+            chapterResource("second", "Second chapter", "Topic 2", "primary_lecture"),
+          ],
+        },
+      });
+
+      await expect(createAnalyzerNode(config, codex)(state)).rejects.toThrow(
+        "Extraction capacity checkpoint required",
+      );
+      expect(calls).toBe(1);
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }
@@ -386,15 +433,21 @@ describe("analyzerNode", () => {
       await createAnalyzerNode(config, codex)(baseState);
       const firstPassCalls = prompts.length;
       repairPass = true;
+      const repairError = "Semantic quality review failed:\n- [chapter: Dynamik — Impulssatz] Die fachliche Einordnung im Kapitel ist widersprüchlich.";
+      await persistPendingExtractionRepairs(runDir, repairError, 1);
       const repaired = await createAnalyzerNode(config, codex)({
         ...baseState,
-        error_log: "Semantic quality review failed:\n- [chapter: Dynamik — Impulssatz] Die fachliche Einordnung im Kapitel ist widersprüchlich.",
+        error_log: repairError,
         retry_count: 1,
       });
 
       expect(prompts).toHaveLength(firstPassCalls + 1);
       expect(prompts.at(-1)).toContain("Die fachliche Einordnung im Kapitel ist widersprüchlich.");
       expect(repaired.error_log).toBeNull();
+      await expect(readPendingExtractionRepairs(runDir)).resolves.toMatchObject({
+        pendingChapterTitles: [],
+        completedChapterTitles: ["Dynamik — Impulssatz"],
+      });
       const formulas = (repaired.extracted_data as {
         formulas: Array<{ name: string; units: string[] }>;
       } | undefined)?.formulas;

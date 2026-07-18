@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isNonRetryableCodexError, type CodexClient } from "../codexClient.js";
+import {
+  isNonRetryableCodexError,
+  ModelCallTimeoutError,
+  type CodexClient,
+} from "../codexClient.js";
 import {
   ChapterFragmentSchema,
   chapterFragmentJsonSchema,
@@ -12,7 +16,7 @@ import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray, validateExtractedData } from "../validation.js";
 import { readVisualManifest } from "../visualAssets.js";
-import { throwIfAborted } from "../runtimeAbort.js";
+import { StudyBuddyCheckpointError, throwIfAborted } from "../runtimeAbort.js";
 import {
   resolveAnalysisBudget,
   selectAnalysisSlices,
@@ -25,7 +29,7 @@ import {
 import { resolveTaskBudget } from "../taskBudget.js";
 import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
-import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
+import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
 const CHAPTER_ANALYZER_VERSION = "2026-07-18.11-semantic-repair";
@@ -64,6 +68,9 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
       throwIfAborted(config.abortSignal);
       if (error instanceof StudyBuddyCheckpointError) {
         throw error;
+      }
+      if (error instanceof ModelCallTimeoutError) {
+        throw capacityCheckpoint(error);
       }
       const nonRetryable = isNonRetryableCodexError(error);
       if (nonRetryable) {
@@ -218,6 +225,9 @@ async function analyzeCourseChapters(
           writeFile(cachePath, serialized, "utf8"),
           writeFile(sharedCachePath, serialized, "utf8"),
         ]);
+        if (invalidKeys.has(focus.key)) {
+          await markExtractionRepairComplete(config.runDir, focus.title);
+        }
         results[index] = data;
       } catch (error) {
         // Do not aggregate a global abort as a chapter failure or advance to
@@ -225,6 +235,9 @@ async function analyzeCourseChapters(
         throwIfAborted(config.abortSignal);
         if (error instanceof StudyBuddyCheckpointError) {
           throw error;
+        }
+        if (error instanceof ModelCallTimeoutError) {
+          throw capacityCheckpoint(error, focus.title);
         }
         await config.diagnostics?.log(
           "error",
@@ -462,6 +475,18 @@ async function analyzeDenseChapter(
     retrievalRequests,
   );
   return enrichCachedChapterHandoff(config, state, focus, materialized);
+}
+
+function capacityCheckpoint(
+  error: ModelCallTimeoutError,
+  chapterTitle?: string,
+): StudyBuddyCheckpointError {
+  const chapter = chapterTitle ? ` while analyzing ${chapterTitle}` : "";
+  return new StudyBuddyCheckpointError(
+    `Extraction capacity checkpoint required: ${error.task} on ${error.model}${chapter} ` +
+    `produced no token usage within ${error.timeoutMs}ms. Validated handoffs were preserved; ` +
+    "resume after fair model admission without crawling sources.",
+  );
 }
 
 function ensureChapterRuntimeBudget(

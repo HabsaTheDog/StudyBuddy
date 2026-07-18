@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.10-resumable-pdf";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.11-fair-model-admission";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 

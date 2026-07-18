@@ -19,6 +19,10 @@ export interface ModelCallMetric extends ModelTokenUsage {
   startedAt: string;
   completedAt: string;
   durationMs: number;
+  queuedAt?: string;
+  queueWaitMs?: number;
+  requestCharacters?: number;
+  schemaCharacters?: number;
   status: "completed" | "failed" | "timeout" | "canceled";
   errorCategory?: string;
 }
@@ -43,6 +47,7 @@ export interface ExecutionMetricsSnapshot {
   totals: ModelTokenUsage & {
     modelCalls: number;
     modelDurationMs: number;
+    modelQueueWaitMs: number;
     retries: number;
   };
   phases: PhaseMetric[];
@@ -93,6 +98,7 @@ export class ExecutionTelemetry {
         reasoningOutputTokens: 0,
         modelCalls: 0,
         modelDurationMs: 0,
+        modelQueueWaitMs: 0,
         retries: 0,
       },
       phases: [],
@@ -142,6 +148,7 @@ export class ExecutionTelemetry {
       this.snapshot.totals.reasoningOutputTokens += metric.reasoningOutputTokens;
       this.snapshot.totals.modelCalls += 1;
       this.snapshot.totals.modelDurationMs += metric.durationMs;
+      this.snapshot.totals.modelQueueWaitMs += metric.queueWaitMs ?? 0;
       if (metric.attempt > 1) this.snapshot.totals.retries += 1;
       await this.appendSpan({ type: "model_call", ...metric });
       await this.persist();

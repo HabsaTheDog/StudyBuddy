@@ -5,6 +5,7 @@ import {
   type StudyBuddyModelTask,
 } from "./modelPolicy.js";
 import { invalidateCodexRuntimeCache } from "./codexRuntime.js";
+import { acquireModelCallAdmission } from "./modelCallScheduler.js";
 
 export interface CodexClient {
   run(prompt: string, options?: {
@@ -40,15 +41,51 @@ export class NonRetryableCodexError extends Error {
   }
 }
 
+/** A model turn that never produced usage before its bounded timeout. */
+export class ModelCallTimeoutError extends Error {
+  readonly task: StudyBuddyModelTask;
+  readonly model: string;
+  readonly timeoutMs: number;
+  readonly queueWaitMs: number;
+
+  constructor(input: {
+    task: StudyBuddyModelTask;
+    model: string;
+    timeoutMs: number;
+    queueWaitMs: number;
+  }) {
+    super(`${input.task} model call timed out after ${input.timeoutMs}ms without token usage.`);
+    this.name = "ModelCallTimeoutError";
+    this.task = input.task;
+    this.model = input.model;
+    this.timeoutMs = input.timeoutMs;
+    this.queueWaitMs = input.queueWaitMs;
+  }
+}
+
 export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const codex = new Codex(
     config.codexPath ? { codexPathOverride: config.codexPath } : undefined,
   );
+  let extractionCapacityFailure: ModelCallTimeoutError | null = null;
 
   return {
     async run(prompt, options) {
+      // Optional planners may have a deterministic fallback and therefore
+      // catch their own error. Once an extraction call has emitted no usage
+      // for a full timeout, fail every later model stage immediately so the
+      // analyzer/reviewer can establish one resumable checkpoint instead of
+      // spending another 90 seconds probing the same unhealthy capacity.
+      if (config.stage === "extract" && extractionCapacityFailure) {
+        throw extractionCapacityFailure;
+      }
       const task = options?.task ?? "content_analyzer";
       const attempt = Math.max(1, options?.attempt ?? 1);
+      const sanitizedPrompt = sanitizeUnicode(prompt);
+      const requestCharacters = sanitizedPrompt.length;
+      const schemaCharacters = options?.outputSchema
+        ? JSON.stringify(options.outputSchema).length
+        : 0;
       const policyInput = {
         profile: config.executionProfile,
         task,
@@ -66,28 +103,44 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       ]);
 
       for (const [candidateIndex, policy] of policies.entries()) {
+        const admission = await acquireModelCallAdmission({
+          task,
+          model: policy.model,
+          signal: config.abortSignal,
+          onWait: async (position, activeSlots) => {
+            await config.diagnostics?.log(
+              "info",
+              "model",
+              `${task} is queued for fair global model admission.`,
+              { task, model: policy.model, queuePosition: position, activeSlots },
+            );
+          },
+        });
         const startedAt = new Date().toISOString();
         const startedMs = Date.now();
         const callId = `${task}-${attempt}-${startedMs}`;
         const timeoutController = new AbortController();
         const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
         const signal = combineSignals(config.abortSignal, timeoutController.signal);
-        const thread = codex.startThread({
-          workingDirectory: config.runDir,
-          skipGitRepoCheck: true,
-          model: policy.model,
-          modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
-        });
-        await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
-          callId,
-          task,
-          attempt,
-          model: policy.model,
-          reasoningEffort: policy.reasoningEffort,
-          timeoutMs: policy.timeoutMs,
-        });
         try {
-          const turn = await thread.run(sanitizeUnicode(prompt), {
+          const thread = codex.startThread({
+            workingDirectory: config.runDir,
+            skipGitRepoCheck: true,
+            model: policy.model,
+            modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
+          });
+          await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
+            callId,
+            task,
+            attempt,
+            model: policy.model,
+            reasoningEffort: policy.reasoningEffort,
+            timeoutMs: policy.timeoutMs,
+            queueWaitMs: admission.queueWaitMs,
+            requestCharacters,
+            schemaCharacters,
+          });
+          const turn = await thread.run(sanitizedPrompt, {
             outputSchema: options?.outputSchema,
             signal,
           });
@@ -100,6 +153,10 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
+            queuedAt: admission.queuedAt,
+            queueWaitMs: admission.queueWaitMs,
+            requestCharacters,
+            schemaCharacters,
             status: "completed",
             usage: turn.usage,
           });
@@ -117,6 +174,10 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
+            queuedAt: admission.queuedAt,
+            queueWaitMs: admission.queueWaitMs,
+            requestCharacters,
+            schemaCharacters,
             status,
             usage: null,
             errorCategory: classification?.category ?? status,
@@ -142,7 +203,14 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             continue;
           }
           if (timeoutReached) {
-            throw new Error(`${task} model call timed out after ${policy.timeoutMs}ms.`);
+            const timeoutError = new ModelCallTimeoutError({
+              task,
+              model: policy.model,
+              timeoutMs: policy.timeoutMs,
+              queueWaitMs: admission.queueWaitMs,
+            });
+            if (config.stage === "extract") extractionCapacityFailure = timeoutError;
+            throw timeoutError;
           }
           if (classification && !classification.retryable) {
             if (
@@ -162,6 +230,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           throw error;
         } finally {
           clearTimeout(timeout);
+          await admission.release();
         }
       }
 
@@ -202,6 +271,10 @@ async function recordCall(input: {
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   startedAt: string;
   startedMs: number;
+  queuedAt: string;
+  queueWaitMs: number;
+  requestCharacters: number;
+  schemaCharacters: number;
   status: "completed" | "failed" | "timeout" | "canceled";
   usage: Usage | null;
   errorCategory?: string;
@@ -223,6 +296,10 @@ async function recordCall(input: {
     startedAt: input.startedAt,
     completedAt,
     durationMs,
+    queuedAt: input.queuedAt,
+    queueWaitMs: input.queueWaitMs,
+    requestCharacters: input.requestCharacters,
+    schemaCharacters: input.schemaCharacters,
     status: input.status,
     inputTokens: usage.input_tokens,
     cachedInputTokens: usage.cached_input_tokens,
@@ -241,6 +318,9 @@ async function recordCall(input: {
       model: input.model,
       reasoningEffort: input.reasoningEffort,
       durationMs,
+      queueWaitMs: input.queueWaitMs,
+      requestCharacters: input.requestCharacters,
+      schemaCharacters: input.schemaCharacters,
       status: input.status,
       tokensIn: usage.input_tokens,
       tokensCached: usage.cached_input_tokens,
