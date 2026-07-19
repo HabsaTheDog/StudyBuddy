@@ -24,7 +24,7 @@ const program = new Command()
   .option("--max-extraction-attempts <number>", "Initial extraction plus bounded checkpoint recoveries", parseNumber, 3)
   .option("--codex-model <model>", "Explicit global Codex model override")
   .option("--codex-reasoning-effort <effort>", "Explicit global reasoning effort", parseReasoningEffort)
-  .option("--execution-profile <profile>", "Execution profile", parseExecutionProfile, "quality")
+  .option("--execution-profile <profile>", "Execution profile", parseExecutionProfile, "balanced")
   .option("--profile-overrides-json <json>", "Custom task model policy overrides", parseModelPolicyOverrides)
   .option("--json", "Print machine-readable result")
   .parse(process.argv);

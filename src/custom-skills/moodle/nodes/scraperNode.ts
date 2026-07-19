@@ -1531,7 +1531,9 @@ async function planFileLinks<T extends { href: string; label: string; sectionTit
     ? config.executionProfile
     : "fast";
   const plan = config.intentDecision?.needsCourseMaterial
-    ? planInitialResourceProbe(relevant, profile, remaining)
+    ? config.evidenceHandoffOnly
+      ? planCourseResources(relevant, profile, remaining)
+      : planInitialResourceProbe(relevant, profile, remaining)
     : planCourseResources(relevant, profile, remaining);
   await writeRunProgress(config, { phase: "downloading_sources" });
   const planPath = await writeResourcePlan(config.runDir, plan);
@@ -1546,7 +1548,7 @@ async function planFileLinks<T extends { href: string; label: string; sectionTit
   await config.diagnostics?.log(
     "info",
     "moodle_download",
-    `Resource catalog discovered ${plan.discovered} candidate file(s); the initial probe selected ${plan.selected} for profile ${profile}.`,
+    `Resource catalog discovered ${plan.discovered} candidate file(s); ${config.evidenceHandoffOnly ? "the deterministic evidence handoff selected" : "the initial probe selected"} ${plan.selected} for profile ${profile}.`,
     { selected: plan.selected, discovered: plan.discovered, profile },
   );
   return plan.entries.filter((entry) => entry.selected);

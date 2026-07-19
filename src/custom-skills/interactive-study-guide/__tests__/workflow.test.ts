@@ -19,11 +19,15 @@ describe("interactive Study Guide workflow", () => {
     const result = await runInteractiveStudyGuideWorkflow({ prompt: "Erstelle einen interaktiven Study Guide für MEL", runDir: root }, {
       runExtraction: async (input) => {
         calls.push(`extract:${input.prompt}`);
+        expect(input.evidenceHandoffOnly).toBe(true);
+        expect(input.visualMode).toBe("off");
+        expect(input.executionProfile).toBe("balanced");
         await validHandoff(input.runDir!);
         return { ok: true, runDir: input.runDir! } as never;
       },
       runWebLayout: async (input) => {
         calls.push(`web:${input.prompt}`);
+        expect(input.executionProfile).toBe("balanced");
         expect(input.sourceRunDir).toBe(path.join(root, "extraction"));
         const outputPath = path.join(input.runDir!, "document.html");
         await mkdir(input.runDir!, { recursive: true });
@@ -38,6 +42,29 @@ describe("interactive Study Guide workflow", () => {
       "extract:Erstelle einen interaktiven Study Guide für MEL",
       "web:Erstelle einen interaktiven Study Guide für MEL",
     ]);
+  });
+
+  it("forwards the quality profile through extraction and web rendering", async () => {
+    const root = path.join(process.cwd(), "study-buddy-data", "test-interactive-quality-profile", `${Date.now()}`);
+    const profiles: string[] = [];
+    const result = await runInteractiveStudyGuideWorkflow({ prompt: "Study Guide MEL", runDir: root, executionProfile: "quality" }, {
+      runExtraction: async (input) => {
+        profiles.push(`extract:${input.executionProfile}`);
+        await validHandoff(input.runDir!);
+        return { ok: true, runDir: input.runDir! } as never;
+      },
+      runWebLayout: async (input) => {
+        profiles.push(`web:${input.executionProfile}`);
+        const outputPath = path.join(input.runDir!, "document.html");
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(outputPath, "<!doctype html><title>MEL quality</title>", "utf8");
+        return { ok: true, runDir: input.runDir!, outputPath } as never;
+      },
+      publish: async () => [],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(profiles).toEqual(["extract:quality", "web:quality"]);
   });
 
   it("continues a recoverable extraction checkpoint before rendering", async () => {

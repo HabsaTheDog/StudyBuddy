@@ -1,11 +1,12 @@
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runMoodleGraph } from "../moodle/graph.js";
 import type { MoodleGraphInput, MoodleGraphResult } from "../moodle/types.js";
 import { publishStudyBuddyDeliverables, type PublishedDeliverable } from "../shared/deliverables.js";
 import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 import type { StudyBuddyExecutionProfile, StudyBuddyModelPolicyOverrides } from "../shared/modelPolicy.js";
-import { acquireRunLease } from "../shared/runLease.js";
+import { acquireQueuedRunSlot, acquireRunLease } from "../shared/runLease.js";
 import { ensurePrivateDirectorySync, ensureStudyBuddyWorkspaceData, resolveStudyBuddyWorkspaceDataPaths, safePathSegment } from "../shared/workspaceData.js";
 import { runWebLayoutGraph } from "../web-layout/graph.js";
 import type { WebLayoutInput, WebLayoutResult } from "../web-layout/types.js";
@@ -46,9 +47,12 @@ export interface InteractiveStudyGuideDependencies {
   runWebLayout?: (input: WebLayoutInput) => Promise<WebLayoutResult>;
   publish?: typeof publishStudyBuddyDeliverables;
   now?: () => Date;
+  acquireWorkflowSlot?: (onWait: (activeSlots: number, totalSlots: number) => Promise<void>) => Promise<() => Promise<void>>;
 }
 
 const RECOVERABLE_EXTRACTION = /Study Buddy run timed out after|Extraction checkpoint required:|Extraction capacity checkpoint required:|content_analyzer model call timed out after/i;
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const GLOBAL_WORKFLOW_QUEUE = path.resolve(MODULE_DIR, "../../..", "study-buddy-data", ".interactive-study-guide-queue");
 
 export async function runInteractiveStudyGuideWorkflow(
   input: InteractiveStudyGuideInput,
@@ -71,9 +75,26 @@ export async function runInteractiveStudyGuideWorkflow(
     publishedDeliverables: [],
     summaryPath,
   };
-  await writeWorkflowSummary(summaryPath, { ...baseResult }, "running", prompt);
+  await writeWorkflowSummary(summaryPath, { ...baseResult }, "queued", prompt);
+  let releaseWorkflowSlot: () => Promise<void> = async () => undefined;
 
   try {
+    const acquireWorkflowSlot = dependencies.acquireWorkflowSlot ?? (
+      dependencies.runExtraction || dependencies.runWebLayout
+        ? async () => async () => undefined
+        : (onWait) => acquireQueuedRunSlot(GLOBAL_WORKFLOW_QUEUE, {
+            slots: clamp(Number(process.env.STUDY_BUDDY_INTERACTIVE_WORKFLOW_CONCURRENCY ?? "1"), 1, 2),
+            pollMs: 1_000,
+            onWait,
+          })
+    );
+    releaseWorkflowSlot = await acquireWorkflowSlot(async (activeSlots, totalSlots) => {
+      await writeWorkflowSummary(summaryPath, {
+        ...baseResult,
+        error: `Queued behind ${activeSlots}/${totalSlots} active interactive Study Guide workflow(s).`,
+      }, "queued", prompt);
+    });
+    await writeWorkflowSummary(summaryPath, { ...baseResult }, "running", prompt);
     const runExtraction = dependencies.runExtraction ?? runMoodleGraph;
     const runWebLayout = dependencies.runWebLayout ?? runWebLayoutGraph;
     const publish = dependencies.publish ?? publishStudyBuddyDeliverables;
@@ -130,7 +151,7 @@ export async function runInteractiveStudyGuideWorkflow(
       idleTimeoutMs: input.idleTimeoutMs,
       codexModel: input.codexModel,
       codexReasoningEffort: input.codexReasoningEffort,
-      executionProfile: input.executionProfile ?? "quality",
+      executionProfile: input.executionProfile ?? "balanced",
       modelPolicyOverrides: input.modelPolicyOverrides,
     });
     if (!webResult.ok || !webResult.outputPath) {
@@ -168,6 +189,7 @@ export async function runInteractiveStudyGuideWorkflow(
     await writeWorkflowSummary(summaryPath, failed, "failed", prompt);
     return failed;
   } finally {
+    await releaseWorkflowSlot();
     await releaseLease();
   }
 }
@@ -209,6 +231,7 @@ function extractionInput(
 ): MoodleGraphInput {
   return {
     prompt,
+    originalUserPrompt: prompt,
     moodleUrl: input.moodleUrl ?? process.env.STUDY_BUDDY_MOODLE_URL ?? "https://moodle.technikum-wien.at/my/",
     runDir,
     maxDepth: resumeExtractionRunDir ? 0 : 2,
@@ -216,18 +239,21 @@ function extractionInput(
     maxCisPages: 0,
     allowFileDownloads: !resumeExtractionRunDir,
     stage: "extract",
+    evidenceHandoffOnly: true,
     resumeExtractionRunDir,
     includeCis: false,
     sourceMode: "moodle",
     artifactProfile: "interactive_learning",
     formats: ["html"],
+    visualsEnabled: false,
+    visualMode: "off",
     outputLanguage: input.language ?? "auto",
     browserHeaded: input.browserHeaded,
     maxRuntimeMs: input.maxRuntimeMs,
     idleTimeoutMs: input.idleTimeoutMs,
     codexModel: input.codexModel,
     codexReasoningEffort: input.codexReasoningEffort,
-    executionProfile: input.executionProfile ?? "quality",
+    executionProfile: input.executionProfile ?? "balanced",
     modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
@@ -266,7 +292,7 @@ async function nonEmpty(target: string): Promise<boolean> {
 async function writeWorkflowSummary(
   summaryPath: string,
   result: InteractiveStudyGuideResult,
-  status: "running" | "success" | "failed",
+  status: "queued" | "running" | "success" | "failed",
   prompt: string,
 ): Promise<void> {
   const lines = [
