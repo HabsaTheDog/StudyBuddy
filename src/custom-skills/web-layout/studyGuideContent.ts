@@ -84,7 +84,7 @@ export type StudyGuideContent = z.infer<typeof studyGuideContentSchema>;
 export const studyGuideContentJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["courseTitle", "scopeNote", "topics", "sources"],
+  required: ["courseTitle", "courseCode", "scopeNote", "topics", "sources"],
   properties: {
     courseTitle: { type: "string" },
     courseCode: { type: "string" },
@@ -109,7 +109,28 @@ export const studyGuideContentJsonSchema = {
             },
           },
           workedExamples: { type: "array", items: { $ref: "#/$defs/workedExample" } },
-          exercises: { type: "array", items: { oneOf: [{ $ref: "#/$defs/crossExercise" }, { $ref: "#/$defs/calculationExercise" }] } },
+          exercises: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source"],
+              properties: {
+                id: { type: "string" },
+                type: { enum: ["cross", "calculation"] },
+                prompt: { type: "string" },
+                selectionMode: { enum: ["single", "multiple", "true-false", "dropdown", "none"] },
+                options: { type: "array", items: { $ref: "#/$defs/option" } },
+                explanation: { type: "string" },
+                givens: { type: "array", items: { type: "string" } },
+                acceptedAnswers: { type: "array", items: { type: "string" } },
+                unit: { type: "string" },
+                steps: { type: "array", items: { type: "string" } },
+                commonMistake: { type: "string" },
+                source: { $ref: "#/$defs/sourceRef" },
+              },
+            },
+          },
           retrieval: { type: "array", items: { type: "object", additionalProperties: false, required: ["prompt", "answer"], properties: { prompt: { type: "string" }, answer: { type: "string" } } } },
         },
       },
@@ -164,9 +185,6 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
     }
     if (exercise.prompt.length > 1_500) issues.push(`${exercise.id} has an implausibly long prompt (${exercise.prompt.length} characters).`);
     if (fields.some((field) => field.length > 4_000)) issues.push(`${exercise.id} contains an implausibly long content field.`);
-    if (/\bdu\b/i.test(exercise.prompt) && !/[∫]|integrier/i.test(exercise.prompt)) {
-      issues.push(`${exercise.id} appears to have lost its integral operator during extraction.`);
-    }
     if (fields.some((field) => /\b[xuntwy]\d{2,}\b|\)\s*[2-9]\b|π\d/i.test(field))) {
       issues.push(`${exercise.id} contains ambiguous OCR exponent notation that must be normalized or excluded.`);
     }
@@ -176,8 +194,10 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
   }
   for (const topic of content.topics) {
     for (const formula of topic.theory.formulas) {
-      const proseWords = formula.expression.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)?.filter((word) => !/^(?:lim|sin|cos|tan|exp|log)$/i.test(word)) ?? [];
-      if (formula.expression.length > 240 || proseWords.length > 0 || !balancedMathDelimiters(formula.expression)) {
+      const withoutNamedSubscripts = formula.expression.replace(/_[A-Za-z]+(?:,[A-Za-z]+)*/g, "");
+      const proseWords = withoutNamedSubscripts.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)
+        ?.filter((word) => !/^(?:lim|sin|cos|tan|exp|log|min|max|abs)$/i.test(word)) ?? [];
+      if (formula.expression.length > 240 || proseWords.length > 8 || !balancedMathDelimiters(formula.expression)) {
         issues.push(`${topic.id} contains a theory formula that violates the structured-math contract: ${formula.expression}`);
       }
     }

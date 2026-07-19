@@ -1,5 +1,5 @@
 {
-  "name": "study-buddy-2",
+  "name": "study-buddy",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -11,6 +11,7 @@
     "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
     "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "web-layout:bundle": "tsx src/custom-skills/web-layout/bundleCli.ts",
+    "interactive-study-guide": "tsx src/custom-skills/interactive-study-guide/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

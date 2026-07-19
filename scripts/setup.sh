@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
-# Study Buddy 2.0 — first-time setup
+# Study Buddy — first-time setup
 #
 # Creates .env (and optionally .env.local) from the shipped
 # .env.example template, prompting for credentials.
@@ -87,7 +87,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}║     Study Buddy 2.0 — Setup          ║${RESET}"
+echo -e "${BOLD}║       Study Buddy — Setup            ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════╝${RESET}"
 echo ""
 

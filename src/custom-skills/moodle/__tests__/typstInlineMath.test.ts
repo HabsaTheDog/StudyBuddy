@@ -77,4 +77,15 @@ describe("Typst inline mathematics", () => {
       'f(x) = x quad "für" "alle" x',
     );
   });
+
+  it("normalizes common analyzer LaTeX before Typst rendering", async () => {
+    const normalized = formatFormulaMath(
+      String.raw`y = C_1 e^{lambda_1 x} + C_2 e^{lambda_2 x}, \quad \forall x \in RR`,
+    );
+    expect(normalized).not.toContain("\\quad");
+    expect(normalized).not.toContain("^{");
+    const source = studyBuddyTypstDocument(`$ ${normalized} $`);
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
 });

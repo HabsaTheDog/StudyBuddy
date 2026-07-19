@@ -35,7 +35,7 @@ export function studyGuideBlockQualityCriteria(): string {
     "Standard study-guide quality criteria:",
     "- Reject a study guide that uses a persistent left sidebar, omits the sticky data-sb-hotbar, or lacks a centered mobile-safe data-sb-course-tabs dropdown containing a tablist with one visible chapter panel.",
     "- Reject inconsistent topic markup that makes chapters feel like unrelated pages rather than instances of the same reusable block system.",
-    "- Reject a source-rich guide that samples only a handful of questions. Require representative exercise coverage across every sourced topic. Preserve source-authentic interaction types; synthesize visibly derived practice from concrete course concepts when direct exercises are sparse.",
+    "- Reject a source-rich guide that samples only a handful of questions. Require representative exercise coverage across every sourced topic. Preserve source-authentic selection types and other interaction types; synthesize visibly derived practice from concrete course concepts when direct exercises are sparse.",
     "- Reject fake calculations added merely to satisfy a generic quota. The practice mix must follow the detected course profile: quantitative courses need substantive calculations, conceptual courses need retrieval and misconception checks, and case-based courses need grounded decisions or scenarios.",
     "- Reject cross exercises that use radio buttons for source questions with multiple correct options, reveal the answer before submission, reward repeated submissions, or provide only generic feedback.",
     "- Reject calculations without complete givens, a derivable result, progressive help, and a topic-specific worked solution.",

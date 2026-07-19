@@ -6,6 +6,7 @@ describe("study-guide canonical content bank", () => {
   it("rejects a small generic task bank before HTML generation", () => {
     const content = {
       courseTitle: "MAES2",
+      courseCode: "MAES2",
       scopeNote: "Test",
       topics: [{
         id: "t1",
@@ -19,7 +20,9 @@ describe("study-guide canonical content bank", () => {
       sources: [{ id: "m1", label: "M1", url: "", coverage: "Folgen" }],
     } as StudyGuideContent;
     expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 40");
-    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 20 Kreuzerl");
+    expect(validateStudyGuideContentQuality(content).join("\n")).toContain(
+      "at least 20 selection/retrieval exercises",
+    );
   });
 
   it("forces concrete source-bound exercises in the model prompt", () => {
@@ -31,7 +34,7 @@ describe("study-guide canonical content bank", () => {
       error_log: null,
     });
     expect(prompt).toContain("sourceTask must identify the concrete source task");
-    expect(prompt).toContain("at least 40 exercises");
+    expect(prompt).toContain("at least 18 substantive exercises");
     expect(prompt).toContain("Do not describe layouts");
   });
 });

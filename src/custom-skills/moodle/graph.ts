@@ -62,7 +62,10 @@ import { buildEvidencePackage } from "./evidencePackage.js";
 import { assessExamNavigatorCoverage } from "./coveragePolicy.js";
 import { buildStudyModel } from "./studyModel.js";
 import { reviewStudyModel } from "./studentFirstReview.js";
-import { parseLearningArchitectureModelJson } from "./learningArchitecture.js";
+import {
+  boundLearningArchitecture,
+  parseLearningArchitectureModelJson,
+} from "./learningArchitecture.js";
 import { resolveTaskBudget } from "./taskBudget.js";
 import { inspectExtractionTooling } from "./fileTextExtraction.js";
 import {
@@ -421,7 +424,7 @@ function typstPreflightDocument(): string {
 #sb-document(
   title: "Toolchain Preflight",
   short-title: "Preflight",
-  course: "Study Buddy 2.0",
+  course: "Study Buddy",
   kind: "Systemtest",
   semester: "n/a",
   status: "Preflight",
@@ -951,11 +954,12 @@ export async function persistRunDiagnostics(
   await mkdir(config.runDir, { recursive: true });
   await mkdir(path.join(config.runDir, "extraction"), { recursive: true });
   await mkdir(path.join(config.runDir, "render"), { recursive: true });
+  const durableRawText = await durableMoodleRawText(config.runDir, state.moodle_raw_text);
   await Promise.all([
-    writeFile(path.join(config.runDir, "moodle_raw.txt"), state.moodle_raw_text, "utf8"),
+    writeFile(path.join(config.runDir, "moodle_raw.txt"), durableRawText, "utf8"),
     writeJson(path.join(config.runDir, "state.json"), {
       ...state,
-      moodle_raw_text: state.moodle_raw_text ? "[see moodle_raw.txt]" : "",
+      moodle_raw_text: durableRawText ? "[see moodle_raw.txt]" : "",
       final_document: state.final_document
         ? config.intentDecision?.wantsQuickAnswer ? "[see answer.md]" : "[see document.typ]"
         : "",
@@ -984,6 +988,13 @@ export async function persistRunDiagnostics(
     }),
     writeJson(path.join(config.runDir, "render", "coverage-report.json"), state.coverage_assessment),
   ]);
+}
+
+async function durableMoodleRawText(runDir: string, rawText: string): Promise<string> {
+  if (rawText.trim()) return rawText;
+  const evidencePackage = await readOptional(path.join(runDir, "evidence-package.json"));
+  if (!evidencePackage?.trim()) return "";
+  return `# Moodle evidence package\n\n${evidencePackage.trim()}\n`;
 }
 
 async function existingPdfPath(outputPath: string): Promise<string | undefined> {
@@ -1087,21 +1098,22 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   }
   if (!extractedText) {
     const handoffs = await readdir(path.join(sourceRunDir, "chapter-handoffs")).catch(() => []);
-    if (
-      !interruptedDuringAnalysis ||
-      (
-        !capacityCheckpointedDuringAnalysis &&
-        !handoffs.some((name) => name.endsWith(".json"))
-      )
-    ) {
+    if (!interruptedDuringAnalysis) {
       throw new Error(`Extraction interruption has no validated chapter handoff to resume: ${sourceRunDir}`);
+    }
+    if (!handoffs.some((name) => name.endsWith(".json"))) {
+      await config.diagnostics?.log(
+        "info",
+        "analyzer",
+        "Recovery starts before the first complete chapter; validated topic-fragment cache remains reusable.",
+      );
     }
   }
   await copyExtractionRecoveryCheckpoints(sourceRunDir, config.runDir);
   const pendingRepairs = await readPendingExtractionRepairs(config.runDir);
   const mustFinishPendingRepairs = Boolean(pendingRepairs?.pendingChapterTitles.length);
   const learningArchitecture = architectureText
-    ? parseLearningArchitectureModelJson(architectureText)
+    ? boundLearningArchitecture(parseLearningArchitectureModelJson(architectureText))
     : undefined;
   return {
     ...initialAgentState,
@@ -1112,10 +1124,14 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
     extracted_data: mustFinishPendingRepairs ? {} : extractedData,
     error_log: mustFinishPendingRepairs && pendingRepairs
       ? pendingExtractionRepairError(pendingRepairs)
-      : null,
+      : capacityCheckpointedDuringAnalysis && !extractedText
+        ? errorLog.trim()
+        : null,
     retry_count: mustFinishPendingRepairs && pendingRepairs
       ? Math.min(MAX_RETRIES - 1, pendingRepairs.retryCount)
-      : 0,
+      : capacityCheckpointedDuringAnalysis
+        ? 1
+        : 0,
     resource_manifest: ResourceManifestSchema.parse(JSON.parse(manifestText)),
     evidence_package: EvidencePackageSchema.parse(JSON.parse(evidenceText)),
     coverage_assessment: CoverageAssessmentSchema.parse(JSON.parse(coverageText)),

@@ -1,4 +1,4 @@
-// Study Buddy 2.0 - canonical corporate identity component library
+// Study Buddy - canonical corporate identity component library
 // All generated study documents receive this shell through typstAssets.ts.
 // CeTZ is pinned so flowcharts use geometric anchors instead of text arrows.
 
@@ -117,7 +117,7 @@
   course: none,
   kind: "Lernunterlage",
   semester: none,
-  author: "Study Buddy 2.0",
+  author: "Study Buddy",
   status: "Arbeitsstand",
   date: datetime.today().display("[day].[month].[year]"),
 ) = [
@@ -1014,7 +1014,7 @@
   course: none,
   kind: "Lernunterlage",
   semester: none,
-  author: "Study Buddy 2.0",
+  author: "Study Buddy",
   status: "Arbeitsstand",
   date: datetime.today().display("[day].[month].[year]"),
   show-outline: true,

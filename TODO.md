@@ -1,5 +1,9 @@
 # Study Buddy TODO
 
+## September 2026 student alpha
+
+Study Buddy is architected for Linux, macOS, and Windows, but it has only been tested end to end on Linux so far. Before the first student alpha at the start of the September 2026 semester, complete the platform matrix below, finish the opt-in production analytics setup and privacy controls, package a reliable student installation, and clean up the remaining pre-alpha rough edges.
+
 ## Cross-platform PDF extraction and visual handling
 
 Study Buddy currently supports Linux directly and should work on macOS when Homebrew binaries are available on `PATH`. WSL follows the Linux path. Native Windows support is not yet verified and must not be described as complete until the items below pass.

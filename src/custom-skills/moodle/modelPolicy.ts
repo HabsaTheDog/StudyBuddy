@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.11-fair-model-admission";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-07-18.13-adaptive-quality";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -172,10 +172,10 @@ const PROFILE_POLICIES: Record<
     artifact_planner: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
+      timeoutMs: 150_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "xhigh",
-      escalationTimeoutMs: 6 * 60_000,
+      escalationTimeoutMs: 180_000,
     },
     content_analyzer: {
       // Chapter analyzers run concurrently. Terra provides the necessary
@@ -183,31 +183,31 @@ const PROFILE_POLICIES: Record<
       // calls are used; a failed validation still escalates to Sol.
       model: "gpt-5.6-terra",
       reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
+      timeoutMs: 120_000,
       escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
-      escalationTimeoutMs: 3 * 60_000,
+      escalationTimeoutMs: 150_000,
     },
     quiz_solver: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      timeoutMs: 8 * 60_000,
+      timeoutMs: 4 * 60_000,
       escalationEffort: "xhigh",
-      escalationTimeoutMs: 10 * 60_000,
+      escalationTimeoutMs: 6 * 60_000,
     },
     artifact_builder: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      timeoutMs: 6 * 60_000,
+      timeoutMs: 3 * 60_000,
       escalationEffort: "xhigh",
-      escalationTimeoutMs: 8 * 60_000,
+      escalationTimeoutMs: 4 * 60_000,
     },
     quality_reviewer: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      timeoutMs: 6 * 60_000,
+      timeoutMs: 150_000,
       escalationEffort: "xhigh",
-      escalationTimeoutMs: 8 * 60_000,
+      escalationTimeoutMs: 180_000,
     },
   },
 };
@@ -215,7 +215,11 @@ const PROFILE_POLICIES: Record<
 export function resolveTaskModelPolicy(
   input: ResolveTaskModelPolicyInput,
 ): StudyBuddyTaskModelPolicy {
-  const profile = input.profile === "custom" ? "balanced" : input.profile;
+  const profile = input.profile === "custom"
+    ? "balanced"
+    : input.profile === "auto"
+      ? "quality"
+      : input.profile;
   const base = PROFILE_POLICIES[profile][input.task];
   const override = input.overrides?.[input.task];
   const configured: StudyBuddyTaskModelPolicy = {

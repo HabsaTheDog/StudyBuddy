@@ -48,6 +48,22 @@ export function cleanVisibleMathText(value: string): string {
 export function normalizeInlineMathSource(value: string): string {
   return value
     .trim()
+    .replace(/\\text\s*\{([^{}]*)\}/g, (_, text: string) => `"${text.trim().replace(/"/g, "'")}"`)
+    .replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, "frac($1, $2)")
+    .replace(/\\sqrt\s*\{([^{}]+)\}/g, "sqrt($1)")
+    .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
+    .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)")
+    .replace(/\\(?:left|right)\b/g, "")
+    .replace(/\\(?:qquad|quad)\b/g, " quad ")
+    .replace(/\\(?:Rightarrow|Longrightarrow)\b/g, " => ")
+    .replace(/\\(?:rightarrow|to)\b/g, " -> ")
+    .replace(/\\forall\b/g, " forall ")
+    .replace(/\\in\b/g, " in ")
+    .replace(/\\pm\b/g, " plus.minus ")
+    .replace(/\\cdots\b/g, " dots ")
+    .replace(/\\(?=\s*\{)/g, " without ")
+    .replace(/\^\{([^{}]+)\}/g, "^($1)")
+    .replace(/\\([A-Za-z]+)/g, "$1")
     .replace(/(?<!")\b([A-Z]\d{1,2}\s*\/\s*[a-z]\d{1,2})\b(?!")/g, (_, fit: string) =>
       `"${fit.replace(/\s+/g, "")}"`
     )
@@ -73,7 +89,7 @@ export function quoteBareMathText(value: string): string {
     "accent", "alpha", "and", "approx", "beta", "chi", "cos", "delta", "dif", "div", "dot",
     "dots", "double", "epsilon", "eta", "exp", "frac", "gamma", "kappa", "lambda", "lim",
     "ln", "log", "max", "min", "mu", "nu", "omega", "or", "phi", "pi", "psi", "quad",
-    "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "zeta",
+    "forall", "in", "minus", "plus", "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "without", "zeta",
     "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
   ]);
   return value

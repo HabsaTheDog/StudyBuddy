@@ -95,6 +95,37 @@ export type LearningArchitectureValidation =
   | { success: false; error: string };
 
 /**
+ * Keeps model-call count bounded without discarding learning objectives or
+ * source coverage. Adjacent modules are combined because course order is part
+ * of the architecture and usually reflects prerequisite progression.
+ */
+export function boundLearningArchitecture(
+  architecture: LearningArchitecture,
+  maxModules = 6,
+): LearningArchitecture {
+  if (architecture.modules.length <= maxModules || maxModules < 1) return architecture;
+  const groups = Array.from({ length: maxModules }, () => [] as LearningArchitecture["modules"]);
+  architecture.modules.forEach((module, index) => {
+    groups[Math.floor(index * maxModules / architecture.modules.length)].push(module);
+  });
+  const priorityRank = { essential: 0, important: 1, supplementary: 2 } as const;
+  const modules = groups.filter((group) => group.length > 0).map((group, index) => {
+    const modes = new Set(group.map((module) => module.contentMode));
+    return {
+      id: `${group[0].id}-cluster-${index + 1}`,
+      title: group.map((module) => module.title).join(" / "),
+      priority: [...group]
+        .sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority])[0].priority,
+      contentMode: modes.size === 1 ? group[0].contentMode : "mixed" as const,
+      learningObjectives: [...new Set(group.flatMap((module) => module.learningObjectives))],
+      assessmentSignals: [...new Set(group.flatMap((module) => module.assessmentSignals))],
+      resourceUrls: [...new Set(group.flatMap((module) => module.resourceUrls))],
+    };
+  });
+  return learningArchitectureSchema.parse({ ...architecture, modules });
+}
+
+/**
  * Validates untrusted model output. Fenced JSON is accepted because some model
  * transports retain a Markdown fence even when JSON was explicitly requested.
  */
