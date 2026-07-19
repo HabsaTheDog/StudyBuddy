@@ -12,6 +12,7 @@ import {
   classifyResourceFailure,
   resourceLocators,
 } from "./resourceAcquisition.js";
+import { assertPublicHttpsUrl } from "./urlSecurity.js";
 
 export const RESOURCE_MANIFEST_FILE = "source-map.json";
 
@@ -115,7 +116,12 @@ export async function readResourceManifest(runDir: string): Promise<ResourceMani
 
 export async function verifyResourceLinks(
   manifest: ResourceManifest,
-  options: { enabled?: boolean } = {},
+  options: {
+    enabled?: boolean;
+    fetchImpl?: typeof fetch;
+    resolveHostname?: (hostname: string) => Promise<string[]>;
+    maxRedirects?: number;
+  } = {},
 ): Promise<ResourceManifest> {
   if (options.enabled === false) return manifest;
   const resources = [...manifest.resources];
@@ -133,17 +139,13 @@ export async function verifyResourceLinks(
         continue;
       }
       try {
-        const response = await fetch(resource.originUrl, {
-          method: "HEAD",
-          redirect: "follow",
-          signal: AbortSignal.timeout(6_000),
-        });
+        const { response, resolvedUrl } = await fetchVerifiedHead(resource.originUrl, options);
         const loginRequired = response.status === 401 || response.status === 403;
         const notFound = response.status === 404;
         const serverFailure = response.status >= 500;
         resources[index] = {
           ...resource,
-          resolvedUrl: response.url || resource.resolvedUrl,
+          resolvedUrl,
           status: response.ok
             ? "metadata_only"
             : loginRequired
@@ -185,12 +187,15 @@ export async function verifyResourceLinks(
         const classification = classifyResourceFailure(message, {
           requestedUrl: resource.originUrl,
         });
+        const blockedByUrlPolicy = /must use HTTPS|private network address|embedded credentials/i.test(message);
         resources[index] = {
           ...resource,
-          status: classification.status,
+          status: blockedByUrlPolicy ? "failed" : classification.status,
           failureReason: `Link check failed: ${message}`,
-          failureKind: classification.failureKind,
-          recommendedAction: classification.recommendedAction,
+          failureKind: blockedByUrlPolicy ? "unsupported" : classification.failureKind,
+          recommendedAction: blockedByUrlPolicy
+            ? "Only public HTTPS links without embedded credentials can be checked."
+            : classification.recommendedAction,
         };
       }
     }
@@ -201,6 +206,36 @@ export async function verifyResourceLinks(
     generatedAt: new Date().toISOString(),
     resources,
   });
+}
+
+async function fetchVerifiedHead(
+  originUrl: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    resolveHostname?: (hostname: string) => Promise<string[]>;
+    maxRedirects?: number;
+  },
+): Promise<{ response: Response; resolvedUrl: string }> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const maxRedirects = Math.max(0, Math.min(options.maxRedirects ?? 3, 10));
+  let currentUrl = originUrl;
+  for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
+    await assertPublicHttpsUrl(currentUrl, options.resolveHostname);
+    const response = await fetchImpl(currentUrl, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return { response, resolvedUrl: currentUrl };
+    }
+    const location = response.headers.get("location");
+    await response.body?.cancel();
+    if (!location) throw new Error(`HTTP ${response.status} redirect did not include a Location header.`);
+    if (redirects === maxRedirects) throw new Error(`Link check exceeded ${maxRedirects} redirects.`);
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+  throw new Error("Link check exceeded its redirect limit.");
 }
 
 export function resourcesFromSnapshot(snapshot: AgentBrowserSnapshot): ResourceNode[] {

@@ -15,7 +15,7 @@ import {
   inspectResourcePayload,
   isKnownPdfEndpoint,
 } from "../resourceAcquisition.js";
-import { buildResourceManifest, stableResourceId } from "../resourceManifest.js";
+import { buildResourceManifest, stableResourceId, verifyResourceLinks } from "../resourceManifest.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 const temporaryDirectories: string[] = [];
@@ -27,6 +27,42 @@ afterEach(async () => {
 });
 
 describe("external resource acquisition", () => {
+  it("refuses private and non-HTTPS link checks before making a request", async () => {
+    let requests = 0;
+    const fetchImpl: typeof fetch = async () => {
+      requests += 1;
+      return new Response(null, { status: 200 });
+    };
+    for (const originUrl of ["https://127.0.0.1/admin", "http://public.example/resource"]) {
+      const result = await verifyResourceLinks(resourceManifest(originUrl), {
+        fetchImpl,
+        resolveHostname: async () => ["8.8.8.8"],
+      });
+      expect(result.resources[0]?.status).toBe("failed");
+      expect(result.resources[0]?.failureReason).toContain("Link check failed");
+    }
+    expect(requests).toBe(0);
+  });
+
+  it("revalidates every redirect target before following it", async () => {
+    const requested: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      requested.push(String(input));
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://192.168.1.10/private" },
+      });
+    };
+    const result = await verifyResourceLinks(resourceManifest("https://public.example/resource"), {
+      fetchImpl,
+      resolveHostname: async () => ["8.8.8.8"],
+    });
+
+    expect(requested).toEqual(["https://public.example/resource"]);
+    expect(result.resources[0]?.status).toBe("failed");
+    expect(result.resources[0]?.failureReason).toContain("private network");
+  });
+
   it("recognizes HAN PDF endpoints without a .pdf suffix", () => {
     expect(isKnownPdfEndpoint(
       "https://example.han.technikum-wien.at/content/pdf/10.1007%2F978-3-8348-9898-2",
@@ -281,6 +317,30 @@ describe("external resource acquisition", () => {
     expect(coverage.retryActions.join(" ")).toContain("Primärquellen");
   });
 });
+
+function resourceManifest(originUrl: string) {
+  return ResourceManifestSchema.parse({
+    schemaVersion: "1.0",
+    courseUrl: null,
+    generatedAt: new Date(0).toISOString(),
+    resources: [{
+      id: "external-1",
+      parentId: null,
+      sectionPath: [],
+      activityType: "external",
+      title: "External resource",
+      originUrl,
+      resolvedUrl: null,
+      localPath: null,
+      previewPath: null,
+      status: "discovered",
+      checksum: null,
+      verifiedAt: null,
+      examRelevance: "unknown",
+      failureReason: null,
+    }],
+  });
+}
 
 function resource(
   title: string,

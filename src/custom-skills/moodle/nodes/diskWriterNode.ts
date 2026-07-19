@@ -34,6 +34,7 @@ export function createDiskWriterNode(config: MoodleRuntimeConfig) {
     const pdfPath = ensureInside(config.runDir, typstPdfPath(outputPath));
     const pdfResult = await compileTypstPdf(outputPath, pdfPath, {
       packagePath: studyBuddyTypstPackagePath(config.runDir),
+      signal: config.abortSignal,
     });
     if (!pdfResult.ok) {
       return {

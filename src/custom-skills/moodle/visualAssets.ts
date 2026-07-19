@@ -1,6 +1,5 @@
 import { access, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { sanitizeUnicode } from "./codexClient.js";
 import type { ExtractedData } from "./schemas.js";
@@ -10,6 +9,7 @@ import type { MoodleRuntimeConfig } from "./types.js";
 import type { VisualCropMode } from "./types.js";
 import { ensureInside } from "./validation.js";
 import { plannedPagesByResource, readVisualRetrievalPlan } from "./visualPlanner.js";
+import { runBoundedProcess } from "../shared/boundedProcess.js";
 
 export interface VisualCandidate {
   id: string;
@@ -1276,19 +1276,7 @@ function runCommand(
   command: string,
   args: string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
+  return runBoundedProcess(command, args);
 }
 
 function errorMessage(error: unknown): string {

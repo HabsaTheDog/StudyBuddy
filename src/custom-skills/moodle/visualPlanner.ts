@@ -1,10 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
 import { assertReadableDownloadedFile } from "./fileTextExtraction.js";
+import { runBoundedProcess } from "../shared/boundedProcess.js";
 
 export const VISUAL_RETRIEVAL_PLAN_FILE = "visual-retrieval-plan.json";
 export const VISUAL_PAGE_INDEX_FILE = "visual-page-index.json";
@@ -262,17 +262,7 @@ async function pdfPageCount(pdfPath: string): Promise<number> {
 }
 
 function runCommand(command: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
+  return runBoundedProcess(command, args);
 }
 
 function errorMessage(error: unknown): string {

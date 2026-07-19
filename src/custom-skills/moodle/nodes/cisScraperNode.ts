@@ -70,6 +70,7 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
           : config.cisDashboardUrl || config.cisUrls[0],
         username: config.cisUsername,
         password: config.cisPassword,
+        allowedOrigins: config.cisLoginAllowedOrigins,
       });
       await diagnostics?.log("info", "cis_login", "CIS login ok.");
 

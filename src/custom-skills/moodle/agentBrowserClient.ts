@@ -2,6 +2,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
+  assertNoSensitiveCommandArguments,
+  buildCredentialFreeChildEnvironment,
+} from "../shared/childProcessSecurity.js";
+export {
+  assertNoSensitiveCommandArguments,
+  buildCredentialFreeChildEnvironment,
+} from "../shared/childProcessSecurity.js";
+import {
   assertQuizPolicyAllows,
   isMoodleQuizAttemptUrl,
   isMoodleQuizFinalSubmitUrl,
@@ -169,12 +177,14 @@ class CliAgentBrowserClient implements AgentBrowserClient {
     ignoreAbort = false,
   ): Promise<AgentBrowserCommandResult> {
     const allArgs = [...this.spec.baseArgs, ...args];
+    assertNoSensitiveCommandArguments(allArgs, this.spec.sensitiveValues);
     try {
       const result = await execFileAsync(this.spec.command, allArgs, {
         encoding: "utf8",
         maxBuffer: 10 * 1024 * 1024,
         timeout: 120_000,
         signal: ignoreAbort ? undefined : this.spec.signal,
+        env: buildCredentialFreeChildEnvironment(process.env, this.spec.sensitiveValues),
       });
       return {
         stdout: result.stdout,

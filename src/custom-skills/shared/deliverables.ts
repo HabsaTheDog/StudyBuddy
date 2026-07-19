@@ -5,6 +5,7 @@ import {
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
   safePathSegment,
+  STUDY_BUDDY_DELIVERABLES_DIRECTORY,
 } from "./workspaceData.js";
 
 export interface PublishedDeliverable {
@@ -51,7 +52,11 @@ export async function publishStudyBuddyDeliverables(input: {
       ? sources.length === 1 && path.extname(requestedDestination)
         ? requestedDestination
         : path.join(requestedDestination, `${baseName}${extension}`)
-      : path.join(workspace.workspaceRoot, `${baseName}${extension}`);
+      : path.join(
+          workspace.workspaceRoot,
+          STUDY_BUDDY_DELIVERABLES_DIRECTORY,
+          `${baseName}${extension}`,
+        );
     const sourceHash = await sha256(sourcePath);
     const targetPath = await collisionSafePath(desiredPath, sourceHash);
     await mkdir(path.dirname(targetPath), { recursive: true });

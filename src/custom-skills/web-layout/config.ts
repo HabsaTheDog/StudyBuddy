@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
 import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
 import {
   ensureStudyBuddyWorkspaceData,
+  ensurePrivateDirectorySync,
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../shared/workspaceData.js";
@@ -45,7 +46,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   const outputPath = input.outputPath
     ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot)
     : path.join(runDir, "document.html");
-  mkdirSync(runDir, { recursive: true });
+  ensurePrivateDirectorySync(runDir);
   const canonicalLogoPath = path.join(workspaceRoot, "CI", "logo.png");
   const assetFiles = [
     ...(input.assetFiles ?? []).map((file) => resolveStudyBuddyWorkspacePath(file, workspaceRoot)),
