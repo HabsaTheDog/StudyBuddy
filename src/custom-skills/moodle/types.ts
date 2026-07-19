@@ -117,6 +117,7 @@ export interface MoodleRuntimeConfig {
   dashboardUrl: string;
   username?: string;
   password?: string;
+  moodleLoginAllowedOrigins?: string[];
   storageState?: string;
   cisUrls: string[];
   calendarUrl?: string;
@@ -124,6 +125,7 @@ export interface MoodleRuntimeConfig {
   cisDashboardUrl: string;
   cisUsername?: string;
   cisPassword?: string;
+  cisLoginAllowedOrigins?: string[];
   cisStorageState?: string;
   headless: boolean;
   browserBackend: BrowserBackend;

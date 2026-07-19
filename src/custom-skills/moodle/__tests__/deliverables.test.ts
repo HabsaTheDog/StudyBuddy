@@ -29,7 +29,9 @@ describe("Study Buddy deliverable publishing", () => {
       sourcePaths: [canonical],
     });
 
-    expect(published[0].publishedPath).toBe(path.join(workspace, "create-dyn2-notes.pdf"));
+    expect(published[0].publishedPath).toBe(
+      path.join(workspace, "study-buddy-deliverables", "create-dyn2-notes.pdf"),
+    );
     await expect(readFile(published[0].publishedPath, "utf8")).resolves.toBe("validated-pdf");
     await expect(readFile(canonical, "utf8")).resolves.toBe("validated-pdf");
     await expect(readFile(path.join(runDir, "deliverables.json"), "utf8"))
@@ -59,7 +61,11 @@ describe("Study Buddy deliverable publishing", () => {
       sourcePaths: [second],
     });
 
-    expect(firstPublished[0].publishedPath).toBe(path.join(workspace, "create-notes.pdf"));
-    expect(secondPublished[0].publishedPath).toBe(path.join(workspace, "create-notes-2.pdf"));
+    expect(firstPublished[0].publishedPath).toBe(
+      path.join(workspace, "study-buddy-deliverables", "create-notes.pdf"),
+    );
+    expect(secondPublished[0].publishedPath).toBe(
+      path.join(workspace, "study-buddy-deliverables", "create-notes-2.pdf"),
+    );
   });
 });

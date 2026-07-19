@@ -37,6 +37,47 @@ ok()    { echo -e "${GREEN}✔${RESET}  $*"; }
 warn()  { echo -e "${YELLOW}⚠${RESET}  $*"; }
 error() { echo -e "${RED}✖${RESET}  $*" >&2; }
 
+dotenv_encode() {
+  local value="$1"
+  if [[ "$value" != *"#"* && "$value" != *$'\n'* && "$value" != *$'\r'* && "$value" != " "* && "$value" != *" " ]]; then
+    printf '%s' "$value"
+  elif [[ "$value" != *"'"* ]]; then
+    printf "'%s'" "$value"
+  elif [[ "$value" != *'`'* ]]; then
+    printf '`%s`' "$value"
+  elif [[ "$value" != *'"'* && "$value" != *'\n'* && "$value" != *'\r'* ]]; then
+    printf '"%s"' "$value"
+  else
+    error "A credential contains a combination of quotes that .env files cannot represent safely. Configure it through the application settings instead."
+    return 1
+  fi
+}
+
+upsert_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local encoded
+  local temporary
+  local replaced=false
+  encoded="$(dotenv_encode "$value")"
+  temporary="$(mktemp "${file}.study-buddy.XXXXXX")"
+  chmod 600 "$temporary"
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ "$line" == "$key="* ]]; then
+      printf '%s=%s\n' "$key" "$encoded" >> "$temporary"
+      replaced=true
+    else
+      printf '%s\n' "$line" >> "$temporary"
+    fi
+  done < "$file"
+  if [ "$replaced" = false ]; then
+    printf '%s=%s\n' "$key" "$encoded" >> "$temporary"
+  fi
+  mv "$temporary" "$file"
+  chmod 600 "$file"
+}
+
 # ── guard: .env.example must exist ──
 if [ ! -f "$ENV_EXAMPLE" ]; then
   error ".env.example not found at $ENV_EXAMPLE"
@@ -58,6 +99,7 @@ else
   cp "$ENV_EXAMPLE" "$ENV_FILE"
   ok "Created .env from .env.example"
 fi
+chmod 600 "$ENV_FILE"
 
 # ── step 2: prompt for credentials ──
 echo ""
@@ -71,21 +113,11 @@ echo ""
 
 # write credentials into .env
 if [ -n "$MOODLE_USER" ]; then
-  if grep -q "^MOODLE_USERNAME=" "$ENV_FILE" 2>/dev/null; then
-    sed -i.bak "s|^MOODLE_USERNAME=.*|MOODLE_USERNAME=$MOODLE_USER|" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-  else
-    echo "MOODLE_USERNAME=$MOODLE_USER" >> "$ENV_FILE"
-  fi
+  upsert_env_value "$ENV_FILE" "MOODLE_USERNAME" "$MOODLE_USER"
 fi
 
 if [ -n "$MOODLE_PASS" ]; then
-  if grep -q "^MOODLE_PASSWORD=" "$ENV_FILE" 2>/dev/null; then
-    sed -i.bak "s|^MOODLE_PASSWORD=.*|MOODLE_PASSWORD=$MOODLE_PASS|" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-  else
-    echo "MOODLE_PASSWORD=$MOODLE_PASS" >> "$ENV_FILE"
-  fi
+  upsert_env_value "$ENV_FILE" "MOODLE_PASSWORD" "$MOODLE_PASS"
 fi
 
 ok "Credentials written to .env"
@@ -124,19 +156,19 @@ MOODLE_QUIZ_ACCESS_MODE=quiz-assist
 # CIS calendar URL (personal iCal feed)
 CIS_CALENDAR_URL=
 ENVLOCAL
+  chmod 600 "$ENV_LOCAL"
 
   # fill in CIS credentials if provided
   if [ -n "$CIS_USER" ]; then
-    sed -i.bak "s|^CIS_USERNAME=.*|CIS_USERNAME=$CIS_USER|" "$ENV_LOCAL"
-    rm -f "$ENV_LOCAL.bak"
+    upsert_env_value "$ENV_LOCAL" "CIS_USERNAME" "$CIS_USER"
   fi
   if [ -n "$CIS_PASS" ]; then
-    sed -i.bak "s|^CIS_PASSWORD=.*|CIS_PASSWORD=$CIS_PASS|" "$ENV_LOCAL"
-    rm -f "$ENV_LOCAL.bak"
+    upsert_env_value "$ENV_LOCAL" "CIS_PASSWORD" "$CIS_PASS"
   fi
 
   ok "Created .env.local with safe defaults"
 fi
+chmod 600 "$ENV_LOCAL"
 
 # ── step 5: check system dependencies ──
 echo ""

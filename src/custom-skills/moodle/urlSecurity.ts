@@ -17,6 +17,9 @@ export async function assertPublicHttpsUrl(
   if (parsed.protocol !== "https:") {
     throw new Error("URL must use HTTPS.");
   }
+  if (parsed.username || parsed.password) {
+    throw new Error("URL must not contain embedded credentials.");
+  }
   if (isDisallowedHostname(parsed.hostname)) {
     throw new Error("URL resolves to a local or private network address.");
   }

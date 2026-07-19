@@ -50,7 +50,7 @@ describe("web layout CLI", () => {
     );
     expect(result.publishedDeliverables).toHaveLength(1);
     expect(result.publishedDeliverables[0].publishedPath).toBe(
-      path.join(workspace, "build-flashcards.html"),
+      path.join(workspace, "study-buddy-deliverables", "build-flashcards.html"),
     );
   });
 });

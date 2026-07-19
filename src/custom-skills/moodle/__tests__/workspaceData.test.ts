@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ensureStudyBuddyWorkspaceData,
   resolveStudyBuddyWorkspaceDataPaths,
+  safePathSegment,
 } from "../../shared/workspaceData.js";
 
 const temporaryDirectories: string[] = [];
@@ -30,6 +31,11 @@ describe("Study Buddy workspace data paths", () => {
       .toContain('"threadId": "thread-123"');
     expect(await readFile(path.join(paths.dataRoot, "README.md"), "utf8"))
       .toContain("Finished files created for you");
+    if (process.platform !== "win32") {
+      expect((await stat(paths.dataRoot)).mode & 0o777).toBe(0o700);
+      expect((await stat(paths.runsRoot)).mode & 0o777).toBe(0o700);
+      expect((await stat(path.join(paths.threadRoot, "thread.json"))).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("stores Quick Chat runs directly below the data folder", async () => {
@@ -43,6 +49,12 @@ describe("Study Buddy workspace data paths", () => {
 
     expect(paths.runsRoot).toBe(path.join(workspace, "study-buddy-data", "runs"));
     expect(paths.threadRoot).toBe(paths.dataRoot);
+  });
+
+  it("does not allow dot segments to collapse run or thread boundaries", () => {
+    expect(safePathSegment(".")).toBe("default");
+    expect(safePathSegment("..")).toBe("default");
+    expect(safePathSegment("course.notes")).toBe("course.notes");
   });
 });
 

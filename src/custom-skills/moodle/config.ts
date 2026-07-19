@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -22,6 +21,7 @@ import { resolveTaskBudget } from "./taskBudget.js";
 import type { CodexPreflightMode } from "./codexRuntime.js";
 import {
   ensureStudyBuddyWorkspaceData,
+  ensurePrivateDirectorySync,
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../shared/workspaceData.js";
@@ -68,7 +68,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const explicitRunDir = input.runDir ? resolveStudyBuddyWorkspacePath(input.runDir, workspaceRoot) : null;
   const explicitOutputPath = input.outputPath ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot) : null;
   const runDir = explicitRunDir || (explicitOutputPath ? path.dirname(explicitOutputPath) : path.resolve(outputRoot, timestampSlug()));
-  mkdirSync(runDir, { recursive: true });
+  ensurePrivateDirectorySync(runDir);
   const includeCis = input.includeCis ?? true;
   const cisUrls = includeCis
     ? input.cisUrls?.length
@@ -142,6 +142,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     dashboardUrl: normalizeDashboardUrl(process.env.MOODLE_DASHBOARD_URL || input.moodleUrl),
     username: process.env.MOODLE_USERNAME,
     password: process.env.MOODLE_PASSWORD,
+    moodleLoginAllowedOrigins: parseUrlList(process.env.MOODLE_LOGIN_ALLOWED_ORIGINS),
     storageState: process.env.MOODLE_STORAGE_STATE || undefined,
     cisUrls,
     calendarUrl,
@@ -149,9 +150,13 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     cisDashboardUrl: process.env.CIS_DASHBOARD_URL || cisUrls[0] || DEFAULT_CIS_URL,
     cisUsername: process.env.CIS_USERNAME || process.env.MOODLE_USERNAME,
     cisPassword: process.env.CIS_PASSWORD || process.env.MOODLE_PASSWORD,
+    cisLoginAllowedOrigins: parseUrlList(process.env.CIS_LOGIN_ALLOWED_ORIGINS),
     cisStorageState: process.env.CIS_STORAGE_STATE || undefined,
     headless: input.browserHeaded ? false : process.env.MOODLE_HEADLESS !== "false",
-    browserBackend: parseBrowserBackend(input.browserBackend || process.env.MOODLE_BROWSER_BACKEND),
+    // Credentials must never be passed through the agent-browser CLI argv boundary.
+    browserBackend: process.env.MOODLE_PASSWORD
+      ? "playwright"
+      : parseBrowserBackend(input.browserBackend || process.env.MOODLE_BROWSER_BACKEND),
     diagnosticOnly: input.diagnosticOnly ?? false,
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,

@@ -301,7 +301,11 @@ async function optimizeSourceAsset(
         : ["-quality", String(config.webpQuality), "-define", "webp:method=4"]),
       webpPath,
     ];
-    await execFileAsync("magick", args, { maxBuffer: 4 * 1024 * 1024 }).catch(() => null);
+    await execFileAsync("magick", args, {
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+      signal: config.abortSignal,
+    }).catch(() => null);
     const [webpStat, originalStat] = await Promise.all([
       stat(webpPath).catch(() => null),
       stat(originalOutput),
@@ -344,7 +348,10 @@ async function optimizeSourceAsset(
 let imageMagickAvailable: boolean | undefined;
 async function hasImageMagick(): Promise<boolean> {
   if (imageMagickAvailable !== undefined) return imageMagickAvailable;
-  imageMagickAvailable = await execFileAsync("magick", ["-version"], { maxBuffer: 1024 * 1024 })
+  imageMagickAvailable = await execFileAsync("magick", ["-version"], {
+    maxBuffer: 1024 * 1024,
+    timeout: 10_000,
+  })
     .then(() => true)
     .catch(() => false);
   return imageMagickAvailable;
@@ -355,7 +362,7 @@ async function imageDimensions(filePath: string): Promise<{ width: number; heigh
   const { stdout } = await execFileAsync(
     "magick",
     ["identify", "-format", "%w %h", filePath],
-    { maxBuffer: 1024 * 1024 },
+    { maxBuffer: 1024 * 1024, timeout: 10_000 },
   );
   const [width, height] = stdout.trim().split(/\s+/).map(Number);
   if (!Number.isInteger(width) || !Number.isInteger(height)) throw new Error("Invalid image dimensions");

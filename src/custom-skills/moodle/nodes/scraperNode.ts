@@ -104,6 +104,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         targetUrl: config.dashboardUrl || config.moodleUrl,
         username: config.username,
         password: config.password,
+        allowedOrigins: config.moodleLoginAllowedOrigins,
       });
       await diagnostics?.log("info", "moodle_login", "Moodle login ok.");
 
@@ -266,6 +267,7 @@ async function scrapeWithAgentBrowser(
       targetUrl: config.dashboardUrl || config.moodleUrl,
       username: config.username,
       password: config.password,
+      allowedOrigins: config.moodleLoginAllowedOrigins,
     });
     await diagnostics?.log("info", "moodle_login", "Moodle login ok with agent-browser.");
 
@@ -706,6 +708,7 @@ async function fetchSinglePageWithPlaywright(
       targetUrl: config.dashboardUrl || config.moodleUrl,
       username: config.username,
       password: config.password,
+      allowedOrigins: config.moodleLoginAllowedOrigins,
     });
     const opened = await gotoWithDiagnostics(page, config, url, index);
     if (!opened.ok) {
@@ -1760,6 +1763,7 @@ async function createResourceDownloadSession(
       targetUrl: config.dashboardUrl || config.moodleUrl,
       username: config.username,
       password: config.password,
+      allowedOrigins: config.moodleLoginAllowedOrigins,
     });
     return {
       download: (url, target, signal) => downloadResourceWithRequest(context, url, target, signal),

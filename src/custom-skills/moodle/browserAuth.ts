@@ -6,11 +6,24 @@ export interface BrowserLoginConfig {
   targetUrl: string;
   username?: string;
   password?: string;
+  allowedOrigins?: readonly string[];
+}
+
+export function createBrowserLoginConfig(config: BrowserLoginConfig): BrowserLoginConfig {
+  const target = validatedLoginUrl(config.targetUrl, config.serviceName);
+  const allowedOrigins = new Set([target.origin]);
+  for (const value of config.allowedOrigins ?? []) {
+    allowedOrigins.add(validatedLoginUrl(value, config.serviceName).origin);
+  }
+  return { ...config, targetUrl: target.toString(), allowedOrigins: [...allowedOrigins] };
 }
 
 export async function ensureLoggedIn(page: Page, config: BrowserLoginConfig): Promise<void> {
+  config = createBrowserLoginConfig(config);
   await page.goto(config.targetUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
+  assertExpectedOrigin(page.url(), config);
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
+  assertExpectedOrigin(page.url(), config);
   await assertNoExplicitAuthFailure(page, config.serviceName);
   if (!(await looksLikeLoginPage(page))) {
     return;
@@ -43,6 +56,7 @@ export async function ensureLoggedIn(page: Page, config: BrowserLoginConfig): Pr
     await page.keyboard.press("Enter");
   }
   await page.waitForLoadState("networkidle", { timeout: 45_000 }).catch(() => undefined);
+  assertExpectedOrigin(page.url(), config);
   await assertNoExplicitAuthFailure(page, config.serviceName);
   if (await looksLikeLoginPage(page)) {
     throw new Error(`${config.serviceName} login did not complete; still on the login page.`);
@@ -139,8 +153,10 @@ export async function ensureAgentBrowserLoggedIn(
   client: AgentBrowserClient,
   config: BrowserLoginConfig,
 ): Promise<void> {
+  config = createBrowserLoginConfig(config);
   await client.open(config.targetUrl);
   await client.wait(750).catch(() => undefined);
+  assertExpectedOrigin(await client.getUrl(), config);
   await assertNoExplicitAgentBrowserAuthFailure(client, config.serviceName);
   if (!(await looksLikeAgentBrowserLoginPage(client))) {
     return;
@@ -149,66 +165,28 @@ export async function ensureAgentBrowserLoggedIn(
     throw new Error(`${config.serviceName} login is required, but username or password is missing.`);
   }
 
-  const filledUsername = await tryAgentBrowserFill(
-    client,
-    ["#username", "input[name='username']", "input[type='email']", "input[type='text']"],
-    config.username,
-    /^(username|benutzer|e-mail|email)$/i,
+  throw new Error(
+    `${config.serviceName} requires login. Credential entry through the agent-browser CLI is blocked; use the Playwright backend.`,
   );
-  const filledPassword = await tryAgentBrowserFill(
-    client,
-    ["#password", "input[name='password']", "input[type='password']"],
-    config.password,
-    /^(password|kennwort|passwort)$/i,
-  );
-  if (!filledUsername || !filledPassword) {
-    throw new Error(`${config.serviceName} login form fields were not found.`);
-  }
+}
 
-  const clicked = await tryAgentBrowserClick(client, [
-    "#loginbtn",
-    "button[type='submit']",
-    "input[type='submit']",
-  ]);
-  if (!clicked) {
-    await client.press("Enter");
+function validatedLoginUrl(value: string, serviceName: string): URL {
+  const parsed = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error(`${serviceName} login requires HTTPS.`);
   }
-  if (await waitForAgentBrowserLoginOutcome(client, config.serviceName, 15_000)) {
-    return;
+  if (parsed.username || parsed.password) {
+    throw new Error(`${serviceName} login URL must not contain credentials.`);
   }
+  return parsed;
+}
 
-  // A stale Moodle login form/token can accept the click without completing the
-  // navigation. Reload once and submit a fresh form before giving up.
-  await client.open(config.targetUrl);
-  await client.wait(750).catch(() => undefined);
-  await assertNoExplicitAgentBrowserAuthFailure(client, config.serviceName);
-  if (!(await looksLikeAgentBrowserLoginPage(client))) {
-    return;
+function assertExpectedOrigin(actualUrl: string, config: BrowserLoginConfig): void {
+  const actualOrigin = validatedLoginUrl(actualUrl, config.serviceName).origin;
+  if (!(config.allowedOrigins ?? []).includes(actualOrigin)) {
+    throw new Error(`${config.serviceName} redirected to an unexpected origin.`);
   }
-  await tryAgentBrowserFill(
-    client,
-    ["#username", "input[name='username']", "input[type='email']", "input[type='text']"],
-    config.username,
-    /^(username|benutzer|e-mail|email)$/i,
-  );
-  await tryAgentBrowserFill(
-    client,
-    ["#password", "input[name='password']", "input[type='password']"],
-    config.password,
-    /^(password|kennwort|passwort)$/i,
-  );
-  const retriedClick = await tryAgentBrowserClick(client, [
-    "#loginbtn",
-    "button[type='submit']",
-    "input[type='submit']",
-  ]);
-  if (!retriedClick) {
-    await client.press("Enter");
-  }
-  if (await waitForAgentBrowserLoginOutcome(client, config.serviceName, 15_000)) {
-    return;
-  }
-  throw new Error(`${config.serviceName} login did not complete after two attempts; still on the login page.`);
 }
 
 export async function looksLikeAgentBrowserLoginPage(client: AgentBrowserClient): Promise<boolean> {
@@ -258,67 +236,6 @@ async function assertNoExplicitAgentBrowserAuthFailure(
   if (matched) {
     throw new Error(`${serviceName} authentication failed: ${matched}`);
   }
-}
-
-async function waitForAgentBrowserLoginOutcome(
-  client: AgentBrowserClient,
-  serviceName: string,
-  timeoutMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await client.wait(1_000).catch(() => undefined);
-    await assertNoExplicitAgentBrowserAuthFailure(client, serviceName);
-    if (!(await looksLikeAgentBrowserLoginPage(client))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function tryAgentBrowserFill(
-  client: AgentBrowserClient,
-  selectors: string[],
-  value: string,
-  labelPattern: RegExp,
-): Promise<boolean> {
-  for (const selector of selectors) {
-    try {
-      await client.fill(selector, value);
-      return true;
-    } catch {
-      // Try the next selector.
-    }
-  }
-  const snapshot = await getAgentBrowserSnapshot(client);
-  const ref = Object.entries(snapshot?.refs ?? {}).find(([, item]) =>
-    labelPattern.test(item.name || ""),
-  )?.[0];
-  if (ref) {
-    await client.fill(`@${ref}`, value);
-    return true;
-  }
-  return false;
-}
-
-async function tryAgentBrowserClick(client: AgentBrowserClient, selectors: string[]): Promise<boolean> {
-  for (const selector of selectors) {
-    try {
-      await client.click(selector);
-      return true;
-    } catch {
-      // Try the next selector.
-    }
-  }
-  const snapshot = await getAgentBrowserSnapshot(client);
-  const ref = Object.entries(snapshot?.refs ?? {}).find(([, item]) =>
-    /^(log in|login|anmelden)$/i.test(item.name || ""),
-  )?.[0];
-  if (ref) {
-    await client.click(`@${ref}`);
-    return true;
-  }
-  return false;
 }
 
 async function getAgentBrowserSnapshot(client: AgentBrowserClient): Promise<AgentBrowserSnapshot | null> {

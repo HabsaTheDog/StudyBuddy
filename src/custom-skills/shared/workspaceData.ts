@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const STUDY_BUDDY_DATA_DIRECTORY = "study-buddy-data";
+export const STUDY_BUDDY_DELIVERABLES_DIRECTORY = "study-buddy-deliverables";
 
 export type StudyBuddyWorkspaceKind = "project" | "quick-chat";
 
@@ -24,7 +25,8 @@ caches, and recovery state.
 
 Finished files created for you, such as PDFs, HTML pages, CSV files, or other
 requested deliverables, are saved outside this folder in the surrounding
-project or Quick Chat workspace.
+project or Quick Chat workspace's \`${STUDY_BUDDY_DELIVERABLES_DIRECTORY}/\`
+directory.
 
 ## Structure
 
@@ -75,9 +77,15 @@ export function resolveStudyBuddyWorkspaceDataPaths(
 export function ensureStudyBuddyWorkspaceData(
   paths: StudyBuddyWorkspaceDataPaths,
 ): StudyBuddyWorkspaceDataPaths {
-  mkdirSync(paths.runsRoot, { recursive: true });
-  mkdirSync(paths.cacheRoot, { recursive: true });
-  mkdirSync(paths.locksRoot, { recursive: true });
+  for (const directory of [
+    paths.dataRoot,
+    paths.threadRoot,
+    paths.runsRoot,
+    paths.cacheRoot,
+    paths.locksRoot,
+  ]) {
+    ensurePrivateDirectorySync(directory);
+  }
   writeIfMissing(path.join(paths.dataRoot, "README.md"), STANDARD_README);
   writeIfMissing(path.join(paths.dataRoot, ".gitignore"), "*\n");
   writeJsonIfMissing(path.join(paths.dataRoot, "workspace.json"), {
@@ -97,12 +105,18 @@ export function ensureStudyBuddyWorkspaceData(
   return paths;
 }
 
+export function ensurePrivateDirectorySync(directory: string): void {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") chmodSync(directory, 0o700);
+}
+
 export function safePathSegment(value: string): string {
-  return value
+  const segment = value
     .trim()
     .replace(/[^a-z0-9._-]+/gi, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 120) || "default";
+    .slice(0, 120);
+  return !segment || segment === "." || segment === ".." ? "default" : segment;
 }
 
 function resolveWorkspaceKind(
@@ -124,10 +138,11 @@ function resolveWorkspaceKind(
 
 function writeIfMissing(filePath: string, contents: string): void {
   try {
-    writeFileSync(filePath, contents, { encoding: "utf8", flag: "wx" });
+    writeFileSync(filePath, contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
+  if (process.platform !== "win32") chmodSync(filePath, 0o600);
 }
 
 function writeJsonIfMissing(filePath: string, value: unknown): void {

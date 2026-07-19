@@ -112,7 +112,10 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         };
       }
       const supportFiles = await getStudyBuddyTypstSupportFiles();
-      const validation = await validateTypst(document, supportFiles, { assetBaseDir: config.runDir });
+      const validation = await validateTypst(document, supportFiles, {
+        assetBaseDir: config.runDir,
+        signal: config.abortSignal,
+      });
       if (!validation.ok) {
         const error = `Typst validation failed:\n${validation.error}`;
         await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, error);
@@ -166,6 +169,7 @@ async function validateGeneratedDocument(
   const validation = await validateTypst(document, supportFiles, {
     assetBaseDir: config.runDir,
     preview: config.typstValidationMode === "strict" ? true : requiresPreview(document),
+    signal: config.abortSignal,
   });
   return validation.ok ? { ok: true } : validation;
 }

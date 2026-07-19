@@ -2,9 +2,9 @@ import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/pr
 import os from "node:os";
 import path from "node:path";
 import { constants } from "node:fs";
-import { spawn } from "node:child_process";
 import { ExtractedDataSchema, type ExtractedData } from "./schemas.js";
 import type { JsonArray, JsonObject, JsonValue } from "./state.js";
+import { runBoundedProcess } from "../shared/boundedProcess.js";
 
 export function parseJsonObjectOrArray(text: string): JsonObject | JsonArray {
   const trimmed = text.trim();
@@ -24,7 +24,7 @@ export function validateExtractedData(value: unknown): ExtractedData {
 export async function validateTypst(
   source: string,
   supportFiles: TypstSupportFile[] = [],
-  options: { assetBaseDir?: string; preview?: boolean } = {},
+  options: { assetBaseDir?: string; preview?: boolean; signal?: AbortSignal; commandTimeoutMs?: number } = {},
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const typstPath = await findExecutable("typst");
   if (!typstPath) {
@@ -44,6 +44,8 @@ export async function validateTypst(
     const packagePath = inferPackagePath(tempDir, supportFiles);
     const result = await runTypstCompile(typstPath, sourcePath, targetPath, {
       packagePath,
+      signal: options.signal,
+      commandTimeoutMs: options.commandTimeoutMs,
     });
     if (result.code !== 0) {
       return { ok: false, error: result.stderr || result.stdout || `typst exited with code ${result.code}` };
@@ -58,6 +60,8 @@ export async function validateTypst(
         packagePath,
         format: "png",
         ppi: 144,
+        signal: options.signal,
+        commandTimeoutMs: options.commandTimeoutMs,
       });
       if (renderResult.code !== 0) {
         return {
@@ -94,6 +98,8 @@ export type TypstCompileResult =
 
 export interface TypstCompileOptions {
   packagePath?: string;
+  signal?: AbortSignal;
+  commandTimeoutMs?: number;
 }
 
 export async function compileTypstPdf(
@@ -193,7 +199,10 @@ function runTypstCompile(
     args.push("--ppi", String(options.ppi));
   }
   args.push(sourcePath, targetPath);
-  return runCommand(typstPath, args);
+  return runBoundedProcess(typstPath, args, {
+    signal: options.signal,
+    timeoutMs: options.commandTimeoutMs,
+  });
 }
 
 async function findExecutable(name: string): Promise<string | null> {
@@ -208,20 +217,4 @@ async function findExecutable(name: string): Promise<string | null> {
     }
   }
   return null;
-}
-
-function runCommand(command: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
 }

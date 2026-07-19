@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -12,6 +12,7 @@ import { assertApprovedQuizTarget } from "./quizPermissions.js";
 import { assertApprovedAssignmentTarget } from "./assignmentPermissions.js";
 import {
   ensureStudyBuddyWorkspaceData,
+  ensurePrivateDirectorySync,
   resolveStudyBuddyWorkspaceDataPaths,
   resolveStudyBuddyWorkspacePath,
 } from "../../shared/workspaceData.js";
@@ -56,7 +57,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     (explicitOutputPath
       ? path.dirname(explicitOutputPath)
       : path.resolve(outputRoot, timestampSlug()));
-  mkdirSync(runDir, { recursive: true });
+  ensurePrivateDirectorySync(runDir);
   const runSlug = path.basename(runDir).replace(/[^a-z0-9_-]+/gi, "-") || "run";
   const requestedBrowserBackend = parseBrowserBackend(
     input.browserBackend || environment.MOODLE_BROWSER_BACKEND,
