@@ -21,6 +21,7 @@ import { createVisualDiscoveryNode } from "./nodes/visualDiscoveryNode.js";
 import { createVisualPlannerNode } from "./nodes/visualPlannerNode.js";
 import { createResourceManifestNode } from "./nodes/resourceManifestNode.js";
 import { createEvidenceNode } from "./nodes/evidenceNode.js";
+import { createEvidenceHandoffNode } from "./nodes/evidenceHandoffNode.js";
 import { createCoverageNode } from "./nodes/coverageNode.js";
 import { createStudyModelNode } from "./nodes/studyModelNode.js";
 import { createReviewNode } from "./nodes/reviewNode.js";
@@ -212,7 +213,9 @@ export async function runMoodleGraph(
       const graph = config.stage === "extract"
         ? config.resumeExtractionRunDir
           ? buildExtractionReviewGraph(config, dependencies)
-          : buildExtractionGraph(config, dependencies)
+          : config.evidenceHandoffOnly
+            ? buildEvidenceHandoffExtractionGraph(config, dependencies)
+            : buildExtractionGraph(config, dependencies)
         : config.stage === "render"
           ? buildRenderGraph(config, dependencies)
           : config.intentDecision?.wantsQuickAnswer
@@ -370,7 +373,9 @@ function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
   const tasks: StudyBuddyModelTask[] = config.stage === "render"
     ? ["artifact_builder"]
     : config.stage === "extract"
-      ? [
+      ? config.evidenceHandoffOnly
+        ? []
+        : [
           ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
           "content_analyzer",
           "quality_reviewer",
@@ -622,6 +627,44 @@ export function buildExtractionGraph(
       done: END,
       abort: END,
     })
+    .compile();
+}
+
+/**
+ * Source-only extraction for interactive Study Guides. It retains the real
+ * Moodle resolver, browser, downloader, resource manifest, evidence package,
+ * and coverage gate, but deliberately performs no teaching synthesis. The
+ * web-layout graph is the single owner of that work.
+ */
+export function buildEvidenceHandoffExtractionGraph(
+  config: MoodleRuntimeConfig,
+  dependencies: GraphDependencies = {},
+) {
+  const codex = dependencies.codex ?? createCodexClient(config);
+  return new StateGraph(AgentStateAnnotation)
+    .addNode("sourcePlanner", createSourcePlannerNode(config))
+    .addNode("courseResolver", resolveCourseResolverNode(config, codex, dependencies))
+    .addNode("sourceOrchestrator", createSourceOrchestratorNode(config, dependencies))
+    .addNode("resourceManifest", createResourceManifestNode(config))
+    .addNode("evidence", createEvidenceNode(config))
+    .addNode("coverage", createCoverageNode(config))
+    .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("evidenceHandoff", createEvidenceHandoffNode(config))
+    .addEdge(START, "sourcePlanner")
+    .addEdge("sourcePlanner", "courseResolver")
+    .addEdge("courseResolver", "sourceOrchestrator")
+    .addEdge("sourceOrchestrator", "resourceManifest")
+    .addEdge("resourceManifest", "evidence")
+    .addEdge("evidence", "coverage")
+    .addConditionalEdges("coverage", routeAfterCoverage, {
+      sourceGate: "sourceGate",
+      abort: END,
+    })
+    .addConditionalEdges("sourceGate", routeAfterSourceGate, {
+      analyzer: "evidenceHandoff",
+      abort: END,
+    })
+    .addEdge("evidenceHandoff", END)
     .compile();
 }
 

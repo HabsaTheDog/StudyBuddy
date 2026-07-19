@@ -57,6 +57,7 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     downloadConcurrency: 3,
     typstValidationMode: "balanced",
     renderStrategy: "auto",
+    evidenceHandoffOnly: false,
     visualsEnabled: true,
     visualMode: "inline",
     visualCropMode: "auto",

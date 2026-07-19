@@ -169,6 +169,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     resumeExtractionRunDir: input.resumeExtractionRunDir
       ? resolveStudyBuddyWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
       : undefined,
+    evidenceHandoffOnly: input.evidenceHandoffOnly ?? false,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
     downloadConcurrency: clampConcurrency(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildContentFromPracticeCorpus } from "../practiceCorpusContent.js";
-import { renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
+import { matchesCalculationAnswer, renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
 
 describe("practice-corpus source links", () => {
   it("preserves direct Moodle activity URLs and renders safe new-tab links", () => {
@@ -72,5 +72,13 @@ describe("practice-corpus source links", () => {
     expect(html).not.toContain("<sub>a,n</sub>_1");
     expect(html).toContain("<var>T</var><sub>a</sub>");
     expect(html).toContain("Kapitel Toleranzen mit <var>n</var><sub>z</sub> und <var>t</var><sub>m</sub>");
+    expect(html).toContain("study-buddy-guide-mel1-maschinenelemente-1-v1");
+  });
+
+  it("accepts a target value inside a traceable multi-result calculation answer", () => {
+    const accepted = ["0,03", "0.03", "T_a = 0,03", "T_a = 0.03"];
+    expect(matchesCalculationAnswer(accepted, "a_min = 29,00 mm; a_max = 29,03 mm; T_a = 0,03 mm")).toBe(true);
+    expect(matchesCalculationAnswer(["1"], "10")).toBe(false);
+    expect(matchesCalculationAnswer(["1,5"], "Ergebnis: 1.5 mm")).toBe(true);
   });
 });

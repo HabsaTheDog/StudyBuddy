@@ -58,6 +58,8 @@ export interface MoodleGraphInput {
   sourceRunDir?: string;
   /** Re-run normalization and extraction quality gates from a persisted handoff without crawling sources. */
   resumeExtractionRunDir?: string;
+  /** Build a deterministic evidence handoff for a downstream interactive renderer instead of duplicating content generation in Extraction. */
+  evidenceHandoffOnly?: boolean;
   includeCis?: boolean;
   sourceMode?: SourceMode;
   downloadConcurrency?: number;
@@ -137,6 +139,7 @@ export interface MoodleRuntimeConfig {
   stage: PipelineStage;
   sourceRunDir?: string;
   resumeExtractionRunDir?: string;
+  evidenceHandoffOnly: boolean;
   includeCis: boolean;
   sourceMode: SourceMode;
   downloadConcurrency: number;
