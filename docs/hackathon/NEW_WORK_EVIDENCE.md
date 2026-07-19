@@ -38,8 +38,11 @@ git log --reverse --format='%h %aI %s' fe3a6fe..HEAD
 | `bfebe2f` | Jul 18, 19:39 | Added fair model-call scheduling and resumable extraction recovery |
 | `9e22027` | Jul 18, 20:08 | Added German and English artifact-language support |
 | `d87395b` | Jul 18, 20:54 | Preserved the original prompt language across workflows |
+| `c4cc82f` | Jul 19, 02:31 | Hardened security boundaries and cross-platform process handling |
+| `32c873c` | Jul 19, 02:50 | Prepared the hackathon release and advanced the T3 submodule to its canonical-runtime integration |
+| `05c0e6b` | Jul 19, 03:05 | Completed cross-platform runtime hardening and platform setup tooling |
 
-The final submission must add the remaining working-tree changes as dated commits before the deadline. They are not part of the evidence until committed and pushed.
+Any finishing changes made after this table must also be committed and pushed before the deadline. The exact submitted commit should be shown in the demo video and entered consistently in the repository and Devpost materials.
 
 ## Meaningful extension summary
 
