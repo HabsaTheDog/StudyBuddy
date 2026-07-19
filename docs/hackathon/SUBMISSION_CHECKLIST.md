@@ -24,7 +24,7 @@ Copy this checklist into your task manager if useful.
 - [x] Commit the root implementation, documentation, and cleanup in understandable commits.
 - [ ] Fix the red GitHub Actions run and obtain a green run on the final commit.
 - [x] Extend CI path filters to cover `interactive-study-guide/**` and `shared/**`.
-- [ ] Run a clean-clone installation test on Ubuntu/Linux.
+- [x] Run a clean-clone installation test on Ubuntu/Linux using the direct T3 submodule checkout path.
 - [x] Keep Linux labeled as the only end-to-end tested platform in the hackathon submission.
 - [ ] Tag the submitted commit, for example `openai-build-week-2026`.
 - [ ] Make the repository public under the existing MIT license.
