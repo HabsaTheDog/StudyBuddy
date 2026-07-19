@@ -8,13 +8,14 @@ describe("Study Buddy Typst components", () => {
     const supportFiles = await getStudyBuddyTypstSupportFiles();
     const components = supportFiles.find((file) => file.relativePath === "study-buddy-components.typ");
     const logo = supportFiles.find((file) => file.relativePath === "assets/study-buddy-logo.png");
+    const componentSource = components?.content.toString().replaceAll("\r\n", "\n");
 
-    expect(components?.content.toString()).toContain('navy: rgb("#19254b")');
-    expect(components?.content.toString()).toContain('image(\n  "assets/study-buddy-logo.png"');
-    expect(components?.content.toString()).toMatch(
+    expect(componentSource).toContain('navy: rgb("#19254b")');
+    expect(componentSource).toContain('image(\n  "assets/study-buddy-logo.png"');
+    expect(componentSource).toMatch(
       /#let sb-header[\s\S]*?align: \(left, horizon\)/,
     );
-    expect(components?.content.toString()).not.toContain("#ff5f6d");
+    expect(componentSource).not.toContain("#ff5f6d");
     expect(logo?.content).toBeInstanceOf(Buffer);
     expect(logo?.content.length).toBeGreaterThan(1_000);
   });

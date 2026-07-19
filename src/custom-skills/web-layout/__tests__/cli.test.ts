@@ -18,11 +18,12 @@ describe("web layout CLI", () => {
   it("prints JSON with outputPath", async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-cli-"));
     tempDirs.push(workspace);
-    const tsx = path.join(process.cwd(), "node_modules", ".bin", "tsx");
 
     const { stdout } = await execFileAsync(
-      tsx,
+      process.execPath,
       [
+        "--import",
+        "tsx",
         "src/custom-skills/web-layout/cli.ts",
         "Build flashcards",
         "--kind",

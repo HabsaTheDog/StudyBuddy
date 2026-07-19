@@ -20,11 +20,13 @@ describe("system dependency diagnostics", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "Study Buddy diagnostics ä "));
     directories.push(directory);
     const pdftotext = path.join(directory, "pdftotext");
+    const missingPdftoppm = path.join(directory, "missing-pdftoppm");
     await writeFile(pdftotext, "#!/bin/sh\necho 'pdftotext fixture 1.2.3' >&2\n", { mode: 0o755 });
 
     const report = await inspectSystemDependencies({
       PATH: directory,
       STUDY_BUDDY_PDFTOTEXT_PATH: pdftotext,
+      STUDY_BUDDY_PDFTOPPM_PATH: missingPdftoppm,
     }, process.platform, process.arch);
 
     expect(report.packageManagement).toBe("system");
