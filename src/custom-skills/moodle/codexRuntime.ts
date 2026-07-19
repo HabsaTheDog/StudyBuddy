@@ -353,7 +353,11 @@ async function defaultRunProcess(
   timeoutMs: number,
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const invocation = resolveCodexProcessInvocation(command, args);
+    const child = spawn(invocation.command, invocation.args, {
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
@@ -372,6 +376,16 @@ async function defaultRunProcess(
       resolve({ exitCode, stdout, stderr });
     });
   });
+}
+
+export function resolveCodexProcessInvocation(
+  command: string,
+  args: readonly string[],
+): { command: string; args: string[] } {
+  if (/\.(?:c|m)?js$/i.test(command)) {
+    return { command: process.execPath, args: [command, ...args] };
+  }
+  return { command, args: [...args] };
 }
 
 async function defaultFetchLatestVersion(): Promise<string | null> {

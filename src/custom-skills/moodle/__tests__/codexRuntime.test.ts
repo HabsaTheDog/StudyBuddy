@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexRuntimePreflightError,
   preflightCodexRuntime,
+  resolveCodexProcessInvocation,
 } from "../codexRuntime.js";
 
 let tempDir: string | null = null;
@@ -18,6 +19,16 @@ afterEach(async () => {
 });
 
 describe("Codex runtime preflight", () => {
+  it("runs bundled JavaScript entrypoints through Node on every platform", () => {
+    expect(resolveCodexProcessInvocation("C:\\app\\codex.js", ["--version"]))
+      .toEqual({
+        command: process.execPath,
+        args: ["C:\\app\\codex.js", "--version"],
+      });
+    expect(resolveCodexProcessInvocation("codex.exe", ["--version"]))
+      .toEqual({ command: "codex.exe", args: ["--version"] });
+  });
+
   it("rejects SDK and bundled CLI package skew before executing Codex", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
     const runProcess = vi.fn();
