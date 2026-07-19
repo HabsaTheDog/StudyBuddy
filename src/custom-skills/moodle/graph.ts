@@ -67,7 +67,7 @@ import {
   parseLearningArchitectureModelJson,
 } from "./learningArchitecture.js";
 import { resolveTaskBudget } from "./taskBudget.js";
-import { inspectExtractionTooling } from "./fileTextExtraction.js";
+import { inspectSystemDependencies } from "./systemDependencies.js";
 import {
   CodexRuntimePreflightError,
   preflightCodexRuntime,
@@ -154,6 +154,10 @@ export async function runMoodleGraph(
         : "document"
   );
   try {
+    const systemDependencies = await inspectSystemDependencies();
+    const dependencyDiagnosticsPath = path.join(config.runDir, "runtime-dependencies.json");
+    await writeJson(dependencyDiagnosticsPath, systemDependencies);
+    await diagnostics.updateCoverage("moodle", { artifacts: [dependencyDiagnosticsPath] });
     if (config.diagnosticOnly) {
       route = "diagnostic";
       state = await runDiagnosticOnly(config);
@@ -181,15 +185,11 @@ export async function runMoodleGraph(
         !config.resumeExtractionRunDir &&
         config.intentDecision?.needsDownloadedFiles
       ) {
-        const extractionTooling = await inspectExtractionTooling();
-        const toolingPath = path.join(config.runDir, "extraction-tooling.json");
-        await writeJson(toolingPath, extractionTooling);
-        await diagnostics.updateCoverage("moodle", { artifacts: [toolingPath] });
-        if (!extractionTooling.pdftotext) {
-          await diagnostics.log("warn", "analyzer", "pdftotext is unavailable; PDF text extraction may be incomplete.");
+        if (!systemDependencies.dependencies.pdftotext.available) {
+          await diagnostics.log("warn", "analyzer", `pdftotext is unavailable; PDF text extraction may be incomplete. ${systemDependencies.dependencies.pdftotext.remediation.join(" or ")}`);
         }
-        if (!extractionTooling.pdftoppm && config.visualsEnabled) {
-          await diagnostics.log("warn", "analyzer", "pdftoppm is unavailable; selected PDF pages cannot be rendered for the visual asset pipeline.");
+        if (!systemDependencies.dependencies.pdftoppm.available && config.visualsEnabled) {
+          await diagnostics.log("warn", "analyzer", `pdftoppm is unavailable; selected PDF pages cannot be rendered for the visual asset pipeline. ${systemDependencies.dependencies.pdftoppm.remediation.join(" or ")}`);
         }
       }
       const initialStateForStage = config.stage === "render"

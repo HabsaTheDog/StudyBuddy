@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserContext } from "playwright";
@@ -58,5 +58,38 @@ describe("authenticated resource download security", () => {
       path.join(runDir, "large.txt"),
     )).rejects.toThrow("100 MiB");
     await expect(stat(path.join(runDir, "large.txt"))).rejects.toThrow();
+  });
+
+  it("removes atomic part files when a download is canceled", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "Study Buddy download Prüfpfad "));
+    tempDirs.push(runDir);
+    const target = path.join(runDir, "resource notes ä.txt");
+    const abortController = new AbortController();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulls === 0) {
+          pulls += 1;
+          controller.enqueue(new TextEncoder().encode("partial data"));
+          return;
+        }
+        abortController.abort(new Error("test download cancellation"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "text/plain" },
+    })));
+    const context = { cookies: vi.fn(async () => []) } as unknown as BrowserContext;
+
+    await expect(downloadResourceWithRequest(
+      context,
+      "https://1.1.1.1/resource.txt",
+      target,
+      abortController.signal,
+    )).rejects.toThrow("test download cancellation");
+
+    expect((await readdir(runDir)).filter((entry) => entry.endsWith(".part"))).toEqual([]);
+    await expect(stat(target)).rejects.toThrow();
   });
 });

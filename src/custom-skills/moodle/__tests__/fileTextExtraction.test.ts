@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { extractReadableFile, resolveExtractionExecutable } from "../fileTextExtraction.js";
+import {
+  executableSearchDirectories,
+  extractReadableFile,
+  resolveExtractionExecutable,
+} from "../fileTextExtraction.js";
 import { recordExtractionResult } from "../extractionReport.js";
 
 const directories: string[] = [];
@@ -82,4 +86,86 @@ describe("structured file extraction", () => {
       STUDY_BUDDY_LIBREOFFICE_PATH: "/definitely/missing/libreoffice",
     })).rejects.toThrow("STUDY_BUDDY_LIBREOFFICE_PATH");
   });
+
+  it("finds LibreOffice's native soffice executable outside PATH on Windows", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "Study Buddy Program Files "));
+    directories.push(directory);
+    const sofficePath = path.join(directory, "LibreOffice", "program", "soffice.exe");
+    await mkdir(path.dirname(sofficePath), { recursive: true });
+    await writeFile(sofficePath, "fixture");
+
+    await expect(resolveExtractionExecutable("libreoffice", {
+      PATH: "",
+      PATHEXT: ".EXE",
+      ProgramFiles: directory,
+    }, "win32")).resolves.toBe(sofficePath);
+  });
+
+  it("checks both Apple Silicon and Intel Homebrew locations", () => {
+    expect(executableSearchDirectories({ PATH: "/custom/bin" }, "darwin", "arm64"))
+      .toEqual(["/custom/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
+    expect(executableSearchDirectories({ PATH: "/custom/bin" }, "darwin", "x64"))
+      .toEqual(["/custom/bin", "/usr/local/bin", "/opt/homebrew/bin"]);
+  });
+
+  it(
+    "extracts a text PDF from a path containing spaces and non-ASCII characters",
+    async () => {
+      const pdftotext = await resolveExtractionExecutable("pdftotext");
+      expect(pdftotext, "pdftotext must be installed for the PDF smoke test").not.toBeNull();
+      const directory = await mkdtemp(path.join(os.tmpdir(), "Study Buddy Prüfpfad "));
+      directories.push(directory);
+      const filePath = path.join(directory, "lecture notes ä.pdf");
+      await writeFile(filePath, createPdf(
+        "Angular momentum and rotational dynamics are related through torque, inertia, and angular velocity in this complete source paragraph.",
+      ));
+
+      const result = await extractReadableFile(filePath);
+
+      expect(result.status).toBe("usable");
+      expect(result.method).toBe("native_pdf_text");
+      expect(result.text).toContain("Angular momentum");
+    },
+  );
+
+  it(
+    "returns a bounded partial result for a PDF without embedded text",
+    async () => {
+      const pdftotext = await resolveExtractionExecutable("pdftotext");
+      expect(pdftotext, "pdftotext must be installed for the PDF smoke test").not.toBeNull();
+      const directory = await mkdtemp(path.join(os.tmpdir(), "study-buddy-scanned-pdf-"));
+      directories.push(directory);
+      const filePath = path.join(directory, "scanned.pdf");
+      await writeFile(filePath, createPdf(""));
+
+      const result = await extractReadableFile(filePath);
+
+      expect(result.status).toBe("unusable");
+      expect(result.method).toBe("native_pdf_text");
+      expect(result.warnings.join(" ")).toContain("Automatic OCR is intentionally disabled");
+    },
+  );
 });
+
+function createPdf(text: string): Buffer {
+  const escapedText = text.replace(/([\\()])/g, "\\$1");
+  const stream = text ? `BT /F1 12 Tf 72 720 Td (${escapedText}) Tj ET` : "";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = Buffer.byteLength(body);
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body, "utf8");
+}

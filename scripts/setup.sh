@@ -191,7 +191,7 @@ else
   warn "Typst not found — needed for PDF generation"
   warn "  Linux:   sudo snap install typst"
   warn "  macOS:   brew install typst"
-  warn "  Windows: winget install typst"
+  warn "  Windows: winget install --id Typst.Typst --exact"
 fi
 
 if command -v pdftotext &>/dev/null && command -v pdftoppm &>/dev/null; then
@@ -201,6 +201,7 @@ else
   warn "  Debian/Ubuntu: sudo apt install poppler-utils"
   warn "  Fedora:        sudo dnf install poppler-utils"
   warn "  macOS:         brew install poppler"
+  warn "  Windows:       winget install --id oschwartz10612.Poppler --exact"
 fi
 
 if command -v npx &>/dev/null; then
@@ -219,7 +220,7 @@ else
 fi
 echo ""
 info "Next steps:"
-info "  1. npm install"
-info "  2. npx playwright install"
+info "  1. npm ci"
+info "  2. npx playwright install chromium"
 info "  3. npm run typecheck"
 echo ""

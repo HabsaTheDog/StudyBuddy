@@ -22,6 +22,11 @@ export function runBoundedProcess(
 ): Promise<BoundedProcessResult> {
   const timeoutMs = options.timeoutMs ?? 90_000;
   const maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024;
+  if (options.signal?.aborted) {
+    return Promise.reject(options.signal.reason instanceof Error
+      ? options.signal.reason
+      : new Error(`${path.basename(command)} canceled.`));
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       cwd: options.cwd,
@@ -34,6 +39,7 @@ export function runBoundedProcess(
     let stderr = "";
     let stdoutBytes = 0;
     let stderrBytes = 0;
+    let terminalError: Error | undefined;
     let killTimer: NodeJS.Timeout | undefined;
     let commandTimer: NodeJS.Timeout | undefined;
 
@@ -43,11 +49,10 @@ export function runBoundedProcess(
       options.signal?.removeEventListener("abort", abort);
     };
     const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
+      if (settled || terminalError) return;
+      terminalError = error;
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
-      reject(error);
     };
     const abort = () => fail(
       options.signal?.reason instanceof Error
@@ -55,16 +60,12 @@ export function runBoundedProcess(
         : new Error(`${label} canceled.`),
     );
 
-    if (options.signal?.aborted) {
-      abort();
-    } else {
-      options.signal?.addEventListener("abort", abort, { once: true });
-      if (timeoutMs > 0) {
-        commandTimer = setTimeout(
-          () => fail(new Error(`${label} timed out after ${timeoutMs}ms.`)),
-          timeoutMs,
-        );
-      }
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (timeoutMs > 0) {
+      commandTimer = setTimeout(
+        () => fail(new Error(`${label} timed out after ${timeoutMs}ms.`)),
+        timeoutMs,
+      );
     }
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -95,7 +96,11 @@ export function runBoundedProcess(
       cleanup();
       if (settled) return;
       settled = true;
-      resolve({ code, stdout, stderr });
+      if (terminalError) {
+        reject(terminalError);
+      } else {
+        resolve({ code, stdout, stderr });
+      }
     });
   });
 }
