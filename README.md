@@ -171,6 +171,13 @@ npm run interactive-study-guide -- \
   --url "https://your-moodle.example/course/view.php?id=123"
 ```
 
+Separate T3 workspaces run independently by default, so multiple PDF and
+interactive workflows can make progress in parallel as hardware permits. To
+apply an optional machine-wide resource ceiling, set
+`STUDY_BUDDY_MODEL_CALL_CONCURRENCY` and/or
+`STUDY_BUDDY_INTERACTIVE_WORKFLOW_CONCURRENCY` to a positive integer; unset or
+`0` means unlimited.
+
 ## Local web/desktop interface
 
 ```bash

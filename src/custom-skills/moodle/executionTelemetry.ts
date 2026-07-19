@@ -71,6 +71,9 @@ export class ExecutionTelemetry {
   private snapshot: ExecutionMetricsSnapshot;
   private currentPhase: { phase: StudyBuddyUserPhase; startedAt: string } | null = null;
   private queue: Promise<void> = Promise.resolve();
+  private runtimeBudgetPauseDepth = 0;
+  private runtimeBudgetPausedAt: number | null = null;
+  private runtimeBudgetPausedMs = 0;
 
   constructor(input: {
     runDir: string;
@@ -124,6 +127,32 @@ export class ExecutionTelemetry {
 
   getSnapshot(): ExecutionMetricsSnapshot {
     return structuredClone(this.snapshot);
+  }
+
+  get runtimeBudgetPaused(): boolean {
+    return this.runtimeBudgetPauseDepth > 0;
+  }
+
+  getRuntimeBudgetPausedMs(at = Date.now()): number {
+    const activePauseMs = this.runtimeBudgetPausedAt === null
+      ? 0
+      : Math.max(0, at - this.runtimeBudgetPausedAt);
+    return this.runtimeBudgetPausedMs + activePauseMs;
+  }
+
+  pauseRuntimeBudget(at = Date.now()): (resumedAt?: number) => void {
+    if (this.runtimeBudgetPauseDepth === 0) this.runtimeBudgetPausedAt = at;
+    this.runtimeBudgetPauseDepth += 1;
+    let resumed = false;
+    return (resumedAt = Date.now()) => {
+      if (resumed) return;
+      resumed = true;
+      this.runtimeBudgetPauseDepth = Math.max(0, this.runtimeBudgetPauseDepth - 1);
+      if (this.runtimeBudgetPauseDepth === 0 && this.runtimeBudgetPausedAt !== null) {
+        this.runtimeBudgetPausedMs += Math.max(0, resumedAt - this.runtimeBudgetPausedAt);
+        this.runtimeBudgetPausedAt = null;
+      }
+    };
   }
 
   async transitionPhase(phase: StudyBuddyUserPhase, at = new Date().toISOString()): Promise<void> {

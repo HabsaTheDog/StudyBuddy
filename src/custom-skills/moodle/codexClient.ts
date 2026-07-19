@@ -103,19 +103,26 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       ]);
 
       for (const [candidateIndex, policy] of policies.entries()) {
-        const admission = await acquireModelCallAdmission({
-          task,
-          model: policy.model,
-          signal: config.abortSignal,
-          onWait: async (position, activeSlots) => {
-            await config.diagnostics?.log(
-              "info",
-              "model",
-              `${task} is queued for fair global model admission.`,
-              { task, model: policy.model, queuePosition: position, activeSlots },
-            );
-          },
-        });
+        const admission = await (async () => {
+          const resumeRuntimeBudget = config.executionTelemetry?.pauseRuntimeBudget();
+          try {
+            return await acquireModelCallAdmission({
+              task,
+              model: policy.model,
+              signal: config.abortSignal,
+              onWait: async (position, activeSlots) => {
+                await config.diagnostics?.log(
+                  "info",
+                  "model",
+                  `${task} is queued for configured model admission.`,
+                  { task, model: policy.model, queuePosition: position, activeSlots },
+                );
+              },
+            });
+          } finally {
+            resumeRuntimeBudget?.();
+          }
+        })();
         const startedAt = new Date().toISOString();
         const startedMs = Date.now();
         const callId = `${task}-${attempt}-${startedMs}`;

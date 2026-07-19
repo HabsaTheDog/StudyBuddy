@@ -1313,20 +1313,29 @@ async function withRuntimeGuard<T>(
   let guard: NodeJS.Timeout | null = null;
   try {
     heartbeat = setInterval(() => {
-      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+      const now = Date.now();
+      const pausedMs = config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0;
+      const elapsedSeconds = Math.round(Math.max(0, now - startedAt - pausedMs) / 1000);
       const idleSeconds = config.diagnostics
-        ? Math.round((Date.now() - config.diagnostics.lastActivityAt) / 1000)
+        ? Math.round((now - config.diagnostics.lastActivityAt) / 1000)
         : elapsedSeconds;
       void config.diagnostics?.log(
         "info",
         "diagnostic",
-        `Heartbeat: run still active, ${elapsedSeconds}s elapsed, ${idleSeconds}s idle.`,
+        config.executionTelemetry?.runtimeBudgetPaused
+          ? `Heartbeat: run queued; execution budget is paused (${elapsedSeconds}s active).`
+          : `Heartbeat: run still active, ${elapsedSeconds}s elapsed, ${idleSeconds}s idle.`,
       );
     }, 15_000);
     guard = setInterval(() => {
-      const elapsedMs = Date.now() - startedAt;
+      const now = Date.now();
+      if (config.executionTelemetry?.runtimeBudgetPaused) return;
+      const elapsedMs = Math.max(
+        0,
+        now - startedAt - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0),
+      );
       const idleMs = config.diagnostics
-        ? Date.now() - config.diagnostics.lastActivityAt
+        ? now - config.diagnostics.lastActivityAt
         : elapsedMs;
       const reason =
         elapsedMs >= config.maxRuntimeMs

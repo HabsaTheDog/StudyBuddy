@@ -12,6 +12,21 @@ afterEach(async () => {
 });
 
 describe("ExecutionTelemetry", () => {
+  it("pauses execution-budget accounting while a configured queue is waiting", () => {
+    const telemetry = new ExecutionTelemetry({
+      runDir: "/tmp/study-buddy-budget-pause-test",
+      policyVersion: "test-policy",
+      profile: "balanced",
+      configuredDownloadConcurrency: 3,
+    });
+    const resume = telemetry.pauseRuntimeBudget(1_000);
+    expect(telemetry.runtimeBudgetPaused).toBe(true);
+    expect(telemetry.getRuntimeBudgetPausedMs(1_750)).toBe(750);
+    resume(2_000);
+    expect(telemetry.runtimeBudgetPaused).toBe(false);
+    expect(telemetry.getRuntimeBudgetPausedMs(5_000)).toBe(1_000);
+  });
+
   it("persists phase spans and aggregate model usage without prompt content", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-metrics-"));
     const telemetry = new ExecutionTelemetry({
