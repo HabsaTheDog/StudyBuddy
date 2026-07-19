@@ -41,8 +41,13 @@ git log --reverse --format='%h %aI %s' fe3a6fe..HEAD
 | `c4cc82f` | Jul 19, 02:31 | Hardened security boundaries and cross-platform process handling |
 | `32c873c` | Jul 19, 02:50 | Prepared the hackathon release and advanced the T3 submodule to its canonical-runtime integration |
 | `05c0e6b` | Jul 19, 03:05 | Completed cross-platform runtime hardening and platform setup tooling |
+| `83ecf4b` | Jul 19, 03:18 | Finalized release-readiness evidence and advanced the T3 integration |
+| `e3071f9` | Jul 19, 03:27 | Corrected the clean-clone instructions for the direct T3 submodule checkout |
+| `251b42a` | Jul 19, 03:34 | Made the full verification suite portable across Linux, macOS, and Windows |
+| `61909d8` | Jul 19, 03:43 | Made the bundled Codex launcher portable on native Windows |
+| `2a29a6f` | Jul 19, 03:49 | Stabilized the final cross-platform Typst integration test |
 
-Any finishing changes made after this table must also be committed and pushed before the deadline. The exact submitted commit should be shown in the demo video and entered consistently in the repository and Devpost materials.
+The release commit `2a29a6f` passed the full GitHub Actions matrix on Ubuntu, macOS, and native Windows in [run 29669267084](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/29669267084). Any finishing changes made after this table must also be committed and pushed before the deadline. The exact submitted commit should be shown in the demo video and entered consistently in the repository and Devpost materials.
 
 ## Meaningful extension summary
 

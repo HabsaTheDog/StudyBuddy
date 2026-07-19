@@ -33,7 +33,7 @@ Study Buddy currently supports Linux directly and should work on macOS when Home
 ### P1 — Cross-platform integration tests
 
 - [x] Add CI jobs for current Ubuntu, macOS, and Windows runners.
-- [x] Configure typechecking and the complete test suite on every supported operating system. The first remote matrix pass remains a completion criterion below.
+- [x] Configure typechecking and the complete test suite on every supported operating system.
 - [x] Add a PDF extraction smoke test using a normal text PDF.
 - [x] Add a sparse scanned-PDF smoke test that verifies fast, explicit partial coverage without automatic OCR.
 - [x] Exercise temporary directories and repository paths containing spaces and non-ASCII characters.
@@ -50,7 +50,7 @@ Study Buddy currently supports Linux directly and should work on macOS when Home
 
 ## Completion criteria
 
-- [ ] `npm run typecheck` and `npm test` pass on Linux, macOS, and native Windows CI.
+- [x] `npm run typecheck` and `npm test` pass on Linux, macOS, and native Windows CI.
 - [ ] `npm run moodle:doctor -- --json` discovers Poppler and optional LibreOffice on all three platforms.
 - [ ] A text PDF produces usable structured extraction and a scanned PDF produces an explicit bounded partial result on all three platforms.
 - [ ] Missing dependencies fail or warn before a Moodle crawl with a command appropriate to the detected operating system.
