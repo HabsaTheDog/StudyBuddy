@@ -24,8 +24,9 @@ Tested target:
 Install:
 
 ```bash
-git clone --recursive https://github.com/HabsaTheDog/StudyBuddy.git
+git clone https://github.com/HabsaTheDog/StudyBuddy.git
 cd StudyBuddy
+git submodule update --init t3code-fork
 npm ci
 npx playwright install --with-deps chromium
 cp .env.example .env

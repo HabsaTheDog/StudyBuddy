@@ -128,8 +128,9 @@ The first student alpha is planned for September 2026. Remaining clean-machine a
 ## Quick start: canonical runtime
 
 ```bash
-git clone --recursive https://github.com/HabsaTheDog/StudyBuddy.git
+git clone https://github.com/HabsaTheDog/StudyBuddy.git
 cd StudyBuddy
+git submodule update --init t3code-fork
 npm ci
 npx playwright install chromium
 cp .env.example .env
