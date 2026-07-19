@@ -1,10 +1,10 @@
-import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { constants } from "node:fs";
 import { ExtractedDataSchema, type ExtractedData } from "./schemas.js";
 import type { JsonArray, JsonObject, JsonValue } from "./state.js";
 import { runBoundedProcess } from "../shared/boundedProcess.js";
+import { resolveExtractionExecutable } from "./fileTextExtraction.js";
 
 export function parseJsonObjectOrArray(text: string): JsonObject | JsonArray {
   const trimmed = text.trim();
@@ -206,15 +206,6 @@ function runTypstCompile(
 }
 
 async function findExecutable(name: string): Promise<string | null> {
-  const pathEntries = (process.env.PATH || "").split(path.delimiter);
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, name);
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next PATH entry.
-    }
-  }
-  return null;
+  if (name !== "typst") return null;
+  return resolveExtractionExecutable("typst");
 }

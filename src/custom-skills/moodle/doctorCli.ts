@@ -6,7 +6,7 @@ import {
   preflightCodexRuntime,
 } from "./codexRuntime.js";
 import { resolveTaskModelPolicy } from "./modelPolicy.js";
-import { inspectExtractionTooling } from "./fileTextExtraction.js";
+import { inspectSystemDependencies } from "./systemDependencies.js";
 import {
   ensureStudyBuddyWorkspaceData,
   resolveStudyBuddyWorkspaceDataPaths,
@@ -40,7 +40,12 @@ const models = options.model.length > 0
     ]))];
 
 try {
-  const extractionTooling = await inspectExtractionTooling();
+  const systemDependencies = await inspectSystemDependencies();
+  const extractionTooling = {
+    pdftotext: systemDependencies.dependencies.pdftotext.available,
+    pdftoppm: systemDependencies.dependencies.pdftoppm.available,
+    libreoffice: systemDependencies.dependencies.libreoffice.available,
+  };
   const workspaceData = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
   const report = await preflightCodexRuntime({
     cacheDir: workspaceData.cacheRoot,
@@ -53,13 +58,14 @@ try {
     bypassCache: !options.cache,
   });
   if (options.json) {
-    console.log(JSON.stringify({ runtime: report, extractionTooling }, null, 2));
+    console.log(JSON.stringify({ runtime: report, systemDependencies, extractionTooling }, null, 2));
   } else {
     console.log([
       ...formatCodexRuntimeSummary(report),
-      `PDF text: ${extractionTooling.pdftotext ? "available" : "missing"}`,
-      `PDF rendering: ${extractionTooling.pdftoppm ? "available" : "missing"}`,
-      `Office conversion: ${extractionTooling.libreoffice ? "available" : "missing"}`,
+      ...Object.entries(systemDependencies.dependencies).flatMap(([name, dependency]) => [
+        `${name}: ${dependency.available ? dependency.version ?? "available" : "missing"}${dependency.path ? ` (${dependency.path})` : ""}`,
+        ...(!dependency.available ? dependency.remediation.map((command) => `  Fix: ${command}`) : []),
+      ]),
       "OCR: intentionally disabled (not a runtime dependency)",
     ].join("\n"));
   }

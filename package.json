@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "setup": "bash scripts/setup.sh",
+    "setup:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
     "moodle:doctor": "tsx src/custom-skills/moodle/doctorCli.ts",
     "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",

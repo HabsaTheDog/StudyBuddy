@@ -51,18 +51,79 @@ Codex accelerated implementation and verification, while I retained the key prod
 
 See [`CODEX_COLLABORATION.md`](docs/hackathon/CODEX_COLLABORATION.md), [`CODEX_SESSIONS.md`](docs/hackathon/CODEX_SESSIONS.md), and [`NEW_WORK_EVIDENCE.md`](docs/hackathon/NEW_WORK_EVIDENCE.md) for the detailed account.
 
-## Prerequisites
+## Platform support and prerequisites
 
-| Dependency | Supported/tested target | Install |
+Dependencies remain system-managed for the student alpha; Study Buddy does not download or silently replace native tools. `moodle:doctor` records their resolved paths and versions in JSON, and every workflow run writes the same information to `runtime-dependencies.json`.
+
+| Environment | Status | Notes |
 |---|---|---|
-| Node.js | 22 or newer | [nodejs.org](https://nodejs.org/) |
-| npm | Bundled with Node | Used for the canonical root runtime |
-| pnpm | 10.24.x | Used by `t3code-fork/` |
-| Typst | Current | `sudo snap install typst` on Ubuntu |
-| Playwright Chromium | Version from `package.json` | `npx playwright install chromium` |
-| Poppler | Current | `sudo apt install poppler-utils` on Ubuntu |
+| Ubuntu/Debian x64 | Tested | Primary development and hackathon path. |
+| Fedora x64 | Best effort | Uses the same Linux runtime; clean-machine verification remains open. |
+| macOS Apple Silicon/Intel | Best effort | Homebrew paths are detected even when shell initialization is incomplete; CI is configured but must pass before this becomes tested. |
+| Windows 11 x64 (native PowerShell) | Best effort | Native setup and CI are configured; do not call it fully supported until the remaining TODO criteria pass. |
+| WSL 2 | Best effort | Follow the Linux instructions inside WSL, not the native Windows instructions. |
+| Node.js below 22, 32-bit OSes, Windows without PowerShell | Unsupported | These targets are outside the alpha support matrix. |
 
-Study Buddy is architected as a cross-platform application for Linux, macOS, and Windows. The current hackathon build has only been tested end to end on Linux, so Linux is the verified platform for judging. macOS and native Windows validation, platform-specific installation guidance, and packaging remain pre-alpha work tracked in [`TODO.md`](TODO.md). The first student alpha is planned for September 2026.
+The supported baselines are Node.js 22, the Playwright version locked by `package-lock.json` (currently 1.60.x), Typst 0.15, Poppler 24.08, and LibreOffice 24.2 when Office conversion is needed. Newer versions from the package sources below are expected to work and are reported by the doctor command. The `t3code-fork/` interface additionally uses pnpm 10.24.x.
+
+### Linux (Debian or Ubuntu)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y poppler-utils libreoffice
+sudo snap install typst
+npm ci
+npx playwright install --with-deps chromium
+bash scripts/setup.sh
+```
+
+### Linux (Fedora)
+
+```bash
+sudo dnf install poppler-utils libreoffice
+# Install Typst from https://github.com/typst/typst/releases if it is not in your enabled repositories.
+npm ci
+npx playwright install --with-deps chromium
+bash scripts/setup.sh
+```
+
+### macOS
+
+```bash
+brew install node@22 poppler typst
+brew install --cask libreoffice  # optional Office conversion
+npm ci
+npx playwright install chromium
+bash scripts/setup.sh
+```
+
+### Native Windows (PowerShell)
+
+Run these commands from PowerShell, not WSL or Git Bash:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS --exact
+winget install --id Typst.Typst --exact
+winget install --id oschwartz10612.Poppler --exact
+winget install --id TheDocumentFoundation.LibreOffice --exact  # optional Office conversion
+npm ci
+npx playwright install chromium
+npm run setup:windows
+```
+
+Restart PowerShell after installing native tools so `PATH` changes take effect. If Poppler, Typst, or LibreOffice is installed somewhere unusual, set `STUDY_BUDDY_PDFTOTEXT_PATH`, `STUDY_BUDDY_PDFTOPPM_PATH`, `STUDY_BUDDY_TYPST_PATH`, or `STUDY_BUDDY_LIBREOFFICE_PATH` in `.env.local` to the full executable path.
+
+### WSL 2
+
+Clone and run Study Buddy inside the WSL filesystem and follow the Debian/Ubuntu instructions above. Do not mix native Windows executables or PowerShell setup with the WSL Node.js installation.
+
+After any installation, verify the resolved versions and paths:
+
+```bash
+npm run moodle:doctor -- --version-only --json
+```
+
+The first student alpha is planned for September 2026. Remaining clean-machine and CI validation is tracked in [`TODO.md`](TODO.md).
 
 ## Quick start: canonical runtime
 

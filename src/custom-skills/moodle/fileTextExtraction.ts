@@ -1,7 +1,7 @@
 import { access, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { runBoundedProcess } from "../shared/boundedProcess.js";
 
 export type FileExtractionMethod = "plain_text" | "native_pdf_text" | "office_to_pdf" | "none";
 
@@ -21,11 +21,13 @@ export interface ExtractionTooling {
   libreoffice: boolean;
 }
 
-const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
-const EXECUTABLE_OVERRIDES: Record<string, string> = {
+export type ExtractionExecutableName = "pdftotext" | "pdftoppm" | "libreoffice" | "typst";
+
+const EXECUTABLE_OVERRIDES: Record<ExtractionExecutableName, string> = {
   pdftotext: "STUDY_BUDDY_PDFTOTEXT_PATH",
   pdftoppm: "STUDY_BUDDY_PDFTOPPM_PATH",
   libreoffice: "STUDY_BUDDY_LIBREOFFICE_PATH",
+  typst: "STUDY_BUDDY_TYPST_PATH",
 };
 
 export async function extractReadableFile(
@@ -153,9 +155,10 @@ export async function inspectExtractionTooling(): Promise<ExtractionTooling> {
 }
 
 export async function resolveExtractionExecutable(
-  name: keyof typeof EXECUTABLE_OVERRIDES,
+  name: ExtractionExecutableName,
   environment: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
 ): Promise<string | null> {
   const overrideKey = EXECUTABLE_OVERRIDES[name];
   const override = environment[overrideKey]?.trim();
@@ -171,21 +174,48 @@ export async function resolveExtractionExecutable(
   const extensions = platform === "win32"
     ? (environment.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
     : [""];
-  const pathDelimiter = platform === "win32" ? ";" : path.delimiter;
-  for (const rawEntry of (environment.PATH || "").split(pathDelimiter)) {
-    const entry = rawEntry.trim().replace(/^"|"$/g, "");
-    if (!entry) continue;
+  const executableNames = name === "libreoffice" ? ["libreoffice", "soffice"] : [name];
+  const commonDirectories = name === "libreoffice"
+    ? platform === "win32"
+      ? [environment.ProgramFiles, environment["ProgramFiles(x86)"]]
+          .filter((entry): entry is string => Boolean(entry))
+          .map((entry) => path.join(entry, "LibreOffice", "program"))
+      : platform === "darwin"
+        ? ["/Applications/LibreOffice.app/Contents/MacOS"]
+        : []
+    : [];
+  for (const entry of [...executableSearchDirectories(environment, platform, architecture), ...commonDirectories]) {
     for (const extension of extensions) {
-      const candidate = path.join(entry, platform === "win32" ? `${name}${extension.toLowerCase()}` : name);
-      try {
-        await access(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
-        return candidate;
-      } catch {
-        // Keep looking.
+      for (const executableName of executableNames) {
+        const candidate = path.join(entry, platform === "win32" ? `${executableName}${extension.toLowerCase()}` : executableName);
+        try {
+          await access(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
+          return candidate;
+        } catch {
+          // Keep looking.
+        }
       }
     }
   }
   return null;
+}
+
+export function executableSearchDirectories(
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
+): string[] {
+  const pathDelimiter = platform === "win32" ? ";" : path.delimiter;
+  const configured = (environment.PATH || "")
+    .split(pathDelimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+  const homebrew = platform === "darwin"
+    ? architecture === "arm64"
+      ? ["/opt/homebrew/bin", "/usr/local/bin"]
+      : ["/usr/local/bin", "/opt/homebrew/bin"]
+    : [];
+  return [...new Set([...configured, ...homebrew])];
 }
 
 async function findExecutable(name: keyof typeof EXECUTABLE_OVERRIDES): Promise<string | null> {
@@ -197,59 +227,9 @@ function runCommand(
   args: string[],
   options: { signal?: AbortSignal; commandTimeoutMs?: number } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let settled = false;
-    let killTimer: NodeJS.Timeout | null = null;
-    let commandTimer: NodeJS.Timeout | null = null;
-    let stdout = "";
-    let stderr = "";
-    const stop = (reason: Error) => {
-      if (settled) return;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
-      settled = true;
-      reject(reason);
-    };
-    const abort = () => stop(options.signal?.reason instanceof Error
-      ? options.signal.reason
-      : new Error("File extraction canceled."));
-    if (options.signal?.aborted) {
-      abort();
-      return;
-    }
-    options.signal?.addEventListener("abort", abort, { once: true });
-    const timeoutMs = options.commandTimeoutMs ?? 90_000;
-    if (timeoutMs > 0) {
-      commandTimer = setTimeout(() => stop(new Error(`${path.basename(command)} timed out after ${timeoutMs}ms.`)), timeoutMs);
-    }
-    child.stdout.on("data", (chunk) => {
-      if (settled) return;
-      stdout += String(chunk);
-      if (Buffer.byteLength(stdout) > MAX_COMMAND_OUTPUT_BYTES) {
-        stop(new Error(`${path.basename(command)} exceeded the 1 MiB stdout safety limit.`));
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      if (settled) return;
-      stderr += String(chunk);
-      if (Buffer.byteLength(stderr) > MAX_COMMAND_OUTPUT_BYTES) {
-        stop(new Error(`${path.basename(command)} exceeded the 1 MiB stderr safety limit.`));
-      }
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (killTimer) clearTimeout(killTimer);
-      if (commandTimer) clearTimeout(commandTimer);
-      options.signal?.removeEventListener("abort", abort);
-      if (settled) return;
-      settled = true;
-      resolve({ code, stdout, stderr });
-    });
+  return runBoundedProcess(command, args, {
+    signal: options.signal,
+    timeoutMs: options.commandTimeoutMs,
   });
 }
 

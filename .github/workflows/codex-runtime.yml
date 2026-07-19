@@ -36,8 +36,13 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -45,7 +50,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - name: Install Linux document and browser tooling
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          sudo snap install typst
+          npx playwright install --with-deps chromium
+      - name: Install macOS document and browser tooling
+        if: runner.os == 'macOS'
+        run: |
+          brew install poppler typst
+          npx playwright install chromium
+      - name: Install Windows document and browser tooling
+        if: runner.os == 'Windows'
+        run: |
+          choco install poppler typst -y --no-progress
+          npx playwright install chromium
       - run: npm run typecheck
       - run: npm test
         env:
