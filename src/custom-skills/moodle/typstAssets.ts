@@ -59,7 +59,10 @@ async function readDirectoryFiles(
   const files: TypstSupportFile[] = [];
   for (const entry of entries) {
     const sourcePath = path.join(directory, entry.name);
-    const relativePath = path.join(relativePrefix, entry.name);
+    const relativePath = path.posix.join(
+      relativePrefix.replaceAll("\\", "/"),
+      entry.name,
+    );
     if (entry.isDirectory()) {
       files.push(...await readDirectoryFiles(sourcePath, relativePath));
     } else if (entry.isFile()) {

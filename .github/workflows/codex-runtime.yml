@@ -49,23 +49,25 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: typst-community/setup-typst@48aeee7543d37f01afd1ffb27307dc277387ba13 # v4
+        with:
+          typst-version: 0.15.0
       - run: npm ci
       - name: Install Linux document and browser tooling
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y poppler-utils
-          sudo snap install typst
           npx playwright install --with-deps chromium
       - name: Install macOS document and browser tooling
         if: runner.os == 'macOS'
         run: |
-          brew install poppler typst
+          brew install poppler
           npx playwright install chromium
       - name: Install Windows document and browser tooling
         if: runner.os == 'Windows'
         run: |
-          choco install poppler typst -y --no-progress
+          choco install poppler -y --no-progress
           npx playwright install chromium
       - run: npm run typecheck
       - run: npm test
