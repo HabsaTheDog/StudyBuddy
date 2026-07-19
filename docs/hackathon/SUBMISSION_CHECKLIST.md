@@ -14,32 +14,32 @@ Copy this checklist into your task manager if useful.
 
 ## Finish and publish the code
 
-- [ ] Review all current root working-tree changes.
-- [ ] Run `npm run typecheck` and `npm test`.
-- [ ] Review all 128 current `t3code-fork` changes.
-- [ ] Run `pnpm typecheck` and `pnpm test` inside `t3code-fork`.
+- [x] Consolidate the root implementation and cleanup into scoped release commits.
+- [x] Run `npm run typecheck` and `npm test` (86 files passed; 496 tests passed, 3 skipped).
+- [x] Consolidate the T3 integration into the canonical-runtime submodule commit.
+- [x] Run `pnpm typecheck` and the bounded-concurrency `pnpm test` suite inside `t3code-fork`.
 - [ ] Commit and push the T3 submodule changes first.
 - [ ] Update the parent repository's submodule pointer.
-- [ ] Commit the interactive-study-guide workflow and its tests.
-- [ ] Commit the root implementation, documentation, and cleanup in understandable commits.
+- [x] Commit the interactive-study-guide workflow and its tests.
+- [x] Commit the root implementation, documentation, and cleanup in understandable commits.
 - [ ] Fix the red GitHub Actions run and obtain a green run on the final commit.
-- [ ] Extend CI path filters to cover `interactive-study-guide/**` and `shared/**`.
+- [x] Extend CI path filters to cover `interactive-study-guide/**` and `shared/**`.
 - [ ] Run a clean-clone installation test on Ubuntu/Linux.
-- [ ] Keep Linux labeled as the only end-to-end tested platform in the hackathon submission.
+- [x] Keep Linux labeled as the only end-to-end tested platform in the hackathon submission.
 - [ ] Tag the submitted commit, for example `openai-build-week-2026`.
 - [ ] Make the repository public under the existing MIT license.
 
 ## Repository professionalism
 
-- [ ] Confirm the public name is “Study Buddy” everywhere judges will see it.
-- [ ] Confirm the HTTPS clone instructions work.
-- [ ] Confirm README commands use positional prompts rather than invalid `--prompt` syntax.
-- [ ] Confirm the T3 setup documentation contains no machine-specific absolute paths.
-- [ ] Remove tracked Playwright snapshots containing portal/course information.
-- [ ] Remove the tracked Moodle-derived PDF unless redistribution permission is documented.
-- [ ] Run a final tracked-file secret scan.
-- [ ] Confirm no `.env`, storage state, cookie, diagnostic screenshot, private calendar URL, or course download is tracked.
-- [ ] Confirm T3 Code and Typst third-party license notices remain intact.
+- [x] Confirm the public name is “Study Buddy” everywhere judges will see it.
+- [x] Confirm the HTTPS clone instructions work.
+- [x] Confirm README commands use positional prompts rather than invalid `--prompt` syntax.
+- [x] Confirm the T3 setup documentation contains no machine-specific absolute paths.
+- [x] Remove tracked Playwright snapshots containing portal/course information.
+- [x] Remove the tracked Moodle-derived PDF unless redistribution permission is documented.
+- [x] Run a final tracked-file secret scan.
+- [x] Confirm no `.env`, storage state, cookie, diagnostic screenshot, private calendar URL, or course download is tracked.
+- [x] Confirm T3 Code and Typst third-party license notices remain intact.
 - [ ] Confirm the repository description and topics identify an open-source education project.
 
 ## September 2026 alpha readiness
@@ -69,8 +69,8 @@ Copy this checklist into your task manager if useful.
 - [ ] Run `/feedback` in that original thread.
 - [ ] Copy the `/feedback` Session ID returned by Codex into the Devpost form.
 - [ ] If that is not the primary thread, repeat the check with `019f722a-41bd-7ad3-8490-d204b4ee014a`.
-- [ ] Confirm `NEW_WORK_EVIDENCE.md` accurately uses `fe3a6fe` as the conservative pre-hackathon baseline.
-- [ ] Ensure the final hackathon commits are added to the evidence table or summarized before submission.
+- [x] Confirm `NEW_WORK_EVIDENCE.md` accurately uses `fe3a6fe` as the conservative pre-hackathon baseline.
+- [x] Add the consolidated July 19 hackathon release commits to the evidence table.
 
 ## Judge testing
 
