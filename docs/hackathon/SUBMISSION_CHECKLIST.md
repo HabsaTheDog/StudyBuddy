@@ -18,11 +18,11 @@ Copy this checklist into your task manager if useful.
 - [x] Run `npm run typecheck` and `npm test` (86 files passed; 496 tests passed, 3 skipped).
 - [x] Consolidate the T3 integration into the canonical-runtime submodule commit.
 - [x] Run `pnpm typecheck` and the bounded-concurrency `pnpm test` suite inside `t3code-fork`.
-- [ ] Commit and push the T3 submodule changes first.
-- [ ] Update the parent repository's submodule pointer.
+- [x] Commit and push the T3 submodule changes first.
+- [x] Update the parent repository's submodule pointer.
 - [x] Commit the interactive-study-guide workflow and its tests.
 - [x] Commit the root implementation, documentation, and cleanup in understandable commits.
-- [ ] Fix the red GitHub Actions run and obtain a green run on the final commit.
+- [x] Fix the red GitHub Actions run and obtain a green Linux, macOS, and Windows matrix on release commit `2a29a6f`.
 - [x] Extend CI path filters to cover `interactive-study-guide/**` and `shared/**`.
 - [x] Run a clean-clone installation test on Ubuntu/Linux using the direct T3 submodule checkout path.
 - [x] Keep Linux labeled as the only end-to-end tested platform in the hackathon submission.
@@ -40,11 +40,11 @@ Copy this checklist into your task manager if useful.
 - [x] Run a final tracked-file secret scan.
 - [x] Confirm no `.env`, storage state, cookie, diagnostic screenshot, private calendar URL, or course download is tracked.
 - [x] Confirm T3 Code and Typst third-party license notices remain intact.
-- [ ] Confirm the repository description and topics identify an open-source education project.
+- [x] Confirm the repository description and topics identify an open-source education project.
 
 ## September 2026 alpha readiness
 
-- [ ] Add CI jobs and clean-machine installation tests for Linux, macOS, and native Windows.
+- [x] Add CI jobs for Linux, macOS, and native Windows; keep manual clean-machine installation verification open below.
 - [ ] Finish platform-specific dependency detection, setup documentation, and desktop packaging.
 - [ ] Complete the remaining repository and user-experience cleanup.
 - [ ] Finish the opt-in analytics consent flow, endpoint, access controls, retention policy, and deletion process.
@@ -120,7 +120,7 @@ Copy this checklist into your task manager if useful.
 ## Final five-minute audit
 
 - [ ] GitHub repository is reachable and the submitted commit is present.
-- [ ] GitHub Actions is green.
+- [x] GitHub Actions is green on the release commit.
 - [ ] README setup links and commands render correctly.
 - [ ] Showcase files open.
 - [ ] YouTube video is public and under three minutes.

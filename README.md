@@ -59,8 +59,8 @@ Dependencies remain system-managed for the student alpha; Study Buddy does not d
 |---|---|---|
 | Ubuntu/Debian x64 | Tested | Primary development and hackathon path. |
 | Fedora x64 | Best effort | Uses the same Linux runtime; clean-machine verification remains open. |
-| macOS Apple Silicon/Intel | Best effort | Homebrew paths are detected even when shell initialization is incomplete; CI is configured but must pass before this becomes tested. |
-| Windows 11 x64 (native PowerShell) | Best effort | Native setup and CI are configured; do not call it fully supported until the remaining TODO criteria pass. |
+| macOS Apple Silicon/Intel | CI verified, best effort | Typecheck, tests, Typst, Poppler, Playwright, and the runtime doctor pass on GitHub's macOS runner; a manual student install is still required before alpha support. |
+| Windows 11 x64 (native PowerShell) | CI verified, best effort | Typecheck, tests, Typst, Poppler, Playwright, and the runtime doctor pass on GitHub's native Windows runner; a manual student install is still required before alpha support. |
 | WSL 2 | Best effort | Follow the Linux instructions inside WSL, not the native Windows instructions. |
 | Node.js below 22, 32-bit OSes, Windows without PowerShell | Unsupported | These targets are outside the alpha support matrix. |
 
@@ -123,7 +123,7 @@ After any installation, verify the resolved versions and paths:
 npm run moodle:doctor -- --version-only --json
 ```
 
-The first student alpha is planned for September 2026. Remaining clean-machine and CI validation is tracked in [`TODO.md`](TODO.md).
+The first student alpha is planned for September 2026. Remaining manual clean-machine validation and release work is tracked in [`TODO.md`](TODO.md).
 
 ## Quick start: canonical runtime
 
