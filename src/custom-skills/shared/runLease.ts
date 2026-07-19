@@ -98,7 +98,7 @@ export async function acquireQueuedRunSlot(
   queueDirectory: string,
   options: QueuedRunSlotOptions = {},
 ): Promise<() => Promise<void>> {
-  const slots = Math.max(1, Math.min(8, Math.floor(options.slots ?? 1)));
+  const slots = Math.max(1, Math.min(128, Math.floor(options.slots ?? 1)));
   const pollMs = Math.max(10, Math.floor(options.pollMs ?? 1_000));
   const directory = path.resolve(queueDirectory);
   const leaseId = randomUUID();

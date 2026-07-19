@@ -13,6 +13,23 @@ afterEach(async () => {
 });
 
 describe("model-call scheduler", () => {
+  it("admits independent model calls immediately when no throttle is configured", async () => {
+    const directory = path.join(os.tmpdir(), `study-buddy-unthrottled-${Date.now()}`);
+    const admissions = await Promise.all(Array.from({ length: 6 }, (_, index) =>
+      acquireModelCallAdmission({
+        task: `parallel_task_${index}`,
+        model: "terra",
+        queueDirectory: directory,
+        concurrency: 0,
+      })
+    ));
+
+    expect(admissions.map((admission) => admission.queueWaitMs)).toEqual(Array(6).fill(0));
+    expect(admissions.map((admission) => admission.slot)).toEqual(Array(6).fill(0));
+    await Promise.all(admissions.map((admission) => admission.release()));
+    await expect(readdir(directory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("admits queued model calls in FIFO order", async () => {
     const directory = await temporaryDirectory();
     const first = await acquireModelCallAdmission({
@@ -79,12 +96,29 @@ describe("model-call scheduler", () => {
     await Promise.all([second.release(), third.release()]);
   });
 
+  it("honors configured capacity above the old two-call ceiling", async () => {
+    const directory = await temporaryDirectory();
+    const admitted = await Promise.all(Array.from({ length: 4 }, (_, index) =>
+      acquireModelCallAdmission({
+        task: `parallel_task_${index}`,
+        model: "terra",
+        queueDirectory: directory,
+        concurrency: 4,
+        pollMs: 10,
+      })
+    ));
+
+    expect(admitted.map((admission) => admission.slot).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    await Promise.all(admitted.map((admission) => admission.release()));
+  });
+
   it("removes an aborted waiting ticket", async () => {
     const directory = await temporaryDirectory();
     const first = await acquireModelCallAdmission({
       task: "content_analyzer",
       model: "luna",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
     });
     const controller = new AbortController();
@@ -92,6 +126,7 @@ describe("model-call scheduler", () => {
       task: "content_analyzer",
       model: "luna",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
       signal: controller.signal,
     });
@@ -113,6 +148,7 @@ describe("model-call scheduler", () => {
       task: "content_analyzer",
       model: "luna",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
     });
     expect(admission.queueWaitMs).toBeGreaterThanOrEqual(0);

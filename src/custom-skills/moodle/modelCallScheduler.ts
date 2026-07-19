@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveOptionalConcurrency } from "../shared/concurrency.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_QUEUE_DIRECTORY = path.resolve(
@@ -43,9 +44,10 @@ export interface ModelCallAdmissionOptions {
 }
 
 /**
- * Filesystem-backed FIFO admission for expensive Codex calls across all Study
- * Buddy processes. Crawling and deterministic rendering remain parallel; only
- * the model turn itself owns a slot.
+ * Optionally apply filesystem-backed FIFO admission to expensive Codex calls
+ * across Study Buddy processes. Admission is unthrottled by default so each T3
+ * workspace can progress independently. A positive concurrency setting opts
+ * into a shared installation-wide cap.
  */
 export async function acquireModelCallAdmission(
   options: ModelCallAdmissionOptions,
@@ -53,12 +55,21 @@ export async function acquireModelCallAdmission(
   const queueDirectory = path.resolve(options.queueDirectory ?? DEFAULT_QUEUE_DIRECTORY);
   const ticketsDirectory = path.join(queueDirectory, "tickets");
   const activeDirectory = path.join(queueDirectory, "active");
-  const concurrency = clampConcurrency(
-    options.concurrency ?? Number(process.env.STUDY_BUDDY_MODEL_CALL_CONCURRENCY ?? "1"),
+  const concurrency = resolveOptionalConcurrency(
+    options.concurrency ?? process.env.STUDY_BUDDY_MODEL_CALL_CONCURRENCY,
   );
   const pollMs = Math.max(10, Math.floor(options.pollMs ?? 250));
   const queuedMs = Date.now();
   const queuedAt = new Date(queuedMs).toISOString();
+  if (concurrency === null) {
+    return {
+      queuedAt,
+      admittedAt: queuedAt,
+      queueWaitMs: 0,
+      slot: 0,
+      release: async () => undefined,
+    };
+  }
   const leaseId = randomUUID();
   const record: QueueRecord = {
     leaseId,
@@ -117,10 +128,6 @@ export async function acquireModelCallAdmission(
     await unlink(ticketPath).catch(ignoreMissing);
     throw error;
   }
-}
-
-function clampConcurrency(value: number): number {
-  return Number.isInteger(value) ? Math.max(1, Math.min(2, value)) : 1;
 }
 
 async function tryAcquireActiveSlot(

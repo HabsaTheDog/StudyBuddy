@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runInteractiveStudyGuideWorkflow } from "../workflow.js";
+import { acquireInteractiveWorkflowAdmission, runInteractiveStudyGuideWorkflow } from "../workflow.js";
 
 async function validHandoff(runDir: string): Promise<void> {
   await mkdir(runDir, { recursive: true });
@@ -13,6 +13,14 @@ async function validHandoff(runDir: string): Promise<void> {
 }
 
 describe("interactive Study Guide workflow", () => {
+  it("does not serialize independent workflows unless a throttle is configured", async () => {
+    const releases = await Promise.all(Array.from({ length: 6 }, () =>
+      acquireInteractiveWorkflowAdmission({ concurrency: 0 })
+    ));
+    expect(releases).toHaveLength(6);
+    await Promise.all(releases.map((release) => release()));
+  });
+
   it("renders only after a validated extraction and preserves the exact prompt", async () => {
     const root = path.join(process.cwd(), "study-buddy-data", "test-interactive-workflow", `${Date.now()}`);
     const calls: string[] = [];

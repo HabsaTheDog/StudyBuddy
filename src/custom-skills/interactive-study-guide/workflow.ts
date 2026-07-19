@@ -7,6 +7,7 @@ import { publishStudyBuddyDeliverables, type PublishedDeliverable } from "../sha
 import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 import type { StudyBuddyExecutionProfile, StudyBuddyModelPolicyOverrides } from "../shared/modelPolicy.js";
 import { acquireQueuedRunSlot, acquireRunLease } from "../shared/runLease.js";
+import { resolveOptionalConcurrency } from "../shared/concurrency.js";
 import { ensurePrivateDirectorySync, ensureStudyBuddyWorkspaceData, resolveStudyBuddyWorkspaceDataPaths, safePathSegment } from "../shared/workspaceData.js";
 import { runWebLayoutGraph } from "../web-layout/graph.js";
 import type { WebLayoutInput, WebLayoutResult } from "../web-layout/types.js";
@@ -48,6 +49,8 @@ export interface InteractiveStudyGuideDependencies {
   publish?: typeof publishStudyBuddyDeliverables;
   now?: () => Date;
   acquireWorkflowSlot?: (onWait: (activeSlots: number, totalSlots: number) => Promise<void>) => Promise<() => Promise<void>>;
+  workflowConcurrency?: number;
+  workflowQueueDirectory?: string;
 }
 
 const RECOVERABLE_EXTRACTION = /Study Buddy run timed out after|Extraction checkpoint required:|Extraction capacity checkpoint required:|content_analyzer model call timed out after/i;
@@ -80,13 +83,11 @@ export async function runInteractiveStudyGuideWorkflow(
 
   try {
     const acquireWorkflowSlot = dependencies.acquireWorkflowSlot ?? (
-      dependencies.runExtraction || dependencies.runWebLayout
-        ? async () => async () => undefined
-        : (onWait) => acquireQueuedRunSlot(GLOBAL_WORKFLOW_QUEUE, {
-            slots: clamp(Number(process.env.STUDY_BUDDY_INTERACTIVE_WORKFLOW_CONCURRENCY ?? "1"), 1, 2),
-            pollMs: 1_000,
-            onWait,
-          })
+      (onWait) => acquireInteractiveWorkflowAdmission({
+        onWait,
+        concurrency: dependencies.workflowConcurrency,
+        queueDirectory: dependencies.workflowQueueDirectory,
+      })
     );
     releaseWorkflowSlot = await acquireWorkflowSlot(async (activeSlots, totalSlots) => {
       await writeWorkflowSummary(summaryPath, {
@@ -192,6 +193,24 @@ export async function runInteractiveStudyGuideWorkflow(
     await releaseWorkflowSlot();
     await releaseLease();
   }
+}
+
+export async function acquireInteractiveWorkflowAdmission(input: {
+  onWait?: (activeSlots: number, totalSlots: number) => void | Promise<void>;
+  concurrency?: number;
+  queueDirectory?: string;
+  signal?: AbortSignal;
+} = {}): Promise<() => Promise<void>> {
+  const concurrency = resolveOptionalConcurrency(
+    input.concurrency ?? process.env.STUDY_BUDDY_INTERACTIVE_WORKFLOW_CONCURRENCY,
+  );
+  if (concurrency === null) return async () => undefined;
+  return acquireQueuedRunSlot(input.queueDirectory ?? GLOBAL_WORKFLOW_QUEUE, {
+    slots: concurrency,
+    pollMs: 1_000,
+    signal: input.signal,
+    onWait: input.onWait,
+  });
 }
 
 async function hydrateRecoveryHandoff(targetRunDir: string, priorRunDirs: string[]): Promise<void> {

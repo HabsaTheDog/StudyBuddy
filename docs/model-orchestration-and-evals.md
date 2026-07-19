@@ -44,15 +44,24 @@ The metrics contain model names, reasoning effort, phase/model latency, retry
 counts, token totals, prompt/schema character counts, and global model-queue
 wait time. They never contain prompt or document content.
 
-## Fair model-call admission
+## Parallel runs and optional admission limits
 
-Source discovery and downloads may run concurrently, but each expensive model
-turn enters one filesystem-backed FIFO shared by all Study Buddy runs. This
-prevents one run from repeatedly taking both model lanes while another run
-accumulates tokenless 90-second timeouts. The model timeout starts only after
-admission. The production default is one active model turn; set
-`STUDY_BUDDY_MODEL_CALL_CONCURRENCY=2` only when the runtime has demonstrated
-stable two-call capacity. Values above two are rejected by clamping them to two.
+Independent Study Buddy runs are unthrottled by default. Each T3 workspace has
+its own process and run directory, so PDF and interactive HTML workflows can
+continue in parallel while the operating system schedules CPU and memory.
+
+Machines that need a resource ceiling can opt into installation-wide,
+filesystem-backed FIFO admission. Set
+`STUDY_BUDDY_MODEL_CALL_CONCURRENCY=<positive integer>` to limit concurrent
+Moodle model turns, and set
+`STUDY_BUDDY_INTERACTIVE_WORKFLOW_CONCURRENCY=<positive integer>` to limit
+whole interactive workflows. Unset, `0`, `off`, or `unlimited` disables the
+corresponding throttle. Practical limits above two are supported.
+
+When the optional model queue is enabled, queue time does not consume the
+Moodle run's execution budget, and the per-model timeout starts only after
+admission. This prevents a deliberately throttled run from failing merely
+because it waited for a configured slot.
 
 The first model timeout without token usage creates a resumable extraction
 checkpoint. The wrapper resumes from the persisted source map, evidence,
