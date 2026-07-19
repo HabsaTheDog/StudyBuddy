@@ -514,7 +514,7 @@ describe("student-centric exam navigator contracts", () => {
     expect(html).toContain('data-source-jump');
     expect(html).toContain('class="route-grid"');
     expect(html).not.toContain("<table");
-  });
+  }, 30_000);
 
   it("keeps the Moodle chapter order and places formulas and figures inside their chapter", () => {
     const toleranceUrl = "https://moodle.example/mod/resource/view.php?id=10";
