@@ -19,6 +19,7 @@ describe("model-call scheduler", () => {
       task: "content_analyzer",
       model: "luna",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
     });
     const order: string[] = [];
@@ -26,6 +27,7 @@ describe("model-call scheduler", () => {
       task: "content_analyzer",
       model: "luna",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
     }).then((admission) => {
       order.push("second");
@@ -36,6 +38,7 @@ describe("model-call scheduler", () => {
       task: "quality_reviewer",
       model: "terra",
       queueDirectory: directory,
+      concurrency: 1,
       pollMs: 10,
     }).then((admission) => {
       order.push("third");
@@ -51,6 +54,29 @@ describe("model-call scheduler", () => {
     const third = await thirdPromise;
     expect(order).toEqual(["second", "third"]);
     await third.release();
+  });
+
+  it("admits two workflows while keeping the third call queued", async () => {
+    const directory = await temporaryDirectory();
+    const first = await acquireModelCallAdmission({
+      task: "content_analyzer", model: "terra", queueDirectory: directory, concurrency: 2, pollMs: 10,
+    });
+    const second = await acquireModelCallAdmission({
+      task: "content_analyzer", model: "terra", queueDirectory: directory, concurrency: 2, pollMs: 10,
+    });
+    let admitted = false;
+    const thirdPromise = acquireModelCallAdmission({
+      task: "quality_reviewer", model: "sol", queueDirectory: directory, concurrency: 2, pollMs: 10,
+    }).then((value) => {
+      admitted = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(admitted).toBe(false);
+    await first.release();
+    const third = await thirdPromise;
+    expect(admitted).toBe(true);
+    await Promise.all([second.release(), third.release()]);
   });
 
   it("removes an aborted waiting ticket", async () => {

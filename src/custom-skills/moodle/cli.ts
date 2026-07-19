@@ -352,7 +352,7 @@ function collectFormat(
 }
 
 function isQuizExecutionPrompt(value: string): boolean {
-  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selbsttest|selfcheck|self[ -]?quiz)\b/i.test(value);
+  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selfcheck)\b/i.test(value);
 }
 
 function isAssignmentExecutionPrompt(value: string): boolean {

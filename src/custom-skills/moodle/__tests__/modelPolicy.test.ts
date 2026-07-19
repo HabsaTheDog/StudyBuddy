@@ -80,18 +80,16 @@ describe("modelPolicy", () => {
     expect(retry).toMatchObject({ model: "gpt-5.6-terra", timeoutMs: 90_000 });
   });
 
-  it("uses a bounded fast-first analyzer for auto and keeps other roles production-aligned", () => {
-    expect(resolveTaskModelPolicy({ profile: "auto", task: "content_analyzer", attempt: 1 }))
-      .toMatchObject({ model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000 });
-    expect(resolveTaskModelPolicy({ profile: "auto", task: "content_analyzer", attempt: 2 }))
-      .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 90_000 });
-    expect(resolveTaskModelPolicy({ profile: "auto", task: "quality_reviewer", attempt: 1 }))
-      .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 2 * 60_000 });
-    expect(resolveTaskModelPolicy({ profile: "auto", task: "quality_reviewer", attempt: 2 }))
-      .toMatchObject({ model: "gpt-5.6-terra", reasoningEffort: "medium", timeoutMs: 2 * 60_000 });
-    for (const task of ["artifact_planner", "quiz_solver", "artifact_builder"] as const) {
+  it("uses the quality matrix when no explicit profile is selected", () => {
+    for (const task of [
+      "artifact_planner",
+      "content_analyzer",
+      "quiz_solver",
+      "artifact_builder",
+      "quality_reviewer",
+    ] as const) {
       expect(resolveTaskModelPolicy({ profile: "auto", task })).toEqual(
-        resolveTaskModelPolicy({ profile: "balanced", task }),
+        resolveTaskModelPolicy({ profile: "quality", task }),
       );
     }
   });

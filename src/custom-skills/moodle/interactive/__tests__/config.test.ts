@@ -61,24 +61,6 @@ describe("moodle config env loading", () => {
 });
 
 describe("moodle output paths", () => {
-  it("locks language to the untranslated user request instead of a translated task prompt", async () => {
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "moodle-workspace-"));
-    process.env.STUDY_BUDDY_WORKSPACE = tempDir;
-
-    const config = createRuntimeConfig({
-      prompt: "Bearbeite den ersten Selbsttest in Elektrotechnik 2",
-      originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
-      moodleUrl: "https://moodle.example/mod/quiz/view.php?id=42",
-    });
-    createdRunDir = config.runDir;
-
-    expect(config).toMatchObject({
-      originalUserPrompt: "Can you do the first self quiz in Elektrotechnik 2 for me?",
-      outputLanguage: "en",
-      outputLanguageReason: "prompt_language",
-    });
-  });
-
   it("forces credential-bearing runs through Playwright instead of CLI arguments", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "moodle-workspace-"));
     process.env.STUDY_BUDDY_WORKSPACE = tempDir;

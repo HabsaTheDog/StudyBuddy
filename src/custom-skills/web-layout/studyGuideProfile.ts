@@ -26,6 +26,7 @@ interface HandoffSource {
 interface HandoffSection {
   heading?: unknown;
   summary?: unknown;
+  source_ids?: unknown;
 }
 
 interface ExtractionHandoff {
@@ -38,17 +39,17 @@ interface ExtractionHandoff {
 
 export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequirements {
   const handoff = readExtractionHandoff(sourceText);
-  const courseTitle = cleanTitle(
+  const extractedCourseTitle = cleanTitle(
     typeof handoff?.course?.title === "string"
       ? handoff.course.title
       : typeof handoff?.document_title === "string"
         ? handoff.document_title
         : "Interaktiver Study Guide",
   );
-  const courseCode = inferCourseCode(courseTitle);
-  const sectionTitles = unique((handoff?.sections ?? [])
-    .map((section) => typeof section.heading === "string" ? cleanSectionTitle(section.heading) : "")
-    .filter(Boolean));
+  const identity = inferCourseIdentity(extractedCourseTitle, sourceText);
+  const courseTitle = identity.title;
+  const courseCode = identity.code;
+  const sectionTitles = selectRepresentativeSections(handoff?.sections ?? []);
   const practice = countPracticeEvidence(sourceText);
   const formulaCount = Array.isArray(handoff?.formulas) ? handoff.formulas.length : 0;
   const quantitativeName = /\b(?:maes|mathematik|dynamik|mechanik|maschinen|physik|elektro|thermo|statistik|rechnung|engineering)\b/i.test(courseTitle);
@@ -125,13 +126,33 @@ export function readExtractionHandoff(sourceText: string): ExtractionHandoff | n
   const marker = sourceText.indexOf("## Extracted data");
   if (marker < 0) return null;
   const jsonStart = sourceText.indexOf("{", marker);
-  const nextSection = sourceText.indexOf("\n## ", jsonStart + 1);
   if (jsonStart < 0) return null;
+  const jsonEnd = findJsonObjectEnd(sourceText, jsonStart);
+  if (jsonEnd < 0) return null;
   try {
-    return JSON.parse(sourceText.slice(jsonStart, nextSection < 0 ? undefined : nextSection).trim()) as ExtractionHandoff;
+    return JSON.parse(sourceText.slice(jsonStart, jsonEnd + 1)) as ExtractionHandoff;
   } catch {
     return null;
   }
+}
+
+function findJsonObjectEnd(value: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return index;
+  }
+  return -1;
 }
 
 export function isMaes2PracticeCorpus(sourceText: string): boolean {
@@ -145,7 +166,19 @@ export function knownHandoffSourceUrls(sourceText: string): Set<string> {
   const handoff = readExtractionHandoff(sourceText);
   return new Set((handoff?.sources ?? [])
     .map((source) => typeof source.url === "string" ? source.url : "")
-    .filter((url) => /^https:\/\/moodle\.technikum-wien\.at\/(?:course|mod)\//i.test(url)));
+    .filter((url) => /^https:\/\/moodle\.technikum-wien\.at\/(?:course\/|mod\/|pluginfile\.php\/)/i.test(url)));
+}
+
+export function handoffSourceRegistry(sourceText: string): Array<{ id: string; label: string; url: string }> {
+  const handoff = readExtractionHandoff(sourceText);
+  return (handoff?.sources ?? []).flatMap((source) => {
+    const id = typeof source.id === "string" ? source.id.trim() : "";
+    const label = typeof source.title === "string" ? source.title.trim() : "";
+    const url = typeof source.url === "string" ? source.url.trim() : "";
+    return label && /^https:\/\/moodle\.technikum-wien\.at\/(?:course\/|mod\/|pluginfile\.php\/)/i.test(url)
+      ? [{ id, label, url }]
+      : [];
+  });
 }
 
 function countPracticeEvidence(sourceText: string): { total: number; selection: number; calculation: number; sourceFiles: number } {
@@ -163,6 +196,41 @@ function inferCourseCode(title: string): string {
   const explicit = /\b([A-ZÄÖÜ]{2,8}\d{0,2})\b/.exec(title)?.[1];
   if (explicit) return explicit;
   return title.split(/[–—:\-]/, 1)[0].trim().slice(0, 24) || "Kurs";
+}
+
+function inferCourseIdentity(extractedTitle: string, sourceText: string): { code: string; title: string } {
+  const evidence = `${extractedTitle}\n${sourceText.slice(0, 80_000)}`;
+  if (/\bMAES\s*2\b|Mathematik für Engineering Science 2/i.test(evidence)) {
+    return { code: "MAES2", title: "Mathematik für Engineering Science 2" };
+  }
+  if (/\bDYN\s*2\b|Anwendungen der Dynamik/i.test(evidence)) {
+    return { code: "DYN2", title: "Anwendungen der Dynamik" };
+  }
+  if (/\bMEL\s*1?\b|Maschinenelemente 1/i.test(evidence)) {
+    return { code: "MEL1", title: "Maschinenelemente 1" };
+  }
+  return { code: inferCourseCode(extractedTitle), title: extractedTitle };
+}
+
+function selectRepresentativeSections(sections: HandoffSection[]): string[] {
+  const candidates = sections.map((section) => ({
+    title: typeof section.heading === "string" ? cleanSectionTitle(section.heading) : "",
+    group: Array.isArray(section.source_ids)
+      ? section.source_ids.map(String).map((id) => /(?:^|_)ch(\d+)(?:_|$)/i.exec(id)?.[1]).find(Boolean) ?? ""
+      : "",
+  })).filter((candidate) => candidate.title);
+  const grouped = new Map<string, string>();
+  const ungrouped: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.group) {
+      if (!grouped.has(candidate.group)) grouped.set(candidate.group, candidate.title);
+    } else ungrouped.push(candidate.title);
+  }
+  // Extraction handoffs commonly contain several pedagogical sub-sections per
+  // source chapter. One representative tab per chapter prevents the first
+  // chapter from crowding every other chapter out of the twelve-tab cap.
+  if (grouped.size >= 2) return unique([...grouped.values(), ...ungrouped]).slice(0, 12);
+  return unique(candidates.map((candidate) => candidate.title)).slice(0, 12);
 }
 
 function cleanTitle(value: string): string {

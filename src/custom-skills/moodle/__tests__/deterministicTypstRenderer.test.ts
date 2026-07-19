@@ -304,6 +304,26 @@ describe("deterministic Typst renderer", () => {
     ).resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("renders MAES-style LaTeX formulas without breaking the following Typst block", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        formulas: [{
+          name: "Allgemeine Lösung",
+          typst: String.raw`y = C_1 e^{lambda_1 x} + C_2 e^{lambda_2 x}, \quad \forall x \in RR`,
+          variables: ["C_1, C_2: Konstanten"],
+          units: [],
+          context: "Differentialgleichung mit konstanten Koeffizienten.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).not.toContain("\\quad");
+    expect(source).not.toContain("^{");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("normalizes multi-letter math subscripts into Typst text subscripts", async () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({

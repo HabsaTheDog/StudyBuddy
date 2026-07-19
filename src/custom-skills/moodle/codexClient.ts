@@ -209,7 +209,12 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
               timeoutMs: policy.timeoutMs,
               queueWaitMs: admission.queueWaitMs,
             });
-            if (config.stage === "extract") extractionCapacityFailure = timeoutError;
+            if (
+              config.stage === "extract" &&
+              (task === "content_analyzer" || task === "quality_reviewer")
+            ) {
+              extractionCapacityFailure = timeoutError;
+            }
             throw timeoutError;
           }
           if (classification && !classification.retryable) {

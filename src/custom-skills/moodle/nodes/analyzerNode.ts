@@ -31,6 +31,11 @@ import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
 import { languageName } from "../../shared/languagePolicy.js";
+import {
+  adaptiveEvidenceSliceLimit,
+  applyAdaptiveExtractionBudget,
+  updateAdaptiveRuntimeProgress,
+} from "../adaptiveRuntimeBudget.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
 const CHAPTER_ANALYZER_VERSION = "2026-07-18.12-output-language";
@@ -41,8 +46,8 @@ const FOCUSED_VISUAL_CANDIDATE_LIMIT = 6;
 const DENSE_CHAPTER_RECORD_LIMIT = 18;
 const DENSE_CHAPTER_CHARACTER_LIMIT = 13_000;
 const FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 9_000;
-const PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 18_000;
-const MAX_SLICES_PER_MODEL_CALL = 2;
+const PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 40_000;
+const MAX_SLICES_PER_MODEL_CALL = 4;
 const FRAGMENT_RECORD_OVERLAP = 2;
 // Codex SDK threads in one process can contend without emitting any usage when
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
@@ -152,6 +157,7 @@ async function analyzeCourseChapters(
   const focuses = chapterFocuses(state)
     .sort((left, right) => focusPriority(right) - focusPriority(left))
     .slice(0, analysisBudget.maxSelectedSlices);
+  await applyAdaptiveExtractionBudget(config, state, focuses.length);
   const evidenceSlicesPerChapter = config.executionProfile === "quality" ? 4 : 2;
   const sliceBudgets = focuses.map(() => Math.min(
     evidenceSlicesPerChapter,
@@ -203,6 +209,11 @@ async function analyzeCourseChapters(
           writeFile(sharedCachePath, serialized, "utf8"),
         ]);
         await config.diagnostics?.log("info", "analyzer", `Reused validated chapter handoff: ${focus.title}`);
+        await updateAdaptiveRuntimeProgress(
+          config,
+          results.filter(Boolean).length,
+          focuses.length,
+        );
         continue;
       }
       try {
@@ -221,7 +232,7 @@ async function analyzeCourseChapters(
               state,
               focus,
               codex,
-              sliceBudgets[index],
+              adaptiveEvidenceSliceLimit(config, sliceBudgets[index]),
               invalidKeys.has(focus.key) ? state.error_log : undefined,
             )
           : validateAnalyzerResponse(await codex.run(
@@ -244,6 +255,11 @@ async function analyzeCourseChapters(
           await markExtractionRepairComplete(config.runDir, focus.title);
         }
         results[index] = data;
+        await updateAdaptiveRuntimeProgress(
+          config,
+          results.filter(Boolean).length,
+          focuses.length,
+        );
       } catch (error) {
         // Do not aggregate a global abort as a chapter failure or advance to
         // another chapter. The outer node rethrows the same run-level reason.
@@ -1378,6 +1394,7 @@ function requiredLookupFigures(
   const lookupRequests = retrievalRequests.filter((request) =>
     focus.resourceIds.includes(request.resourceId) &&
     request.priority === "high" &&
+    visualRequestMatchesChapter(focus, request) &&
     (
       request.purpose === "table" ||
       (request.purpose === "diagram" && /(?:nachschlag|diagramm|kurve|viskos|lookup|ables)/i.test(
@@ -1408,6 +1425,27 @@ function requiredLookupFigures(
     }
   }
   return figures;
+}
+
+const GENERIC_VISUAL_MATCH_TERMS = new Set([
+  "grundlag", "grundlagen", "beispiel", "beispiele", "chapter", "kapitel", "diagramm",
+  "figure", "abbildung", "anwenden", "berechn", "bestimm", "erklär", "overview",
+]);
+
+export function visualRequestMatchesChapter(
+  focus: Pick<ChapterFocus, "title" | "matchTerms" | "learningObjectives" | "assessmentSignals">,
+  request: Pick<VisualRetrievalRequest, "purpose" | "placementHint" | "reason">,
+): boolean {
+  const focusTerms = matchTerms([
+    focus.title,
+    ...focus.matchTerms,
+    ...(focus.learningObjectives ?? []),
+    ...(focus.assessmentSignals ?? []),
+  ].join(" ")).filter((term) => !GENERIC_VISUAL_MATCH_TERMS.has(term));
+  const requestTerms = matchTerms(
+    `${request.purpose} ${request.placementHint} ${request.reason}`,
+  ).filter((term) => !GENERIC_VISUAL_MATCH_TERMS.has(term));
+  return semanticOverlap(focusTerms, requestTerms) > 0;
 }
 
 function visualCandidateScore(candidate: VisualCandidate): number {

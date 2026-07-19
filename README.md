@@ -1,137 +1,165 @@
-# Study Buddy 2.0
+# Study Buddy
 
-AI-powered study assistant that extracts content from Moodle and CIS, generates structured study documents (Typst → PDF), and assists with quiz workflows — all orchestrated through LangGraph.
+Study Buddy is an open-source AI learning companion that helps students understand their classes, locate information across student portals, answer course questions, and turn source material into structured PDF and interactive HTML study guides.
+
+Built by **Alvaro** for the **Education** track of OpenAI Build Week 2026.
+
+## What it does
+
+- Navigates authenticated Moodle and CIS pages to find courses, activities, schedules, rooms, exams, deadlines, and administrative information.
+- Builds source-grounded study guides as polished PDFs or portable offline interactive webpages.
+- Answers questions with explicit source coverage instead of pretending an empty search is a complete answer.
+- Helps students review quizzes and assignments behind confirmation and safety policies; final Moodle quiz submission remains blocked.
+- Routes planning, analysis, artifact building, and quality review through task-specific GPT-5.6 models.
+- Keeps generated study artifacts local and is preparing opt-in, content-free usage analytics for the student alpha.
+
+## Product architecture
+
+```text
+Student
+   |
+   v
+Study Buddy interface (T3 Code fork)
+   |
+   v
+LangGraph workflows
+   |-- Moodle course and activity discovery
+   |-- CIS and calendar lookup
+   |-- source acquisition and coverage checks
+   |-- GPT-5.6 planning, analysis, building, and review
+   |-- quiz and assignment safety gates
+   |
+   +--> Typst -> validated PDF study guide
+   +--> Web layout -> validated offline interactive HTML
+```
+
+The canonical Moodle/CIS implementation lives under `src/custom-skills/moodle/`. The `t3code-fork/` submodule supplies the local web/desktop interface and delegates study operations to the canonical root runtime.
+
+## OpenAI Build Week 2026
+
+Study Buddy existed before the hackathon. For eligibility and judging, the conservative pre-hackathon baseline is commit `fe3a6fe`, authored before the submission period opened on July 13, 2026 at 9:00 AM Pacific Time. The submission should be evaluated on the meaningful extension beginning with `cb7d1c3` and the later hackathon-period work.
+
+During the submission period, Study Buddy gained a substantially expanded T3 integration, reproducible setup and runtime diagnostics, GPT-5.6 task routing, semantic quality review, safer quiz and assignment workflows, source-grounded PDF and interactive HTML generation, resumable extraction, multilingual artifacts, and student-first learning design.
+
+Detailed evidence and submission materials are in [`docs/hackathon/`](docs/hackathon/README.md).
+
+## How I collaborated with Codex
+
+Codex was my primary engineering collaborator throughout Study Buddy. I used it to inspect the existing system, propose bounded changes, implement and refactor LangGraph workflows, build tests, diagnose live Moodle behavior, improve the T3 interface, and validate generated artifacts. During Build Week I worked across many Codex threads and used GPT-5.6 directly inside the product for task-specific planning, analysis, artifact construction, and quality review.
+
+Codex accelerated implementation and verification, while I retained the key product decisions: Study Buddy should be student-first, source-grounded, local by default, explicit about missing coverage, conservative around quizzes and assignments, and useful without forcing students to understand the underlying agent architecture. I also chose to build on the open-source T3 Code interface rather than invent another chat shell.
+
+See [`CODEX_COLLABORATION.md`](docs/hackathon/CODEX_COLLABORATION.md), [`CODEX_SESSIONS.md`](docs/hackathon/CODEX_SESSIONS.md), and [`NEW_WORK_EVIDENCE.md`](docs/hackathon/NEW_WORK_EVIDENCE.md) for the detailed account.
 
 ## Prerequisites
 
-| Dependency | Version | Install |
+| Dependency | Supported/tested target | Install |
 |---|---|---|
-| **Node.js** | ≥ 22 | [nodejs.org](https://nodejs.org/) or via `nvm` / `fnm` |
-| **npm** | bundled with Node | — |
-| **Typst** | latest | Linux: `sudo snap install typst` · macOS: `brew install typst` · Windows: `winget install typst` |
-| **Playwright browsers** | matches `package.json` | `npx playwright install` (run after `npm install`) |
-| **Poppler tools** | current | Debian/Ubuntu: `sudo apt install poppler-utils` · Fedora: `sudo dnf install poppler-utils` · macOS: `brew install poppler` |
+| Node.js | 22 or newer | [nodejs.org](https://nodejs.org/) |
+| npm | Bundled with Node | Used for the canonical root runtime |
+| pnpm | 10.24.x | Used by `t3code-fork/` |
+| Typst | Current | `sudo snap install typst` on Ubuntu |
+| Playwright Chromium | Version from `package.json` | `npx playwright install chromium` |
+| Poppler | Current | `sudo apt install poppler-utils` on Ubuntu |
 
-Tesseract is not a Study Buddy runtime dependency. Text-layer PDFs use Poppler's `pdftotext`; image extraction and selected-page rendering are a separate Poppler-based visual path. Sparse scanned PDFs are reported explicitly instead of triggering an automatic multi-page OCR pass.
+Study Buddy is architected as a cross-platform application for Linux, macOS, and Windows. The current hackathon build has only been tested end to end on Linux, so Linux is the verified platform for judging. macOS and native Windows validation, platform-specific installation guidance, and packaging remain pre-alpha work tracked in [`TODO.md`](TODO.md). The first student alpha is planned for September 2026.
 
-## Quick Start
-
-### 1. Clone the repository
+## Quick start: canonical runtime
 
 ```bash
-git clone --recursive git@github.com:HabsaTheDog/StudyBuddy.git
+git clone --recursive https://github.com/HabsaTheDog/StudyBuddy.git
 cd StudyBuddy
-```
-
-> **`--recursive` is important** — it pulls the `t3code-fork` submodule. If you forgot, run:
-> ```bash
-> git submodule update --init --recursive
-> ```
-
-### 2. Install dependencies
-
-```bash
-npm install
-npx playwright install
-```
-
-### 3. Set up environment variables
-
-The repo ships a **`.env.example`** template. Credentials are **never committed** — you must create your own local env files.
-
-**Option A — Interactive setup (recommended):**
-
-```bash
-npm run setup
-```
-
-This copies `.env.example` → `.env`, prompts for your Moodle/CIS credentials, and creates a minimal `.env.local` for personal overrides.
-
-**Option B — Manual setup:**
-
-```bash
+npm ci
+npx playwright install chromium
 cp .env.example .env
 ```
 
-Then edit `.env` and fill in at minimum:
-
-```env
-MOODLE_USERNAME=your_username
-MOODLE_PASSWORD=your_password
-```
-
-Optionally create `.env.local` for machine-specific overrides (quiz policies, calendar URL, browser settings, etc.). Values in `.env.local` take priority over `.env`.
-
-### 4. Verify the installation
+Add credentials for accounts you are authorized to use to `.env`, then verify the installation:
 
 ```bash
-npm run typecheck     # TypeScript compilation check
-npm test              # Run test suite
-```
-
-## Environment Files
-
-| File | Committed? | Purpose |
-|---|---|---|
-| `.env.example` | ✅ Yes | Template with all supported variables and defaults |
-| `.env` | ❌ No | Your primary config (credentials, base URLs, timeouts) |
-| `.env.local` | ❌ No | Machine-specific overrides (quiz policy, calendar, browser prefs) |
-
-**Loading order** (first match wins, no overrides):  
-`.env.local` → `.env`
-
-See `.env.example` for the full list of supported variables and their defaults.
-
-## Usage
-
-```bash
-# Run the Moodle study-document agent
-npm run moodle:agent -- --prompt "Create a summary of DC-DC converters" --url "https://moodle.technikum-wien.at/..."
-
-# Run evaluations
-npm run moodle:eval
-
-# Type-check the project
+npm run moodle:doctor -- --version-only --json
 npm run typecheck
-
-# Run tests
 npm test
 ```
 
-## Project Structure
+Run a source-grounded document request. The prompt is a positional argument:
 
+```bash
+npm run moodle:agent -- \
+  "Create a study guide for DC-DC converters" \
+  --url "https://your-moodle.example/course/view.php?id=123" \
+  --format pdf \
+  --format html
 ```
+
+Generate an offline interactive learning page from user-supplied source text:
+
+```bash
+npm run web-layout:agent -- \
+  "Create an interactive study guide from the supplied notes" \
+  --source-file ./notes.txt \
+  --kind study-guide
+```
+
+The integrated extraction-to-interactive workflow is exposed as:
+
+```bash
+npm run interactive-study-guide -- \
+  "Create an interactive study guide for this course" \
+  --url "https://your-moodle.example/course/view.php?id=123"
+```
+
+## Local web/desktop interface
+
+```bash
+cd t3code-fork
+pnpm install
+pnpm study-buddy:ports
+pnpm study-buddy:dev
+```
+
+The browser development interface uses `http://localhost:5853` and the local server uses `http://localhost:13893`. See [`t3code-fork/STUDY_BUDDY_T3.md`](t3code-fork/STUDY_BUDDY_T3.md) for the integration details.
+
+## Judge and showcase materials
+
+- [`JUDGE_GUIDE.md`](docs/hackathon/JUDGE_GUIDE.md) contains the safe installation and testing path.
+- [`showcase/`](docs/hackathon/showcase/README.md) is the committed location for non-sensitive example outputs selected for the video.
+- A local ignored `hackathon-submission-private/` folder can hold Devpost copy, private upload notes, and additional showcase files. It must never contain personal production credentials or long-lived private calendar URLs.
+
+## Environment and data safety
+
+The repository ships `.env.example`; real `.env` and `.env.local` files are ignored. Never commit credentials, session state, private calendar URLs, downloaded course materials, or authenticated browser diagnostics.
+
+Study Buddy stores pipeline data under `study-buddy-data/` and publishes only explicitly selected deliverables outside that internal run area. See [`SECURITY.md`](SECURITY.md) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+By default, published files are written to the ignored `study-buddy-deliverables/` directory so generated course material does not appear as an accidental Git candidate. Use `--deliver-to` when a different reviewed destination is required.
+
+## Development commands
+
+```bash
+npm run typecheck
+npm test
+npm run moodle:doctor -- --version-only --json
+npm run moodle:eval
+```
+
+## Project structure
+
+```text
 Study Buddy/
-├── src/
-│   └── custom-skills/
-│       └── moodle/          # Canonical Moodle/CIS, quiz, and assignment LangGraph runtime
-├── docs/                    # Internal documentation
-├── output/                  # Generated artifacts (gitignored)
-├── t3code-fork/             # Git submodule — T3 Code integration
-├── CI/                      # Corporate identity assets
-├── .env.example             # Environment template (committed)
-├── .env                     # Your credentials (NOT committed)
-├── .env.local               # Local overrides (NOT committed)
-└── package.json
+|-- src/custom-skills/moodle/             Moodle, CIS, calendar and study workflows
+|-- src/custom-skills/web-layout/         Offline interactive learning artifacts
+|-- src/custom-skills/interactive-study-guide/
+|-- src/custom-skills/shared/             Shared policies, data paths and leases
+|-- t3code-fork/                          T3 Code UI/server integration submodule
+|-- docs/hackathon/                       Build Week submission documentation
+|-- study-buddy-data/                     Local workflow data (ignored)
+|-- CI/                                   Study Buddy-owned identity assets
+`-- package.json
 ```
 
-`t3code-fork/` contains only the T3 UI/server adapter for Study Buddy settings
-and connection checks. Its `moodle:agent` command delegates to the canonical
-runtime above; it does not carry a second scraper or LangGraph implementation.
+## License and attribution
 
-## Cross-Platform Notes
+Study Buddy is available under the [MIT License](LICENSE). The interface builds on the MIT-licensed [T3 Code](https://github.com/pingdotgg/t3code) project; its copyright and license remain intact in the submodule. Vendored Typst package notices are retained beside their source. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for details.
 
-Linux is the currently CI-tested platform. macOS and native Windows are intended targets, but remain best-effort until the platform matrix in `TODO.md` is complete.
-
-- **Windows**: Node.js, npm, Playwright, and Typst have native Windows versions, but Study Buddy's executable discovery, cancellation, and PDF toolchain have not yet passed native Windows CI. Use WSL for the currently verified path.
-- **Shell scripts**: The `npm run setup` script uses `bash`. On Windows, run it via **Git Bash** (included with Git for Windows) or use the manual setup method above.
-- **Path handling**: Runtime TypeScript generally uses `node:path`; shell setup and external executable discovery still have platform-specific work listed in `TODO.md`.
-
-## Security
-
-- **Never commit `.env` or `.env.local`** — they are gitignored via `.env*` / `!.env.example`.
-- See [SECURITY.md](SECURITY.md) for the security policy.
-
-## License
-
-[MIT](LICENSE)
+Study Buddy is an independent student project and is not affiliated with or endorsed by Moodle, FH Technikum Wien, or the operators of any connected student portal.

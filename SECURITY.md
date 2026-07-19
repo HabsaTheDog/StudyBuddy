@@ -17,8 +17,15 @@ Moodle and CIS credentials are personal account credentials. Keep them local,
 rotate them if they are exposed, and prefer browser storage state files only as
 local runtime artifacts.
 
-Never commit downloaded private course material outside the intended
-request-specific `output/<request-name>/` artifact directories.
+Never commit downloaded private course material. Canonical local workflow data
+belongs below the ignored `study-buddy-data/` request directories; publish only
+explicitly reviewed deliverables that you are authorized to redistribute.
+
+Do not share a normal personal student account as a public demo account. Judge
+credentials, if institutionally authorized, must be purpose-limited, delivered
+through private testing instructions, and rotated after judging. Private
+calendar feed URLs are bearer secrets and must never be committed or included
+in a general submission archive.
 
 ## Local Quiz And Assignment Confirmations
 

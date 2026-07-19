@@ -14,6 +14,7 @@ import {
 } from "./nodes/scraperNode.js";
 import { writeRunProgress } from "./runProgress.js";
 import {
+  boundLearningArchitecture,
   buildDeterministicLearningArchitecture,
   validateLearningArchitectureModelJson,
   type LearningArchitecture,
@@ -834,7 +835,7 @@ function validatedLearningArchitecture(
         .filter((support) => support.resourceUrls.length > 0),
       excludedResourceUrls: keepKnown(result.data.excludedResourceUrls),
     };
-    if (sanitized.modules.length > 0) return sanitized;
+    if (sanitized.modules.length > 0) return boundLearningArchitecture(sanitized);
   }
   return deterministicArchitectureForBriefs(briefs, catalog);
 }
@@ -850,7 +851,7 @@ function deterministicArchitectureForBriefs(
   catalog: CatalogEntry[],
 ): LearningArchitecture {
   if (briefs.length === 0) {
-    return buildDeterministicLearningArchitecture({ briefs, catalog });
+    return boundLearningArchitecture(buildDeterministicLearningArchitecture({ briefs, catalog }));
   }
   const briefUrls = new Set(briefs
     .map((brief) => brief.resourceUrl)
@@ -861,7 +862,9 @@ function deterministicArchitectureForBriefs(
     briefUrls.has(canonicalizeResourceUrl(entry.href)) ||
     briefTitles.has(normalizeArchitectureTitle(entry.label))
   );
-  return buildDeterministicLearningArchitecture({ briefs, catalog: acquiredCatalog });
+  return boundLearningArchitecture(
+    buildDeterministicLearningArchitecture({ briefs, catalog: acquiredCatalog }),
+  );
 }
 
 function hasViableAcquiredArchitecture(

@@ -9,7 +9,11 @@ import {
   type CodexClient,
 } from "../codexClient.js";
 import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.js";
-import { buildChapterFragmentPrompt, createAnalyzerNode } from "../nodes/analyzerNode.js";
+import {
+  buildChapterFragmentPrompt,
+  createAnalyzerNode,
+  visualRequestMatchesChapter,
+} from "../nodes/analyzerNode.js";
 import {
   persistPendingExtractionRepairs,
   readPendingExtractionRepairs,
@@ -18,6 +22,25 @@ import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbo
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
+  it("does not duplicate a topic-specific lookup figure into unrelated chapters", () => {
+    const request = {
+      purpose: "diagram",
+      placementHint: "Grundlagen: Mengen und Zahlbereiche",
+      reason: "Mengendiagramm für Zahlbereiche und Mengenoperationen",
+    };
+    expect(visualRequestMatchesChapter({
+      title: "Mengen und Zahlbereiche",
+      matchTerms: ["mengen", "zahlbereiche"],
+      learningObjectives: [],
+      assessmentSignals: [],
+    }, request)).toBe(true);
+    expect(visualRequestMatchesChapter({
+      title: "Differentialgleichungen zweiter Ordnung",
+      matchTerms: ["differentialgleichungen", "ordnung"],
+      learningObjectives: ["Lösungen berechnen"],
+      assessmentSignals: [],
+    }, request)).toBe(false);
+  });
   it("hands selected page image paths to the model for direct visual reading", () => {
     const prompt = buildChapterFragmentPrompt(
       moodleTestConfig({

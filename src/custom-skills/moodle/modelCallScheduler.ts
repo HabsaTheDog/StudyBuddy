@@ -54,7 +54,7 @@ export async function acquireModelCallAdmission(
   const ticketsDirectory = path.join(queueDirectory, "tickets");
   const activeDirectory = path.join(queueDirectory, "active");
   const concurrency = clampConcurrency(
-    options.concurrency ?? Number(process.env.STUDY_BUDDY_MODEL_CALL_CONCURRENCY ?? "1"),
+    options.concurrency ?? Number(process.env.STUDY_BUDDY_MODEL_CALL_CONCURRENCY ?? "2"),
   );
   const pollMs = Math.max(10, Math.floor(options.pollMs ?? 250));
   const queuedMs = Date.now();

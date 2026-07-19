@@ -15,7 +15,6 @@ import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
   return {
     prompt: "make compact notes",
-    originalUserPrompt: "make compact notes",
     outputLanguage: "de",
     outputLanguageReason: "fallback",
     moodleUrl: "https://moodle.example/course",
@@ -69,6 +68,7 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     runtimeCacheDir: "/tmp/study-buddy-runtime-cache",
     executionProfile: "auto",
     ...overrides,
+    originalUserPrompt: overrides.originalUserPrompt ?? overrides.prompt ?? "make compact notes",
   };
 }
 

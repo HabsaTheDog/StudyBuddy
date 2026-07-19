@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundLearningArchitecture,
   buildDeterministicLearningArchitecture,
   parseLearningArchitectureModelJson,
   validateLearningArchitectureModelJson,
@@ -8,6 +9,28 @@ import {
 } from "../learningArchitecture.js";
 
 describe("domain-neutral learning architecture", () => {
+  it("compacts large architectures without dropping objectives or resources", () => {
+    const modules = Array.from({ length: 10 }, (_, index) => ({
+      id: `module-${index + 1}`,
+      title: `Topic ${index + 1}`,
+      priority: index < 2 ? "essential" as const : "important" as const,
+      contentMode: index % 2 ? "conceptual" as const : "quantitative" as const,
+      learningObjectives: [`Objective ${index + 1}`],
+      assessmentSignals: [`Signal ${index + 1}`],
+      resourceUrls: [`https://moodle.example/topic-${index + 1}.pdf`],
+    }));
+    const compacted = boundLearningArchitecture({
+      schemaVersion: 1,
+      modules,
+      supportResources: [],
+      excludedResourceUrls: [],
+    });
+
+    expect(compacted.modules).toHaveLength(6);
+    expect(compacted.modules.flatMap((module) => module.learningObjectives)).toHaveLength(10);
+    expect(compacted.modules.flatMap((module) => module.resourceUrls)).toHaveLength(10);
+    expect(compacted.modules[0].priority).toBe("essential");
+  });
   it.each([
     {
       domain: "technical",
