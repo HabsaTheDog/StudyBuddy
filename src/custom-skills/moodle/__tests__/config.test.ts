@@ -342,6 +342,7 @@ describe("createRuntimeConfig", () => {
   it("uses a direct Moodle URL from the prompt when the configured URL is the dashboard", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-prompt-url-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_DASHBOARD_URL", "");
 
     const config = createRuntimeConfig({
       prompt: "bearbeite das Moodle Quiz https://moodle.technikum-wien.at/mod/quiz/view.php?id=2249517",
