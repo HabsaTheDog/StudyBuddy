@@ -21,6 +21,10 @@ describe("quizIntent", () => {
     expect(isQuizPrompt("Fill in the next Moodle quiz, but do not submit it")).toBe(true);
   });
 
+  it("routes an English self quiz request to the quiz path", () => {
+    expect(isQuizPrompt("can you do the first self quiz in Elektrotechnik 2 for me.")).toBe(true);
+  });
+
   it("does not route ordinary schedule questions as quiz attempts", () => {
     expect(isQuizPrompt("was machen wir heute im fachlabor und in welchem raum")).toBe(false);
   });

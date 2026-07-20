@@ -45,6 +45,22 @@ describe("web layout config", () => {
     expect(config.kind).toBe("study-guide");
   });
 
+  it("uses the installation-owned logo for a Quick Chat workspace", async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "web-layout-quick-chat-"));
+    tempDirs.push(temporaryRoot);
+    const workspace = path.join(temporaryRoot, "quick-chats", "thread-quick");
+    await mkdir(workspace, { recursive: true });
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Erstelle einen interaktiven Study Guide für MEL",
+      kind: "study-guide",
+    });
+
+    expect(config.assetFiles).toContain(path.resolve(process.cwd(), "CI", "logo.png"));
+    expect(config.assetFiles).not.toContain(path.join(workspace, "CI", "logo.png"));
+  });
+
   it("creates a request-specific timestamped run directory", async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-config-"));
     tempDirs.push(workspace);

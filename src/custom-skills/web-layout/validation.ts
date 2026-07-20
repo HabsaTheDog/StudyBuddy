@@ -312,7 +312,10 @@ async function validateStudyGuideInteractionMatrix(
         const visiblePanels = Array.from(document.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((candidate) => !candidate.hidden && getComputedStyle(candidate).display !== "none");
         const mathIssues = Array.from(panel?.querySelectorAll<MathMLElement>("math") || []).flatMap((math) => {
           const label = math.getAttribute("aria-label") || "";
-          const proseWords = (label.match(/\b[A-Za-zÄÖÜäöüß]{4,}\b/g) || []).filter((word) => !/^(?:lim|sin|cos|tan|exp|log|sqrt)$/i.test(word));
+          const namedSubscripts = new Set(Array.from(math.querySelectorAll("msub > mi:last-child, msub > mrow:last-child mi"))
+            .flatMap((node) => node.textContent?.match(/\b[A-Za-zÄÖÜäöüß]{4,}\b/g) || []));
+          const proseWords = (label.match(/\b[A-Za-zÄÖÜäöüß]{4,}\b/g) || [])
+            .filter((word) => !/^(?:lim|sin|cos|tan|exp|log|sqrt)$/i.test(word) && !namedSubscripts.has(word));
           const owner = math.closest<HTMLElement>(".math-inline,.math-scroll,.option-content,.feedback,.worked-body,.question-content,.result,.problem,.steps li");
           const mathRect = math.getBoundingClientRect();
           const ownerRect = owner?.getBoundingClientRect();

@@ -67,6 +67,7 @@ export async function runInteractiveStudyGuideWorkflow(
   const now = dependencies.now ?? (() => new Date());
   const requestName = safePathSegment(input.requestName ?? prompt).slice(0, 80) || "interactive-study-guide";
   const workflowDir = path.resolve(input.resumeRunDir ?? input.runDir ?? path.join(workspace.runsRoot, requestName, timestamp(now())));
+  ensureInsideWorkspaceDataRoot(workspace.dataRoot, workflowDir);
   ensurePrivateDirectorySync(workflowDir);
   const releaseLease = await acquireRunLease(workflowDir, { reentrant: true });
   const summaryPath = path.join(workflowDir, "workflow-summary.md");
@@ -80,6 +81,9 @@ export async function runInteractiveStudyGuideWorkflow(
   };
   await writeWorkflowSummary(summaryPath, { ...baseResult }, "queued", prompt);
   let releaseWorkflowSlot: () => Promise<void> = async () => undefined;
+  let sourceRunDir: string | undefined;
+  let webLayoutRunDir: string | undefined;
+  let outputPath: string | undefined;
 
   try {
     const acquireWorkflowSlot = dependencies.acquireWorkflowSlot ?? (
@@ -100,7 +104,6 @@ export async function runInteractiveStudyGuideWorkflow(
     const runWebLayout = dependencies.runWebLayout ?? runWebLayoutGraph;
     const publish = dependencies.publish ?? publishStudyBuddyDeliverables;
     const maximumAttempts = clamp(input.maxExtractionAttempts ?? 3, 1, 4);
-    let sourceRunDir: string | undefined;
     for (let index = 0; index < extractionRunDirs.length; index += 1) {
       await hydrateRecoveryHandoff(extractionRunDirs[index]!, extractionRunDirs.slice(0, index));
     }
@@ -140,7 +143,7 @@ export async function runInteractiveStudyGuideWorkflow(
       return failed;
     }
 
-    const webLayoutRunDir = path.join(workflowDir, "web-layout");
+    webLayoutRunDir = path.join(workflowDir, "web-layout");
     const webResult = await runWebLayout({
       prompt,
       kind: "study-guide",
@@ -155,6 +158,8 @@ export async function runInteractiveStudyGuideWorkflow(
       executionProfile: input.executionProfile ?? "balanced",
       modelPolicyOverrides: input.modelPolicyOverrides,
     });
+    webLayoutRunDir = webResult.runDir;
+    outputPath = webResult.outputPath;
     if (!webResult.ok || !webResult.outputPath) {
       const failed = {
         ...baseResult,
@@ -170,7 +175,7 @@ export async function runInteractiveStudyGuideWorkflow(
     const publishedDeliverables = await publish({
       prompt,
       runDir: workflowDir,
-      sourcePaths: [webResult.outputPath],
+      sourcePaths: [outputPath],
       deliverTo: input.deliverTo,
     });
     const completed: InteractiveStudyGuideResult = {
@@ -178,15 +183,22 @@ export async function runInteractiveStudyGuideWorkflow(
       runDir: workflowDir,
       extractionRunDirs,
       sourceRunDir,
-      webLayoutRunDir: webResult.runDir,
-      outputPath: webResult.outputPath,
+      webLayoutRunDir,
+      outputPath,
       publishedDeliverables,
       summaryPath,
     };
     await writeWorkflowSummary(summaryPath, completed, "success", prompt);
     return completed;
   } catch (error) {
-    const failed = { ...baseResult, extractionRunDirs, error: error instanceof Error ? error.message : String(error) };
+    const failed = {
+      ...baseResult,
+      extractionRunDirs,
+      sourceRunDir,
+      webLayoutRunDir,
+      outputPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
     await writeWorkflowSummary(summaryPath, failed, "failed", prompt);
     return failed;
   } finally {
@@ -338,4 +350,14 @@ function timestamp(value: Date): string {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, Math.floor(value)));
+}
+
+function ensureInsideWorkspaceDataRoot(dataRoot: string, workflowDir: string): void {
+  const relative = path.relative(path.resolve(dataRoot), path.resolve(workflowDir));
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(
+      `Interactive Study Guide run directory is outside the resolved workspace data root (${dataRoot}): ${workflowDir}. ` +
+      "Check STUDY_BUDDY_WORKSPACE propagation before starting the workflow.",
+    );
+  }
 }

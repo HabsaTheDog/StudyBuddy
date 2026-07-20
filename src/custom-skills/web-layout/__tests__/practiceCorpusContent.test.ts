@@ -57,7 +57,10 @@ describe("practice-corpus source links", () => {
         id: "mel",
         title: "Toleranzen",
         learningGoals: ["l_m bestimmen"],
-        theory: { summary: "Eine ausreichend lange, fachlich klare Zusammenfassung für den Renderer-Test. ".repeat(2), keyIdeas: ["A_K", "F_v,Rd"], formulas: [{ expression: "A_K = l_m · s_m", meaning: "Klebefläche" }] },
+        theory: { summary: "Eine ausreichend lange, fachlich klare Zusammenfassung für den Renderer-Test. ".repeat(2), keyIdeas: ["A_K", "F_v,Rd"], formulas: [
+          { expression: "A_K = l_m · s_m", meaning: "Klebefläche" },
+          { expression: "ηHonig/ηWasser≈10⁴", meaning: "Viskositätsverhältnis" },
+        ] },
         workedExamples: [{ title: "Beispiel", prompt: "Berechne A_K.", steps: ["Setze l_m ein.", "Multipliziere mit s_m."], answer: "A_K = 1", source: exercise.source }],
         exercises: [exercise, { ...exercise, id: "mel-math-2" }, { ...exercise, id: "mel-math-3" }],
         retrieval: [{ prompt: "Was bedeutet A_K?", answer: "Klebefläche" }],
@@ -72,6 +75,7 @@ describe("practice-corpus source links", () => {
     expect(html).not.toContain("<sub>a,n</sub>_1");
     expect(html).toContain("<var>T</var><sub>a</sub>");
     expect(html).toContain("Kapitel Toleranzen mit <var>n</var><sub>z</sub> und <var>t</var><sub>m</sub>");
+    expect(html).toContain('<math xmlns="http://www.w3.org/1998/Math/MathML" aria-label="ηHonig/ηWasser≈10⁴"><mrow><mfrac><msub><mi>η</mi><mi>Honig</mi></msub><msub><mi>η</mi><mi>Wasser</mi></msub></mfrac><mo>≈</mo><msup><mn>10</mn><mn>4</mn></msup></mrow></math>');
     expect(html).toContain("study-buddy-guide-mel1-maschinenelemente-1-v1");
   });
 

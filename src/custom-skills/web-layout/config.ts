@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { webLayoutKindSchema } from "./schemas.js";
 import type { WebLayoutInput, WebLayoutKind, WebLayoutRuntimeConfig, WebLayoutSourceMode } from "./types.js";
 import { parseExecutionProfile, parseReasoningEffort } from "../shared/modelPolicy.js";
@@ -15,6 +16,8 @@ export const DEFAULT_MAX_ARTIFACT_BYTES = 100_000_000;
 export const ABSOLUTE_MAX_ARTIFACT_BYTES = 250_000_000;
 export const DEFAULT_MAX_IMAGE_WIDTH = 2_000;
 export const DEFAULT_WEBP_QUALITY = 84;
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CANONICAL_STUDY_BUDDY_LOGO_PATH = path.resolve(MODULE_DIR, "../../../CI/logo.png");
 
 export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRuntimeConfig {
   if (!input.prompt.trim()) {
@@ -47,12 +50,14 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
     ? resolveStudyBuddyWorkspacePath(input.outputPath, workspaceRoot)
     : path.join(runDir, "document.html");
   ensurePrivateDirectorySync(runDir);
-  const canonicalLogoPath = path.join(workspaceRoot, "CI", "logo.png");
   const assetFiles = [
     ...(input.assetFiles ?? []).map((file) => resolveStudyBuddyWorkspacePath(file, workspaceRoot)),
   ];
-  if (existsSync(canonicalLogoPath) && !assetFiles.some((file) => path.resolve(file) === canonicalLogoPath)) {
-    assetFiles.unshift(canonicalLogoPath);
+  if (
+    existsSync(CANONICAL_STUDY_BUDDY_LOGO_PATH) &&
+    !assetFiles.some((file) => path.resolve(file) === CANONICAL_STUDY_BUDDY_LOGO_PATH)
+  ) {
+    assetFiles.unshift(CANONICAL_STUDY_BUDDY_LOGO_PATH);
   }
 
   return {

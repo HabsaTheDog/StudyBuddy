@@ -7,6 +7,7 @@ const QUIZ_TERMS = [
   "moodle test",
   "selbstcheck",
   "selfcheck",
+  "self quiz",
 ];
 
 const ACTION_TERMS = [
@@ -21,6 +22,7 @@ const ACTION_TERMS = [
   "loes",
   "answer",
   "solve",
+  "do",
   "fill",
   "complete",
   "start",
