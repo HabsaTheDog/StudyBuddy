@@ -240,6 +240,28 @@ describe("quizReviewNode", () => {
     expect(client.calls).not.toContain("click:@dashboard");
   });
 
+  it("prefers the next-page control over an earlier attempt-summary link", async () => {
+    const client = new FakeQuizBrowserClient({
+      initialSnapshot: {
+        refs: {
+          finish: { role: "link", name: "Versuch abschließen ..." },
+          next: { role: "button", name: "Nächste Seite" },
+        },
+        snapshot:
+          '- link "Versuch abschließen ..." [ref=finish]\n' +
+          '- button "Nächste Seite" [ref=next]',
+      },
+    });
+
+    await expect(clickSafeNextPage(client)).resolves.toMatchObject({
+      clicked: true,
+      kind: "next_page",
+      ref: "next",
+    });
+    expect(client.calls).toContain("click:@next");
+    expect(client.calls).not.toContain("click:@finish");
+  });
+
   it("uses Moodle's last-page control to save answers and open the attempt summary", async () => {
     const client = new FakeQuizBrowserClient({
       initialSnapshot: {
@@ -281,6 +303,29 @@ describe("quizReviewNode", () => {
     await expect(readFile(path.join(runDir, "quiz-candidates.json"), "utf8")).resolves.toContain(
       '"order": 0',
     );
+  });
+
+  it("selects Selbstcheck 3 exactly when the number follows the quiz kind", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-numbered-target-"));
+    const config = {
+      ...testConfig(runDir),
+      prompt:
+        "Bearbeite den Selbstcheck 3 in Elektrotechnik 2 und fülle sicher belegte Antworten aus.",
+      moodleUrl: "https://moodle.example/my/",
+      dashboardUrl: "https://moodle.example/my/",
+      maxPages: 24,
+    };
+
+    const target = await discoverQuizTarget(config, new FakeQuizDiscoveryClient());
+    const candidates = JSON.parse(
+      await readFile(path.join(runDir, "quiz-candidates.json"), "utf8"),
+    ) as Array<{ title: string; score: number }>;
+
+    expect(target).toBe("https://moodle.example/mod/quiz/view.php?id=103");
+    expect(candidates.find((candidate) => candidate.title === "3. Selbstcheck Test")?.score)
+      .toBeGreaterThan(
+        candidates.find((candidate) => candidate.title === "1. Selbstcheck Test")?.score ?? 0,
+      );
   });
 
   it("persists a diagnostic quiz report when discovery finds no target", async () => {
@@ -596,8 +641,13 @@ class FakeQuizDiscoveryClient implements AgentBrowserClient {
           },
           q2: {
             role: "link",
-            name: "Selbstcheck 2",
+            name: "2. Selbstcheck Test",
             href: "https://moodle.example/mod/quiz/view.php?id=102",
+          },
+          q3: {
+            role: "link",
+            name: "3. Selbstcheck Test",
+            href: "https://moodle.example/mod/quiz/view.php?id=103",
           },
           t12generic: {
             role: "link",
@@ -622,7 +672,8 @@ class FakeQuizDiscoveryClient implements AgentBrowserClient {
         },
         snapshot:
           '- link "Selbstcheck 1" [ref=q1]\n' +
-          '- link "Selbstcheck 2" [ref=q2]\n' +
+          '- link "2. Selbstcheck Test" [ref=q2]\n' +
+          '- link "3. Selbstcheck Test" [ref=q3]\n' +
           '- link "Test" [ref=t12generic]\n' +
           '- link "Test zu 1. und 2. Einheit" [ref=t12]\n' +
           '- link "Test" [ref=t8generic]\n' +

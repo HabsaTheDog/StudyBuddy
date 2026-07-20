@@ -16,7 +16,6 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
     try {
       if (
         config.kind === "study-guide" &&
-        config.language === "de" &&
         Object.keys(state.study_guide_content).length > 0
       ) {
         const html = applyOfflineSecurityPolicy(renderStandardStudyGuide(state.study_guide_content, config.language));

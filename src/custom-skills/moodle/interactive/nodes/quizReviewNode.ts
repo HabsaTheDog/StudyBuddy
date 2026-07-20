@@ -901,13 +901,17 @@ export async function clickSafeNextPage(
         role: details?.role ?? /^\s*([^\s"]+)/.exec(line)?.[1] ?? "",
       };
     })
-    .find(
+    .filter(
       ({ name, ref, role }) =>
         Boolean(ref) &&
         /^(?:button|link)$/i.test(role) &&
         isSafeNextPageLabel(name) &&
         !isFinalSubmitClickLabel(name),
-    );
+    )
+    .sort(
+      (left, right) =>
+        navigationControlPriority(right.name) - navigationControlPriority(left.name),
+    )[0];
   if (candidate?.ref) {
     await client.click(browserRefSelector(candidate.ref));
     return {
@@ -933,6 +937,10 @@ function isAttemptSummaryLabel(label: string): boolean {
   return /^(?:versuch beenden|versuch abschlie(?:ß|ss)en|finish attempt)(?:\s*(?:\.{3}|…))?$/i.test(
     label.replace(/\s+/g, " ").trim(),
   );
+}
+
+function navigationControlPriority(label: string): number {
+  return isAttemptSummaryLabel(label) ? 0 : 1;
 }
 
 export function markPageFillPersistence(
@@ -1184,6 +1192,10 @@ function scoreQuizCandidate(prompt: string, title: string, url: string, index: n
   if (intent.requiredUnits.size > 0 && sameNumberSet(intent.requiredUnits, candidateUnits)) {
     score += 100;
   }
+  const candidateOrdinal = requestedOrdinal(title);
+  if (intent.ordinal !== null && candidateOrdinal !== null) {
+    score += candidateOrdinal === intent.ordinal ? 100 : -1_000;
+  }
   if ([...candidateUnits].some((unit) => intent.excludedUnits.has(unit))) {
     score -= 1_000;
   }
@@ -1203,8 +1215,17 @@ function selectQuizCandidate(prompt: string, candidates: QuizCandidate[]): QuizC
     return matching.length === 1 ? matching[0] : null;
   }
   matching = matching.sort((a, b) => a.order - b.order);
-  if (intent.ordinal !== null && matching[intent.ordinal - 1]) {
-    return matching[intent.ordinal - 1];
+  if (intent.ordinal !== null) {
+    const explicitlyNumbered = matching.filter(
+      (candidate) => requestedOrdinal(candidate.title) !== null,
+    );
+    if (explicitlyNumbered.length > 0) {
+      const exact = explicitlyNumbered.filter(
+        (candidate) => requestedOrdinal(candidate.title) === intent.ordinal,
+      );
+      return exact.length === 1 ? exact[0] : null;
+    }
+    return matching[intent.ordinal - 1] ?? null;
   }
   return [...matching].sort((a, b) => b.score - a.score || a.order - b.order)[0] ?? null;
 }
@@ -1310,9 +1331,11 @@ function requestedOrdinal(prompt: string): number | null {
   if (/\b(?:erste(?:n|r|s|m)?|first)\b/i.test(prompt)) return 1;
   if (/\b(?:zweite(?:n|r|s|m)?|second)\b/i.test(prompt)) return 2;
   if (/\b(?:dritte(?:n|r|s|m)?|third)\b/i.test(prompt)) return 3;
-  const numbered = /\b(\d{1,2})\s*\.?\s*(?:selbstcheck|minitest|kurztest|quiz|test)\b/i.exec(
-    prompt,
-  );
+  const numbered =
+    /\b(\d{1,2})\s*\.?\s*(?:selbst[ -]?check|minitest|kurztest|quiz|test)\b/i.exec(prompt) ??
+    /\b(?:selbst[ -]?check|minitest|kurztest|quiz|test)\s*(?:nummer\s*|nr\.?\s*|#\s*)?(\d{1,2})\b/i.exec(
+      prompt,
+    );
   const value = numbered ? Number(numbered[1]) : Number.NaN;
   return Number.isInteger(value) && value > 0 ? value : null;
 }

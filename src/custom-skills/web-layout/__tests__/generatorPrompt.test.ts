@@ -14,6 +14,80 @@ afterEach(async () => {
 });
 
 describe("generator prompt", () => {
+  it("renders English study guides deterministically without a model call", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-english-study-guide-"));
+    tempDirs.push(runDir);
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build an English mechanics study guide",
+      kind: "study-guide",
+      language: "en",
+      runDir,
+    });
+    let modelCalls = 0;
+    const source = { label: "Mechanics notes", sourceTask: "Chapter 1", provenance: "source" as const };
+    const exercise = {
+      id: "mechanics-check-1",
+      type: "cross" as const,
+      prompt: "Which statement correctly describes force equilibrium?",
+      selectionMode: "single" as const,
+      options: [
+        { text: "The force sum is zero.", correct: true, feedback: "Correct." },
+        { text: "Every force is individually zero.", correct: false, feedback: "Forces may cancel." },
+      ],
+      explanation: "Equilibrium requires the vector sum of all forces to be zero.",
+      source,
+    };
+    const result = await createGeneratorNode(config, {
+      run: async () => {
+        modelCalls += 1;
+        throw new Error("The English study-guide renderer must not call the model.");
+      },
+    })({
+      ...initialWebLayoutState,
+      study_guide_content: {
+        courseTitle: "Engineering Mechanics",
+        courseCode: "MECH",
+        scopeNote: "Covers the supplied equilibrium material.",
+        topics: [{
+          id: "equilibrium",
+          title: "Force Equilibrium",
+          learningGoals: ["Recognize equilibrium conditions."],
+          theory: {
+            summary: "Force equilibrium means that the vector sum of every external force acting on a body is zero, so its linear acceleration is zero.",
+            keyIdeas: ["Forces are vectors.", "Balanced forces may be nonzero."],
+            formulas: [{ expression: "ΣF = 0", meaning: "Force equilibrium" }],
+          },
+          workedExamples: [{
+            title: "Balanced load",
+            prompt: "Determine whether two opposite forces are balanced.",
+            steps: ["Choose a positive direction.", "Add the signed force components."],
+            answer: "The resultant force is zero.",
+            source,
+          }],
+          exercises: [
+            exercise,
+            { ...exercise, id: "mechanics-check-2" },
+            { ...exercise, id: "mechanics-check-3" },
+          ],
+          retrieval: [{ prompt: "What is the equilibrium condition?", answer: "The vector force sum is zero." }],
+        }],
+        sources: [{ id: "mechanics", label: "Mechanics notes", url: "", coverage: "Force equilibrium" }],
+      },
+    });
+
+    expect(modelCalls).toBe(0);
+    expect(result.error_log).toBeNull();
+    expect(result.html_document).toContain('<html lang="en">');
+    expect(result.html_document).toContain('name="study-buddy-renderer" content="standard-study-guide-v1"');
+    expect(result.html_document).toContain("Engineering Mechanics");
+    expect(result.html_document).toContain("Overall progress");
+    expect(result.html_document).toContain("Continue learning");
+    expect(result.html_document).toContain("Check answer");
+    expect(result.html_document).toContain("Source · Chapter 1");
+    expect(result.html_document).not.toContain("Gesamtfortschritt");
+    expect(result.html_document).not.toContain("Antwort auswerten");
+  });
+
   it("contains Study Buddy design tokens and single-file rules", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-prompt-"));
     tempDirs.push(runDir);

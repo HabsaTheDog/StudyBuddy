@@ -21,6 +21,26 @@ describe("interactive Study Guide workflow", () => {
     await Promise.all(releases.map((release) => release()));
   });
 
+  it("fails before extraction when the run directory and resolved workspace disagree", async () => {
+    const outsideDataRoot = path.join(
+      process.cwd(),
+      "output",
+      "test-quick-chat",
+      "study-buddy-data",
+      "runs",
+      `${Date.now()}`,
+    );
+    let extractionCalled = false;
+
+    await expect(runInteractiveStudyGuideWorkflow({ prompt: "Study Guide MEL", runDir: outsideDataRoot }, {
+      runExtraction: async () => {
+        extractionCalled = true;
+        throw new Error("must not extract");
+      },
+    })).rejects.toThrow("Check STUDY_BUDDY_WORKSPACE propagation");
+    expect(extractionCalled).toBe(false);
+  });
+
   it("renders only after a validated extraction and preserves the exact prompt", async () => {
     const root = path.join(process.cwd(), "study-buddy-data", "test-interactive-workflow", `${Date.now()}`);
     const calls: string[] = [];
@@ -73,6 +93,36 @@ describe("interactive Study Guide workflow", () => {
 
     expect(result.ok).toBe(true);
     expect(profiles).toEqual(["extract:quality", "web:quality"]);
+  });
+
+  it("preserves a validated HTML artifact when publication fails", async () => {
+    const root = path.join(process.cwd(), "study-buddy-data", "test-interactive-publish-failure", `${Date.now()}`);
+    const extractionRunDir = path.join(root, "extraction");
+    const webLayoutRunDir = path.join(root, "web-layout");
+    const outputPath = path.join(webLayoutRunDir, "document.html");
+    const publicationError = "Canonical deliverable must be inside study-buddy-data";
+
+    const result = await runInteractiveStudyGuideWorkflow({ prompt: "Study Guide MEL", runDir: root }, {
+      runExtraction: async (input) => {
+        await validHandoff(input.runDir!);
+        return { ok: true, runDir: input.runDir! } as never;
+      },
+      runWebLayout: async (input) => {
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(outputPath, "<!doctype html><title>Validated MEL</title>", "utf8");
+        return { ok: true, runDir: input.runDir!, outputPath } as never;
+      },
+      publish: async () => {
+        throw new Error(publicationError);
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.sourceRunDir).toBe(extractionRunDir);
+    expect(result.webLayoutRunDir).toBe(webLayoutRunDir);
+    expect(result.outputPath).toBe(outputPath);
+    expect(result.error).toBe(publicationError);
+    await expect(readFile(result.summaryPath, "utf8")).resolves.toContain(`Canonical HTML: ${outputPath}`);
   });
 
   it("continues a recoverable extraction checkpoint before rendering", async () => {
