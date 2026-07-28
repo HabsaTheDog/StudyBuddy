@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createVisualPlannerNode } from "../nodes/visualPlannerNode.js";
+import {
+  buildDeterministicVisualPlan,
+  createVisualPlannerNode,
+} from "../nodes/visualPlannerNode.js";
 import { RunDiagnostics } from "../runDiagnostics.js";
 import { ResourceManifestSchema } from "../examNavigatorContracts.js";
 import { buildVisualPageIndex, readVisualRetrievalPlan } from "../visualPlanner.js";
@@ -77,5 +80,81 @@ describe("visual planner node", () => {
 
     expect(index.entries).toEqual([]);
     expect(index.warnings.join("\n")).toContain("Moodle returned an HTML page");
+  });
+
+  it("selects a bounded and repeatable visual plan without invoking Codex", () => {
+    const config = moodleTestConfig({ executionProfile: "balanced" });
+    const state = moodleTestState({
+      source_architect_decision: {
+        ...moodleTestState().source_architect_decision,
+        learningArchitecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "module-a",
+            title: "Module A",
+            priority: "essential",
+            contentMode: "quantitative",
+            learningObjectives: ["Apply the method"],
+            assessmentSignals: ["Worked example"],
+            resourceUrls: ["https://moodle.example/mod/resource/view.php?id=1"],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      },
+      resource_manifest: ResourceManifestSchema.parse({
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [{
+          id: "res-direct",
+          parentId: null,
+          sectionPath: ["Module A"],
+          activityType: "resource",
+          title: "Worked examples",
+          originUrl: "https://moodle.example/mod/resource/view.php?id=1",
+          resolvedUrl: null,
+          localPath: null,
+          previewPath: null,
+          status: "acquired",
+          checksum: null,
+          verifiedAt: new Date().toISOString(),
+          examRelevance: "confirmed",
+          failureReason: null,
+        }],
+      }),
+    });
+    const pageIndex = {
+      schemaVersion: "1.0" as const,
+      generatedAt: new Date().toISOString(),
+      warnings: [],
+      entries: [{
+        resourceId: "res-direct",
+        title: "Worked examples",
+        sourcePath: "/tmp/examples.pdf",
+        sourceUrl: "https://moodle.example/mod/resource/view.php?id=1",
+        sectionPath: ["Module A"],
+        pageCount: 20,
+        pages: Array.from({ length: 20 }, (_, index) => ({
+          page: index + 1,
+          hint: `Page ${index + 1}`,
+          signals: index % 2 === 0
+            ? ["worked_example", "formula_or_math"]
+            : ["context_logo"],
+        })),
+      }],
+    };
+
+    const first = buildDeterministicVisualPlan(config, state, pageIndex);
+    const second = buildDeterministicVisualPlan(config, state, pageIndex);
+
+    expect(second).toEqual(first);
+    expect(first.requests).toHaveLength(1);
+    expect(first.requests[0]).toMatchObject({
+      resourceId: "res-direct",
+      priority: "high",
+      purpose: "worked_example",
+    });
+    expect(first.requests[0].pages).toHaveLength(2);
   });
 });

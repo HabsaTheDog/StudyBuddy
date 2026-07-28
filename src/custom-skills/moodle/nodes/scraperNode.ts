@@ -21,6 +21,7 @@ import { ResourceAttemptRecorder } from "../resourceAttemptRecorder.js";
 import {
   planInitialResourceProbe,
   planCourseResources,
+  remainingInitialProbeSlots,
   writeResourcePlan,
   type PlannedResource,
   type ResourcePlanningCandidate,
@@ -39,6 +40,7 @@ import {
   resolveCourseTargetsFromLinks,
   scoreCourseTargetLabel,
 } from "../courseTargeting.js";
+import { isLikelyMoodleUrl } from "../moodleSite.js";
 import {
   assertQuizPolicyAllows,
   detectQuizRestrictions,
@@ -1530,11 +1532,14 @@ async function planFileLinks<T extends { href: string; label: string; sectionTit
   const profile = config.intentDecision?.needsCourseMaterial
     ? config.executionProfile
     : "fast";
+  const planLimit = config.intentDecision?.needsCourseMaterial && !config.evidenceHandoffOnly
+    ? await remainingInitialProbeSlots(config.runDir, profile, remaining)
+    : remaining;
   const plan = config.intentDecision?.needsCourseMaterial
     ? config.evidenceHandoffOnly
-      ? planCourseResources(relevant, profile, remaining)
-      : planInitialResourceProbe(relevant, profile, remaining)
-    : planCourseResources(relevant, profile, remaining);
+      ? planCourseResources(relevant, profile, planLimit)
+      : planInitialResourceProbe(relevant, profile, planLimit)
+    : planCourseResources(relevant, profile, planLimit);
   await writeRunProgress(config, { phase: "downloading_sources" });
   const planPath = await writeResourcePlan(config.runDir, plan);
   const persistedPlan = await readFile(planPath, "utf8")
@@ -2066,7 +2071,8 @@ function sourceAcquisitionBudgetMs(profile: MoodleRuntimeConfig["executionProfil
 function isExternalResource(value: string | undefined): boolean {
   if (!value) return false;
   try {
-    return new URL(value).hostname !== "moodle.technikum-wien.at";
+    new URL(value);
+    return !isLikelyMoodleUrl(value);
   } catch {
     return false;
   }

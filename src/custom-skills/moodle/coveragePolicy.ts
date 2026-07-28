@@ -244,7 +244,7 @@ function explainIssue(
 
 function retryActionForStatus(status: ResourceManifest["resources"][number]["status"]): string {
   if (status === "tls_failure") {
-    return "FHTW/HAN-CA-Zertifikat konfigurieren und nur die betroffenen externen Ressourcen erneut laden.";
+    return "Das CA-Zertifikat der betroffenen Moodle-/Proxy-Instanz konfigurieren und nur diese externen Ressourcen erneut laden.";
   }
   return "Vorübergehend fehlgeschlagene Ressourcen mit niedrigerer Parallelität gezielt erneut laden.";
 }

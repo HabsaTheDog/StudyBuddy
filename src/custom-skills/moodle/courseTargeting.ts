@@ -12,6 +12,12 @@ export interface ResolvedCourseTarget {
   warnings: string[];
 }
 
+export interface ResolvedCourseIdentity {
+  title: string;
+  url?: string;
+  confidence: "high" | "medium" | "low" | "direct";
+}
+
 interface CourseAlias {
   code: string;
   aliases: string[];
@@ -59,6 +65,74 @@ export function extractCourseTargetHint(prompt: string): CourseTargetHint {
     requestedNames: [...requestedNames],
     canonicalLabel,
   };
+}
+
+/**
+ * Resolve one requested course for an already acquired course corpus.
+ *
+ * Original user prompts may mention several courses ("compare MEL and
+ * Dynamik"), while the normalized workflow prompt and Moodle evidence belong
+ * to only one run. Prefer a requested code corroborated by the acquired
+ * corpus, then the normalized single-course prompt, and only then an
+ * unambiguous request-only code. A generic course word such as "Dynamik" may
+ * identify a corpus candidate when exactly one known Moodle course matches it.
+ */
+export function resolveRequestedCourseCode(
+  normalizedPrompt: string,
+  originalPrompt = "",
+  sourceText = "",
+): string | undefined {
+  const normalized = extractCourseTargetHint(normalizedPrompt);
+  const original = extractCourseTargetHint(originalPrompt);
+  const requestedCodes = [...new Set([
+    ...normalized.requestedCodes,
+    ...original.requestedCodes,
+  ])];
+  const sourceCodes = knownCourseCodesFromText(sourceText);
+
+  const corroborated = requestedCodes.filter((code) => sourceCodes.includes(code));
+  if (corroborated.length === 1) return corroborated[0];
+
+  const requestText = `${normalizedPrompt}\n${originalPrompt}`;
+  const inferredFromCorpus = sourceCodes.filter((code) => {
+    const course = COURSE_ALIASES.find((entry) => entry.code === code);
+    return course?.aliases.some((alias) =>
+      courseIdentityTerms(alias).some((term) => textIncludesPhrase(requestText, term))
+    );
+  });
+  if (inferredFromCorpus.length === 1) return inferredFromCorpus[0];
+
+  if (normalized.requestedCodes.length === 1) {
+    return normalized.requestedCodes[0];
+  }
+  if (requestedCodes.length === 1) {
+    return requestedCodes[0];
+  }
+  return undefined;
+}
+
+export function extractResolvedCourseIdentity(sourceText: string): ResolvedCourseIdentity | undefined {
+  const resolutionBlock = /\[Moodle course resolution\]([\s\S]*?)(?=\n\[|$)/i.exec(sourceText)?.[1] ?? "";
+  const selected = /^Selected:\s*(.+)$/im.exec(resolutionBlock)?.[1]?.trim();
+  const explicitTitle = /^Course title:\s*(.+)$/im.exec(resolutionBlock)?.[1]?.trim();
+  const url = /^URL:\s*(https?:\/\/\S+)$/im.exec(resolutionBlock)?.[1]?.trim();
+  const confidenceValue = /^Confidence:\s*(high|medium|low)$/im.exec(resolutionBlock)?.[1]
+    ?.toLowerCase();
+  if (selected && selected.toLowerCase() !== "none") {
+    return {
+      title: explicitTitle || selected,
+      ...(url ? { url } : {}),
+      confidence: confidenceValue === "high" || confidenceValue === "medium" || confidenceValue === "low"
+        ? confidenceValue
+        : "medium",
+    };
+  }
+
+  const pageTitle = /^(?:Title:\s*)?(?:Course|Kurs)\s*:\s*([^|\n]+)(?:\s*\||$)/im
+    .exec(sourceText)?.[1]?.replace(/\s+/g, " ").trim();
+  return pageTitle
+    ? { title: pageTitle, confidence: "direct" }
+    : undefined;
 }
 
 export function resolveCourseTargetsFromLinks(
@@ -214,6 +288,29 @@ function mentionIsNegated(text: string, phrase: string): boolean {
 
 function textTokens(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9äöüß]+/gi) ?? [];
+}
+
+function knownCourseCodesFromText(text: string): string[] {
+  if (!text.trim()) return [];
+  return COURSE_ALIASES
+    .filter((course) =>
+      textTokens(text).includes(course.code.toLowerCase()) ||
+      course.aliases.some((alias) => alias.length > 3 && textIncludesPhrase(text, alias))
+    )
+    .map((course) => course.code);
+}
+
+function courseIdentityTerms(alias: string): string[] {
+  const stopwords = new Set([
+    "anwendung",
+    "anwendungen",
+    "der",
+    "die",
+    "des",
+    "für",
+    "grundlagen",
+  ]);
+  return textTokens(alias).filter((term) => term.length >= 4 && !stopwords.has(term));
 }
 
 function normalizeUrl(url: string): string {

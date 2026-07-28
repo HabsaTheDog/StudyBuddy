@@ -51,6 +51,6 @@ I also learned how valuable Codex becomes when it is treated as an engineering c
 
 ## What's next for Study Buddy
 
-Study Buddy is architected for Linux, macOS, and Windows, but the current build has only been tested end to end on Linux. Before the planned September 2026 student alpha, I want to validate native Windows and macOS compatibility, finish platform-specific setup and packaging, complete the opt-in content-free tracking setup, clean up the remaining rough edges, and add a safe synthetic demo environment. From there, I want to support more institutions and expand the evaluation corpus across more subjects and learning styles.
+Study Buddy is designed for Linux, macOS, and Windows, and automated CI covers Ubuntu Linux, macOS, and native Windows. The current build has only been tested manually end to end on Fedora Linux. Before the planned September 2026 student alpha, I want to complete manual validation on Ubuntu, native Windows, and macOS, finish platform-specific setup and packaging, complete the opt-in content-free tracking setup, clean up the remaining rough edges, and add a safe synthetic demo environment. From there, I want to support more institutions and expand the evaluation corpus across more subjects and learning styles.
 
 The long-term goal is a free, open-source companion that students can run with whatever Codex plan fits them, while keeping their academic data under their control.

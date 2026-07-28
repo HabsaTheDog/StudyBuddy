@@ -8,7 +8,10 @@ import { createRuntimeConfig, sanitizeConfig } from "./config.js";
 import { RunDiagnostics, type SourceCoverage } from "./runDiagnostics.js";
 import { raceWithAbort, StudyBuddyTimeoutError } from "./runtimeAbort.js";
 import { extractedDataJsonSchema } from "./schemas.js";
-import { createAnalyzerNode } from "./nodes/analyzerNode.js";
+import {
+  createAnalyzerNode,
+  reconcileRequestedCourseIdentity,
+} from "./nodes/analyzerNode.js";
 import { answerJsonPath, answerPath, createAnswerWriterNode } from "./nodes/answerWriterNode.js";
 import { createCisScraperNode } from "./nodes/cisScraperNode.js";
 import { createCalendarNode } from "./nodes/calendarNode.js";
@@ -31,7 +34,9 @@ import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceO
 import {
   createSourceArchitectNode,
   createTargetedAcquisitionNode,
+  reconcileLearningArchitectureWithCatalog,
   routeAfterSourceArchitect,
+  type CatalogEntry,
 } from "./sourceArchitect.js";
 import { typstPdfPath } from "./typstTemplate.js";
 import { getStudyBuddyTypstSupportFiles } from "./typstAssets.js";
@@ -81,10 +86,11 @@ import {
 } from "./pendingExtractionRepairs.js";
 
 const MAX_RETRIES = 3;
-// Extraction may perform one targeted semantic repair after its first review.
-// A second failed review is terminal; re-running whole chapters a third time
-// was the dominant cause of the 45-minute timeouts.
-const MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS = 3;
+// Keep semantic repair inside the same global three-retry ceiling. Analyzer
+// schema failures can consume an earlier retry before the first semantic
+// review; using the full ceiling still leaves one localized quality repair in
+// that case without permitting an unbounded whole-course loop.
+const MAX_EXTRACTION_SEMANTIC_REVIEW_ATTEMPTS = MAX_RETRIES;
 // Source-architect rounds and analyzer/formatter/reviewer repair loops are each
 // independently bounded. The default LangGraph limit of 25 is too small for a
 // legitimate worst-case path through those bounded loops.
@@ -481,7 +487,10 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addNode("bundleWriter", createBundleWriterNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "courseResolver")
-    .addEdge("courseResolver", "sourceOrchestrator")
+    .addConditionalEdges("courseResolver", routeAfterCourseResolver, {
+      sourceOrchestrator: "sourceOrchestrator",
+      abort: END,
+    })
     .addEdge("sourceOrchestrator", "resourceManifest")
     .addEdge("resourceManifest", "evidence")
     .addEdge("evidence", "sourceArchitect")
@@ -545,7 +554,10 @@ export function buildAnswerGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addNode("answerWriter", createAnswerWriterNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "courseResolver")
-    .addEdge("courseResolver", "sourceOrchestrator")
+    .addConditionalEdges("courseResolver", routeAfterCourseResolver, {
+      sourceOrchestrator: "sourceOrchestrator",
+      abort: END,
+    })
     .addEdge("sourceOrchestrator", "sourceGate")
     .addConditionalEdges("sourceGate", (state) => routeAfterAnswerSourceGate(config, state), {
       analyzer: "analyzer",
@@ -584,7 +596,10 @@ export function buildExtractionGraph(
     .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "courseResolver")
-    .addEdge("courseResolver", "sourceOrchestrator")
+    .addConditionalEdges("courseResolver", routeAfterCourseResolver, {
+      sourceOrchestrator: "sourceOrchestrator",
+      abort: END,
+    })
     .addEdge("sourceOrchestrator", "resourceManifest")
     .addEdge("resourceManifest", "evidence")
     .addEdge("evidence", "sourceArchitect")
@@ -652,7 +667,10 @@ export function buildEvidenceHandoffExtractionGraph(
     .addNode("evidenceHandoff", createEvidenceHandoffNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "courseResolver")
-    .addEdge("courseResolver", "sourceOrchestrator")
+    .addConditionalEdges("courseResolver", routeAfterCourseResolver, {
+      sourceOrchestrator: "sourceOrchestrator",
+      abort: END,
+    })
     .addEdge("sourceOrchestrator", "resourceManifest")
     .addEdge("resourceManifest", "evidence")
     .addEdge("evidence", "coverage")
@@ -870,6 +888,12 @@ function routeAfterAnalyzer(state: LangGraphAgentState): "analyzer" | "formatter
   return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
 }
 
+function routeAfterCourseResolver(
+  state: LangGraphAgentState,
+): "sourceOrchestrator" | "abort" {
+  return state.error_log ? "abort" : "sourceOrchestrator";
+}
+
 function routeAfterCoverage(state: LangGraphAgentState): "sourceGate" | "abort" {
   return state.error_log ? "abort" : "sourceGate";
 }
@@ -912,7 +936,7 @@ function routeAfterArtifactQualityReview(
     : "artifactBuilder";
 }
 
-function routeAfterExtractionQualityReview(
+export function routeAfterExtractionQualityReview(
   state: LangGraphAgentState,
 ): "sourceArchitect" | "contentAnalyzer" | "qualityReviewer" | "done" | "abort" {
   if (!state.error_log) return "done";
@@ -955,9 +979,24 @@ export function qualityFailureNeedsSourceAcquisition(error: string): boolean {
   if (/(?:source[_ ]?ids?|quellenverzeichnis|bibliograph|traceab|nachvollzieh|abgebroch|truncat|gekürzt|gekuerzt|kurzüberblick|kurzueberblick|bestand(?:e|es)?\s+(?:ist|sind)?\s*leer)/i.test(error)) {
     return false;
   }
-  const missing = "(?:fehl(?:t|en|ende[rsn]?)|missing|unavailable|nicht\\s+(?:vorhanden|zugänglich|zugaenglich|erworben|geladen|verfügbar|verfuegbar)|zusätzliche[rsn]?|zusaetzliche[rsn]?|additional)";
-  const source = "(?:kursdatei(?:en)?|course\\s+files?|quelle(?:n)?|sources?|evidenz|evidence|ressourc(?:e|en)?|resources?|unterlage(?:n)?|material(?:ien)?|acquisition|akquisition|erwerb|coverage)";
-  return new RegExp(`${missing}.{0,100}${source}|${source}.{0,100}${missing}`, "i").test(error);
+  if (/(?:weitere|additional).{0,60}(?:kursdatei|course\s+files?|quelle|sources?|ressourc|resources?).{0,60}(?:verfügbar|verfuegbar|available)/i.test(error)) {
+    return true;
+  }
+  // Missing explanations, formulas, methods, or worked applications are
+  // analyzer-output defects even when a reviewer phrases them as "missing
+  // material/pages". Re-enter acquisition only for an explicit source access
+  // failure; otherwise the source-architect round clears the localized review
+  // error and the unchanged handoff is reviewed again.
+  if (/(?:no|missing|fehl(?:t|en)|omit|lacks?|ohne).{0,80}(?:formula|formel|method|methode|example|beispiel|calculation|rechnung|explanation|erklärung|erklaerung|stopping rule|abbruchkriterium)/i.test(error)) {
+    return false;
+  }
+  const unavailable = "(?:unavailable|not\\s+(?:acquired|downloaded|accessible)|download\\s+failed|nicht\\s+(?:zugänglich|zugaenglich|erworben|geladen|verfügbar|verfuegbar)|download\\s+fehlgeschlagen)";
+  const source = "(?:kursdatei(?:en)?|course\\s+files?|quelle(?:n)?|sources?|evidenz|evidence|ressourc(?:e|en)?|resources?|unterlage(?:n)?)";
+  return new RegExp(
+    `${unavailable}.{0,100}${source}|${source}.{0,100}${unavailable}|` +
+    `fehl(?:t|en).{0,40}(?:zugängliche|zugaengliche|verfügbare|verfuegbare).{0,20}${source}`,
+    "i",
+  ).test(error);
 }
 
 function isQualityReviewerExecutionFailure(error: string): boolean {
@@ -1088,6 +1127,7 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
     evidenceText,
     coverageText,
     architectureText,
+    catalogText,
   ] = await Promise.all([
     readFile(path.join(sourceRunDir, "run-summary.md"), "utf8"),
     readFile(path.join(sourceRunDir, "error.log"), "utf8"),
@@ -1097,6 +1137,7 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
     readFile(path.join(sourceRunDir, "evidence-package.json"), "utf8"),
     readFile(path.join(sourceRunDir, "coverage-report.json"), "utf8"),
     readOptional(path.join(sourceRunDir, "learning-architecture.json")),
+    readOptional(path.join(sourceRunDir, "resource-plan.json")),
   ]);
   const downstreamReviewFailure = /^(?:Student-first review failed:|Semantic quality review failed:)/
     .test(errorLog.trim());
@@ -1127,7 +1168,11 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
   const extractedData = extractedText
     ? await hydrateExtractedVisualAssets(
         sourceRunDir,
-        validateExtractedData(JSON.parse(extractedText)),
+        reconcileRequestedCourseIdentity(
+          config,
+          validateExtractedData(JSON.parse(extractedText)),
+          rawText,
+        ),
         config.visualCropMode,
       )
     : {};
@@ -1153,25 +1198,48 @@ async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<A
     }
   }
   await copyExtractionRecoveryCheckpoints(sourceRunDir, config.runDir);
-  const pendingRepairs = await readPendingExtractionRepairs(config.runDir);
-  const mustFinishPendingRepairs = Boolean(pendingRepairs?.pendingChapterTitles.length);
   const learningArchitecture = architectureText
-    ? boundLearningArchitecture(parseLearningArchitectureModelJson(architectureText))
+    ? boundLearningArchitecture(
+      reconcileLearningArchitectureWithCatalog(
+        parseLearningArchitectureModelJson(architectureText),
+        catalogText
+          ? (JSON.parse(catalogText) as { entries?: CatalogEntry[] }).entries ?? []
+          : [],
+      ),
+    )
     : undefined;
+  const pendingRepairs = await readPendingExtractionRepairs(config.runDir);
+  const currentModuleTitles = new Set(
+    (learningArchitecture?.modules ?? []).map((module) => module.title.toLocaleLowerCase("de")),
+  );
+  const relevantPendingRepairs = pendingRepairs
+    ? {
+      ...pendingRepairs,
+      pendingChapterTitles: pendingRepairs.pendingChapterTitles.filter((title) =>
+        currentModuleTitles.has(title.toLocaleLowerCase("de"))
+      ),
+    }
+    : null;
+  const mustFinishPendingRepairs = Boolean(relevantPendingRepairs?.pendingChapterTitles.length);
+  const mustRepairDownstreamReview = mustFinishPendingRepairs || downstreamReviewFailure;
   return {
     ...initialAgentState,
     moodle_raw_text: rawText,
     // An extracted-data snapshot predating a semantic repair is intentionally
     // hidden from START. This forces the analyzer to consume the persisted
     // pending chapter list before the reviewer is allowed to pass the run.
-    extracted_data: mustFinishPendingRepairs ? {} : extractedData,
-    error_log: mustFinishPendingRepairs && pendingRepairs
-      ? pendingExtractionRepairError(pendingRepairs)
+    extracted_data: mustRepairDownstreamReview ? {} : extractedData,
+    error_log: mustFinishPendingRepairs && relevantPendingRepairs
+      ? pendingExtractionRepairError(relevantPendingRepairs)
+      : downstreamReviewFailure
+        ? errorLog.trim()
       : capacityCheckpointedDuringAnalysis && !extractedText
         ? errorLog.trim()
         : null,
-    retry_count: mustFinishPendingRepairs && pendingRepairs
-      ? Math.min(MAX_RETRIES - 1, pendingRepairs.retryCount)
+    retry_count: mustFinishPendingRepairs && relevantPendingRepairs
+      ? Math.min(MAX_RETRIES - 1, relevantPendingRepairs.retryCount)
+      : downstreamReviewFailure
+        ? 1
       : capacityCheckpointedDuringAnalysis
         ? 1
         : 0,
@@ -1208,6 +1276,8 @@ async function copyExtractionRecoveryCheckpoints(
     "visual-retrieval-plan.json",
     "visual-page-index.json",
     "learning-architecture.json",
+    "resource-catalog.json",
+    "resource-plan.json",
     PENDING_EXTRACTION_REPAIRS_FILE,
   ];
   for (const relativePath of relativePaths) {

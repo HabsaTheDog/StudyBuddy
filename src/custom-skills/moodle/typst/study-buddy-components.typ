@@ -116,11 +116,18 @@
   subtitle: none,
   course: none,
   kind: "Lernunterlage",
+  language: "de",
   semester: none,
   author: "Study Buddy",
   status: "Arbeitsstand",
   date: datetime.today().display("[day].[month].[year]"),
 ) = [
+  #let english = language == "en"
+  #let identity_line = if english {
+    "Standardized Study Buddy document · Typst · Corporate Identity"
+  } else {
+    "Standardisiertes Study Buddy Dokument · Typst · Corporate Identity"
+  }
   #set page(header: none, footer: none)
   #block(
     width: 100%,
@@ -137,7 +144,7 @@
           STUDY BUDDY
         ]
         #linebreak()
-        #text(8.5pt, fill: sb-colors.muted)[FH Technikum Wien · Engineering Study Documents]
+        #text(8.5pt, fill: sb-colors.muted)[Source-grounded learning documents · Moodle-compatible]
       ],
       [#sb-chip(kind, tone: "primary")],
     )
@@ -166,13 +173,13 @@
       radius: 4pt,
       inset: 10pt,
     )[
-      #if course != none [#sb-meta-row("Lehrveranstaltung", course) #v(4pt)]
+      #if course != none [#sb-meta-row(if english { "Course" } else { "Lehrveranstaltung" }, course) #v(4pt)]
       #if semester != none [#sb-meta-row("Semester", semester) #v(4pt)]
-      #sb-meta-row("Dokumenttyp", kind)
+      #sb-meta-row(if english { "Document type" } else { "Dokumenttyp" }, kind)
       #v(4pt)
-      #sb-meta-row("Erstellt von", author)
+      #sb-meta-row(if english { "Created by" } else { "Erstellt von" }, author)
       #v(4pt)
-      #sb-meta-row("Stand", date)
+      #sb-meta-row(if english { "Date" } else { "Stand" }, date)
       #v(4pt)
       #sb-meta-row("Status", status)
     ]
@@ -181,9 +188,7 @@
     #grid(
       columns: (1fr, auto),
       align: (left, bottom),
-      [#text(8pt, fill: sb-colors.muted)[
-        Standardisiertes Study Buddy Dokument · Typst · Corporate Identity
-      ]],
+      [#text(8pt, fill: sb-colors.muted)[#identity_line]],
       [
         #sb-logo(size: 13mm)
       ],
@@ -209,19 +214,24 @@
   line(length: 100%, stroke: 0.55pt + sb-colors.line)
 }
 
-#let sb-footer() = context {
+#let sb-footer(language: "de") = context {
+  let english = language == "en"
+  let footer_label = if english {
+    "Study Buddy · Study guide · Verify statements and sources"
+  } else {
+    "Study Buddy · Lernunterlage · Angaben und Quellen prüfen"
+  }
+  let page_label = if english { "Page" } else { "Seite" }
   line(length: 100%, stroke: 0.45pt + sb-colors.line)
   v(2pt)
   grid(
     columns: (1fr, auto),
     [
-      #text(7.5pt, fill: sb-colors.muted)[
-        Study Buddy · Lernunterlage · Angaben und Quellen prüfen
-      ]
+      #text(7.5pt, fill: sb-colors.muted)[#footer_label]
     ],
     [
       #text(8pt, fill: sb-colors.muted)[
-        Seite #counter(page).display("1")
+        #page_label #counter(page).display("1")
       ]
     ],
   )
@@ -259,10 +269,12 @@
   units: (),
   source: none,
   note: none,
+  compact: false,
   body,
 ) = {
   let normalized-variables = sb-sequence(variables)
   let normalized-units = sb-sequence(units)
+  let formula-size = if compact { 9.5pt } else { 11.5pt }
   block(
     width: 100%,
     breakable: true,
@@ -273,7 +285,7 @@
   )[
     #text(8.6pt, weight: "bold", fill: sb-colors.cyan)[#name]
     #v(4pt)
-    #align(center)[#text(11.5pt)[#body]]
+    #align(center)[#text(formula-size)[#body]]
     #if note != none [
       #v(4pt)
       #text(8.5pt, fill: sb-colors.ink)[#note]
@@ -364,6 +376,17 @@
   ]
 ]
 
+#let sb-steps(rows: ()) = grid(
+  columns: (6mm, 1fr),
+  column-gutter: 3pt,
+  row-gutter: 4pt,
+  align: (right, top),
+  ..rows.enumerate().map(pair => (
+    [#text(8.5pt, weight: "bold", fill: sb-colors.cyan)[#str(pair.first() + 1).]],
+    pair.last(),
+  )).flatten(),
+)
+
 #let sb-source-note(source, coverage: none) = block(
   width: 100%,
   breakable: true,
@@ -417,10 +440,8 @@
       inset: padding,
       align: (left, horizon),
       ..header.map(cell => table.cell(fill: sb-colors.navy)[
-        #box(height: 4.5mm)[
-          #align(left + horizon)[
-            #text(8.3pt, weight: "bold", fill: white)[#cell]
-          ]
+        #align(left + horizon)[
+          #text(8.3pt, weight: "bold", fill: white)[#cell]
         ]
       ]),
       ..rows.enumerate().map(pair => {
@@ -429,9 +450,7 @@
         row.map(cell => table.cell(
           fill: if calc.even(index) { sb-colors.white } else { sb-colors.soft },
         )[
-          #box(height: 5.5mm)[
-            #align(left + horizon)[#text(8.5pt)[#cell]]
-          ]
+          #align(left + horizon)[#text(8.5pt)[#cell]]
         ])
       }).flatten(),
     )
@@ -957,11 +976,19 @@
   title,
   course: none,
   kind: "Lernunterlage",
+  language: "de",
   semester: none,
   status: "Arbeitsstand",
   date: datetime.today().display("[day].[month].[year]"),
   show-outline: true,
 ) = [
+  #let english = language == "en"
+  #let structure_line = if english {
+    "Moodle structure · source-grounded · exam-focused"
+  } else {
+    "Moodle-Struktur · quellengebunden · prüfungsnah"
+  }
+  #let contents_label = if english { "Contents" } else { "Inhalt" }
   #grid(
     columns: (24mm, 1fr),
     gutter: 3mm,
@@ -977,7 +1004,7 @@
     [
       #text(8pt, weight: "bold", tracking: 1pt, fill: sb-colors.blue)[STUDY BUDDY · #kind]
       #linebreak()
-      #text(7.8pt, fill: sb-colors.muted)[Moodle-Struktur · quellengebunden · prüfungsnah]
+      #text(7.8pt, fill: sb-colors.muted)[#structure_line]
     ],
   )
   #v(3mm)
@@ -991,7 +1018,7 @@
     columns: (auto, auto, auto, 1fr, auto),
     gutter: 5pt,
     align: (left, horizon),
-    [#sb-chip(if semester == none { "Semester offen" } else { semester }, tone: "info")],
+    [#sb-chip(if semester == none { if english { "Semester pending" } else { "Semester offen" } } else { semester }, tone: "info")],
     [#sb-chip(status, tone: "warning")],
     [#sb-chip(date)],
     [],
@@ -1001,7 +1028,7 @@
     #v(7mm)
     #line(length: 100%, stroke: 0.7pt + sb-colors.line)
     #v(4mm)
-    #text(11pt, weight: "bold", fill: sb-colors.navy)[Inhalt]
+    #text(11pt, weight: "bold", fill: sb-colors.navy)[#contents_label]
     #v(2mm)
     #outline(title: none, depth: 1)
   ]
@@ -1013,6 +1040,7 @@
   subtitle: none,
   course: none,
   kind: "Lernunterlage",
+  language: "de",
   semester: none,
   author: "Study Buddy",
   status: "Arbeitsstand",
@@ -1029,11 +1057,12 @@
   #show: sb-page-rules
   #if compact [
     #counter(page).update(1)
-    #set page(header: none, footer: sb-footer())
+    #set page(header: none, footer: sb-footer(language: language))
     #sb-compact-frontmatter(
       title,
       course: course,
       kind: kind,
+      language: language,
       semester: semester,
       status: status,
       date: date,
@@ -1045,7 +1074,7 @@
         if short-title == none { title } else { short-title },
         course: course,
       ),
-      footer: sb-footer(),
+      footer: sb-footer(language: language),
     )
   ] else [
     #sb-title-page(
@@ -1053,6 +1082,7 @@
       subtitle: subtitle,
       course: course,
       kind: kind,
+      language: language,
       semester: semester,
       author: author,
       status: status,
@@ -1065,10 +1095,10 @@
         if short-title == none { title } else { short-title },
         course: course,
       ),
-      footer: sb-footer(),
+      footer: sb-footer(language: language),
     )
     #if show-outline [
-      #outline(title: [Inhaltsverzeichnis], depth: 2)
+      #outline(title: if language == "en" { [Table of contents] } else { [Inhaltsverzeichnis] }, depth: 2)
       #pagebreak()
     ]
   ]
@@ -1077,7 +1107,7 @@
       if short-title == none { title } else { short-title },
       course: course,
     ),
-    footer: sb-footer(),
+    footer: sb-footer(language: language),
   )
   #body
 ]

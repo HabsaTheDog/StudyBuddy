@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   planCourseResources,
   planInitialResourceProbe,
+  remainingInitialProbeSlots,
   writeResourcePlan,
 } from "../resourcePlanning.js";
 
@@ -53,6 +54,21 @@ describe("resource planning", () => {
       .toBe(false);
   });
 
+  it("treats standard resource paths on an arbitrary Moodle hostname as course sources", () => {
+    const plan = planCourseResources([
+      {
+        href: "https://learn.example.edu/pluginfile.php/11/mod_resource/content/1/lecture.pdf",
+        label: "Lecture 1 - Literary interpretation",
+        score: 100,
+      },
+    ], "fast", 8);
+
+    expect(plan.entries[0]).toMatchObject({
+      role: "primary_lecture",
+      selected: true,
+    });
+  });
+
   it("keeps the complete catalog while bounding the first balanced probe", () => {
     const links = Array.from({ length: 18 }, (_, index) =>
       candidate(index === 0 ? "Zusammenfassung" : `Vorlesung ${index}`, `source-${index}.pdf`));
@@ -84,6 +100,38 @@ describe("resource planning", () => {
         "2_Folien_Vektorkinematik",
       ]);
       expect(catalog.entries).toHaveLength(2);
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the initial probe limit once across all crawled pages", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-probe-budget-"));
+    try {
+      const firstLimit = await remainingInitialProbeSlots(runDir, "balanced", 16);
+      const first = planInitialResourceProbe(
+        Array.from({ length: 8 }, (_, index) =>
+          candidate(`Lecture ${index}`, `lecture-${index}.pdf`)),
+        "balanced",
+        firstLimit,
+      );
+      await writeResourcePlan(runDir, first);
+
+      const secondLimit = await remainingInitialProbeSlots(runDir, "balanced", 11);
+      const second = planInitialResourceProbe(
+        Array.from({ length: 8 }, (_, index) =>
+          candidate(`Solution ${index}`, `solution-${index}.pdf`)),
+        "balanced",
+        secondLimit,
+      );
+      await writeResourcePlan(runDir, second);
+
+      const saved = JSON.parse(await readFile(path.join(runDir, "resource-plan.json"), "utf8"));
+      expect(first.selected).toBe(5);
+      expect(secondLimit).toBe(0);
+      expect(second.selected).toBe(0);
+      expect(saved.discovered).toBe(16);
+      expect(saved.selected).toBe(5);
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }

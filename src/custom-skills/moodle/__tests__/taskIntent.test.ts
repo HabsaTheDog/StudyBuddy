@@ -143,6 +143,25 @@ describe("Study Buddy task intent", () => {
     });
   });
 
+  it("recognizes a standard Moodle URL on an arbitrary institutional hostname", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "What is the deadline shown at https://campus.example.org/mod/assign/view.php?id=71?",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+      hasCalendarUrl: false,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "schedule_answer",
+      needsMoodle: true,
+      needsCourseMaterial: false,
+      needsDownloadedFiles: false,
+    });
+  });
+
   it("preserves course-material and download requirements in the extraction stage", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: "Erstelle einen Study Guide als PDF aus allen Moodle-Folien und Rechenaufgaben",

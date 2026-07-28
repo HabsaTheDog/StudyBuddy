@@ -88,7 +88,7 @@ describe("createRuntimeConfig", () => {
       maxPages: 3,
       allowFileDownloads: false,
       baseUrl: "https://moodle.example",
-      dashboardUrl: "https://moodle.example/my",
+      dashboardUrl: "https://moodle.example/my/",
       username: "student",
       password: "secret",
       storageState: "/tmp/storage-state.json",
@@ -119,6 +119,40 @@ describe("createRuntimeConfig", () => {
     expect(config.baseUrl).toBe("https://moodle.example");
     expect(config.dashboardUrl).toBe("https://moodle.example/course/view.php?id=42");
     expect(config.headless).toBe(true);
+  });
+
+  it("switches from a configured dashboard to a direct course URL on any Moodle installation", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-portable-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_BASE_URL", "");
+    vi.stubEnv("MOODLE_DASHBOARD_URL", "");
+
+    const config = createRuntimeConfig({
+      prompt: "Create a guide from https://learn.example.edu/course/view.php?id=77",
+      moodleUrl: "https://default-moodle.example/my/",
+    });
+
+    expect(config.moodleUrl).toBe("https://learn.example.edu/course/view.php?id=77");
+    expect(config.baseUrl).toBe("https://learn.example.edu");
+    expect(config.dashboardUrl).toBe("https://learn.example.edu/my/");
+  });
+
+  it("preserves a subdirectory Moodle installation when switching from another dashboard", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-subpath-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_BASE_URL", "");
+    vi.stubEnv("MOODLE_DASHBOARD_URL", "");
+
+    const config = createRuntimeConfig({
+      prompt: "Create a guide from https://portal.example.edu/learning/moodle/course/view.php?id=77",
+      moodleUrl: "https://default-moodle.example/my/",
+    });
+
+    expect(config.moodleUrl).toBe(
+      "https://portal.example.edu/learning/moodle/course/view.php?id=77",
+    );
+    expect(config.baseUrl).toBe("https://portal.example.edu");
+    expect(config.dashboardUrl).toBe("https://portal.example.edu/learning/moodle/my/");
   });
 
   it("uses an explicit Codex model over the inherited Study Buddy model", async () => {

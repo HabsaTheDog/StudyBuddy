@@ -418,6 +418,55 @@ describe("student-centric exam navigator contracts", () => {
     expect(model.publicationStatus).toBe("partial");
   });
 
+  it("does not mark an unrelated numbered chapter partial from the generic word Thema", () => {
+    const sequenceUrl = "https://moodle.example/sequence.pdf";
+    const derivativeUrl = "https://moodle.example/derivative.pdf";
+    const sequence = node("sequence", sequenceUrl, "resource", "acquired");
+    const derivative = node("derivative", derivativeUrl, "resource", "acquired");
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl,
+      generatedAt: new Date().toISOString(),
+      resources: [sequence, derivative],
+    });
+    const extracted = moodleExtractedData({
+      sources: [
+        { id: sequence.id, title: "Folgen und Reihen", kind: "pdf", url: sequenceUrl, path: "/tmp/sequence.pdf", page: 1 },
+        { id: derivative.id, title: "Differentialrechnung", kind: "pdf", url: derivativeUrl, path: "/tmp/derivative.pdf", page: 1 },
+      ],
+      learning_modules: [
+        {
+          id: "topic-1", title: "Thema 1: Folgen und Reihen", priority: "essential",
+          content_mode: "quantitative", learning_objectives: ["Thema 1 – Folgen und Reihen"],
+          assessment_signals: [], resource_ids: [sequence.id],
+        },
+        {
+          id: "topics-2-5", title: "Differentialrechnung (Themen 2–5)", priority: "essential",
+          content_mode: "quantitative", learning_objectives: ["Thema 3 – Differentialrechnung"],
+          assessment_signals: [], resource_ids: [derivative.id],
+        },
+      ],
+      sections: [
+        { heading: "Thema 1 – Folgen und Reihen", summary: "Konvergenz und Reihen.", key_concepts: ["Grenzwert"], source_ids: [sequence.id] },
+        { heading: "Thema 3 – Differentialrechnung", summary: "Ableitungsregeln.", key_concepts: ["Produktregel"], source_ids: [derivative.id] },
+      ],
+      warnings: ["Für Thema 3 fehlt eine konkrete Differentiationsregel."],
+    });
+    const model = buildStudyModel(moodleTestConfig(), extracted, manifest, {
+      status: "complete",
+      detail: "All selected sources acquired.",
+      criticalMissing: [],
+      omittedTopics: [],
+      retryActions: [],
+      discoveredResources: 2,
+      acquiredResources: 2,
+      failedResources: 0,
+      usableEvidenceRecords: 2,
+    });
+
+    expect(model.courseChapters[0].status).toBe("covered");
+  });
+
   it("removes organizational questions and renders one shared checklist", async () => {
     const config = moodleTestConfig({
       prompt: "Erstelle eine interaktive Lernseite mit Karteikarten",

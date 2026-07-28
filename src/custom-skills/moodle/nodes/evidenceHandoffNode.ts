@@ -2,6 +2,7 @@ import type { MoodleRuntimeConfig } from "../types.js";
 import type { LangGraphAgentState, JsonObject } from "../state.js";
 import { validateExtractedData } from "../validation.js";
 import { classifyResourceTopic } from "../resourcePlanning.js";
+import { extractResolvedCourseIdentity } from "../courseTargeting.js";
 
 interface ModuleBucket {
   id: string;
@@ -34,7 +35,7 @@ export function createEvidenceHandoffNode(config: MoodleRuntimeConfig) {
 
 export function buildEvidenceHandoff(
   config: MoodleRuntimeConfig,
-  state: Pick<LangGraphAgentState, "resource_manifest" | "evidence_package">,
+  state: Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package">,
 ) {
   const records = state.evidence_package.records;
   const evidencedIds = new Set(records.map((record) => record.resourceId));
@@ -91,12 +92,12 @@ export function buildEvidenceHandoff(
   });
   const learningModules = modules.map((module, index) => {
     const moduleRecords = records.filter((record) => module.resourceIds.includes(record.resourceId));
-    const quantitative = moduleRecords.some((record) => record.kind === "formula" || record.kind === "exercise" || record.kind === "solution");
+    const contentMode = inferEvidenceContentMode(moduleRecords);
     return {
       id: module.id,
       title: module.title,
       priority: index < 6 ? "essential" as const : "important" as const,
-      content_mode: quantitative ? "quantitative" as const : "mixed" as const,
+      content_mode: contentMode,
       learning_objectives: [config.outputLanguage === "de"
         ? `${module.title} anhand der belegten Kursunterlagen erklären und anwenden.`
         : `Explain and apply ${module.title} using the cited course evidence.`],
@@ -106,7 +107,10 @@ export function buildEvidenceHandoff(
       resource_ids: module.resourceIds,
     };
   });
-  const courseTitle = inferCourseTitle(records.map((record) => record.content), config.prompt);
+  const resolvedCourse = extractResolvedCourseIdentity(state.moodle_raw_text);
+  const courseTitle = resolvedCourse && resolvedCourse.confidence !== "low"
+    ? resolvedCourse.title
+    : inferCourseTitle(records.map((record) => record.content), config.prompt);
 
   return validateExtractedData({
     document_title: config.outputLanguage === "de"
@@ -129,6 +133,24 @@ export function buildEvidenceHandoff(
       ? "Evidence-first-Handoff: Didaktische Synthese und Aufgaben werden einmalig im validierten Web-Layout erzeugt."
       : "Evidence-first handoff: teaching synthesis and exercises are generated once in the validated web-layout stage."],
   });
+}
+
+function inferEvidenceContentMode(
+  records: LangGraphAgentState["evidence_package"]["records"],
+): "quantitative" | "conceptual" | "procedural" | "case_based" | "mixed" {
+  const text = records.map((record) => record.content).join(" ");
+  const quantitative = records.some((record) => record.kind === "formula") ||
+    /\b(?:calculate|equation|formula|numeric|berechn|gleichung|formel)\b/i.test(text);
+  const procedural = /\b(?:procedure|protocol|workflow|step|perform|practice|write|speak|prozess|verfahren|protokoll|schritt|durchführen|durchfuehren|schreiben|sprechen)\b/i.test(text);
+  const caseBased = /\b(?:case|scenario|debate|source\s+analysis|fallstudie|szenario|debatte|quellenanalyse)\b/i.test(text);
+  const conceptual = records.some((record) => record.kind === "definition") ||
+    /\b(?:concept|theory|compare|interpret|history|literature|grammar|konzept|theorie|vergleichen|interpretieren|geschichte|literatur|grammatik)\b/i.test(text);
+  const signals = [quantitative, procedural, caseBased, conceptual].filter(Boolean).length;
+  if (signals > 1) return "mixed";
+  if (quantitative) return "quantitative";
+  if (procedural) return "procedural";
+  if (caseBased) return "case_based";
+  return "conceptual";
 }
 
 function moduleTitle(resource: LangGraphAgentState["resource_manifest"]["resources"][number]): string {

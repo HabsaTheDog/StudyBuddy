@@ -2,7 +2,7 @@
 
 ## What to evaluate
 
-Study Buddy is a local student-facing application built on a T3 Code interface and a canonical TypeScript/LangGraph runtime. It is architected for Linux, macOS, and Windows, but this hackathon build has only been tested end to end on Linux. Judges should therefore use Ubuntu/Linux with Node.js 22. Native Windows and macOS validation is planned before the September 2026 student alpha. The interface delegates Moodle, CIS, calendar, artifact, quiz, and assignment work to the root runtime.
+Study Buddy is a local student-facing application built on a T3 Code interface and a canonical TypeScript/LangGraph runtime. It is designed to be cross-platform, and automated CI covers Ubuntu Linux, macOS, and native Windows. The complete product workflow has only been tested manually end to end on Fedora Linux, so Fedora with Node.js 22 is the primary judge path. Other environments remain CI-verified or best effort until manual validation is complete. The interface delegates Moodle, CIS, calendar, artifact, quiz, and assignment work to the root runtime.
 
 ## Path A: inspect the showcase without credentials
 
@@ -14,7 +14,7 @@ The showcase directory is intentionally empty until Alvaro selects outputs that 
 
 Tested target:
 
-- Ubuntu 24.04 or a comparable current Linux distribution
+- A current Fedora Linux release
 - Node.js 22+
 - npm bundled with Node
 - Chromium installed through Playwright
@@ -28,9 +28,11 @@ git clone https://github.com/HabsaTheDog/StudyBuddy.git
 cd StudyBuddy
 git submodule update --init t3code-fork
 npm ci
-npx playwright install --with-deps chromium
+npx playwright install chromium
 cp .env.example .env
 ```
+
+Install the Fedora system prerequisites listed in the root `README.md` before running these commands. Platform-specific Ubuntu, macOS, Windows, and WSL instructions are also available there, but those paths have not been manually tested end to end.
 
 Verify without accessing a student portal:
 

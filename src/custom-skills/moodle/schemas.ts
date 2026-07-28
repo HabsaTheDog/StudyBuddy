@@ -335,11 +335,32 @@ export const chapterFragmentJsonSchema = {
     figure: extractedDataJsonSchema.$defs.figure,
   },
   properties: {
-    sections: { type: "array", items: { "$ref": "#/$defs/section" } },
-    formulas: { type: "array", items: { "$ref": "#/$defs/formula" } },
-    worked_examples: { type: "array", items: { "$ref": "#/$defs/worked_example" } },
-    figures: { type: "array", items: { "$ref": "#/$defs/figure" } },
-    warnings: { type: "array", items: { type: "string" } },
+    sections: {
+      type: "array",
+      minItems: 1,
+      maxItems: 6,
+      items: { "$ref": "#/$defs/section" },
+    },
+    formulas: {
+      type: "array",
+      maxItems: 5,
+      items: { "$ref": "#/$defs/formula" },
+    },
+    worked_examples: {
+      type: "array",
+      maxItems: 2,
+      items: { "$ref": "#/$defs/worked_example" },
+    },
+    figures: {
+      type: "array",
+      maxItems: 2,
+      items: { "$ref": "#/$defs/figure" },
+    },
+    warnings: {
+      type: "array",
+      maxItems: 2,
+      items: { type: "string" },
+    },
   },
   required: ["sections", "formulas", "worked_examples", "figures", "warnings"],
 } as const;

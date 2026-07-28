@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCourseTargetHint,
+  extractResolvedCourseIdentity,
   hasUnrecognizedNamedCourseTarget,
   rawTextContainsRequestedCourse,
+  resolveRequestedCourseCode,
   resolveCourseTargetsFromLinks,
 } from "../courseTargeting.js";
 
@@ -30,10 +32,33 @@ describe("courseTargeting", () => {
     ).toContain("DYN2");
   });
 
+  it("resolves generic Dynamik against the acquired DYN2 corpus in a multi-course comparison", () => {
+    expect(resolveRequestedCourseCode(
+      "Erstelle einen PDF-Study-Guide für Dynamik.",
+      "Starte Runs bei MEL und Dynamik, damit ich die Kurse vergleichen kann.",
+      "Kurs: Anwendungen der Dynamik\nZusammenfassung-DYN2.pdf",
+    )).toBe("DYN2");
+  });
+
   it("does not hard-code a generic math description to one course", () => {
     expect(extractCourseTargetHint("Create a guide for my math exam")).toMatchObject({
       requestedCodes: [],
       requestedNames: [],
+    });
+  });
+
+  it("reads a persisted unknown course identity without an alias table", () => {
+    expect(extractResolvedCourseIdentity([
+      "[Moodle course resolution]",
+      "Selected: HUM-204 World Literature",
+      "Course title: World Literature: Modernism and Memory",
+      "URL: https://learn.example.edu/course/view.php?id=204",
+      "Confidence: high",
+      "Method: model_evidence",
+    ].join("\n"))).toEqual({
+      title: "World Literature: Modernism and Memory",
+      url: "https://learn.example.edu/course/view.php?id=204",
+      confidence: "high",
     });
   });
 

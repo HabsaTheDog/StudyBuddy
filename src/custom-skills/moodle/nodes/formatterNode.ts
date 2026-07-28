@@ -209,7 +209,7 @@ function emptyCoverage() {
 
 function buildFormatterPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): string {
   return [
-    "Generate a complete Typst document for an engineering study note.",
+    "Generate a complete, source-grounded Typst learning document appropriate to the course discipline.",
     "Return only Typst source. Do not include Markdown fences or explanation.",
     studyBuddyTemplatePromptReference(config.outputLanguage),
     `Artifact language: ${config.outputLanguage === "en" ? "English" : "German"}. Do not let the source language override it.`,

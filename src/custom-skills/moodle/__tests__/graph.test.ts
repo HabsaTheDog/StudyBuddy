@@ -7,6 +7,7 @@ import {
   buildExtractionGraph,
   buildMoodleGraph,
   qualityFailureNeedsSourceAcquisition,
+  routeAfterExtractionQualityReview,
   runMoodleGraph,
 } from "../graph.js";
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
@@ -30,6 +31,21 @@ afterEach(async () => {
 });
 
 describe("moodle graph retry routing", () => {
+  it("reserves the last global retry for localized semantic repair", () => {
+    expect(routeAfterExtractionQualityReview({
+      ...initialAgentState,
+      retry_count: 2,
+      error_log:
+        "Semantic quality review failed:\n- [chapter: Drallsatz] Die Momentenbilanz fehlt.",
+    })).toBe("contentAnalyzer");
+    expect(routeAfterExtractionQualityReview({
+      ...initialAgentState,
+      retry_count: 3,
+      error_log:
+        "Semantic quality review failed:\n- [chapter: Drallsatz] Die Momentenbilanz fehlt.",
+    })).toBe("abort");
+  });
+
   it("distinguishes source-coverage quality failures from content-only repairs", () => {
     expect(qualityFailureNeedsSourceAcquisition(
       "Semantic quality review failed:\n- Zwei Kapitel fehlen, obwohl weitere Kursdateien und Quellen verfügbar sind.",

@@ -130,6 +130,88 @@ describe("courseResolverNode", () => {
     expect(reader.probedIds).toEqual(["C1", "C2"]);
   });
 
+  it("persists an unseen non-technical course title from Moodle evidence", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 10, "HUM-204 World Literature"),
+      candidate("C2", 20, "BIO-110 Cell Biology"),
+    ];
+    const reader = fakeReader(candidates, {
+      C1: "Modernism, postcolonial fiction, close reading, seminar discussion and essays",
+      C2: "Cell membranes, genetics and microscopy",
+    });
+    const codex = sequenceCodex([
+      JSON.stringify({
+        candidate_ids: ["C1", "C2"],
+        reasoning: "World Literature is the direct subject match.",
+      }),
+      JSON.stringify({
+        selected_id: "C1",
+        confidence: "high",
+        reasoning: "The page evidence covers literary analysis and the requested readings.",
+        alternatives: [],
+      }),
+    ]);
+    const config = resolverConfig(
+      "Create an English study guide for my modern literature and close-reading course",
+    );
+
+    const result = await createCourseResolverNode(config, codex, { reader })();
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+
+    expect(config.targetCourseUrls).toEqual([candidates[0].url]);
+    expect(result.error_log).toBeNull();
+    expect(result.moodle_raw_text).toContain("Course title: HUM-204 World Literature");
+    expect(artifact.selected.title).toBe("HUM-204 World Literature");
+  });
+
+  it("blocks a low-confidence unknown-course guess instead of crawling the wrong class", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 10, "Introduction to Biology"),
+      candidate("C2", 20, "Introduction to History"),
+    ];
+    const reader = fakeReader(candidates, {
+      C1: "Weekly lectures and readings",
+      C2: "Weekly lectures and readings",
+    });
+    const codex = sequenceCodex([
+      JSON.stringify({ candidate_ids: ["C1", "C2"], reasoning: "Both are plausible." }),
+      JSON.stringify({
+        selected_id: "C1",
+        confidence: "low",
+        reasoning: "The request does not identify a subject.",
+        alternatives: [{ id: "C2", reason: "Equally plausible." }],
+      }),
+    ]);
+    const config = resolverConfig("Create a study guide for my class");
+
+    const result = await createCourseResolverNode(config, codex, { reader })();
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+
+    expect(config.targetCourseUrls).toBeUndefined();
+    expect(result.error_log).toMatch(/^Course resolution ambiguous:/);
+    expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
+  });
+
+  it("fails closed when dashboard discovery itself fails", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const reader = fakeReader([], {});
+    reader.readDashboard = async () => {
+      throw new Error("Custom Moodle theme did not expose a readable course list");
+    };
+    const config = resolverConfig("Create a study guide for World Literature");
+
+    const result = await createCourseResolverNode(config, sequenceCodex([]), { reader })();
+
+    expect(config.targetCourseUrls).toBeUndefined();
+    expect(result.error_log).toBe(
+      "Course resolution failed: Custom Moodle theme did not expose a readable course list",
+    );
+    expect(result.moodle_raw_text).toContain("Course discovery failed");
+    expect(reader.closed).toBe(true);
+  });
+
   it("skips discovery when a direct course URL is already known", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
     const reader = fakeReader([], {});

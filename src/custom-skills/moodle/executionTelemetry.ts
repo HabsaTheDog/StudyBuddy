@@ -23,6 +23,17 @@ export interface ModelCallMetric extends ModelTokenUsage {
   queueWaitMs?: number;
   requestCharacters?: number;
   schemaCharacters?: number;
+  attachedImages?: number;
+  leafWorker?: boolean;
+  estimatedPromptTokens?: number;
+  freshInputTokens?: number;
+  cacheHitRate?: number;
+  inputAmplification?: number;
+  toolCalls?: number;
+  commandExecutions?: number;
+  fileChanges?: number;
+  mcpToolCalls?: number;
+  webSearches?: number;
   status: "completed" | "failed" | "timeout" | "canceled";
   errorCategory?: string;
 }
@@ -45,10 +56,13 @@ export interface ExecutionMetricsSnapshot {
   wallMs: number;
   configuredDownloadConcurrency: number;
   totals: ModelTokenUsage & {
+    freshInputTokens: number;
     modelCalls: number;
     modelDurationMs: number;
     modelQueueWaitMs: number;
     retries: number;
+    toolCalls: number;
+    leafToolPolicyViolations: number;
   };
   phases: PhaseMetric[];
   modelCalls: ModelCallMetric[];
@@ -99,10 +113,13 @@ export class ExecutionTelemetry {
         cachedInputTokens: 0,
         outputTokens: 0,
         reasoningOutputTokens: 0,
+        freshInputTokens: 0,
         modelCalls: 0,
         modelDurationMs: 0,
         modelQueueWaitMs: 0,
         retries: 0,
+        toolCalls: 0,
+        leafToolPolicyViolations: 0,
       },
       phases: [],
       modelCalls: [],
@@ -175,10 +192,16 @@ export class ExecutionTelemetry {
       this.snapshot.totals.cachedInputTokens += metric.cachedInputTokens;
       this.snapshot.totals.outputTokens += metric.outputTokens;
       this.snapshot.totals.reasoningOutputTokens += metric.reasoningOutputTokens;
+      this.snapshot.totals.freshInputTokens += metric.freshInputTokens ??
+        Math.max(0, metric.inputTokens - metric.cachedInputTokens);
       this.snapshot.totals.modelCalls += 1;
       this.snapshot.totals.modelDurationMs += metric.durationMs;
       this.snapshot.totals.modelQueueWaitMs += metric.queueWaitMs ?? 0;
       if (metric.attempt > 1) this.snapshot.totals.retries += 1;
+      this.snapshot.totals.toolCalls += metric.toolCalls ?? 0;
+      if (metric.leafWorker && (metric.toolCalls ?? 0) > 0) {
+        this.snapshot.totals.leafToolPolicyViolations += 1;
+      }
       await this.appendSpan({ type: "model_call", ...metric });
       await this.persist();
     });

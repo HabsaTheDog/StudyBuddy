@@ -10,6 +10,7 @@
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
     "moodle:doctor": "tsx src/custom-skills/moodle/doctorCli.ts",
     "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
+    "moodle:benchmark": "tsx src/custom-skills/moodle/evals/cli.ts",
     "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "web-layout:bundle": "tsx src/custom-skills/web-layout/bundleCli.ts",
     "web-layout:rerender-study-guide": "tsx src/custom-skills/web-layout/rerenderStudyGuideCli.ts",

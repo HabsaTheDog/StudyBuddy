@@ -5,7 +5,7 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.1";
+export const STUDENT_FIRST_POLICY_VERSION = "1.2";
 
 export const STUDENT_FIRST_POLICY = [
   "Optimize verified learning value per minute.",
@@ -15,6 +15,7 @@ export const STUDENT_FIRST_POLICY = [
   "Organizational metadata is not a subject-matter practice question.",
   "Renderers may arrange verified content but may not create new facts.",
   "A study guide has one learning checklist and no detached practice bank; worked examples belong inside the relevant chapter.",
+  "Related course topics may share a chapter, but official topic labels, subtopics, and practice routes must remain visibly traceable.",
   "Practice items require a concrete learning goal and source evidence.",
 ].join(" ");
 
