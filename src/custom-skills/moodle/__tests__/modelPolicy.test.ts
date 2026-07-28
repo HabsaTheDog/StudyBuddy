@@ -23,7 +23,7 @@ describe("modelPolicy", () => {
       ["quality", "content_analyzer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["quality", "quiz_solver", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["quality", "artifact_builder", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
-      ["quality", "quality_reviewer", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
+      ["quality", "quality_reviewer", "gpt-5.6-terra", "high", "gpt-5.6-terra", "high"],
     ] as const;
 
     for (const [profile, task, model, effort, retryModel, retryEffort] of cases) {

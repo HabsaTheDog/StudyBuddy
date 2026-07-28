@@ -4,7 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { emptyStudyModel } from "../examNavigatorContracts.js";
 import { ModelCallTimeoutError } from "../codexClient.js";
-import { createQualityReviewerNode } from "../nodes/qualityReviewerNode.js";
+import {
+  buildQualityReviewPrompt,
+  createQualityReviewerNode,
+} from "../nodes/qualityReviewerNode.js";
 import { readPendingExtractionRepairs } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
@@ -39,6 +42,81 @@ const chapters = [
 ];
 
 describe("qualityReviewerNode", () => {
+  it("shows every official topic in a grouped chapter to the quality reviewer", () => {
+    const chapter = {
+      ...chapters[0],
+      title: "Differentialrechnung (Themen 2–5)",
+      learningObjectives: [2, 3, 4, 5].map((number) =>
+        `Thema ${number} – Differentialrechnung: offizieller Umfang`
+      ),
+    };
+    const topics = [2, 3, 4, 5].map((number) => ({
+      id: `topic-${number}`,
+      chapterId: chapter.id,
+      title: `Topic ${number} – method`,
+      summary: `Substantive explanation for official topic ${number}.`,
+      priority: "essential" as const,
+      scopeStatus: "inferred" as const,
+      learningGoals: [`Apply method ${number}.`],
+      sourceIds: [],
+    }));
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        study_model: {
+          ...emptyStudyModel(),
+          courseChapters: [chapter],
+          topics,
+        },
+      }),
+    );
+
+    for (const number of [2, 3, 4, 5]) {
+      expect(prompt).toContain(`Topic ${number} – method`);
+    }
+  });
+
+  it("keeps repair verification on the original findings without demanding one example per topic", () => {
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        study_model: { ...emptyStudyModel(), courseChapters: chapters },
+      }),
+      "Semantic quality review failed:\n- [chapter: Toleranzen und Passungen] The lookup method is incomplete.",
+    );
+
+    expect(prompt).toContain("This is a repair verification");
+    expect(prompt).toContain("Previous blocking review");
+    expect(prompt).toContain("one worked example per official Moodle topic");
+    expect(prompt).toContain("The lookup method is incomplete");
+  });
+
+  it("marks shortened review fields instead of presenting them as truncated source content", () => {
+    const longStep = `A = (${Array.from({ length: 180 }, (_, index) => `x_${index}`).join(" + ")}) = kontrolliertes Ergebnis.`;
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        study_model: {
+          ...emptyStudyModel(),
+          courseChapters: [chapters[0]],
+          workedExamples: [{
+            id: "example-long",
+            chapterId: chapters[0].id,
+            origin: "derived",
+            learningGoal: "Eine lange Gleichung vollständig prüfen",
+            prompt: "Bestimme A.",
+            steps: [longStep],
+            result: "Die Einsetzprobe bestätigt das Ergebnis.",
+            sourceIds: ["source-1"],
+          }],
+        },
+      }),
+    );
+
+    expect(prompt).toContain("[review view shortened; full field passed deterministic validation]");
+    expect(prompt).toContain("kontrolliertes Ergebnis.");
+  });
+
   it("emits exact chapter tags so analyzer repair stays localized", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-localized-"));
     try {

@@ -18,13 +18,13 @@ export function renderDeterministicStudyDocument(
   const title = requestedCourse
     ? `${requestedCourse} – Study Guide`
     : data.document_title || (english ? "Study Buddy Study Guide" : "Study Buddy Lernunterlage");
-  const course = requestedCourse || data.course.title || "FH Technikum Wien";
+  const course = requestedCourse || data.course.title || (english ? "Moodle course" : "Moodle-Kurs");
   const body: string[] = [
-    heading(1, english ? "Document note" : "Dokumenthinweis"),
+    heading(1, english ? "How to use this guide" : "So arbeitest du mit dieser Unterlage"),
     paragraph(
       english
-        ? "Specific laboratory requirements come from the Moodle and CIS material listed in the references. General derivations are identified as subject theory; measurements must be collected and documented in the laboratory."
-        : "Konkrete Laborvorgaben stammen aus den im Quellenverzeichnis genannten Moodle- und CIS-Inhalten. Allgemeine Herleitungen sind als Fachtheorie gekennzeichnet; Messwerte müssen im Labor erhoben und dokumentiert werden.",
+        ? "The learning blocks follow the course sequence. Each chapter map shows which official Moodle topics belong to that block. Rebuild the idea from the explanation, then use the mode-appropriate method, case, interpretation, procedure, or calculation and finish with the original course activities when available."
+        : "Die Lernblöcke folgen der Kursreihenfolge. Die Kapitelübersicht zeigt jeweils, welche offiziellen Moodle-Themen zu diesem Block gehören. Erarbeite zuerst die Erklärung und nutze danach die zum Fach passende Methode, Fallanalyse, Interpretation, Vorgehensweise oder Rechnung sowie vorhandene Originalaktivitäten des Kurses.",
     ),
     sourceNote(
       english ? "Source coverage" : "Quellenabdeckung",
@@ -53,12 +53,14 @@ export function renderDeterministicStudyDocument(
   }
 
   body.push(divider(english ? "Evidence" : "Nachweise"), heading(1, english ? "References" : "Quellenverzeichnis"));
-  for (const source of data.sources) {
+  const citedSourceIds = referencedSourceIds(data);
+  for (const source of data.sources.filter((item) => citedSourceIds.has(item.id))) {
     body.push(sourceEntry(data, source.id));
   }
-  if (data.warnings.length > 0) {
+  const visibleWarnings = studentFacingWarnings(data.warnings);
+  if (visibleWarnings.length > 0) {
     body.push(heading(1, english ? "Source notes and limitations" : "Quellenhinweise und Grenzen"));
-    body.push(callout(english ? "Consolidated source notes" : "Gebündelte Quellenhinweise", "warning", bulletList(data.warnings, data.language)));
+    body.push(callout(english ? "Consolidated source notes" : "Gebündelte Quellenhinweise", "warning", bulletList(visibleWarnings, data.language)));
   }
 
   return `#import "study-buddy-components.typ": *
@@ -68,6 +70,7 @@ export function renderDeterministicStudyDocument(
   short-title: ${typstString(shortTitle(title))},
   course: ${typstString(course)},
   kind: ${typstString(documentKind(context.profile, data.language))},
+  language: ${typstString(data.language)},
   semester: ${typstString(currentSemester())},
   status: ${typstString(english ? "Validated" : "Validiert")},
   date: ${typstString(currentDate(data.language))},
@@ -76,6 +79,24 @@ ${body.map((part) => indent(part.trim(), 4)).join("\n\n")}
   ],
 )
 `;
+}
+
+function studentFacingWarnings(warnings: readonly string[]): string[] {
+  return warnings.map((warning) => warning.replace(
+    /\s+sowie offizielle (?:Themen|Topics)\s+\d{1,2}\s*[–-]\s*\d{1,2}[^.]*\b(?:nicht|not)\b[^.]*\.$/i,
+    ".",
+  )).filter((warning) => {
+    // Chapter analyzers see only their local evidence. Their correct local
+    // statement that "this part only covers topics X–Y" becomes false and
+    // confusing after all chapters are merged into one document.
+    const crossChapterScopeNote =
+      /(?:auftrag|request)/i.test(warning) &&
+      /(?:only|nur|ausschließlich)/i.test(warning) &&
+      /(?:thema|themen|topic|topics)\s+\d/i.test(warning) &&
+      /(?:unbelegt|not covered|unsupported|keine?[^.]{0,40}(?:quelle|evidenz|aufgabeninhalt)|liegt[^.]{0,50}(?:keine|nicht))/i
+        .test(warning);
+    return !crossChapterScopeNote;
+  });
 }
 
 function explicitCourseAlias(prompt: string): string | null {
@@ -103,7 +124,6 @@ type LearningSection = ExtractedData["sections"][number];
 type LearningFormula = ExtractedData["formulas"][number];
 type LearningFigure = ExtractedData["figures"][number];
 type WorkedExample = ExtractedData["worked_examples"][number];
-type TeachingPattern = "lookup" | "case" | "failure" | "path" | "visual";
 
 function renderLearningModules(data: ExtractedData): string[] {
   const body: string[] = [];
@@ -116,11 +136,10 @@ function renderLearningModules(data: ExtractedData): string[] {
     const examples = data.worked_examples.filter((example) => belongsToModule(example.source_ids, module));
     if (sections.length + formulas.length + figures.length + examples.length === 0) continue;
 
-    const pattern = teachingPattern(module, moduleIndex);
     body.push(
-      divider(patternLabel(pattern, data.language)),
+      divider(`${data.language === "en" ? "Learning block" : "Lernblock"} ${moduleIndex + 1}`),
       heading(1, module.title),
-      renderModuleOpening(module, pattern, data.language),
+      renderChapterRoadmap(module, data.language),
     );
     const figuresBySection = assignToSections(figures, sections, (figure) =>
       `${figure.caption} ${figure.placement_hint}`
@@ -128,9 +147,12 @@ function renderLearningModules(data: ExtractedData): string[] {
     const formulasBySection = assignToSections(formulas, sections, (formula) =>
       `${formula.name} ${formula.context} ${formula.variables.join(" ")}`
     );
+    const examplesBySection = assignToSections(examples, sections, (example) =>
+      `${example.learning_goal} ${example.prompt} ${example.steps.join(" ")}`
+    );
 
     for (const [sectionIndex, section] of sections.entries()) {
-      body.push(...renderModuleSection(data, section, sectionIndex, pattern));
+      body.push(...renderModuleSection(data, section));
       const inlineFigures = figuresBySection.get(sectionIndex) ?? [];
       for (const figure of inlineFigures) {
         const rendered = renderFigure(data, figure, data.figures.indexOf(figure));
@@ -138,8 +160,13 @@ function renderLearningModules(data: ExtractedData): string[] {
       }
       const inlineFormulas = formulasBySection.get(sectionIndex) ?? [];
       if (inlineFormulas.length > 0) {
-        body.push(heading(3, formulaGroupLabel(pattern, section, data.language)));
+        body.push(heading(3, data.language === "en" ? "Method and formulas" : "Methode und Formeln"));
         body.push(...inlineFormulas.map((formula) => renderFormula(data, formula)));
+      }
+      const inlineExamples = examplesBySection.get(sectionIndex) ?? [];
+      if (inlineExamples.length > 0) {
+        body.push(heading(3, data.language === "en" ? "See the method in action" : "Die Methode im Beispiel"));
+        body.push(...inlineExamples.map((example) => renderExample(data, example)));
       }
     }
 
@@ -151,11 +178,17 @@ function renderLearningModules(data: ExtractedData): string[] {
         if (rendered) body.push(rendered);
       }
       body.push(...formulas.map((formula) => renderFormula(data, formula)));
-    }
-
-    if (examples.length > 0) {
-      body.push(heading(2, exampleGroupLabel(pattern, data.language)));
       body.push(...examples.map((example) => renderExample(data, example)));
+    }
+    const practice = modulePracticeItems(module);
+    if (practice.length > 0) {
+      body.push(
+        heading(2, data.language === "en" ? "Practice route" : "Übungsweg"),
+        paragraph(data.language === "en"
+          ? "Use these course activities to check the topics in this chapter:"
+          : "Mit diesen Kursaktivitäten prüfst du die Themen dieses Kapitels:"),
+        bulletList(practice, data.language),
+      );
     }
   }
 
@@ -198,7 +231,15 @@ function renderFlatLearningContent(data: ExtractedData): string[] {
     body.push(heading(1, section.heading), paragraph(section.summary));
     const sectionSources = sourceLine(data, section.source_ids);
     if (sectionSources) body.push(sectionSources);
-    if (section.key_concepts.length > 0) body.push(renderKeyConcepts(section.key_concepts, data.language));
+    if (section.key_concepts.length > 0) {
+      body.push(callout(
+        data.language === "en" ? "Learning focus" : "Lernfokus",
+        "info",
+        isOrderedList(section.key_concepts)
+          ? numberedList(section.key_concepts.map(stripLeadingNumber), data.language)
+          : paragraph(joinLocalizedList(section.key_concepts, data.language)),
+      ));
+    }
   }
   const figures = renderFigures(data);
   if (figures.length > 0) body.push(heading(1, data.language === "en" ? "Figures and visualizations" : "Abbildungen und Visualisierungen"), ...figures);
@@ -224,152 +265,209 @@ function belongsToModule(sourceIds: string[], module: LearningModule): boolean {
   return sourceIds.some((id) => resourceIds.has(id));
 }
 
-function teachingPattern(module: LearningModule, index: number): TeachingPattern {
-  const title = normalizeTeachingText(module.title);
-  if (/(?:toleranz|passung|tabelle|nachschlag)/.test(title)) return "lookup";
-  if (/(?:kleb|klebstoff|fuge)/.test(title)) return "case";
-  if (/(?:niet|schraub|versag|bruch)/.test(title)) return "failure";
-  if (/(?:loet|lotverbindung|dimensionier)/.test(title)) return "path";
-  if (/(?:tribolog|hertz|kontakt|diagramm)/.test(title)) return "visual";
-  const quantitative: TeachingPattern[] = ["case", "path", "failure"];
-  const mixed: TeachingPattern[] = ["visual", "lookup", "path"];
-  const conceptual: TeachingPattern[] = ["visual", "case", "failure"];
-  const patterns = module.content_mode === "quantitative"
-    ? quantitative
-    : module.content_mode === "mixed"
-      ? mixed
-      : conceptual;
-  return patterns[index % patterns.length];
-}
-
-function patternLabel(pattern: TeachingPattern, language: ExtractedData["language"]): string {
-  const english = language === "en";
-  switch (pattern) {
-    case "lookup": return english ? "Look up" : "Nachschlagen";
-    case "case": return english ? "Design" : "Entwerfen";
-    case "failure": return english ? "Check failure" : "Versagen prüfen";
-    case "path": return english ? "Calculation path" : "Rechenweg";
-    case "visual": return english ? "Understand the model" : "Modell verstehen";
-  }
-}
-
-function renderModuleOpening(
+function renderChapterRoadmap(
   module: LearningModule,
-  pattern: TeachingPattern,
   language: ExtractedData["language"],
 ): string {
   const english = language === "en";
-  const goals = module.learning_objectives.slice(0, 4);
-  const signals = module.assessment_signals.slice(0, 3);
-  const titles: Record<TeachingPattern, string> = {
-    lookup: english ? "Orientation in the lookup path" : "Orientierung im Tabellenweg",
-    case: english ? "Guiding design question" : "Konstruktive Leitfrage",
-    failure: english ? "What must the verification prevent?" : "Was muss der Nachweis verhindern?",
-    path: english ? "Goal of the calculation path" : "Ziel des Rechenwegs",
-    visual: english ? "From the figure to the model" : "Vom Bild zum Modell",
-  };
-  const content = [
-    goals.length > 0
-      ? bulletList(goals, language)
-      : text(english ? "Apply the core idea from the following course sections confidently." : "Die Kernidee aus den folgenden Kursabschnitten sicher anwenden."),
-    signals.length > 0
-      ? `#v(3pt)\n#text(8pt, weight: "bold")[${english ? "Assessment signals" : "Prüfungssignale"}:] ${text(joinLocalizedList(signals, language))}`
-      : "",
-  ].filter(Boolean).join("\n");
-  return callout(titles[pattern], pattern === "failure" ? "warning" : "info", content);
+  const rows = courseTopicRows(module.learning_objectives);
+  if (rows.length === 0) {
+    return `${text(english ? "This chapter covers" : "Dieses Kapitel behandelt")}: ${text(
+      joinLocalizedList(module.learning_objectives.slice(0, 4), language),
+    )}.`;
+  }
+  const tableRows = rows.slice(0, 12).map((row) =>
+    `([#text(weight: "bold")[${text(row.label)}]], [${renderRoadmapFocus(row)}])`
+  ).join(",\n    ");
+  return `// study-buddy:chapter-roadmap
+#sb-table-section(${typstString(english ? "Course map for this chapter" : "Kursübersicht für dieses Kapitel")})[
+  #sb-table(
+    columns: (25mm, 1fr),
+    header: (${typstString(english ? "Moodle topic" : "Moodle-Thema")}, ${typstString(english ? "Learning focus" : "Lernschwerpunkt")}),
+    rows: (
+    ${tableRows},
+    ),
+    compact: true,
+  )
+]`;
+}
+
+type CourseTopicRow = { label: string; title: string; details: string[] };
+
+function renderRoadmapFocus(row: CourseTopicRow): string {
+  const details = row.details.map((detail) =>
+    `#linebreak() #text(fill: rgb("#5b667a"))[• ${text(detail)}]`
+  ).join("");
+  return `#text(weight: "semibold")[${text(row.title)}]${details}`;
 }
 
 function renderModuleSection(
   data: ExtractedData,
   section: LearningSection,
-  index: number,
-  pattern: TeachingPattern,
 ): string[] {
   const body = [
-    heading(2, section.heading.replace(/^\s*\d+[.)]\s*/, "")),
+    heading(2, conciseSectionHeading(section.heading)),
     paragraph(section.summary),
   ];
   const sources = sourceLine(data, section.source_ids);
   if (sources) body.push(sources);
   if (section.key_concepts.length === 0) return body;
 
-  if (pattern === "lookup") {
-    body.push(heading(3, data.language === "en"
-      ? index === 0 ? "Separate the terms first" : "Lookup and decision step"
-      : index === 0 ? "Begriffe zuerst sauber trennen" : "Nachschlage- und Entscheidungsschritt"));
-    body.push(isOrderedList(section.key_concepts)
+  body.push(
+    `#text(weight: "bold")[${text(data.language === "en" ? "Learning focus:" : "Lernfokus:")}]`,
+    isOrderedList(section.key_concepts)
       ? numberedList(section.key_concepts.map(stripLeadingNumber), data.language)
-      : bulletList(section.key_concepts, data.language));
-  } else if (pattern === "case") {
-    const [consequence, ...details] = section.key_concepts;
-    body.push(heading(3, data.language === "en" ? "Design consequence" : "Konstruktive Konsequenz"), paragraph(consequence));
-    if (details.length > 0) body.push(renderKeyConcepts(details, data.language));
-  } else if (pattern === "failure") {
-    body.push(heading(3, data.language === "en" ? "Failure check" : "Versagenscheck"), bulletList(section.key_concepts, data.language));
-  } else if (pattern === "visual") {
-    body.push(heading(3, data.language === "en" ? "What to look for in the model" : "Worauf du im Modell achten solltest"), bulletList(section.key_concepts, data.language));
-  } else {
-    body.push(isOrderedList(section.key_concepts)
-      ? numberedList(section.key_concepts.map(stripLeadingNumber), data.language)
-      : renderKeyConcepts(section.key_concepts, data.language));
-  }
+      : paragraph(joinLocalizedList(section.key_concepts, data.language)),
+  );
   return body;
 }
 
-function formulaGroupLabel(
-  pattern: TeachingPattern,
-  section: LearningSection,
-  language: ExtractedData["language"],
-): string {
-  if (language === "en") {
-    if (pattern === "lookup") return `Calculation tools for “${section.heading}”`;
-    if (pattern === "failure") return "Verification equations for this failure mode";
-    if (pattern === "visual") return "From the model to the equation";
-    if (pattern === "case") return "Quantities used in the design";
-    return "Formulas for this calculation step";
+function courseTopicRows(objectives: string[]): CourseTopicRow[] {
+  const grouped = new Map<string, { title: string; details: string[] }>();
+  for (const objective of objectives) {
+    const match = /^(Thema|Topic)\s+(\d{1,2})\s*[–-]\s*(.+)$/i.exec(objective.trim());
+    if (!match) continue;
+    const label = `${match[1]} ${match[2]}`;
+    const remainder = match[3].trim();
+    const dotSeparator = remainder.indexOf(" · ");
+    const narrativeSeparator = remainder.search(/:\s+(?:In dieser|In this|This)\b/i);
+    const genericSeparator = remainder.indexOf(":");
+    const separator = dotSeparator >= 0
+      ? { index: dotSeparator, length: 3 }
+      : narrativeSeparator >= 0
+        ? { index: narrativeSeparator, length: 1 }
+        : genericSeparator >= 0
+          ? { index: genericSeparator, length: 1 }
+          : null;
+    const title = (separator ? remainder.slice(0, separator.index) : remainder).trim();
+    const detail = (separator ? remainder.slice(separator.index + separator.length) : "").trim();
+    const existing = grouped.get(label) ?? { title, details: [] };
+    if (detail && !existing.details.includes(detail)) existing.details.push(detail);
+    grouped.set(label, existing);
   }
-  if (pattern === "lookup") return `Rechenwerkzeuge zu „${section.heading}“`;
-  if (pattern === "failure") return "Nachweisgleichungen für diesen Versagensfall";
-  if (pattern === "visual") return "Vom Modell zur Gleichung";
-  if (pattern === "case") return "Größen für die Auslegung";
-  return "Formeln für diesen Rechenschritt";
+  return [...grouped].map(([label, topic]) => {
+    const explicitDetails = topic.details.filter((detail) =>
+      !/\.{4,}/.test(detail) &&
+      /^\d+(?:\.\d+)*\s/.test(detail)
+    );
+    const candidates = explicitDetails.length > 0
+      ? explicitDetails
+      : topic.details.filter((detail) => !/\.{4,}/.test(detail)).slice(0, 1);
+    const bySection = new Map<string, string>();
+    for (const detail of candidates) {
+      const section = /^(\d+(?:\.\d+)*)\s/.exec(detail)?.[1] ?? detail;
+      const previous = bySection.get(section);
+      if (!previous || detail.length > previous.length) bySection.set(section, detail);
+    }
+    return {
+      label,
+      title: conciseText(topic.title, 72),
+      details: [...bySection.values()].slice(0, 3).map((detail) => conciseText(detail, 92)),
+    };
+  });
 }
 
-function exampleGroupLabel(pattern: TeachingPattern, language: ExtractedData["language"]): string {
-  const english = language === "en";
-  switch (pattern) {
-    case "lookup": return english ? "Apply the complete lookup path" : "Den Tabellenweg vollständig anwenden";
-    case "case": return english ? "Work through the guiding design question" : "Die Leitfrage als Entwurf durchrechnen";
-    case "failure": return english ? "Combine the verifications in one load case" : "Die Nachweise in einem Lastfall bündeln";
-    case "path": return english ? "From the initial approach to the plausibility check" : "Vom Ansatz bis zur Plausibilitätskontrolle";
-    case "visual": return english ? "From the contact model to a numerical value" : "Vom Kontaktmodell zum Zahlenwert";
+function conciseSectionHeading(value: string): string {
+  const cleaned = value.replace(/^\s*\d+[.)]\s*/, "").trim();
+  const officialTopic = /^((?:Thema|Topic)\s+\d{1,2}\s*[–-]\s*[^:·]+)(?::.*)$/i.exec(cleaned);
+  return officialTopic?.[1].trim() ?? cleaned;
+}
+
+function conciseText(value: string, limit: number): string {
+  const cleaned = cleanOuterProseArtifact(value);
+  if (cleaned.length <= limit) return cleaned;
+  const sentence = cleaned.slice(0, limit + 1).match(/^(.{40,}?[.!?])(?:\s|$)/)?.[1];
+  if (sentence) return sentence;
+  return `${cleaned.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function modulePracticeItems(module: LearningModule): string[] {
+  const byTopic = new Map<string, string>();
+  const ungrouped: string[] = [];
+  for (const signal of module.assessment_signals) {
+    const topic = /\b(?:Thema|Topic)\s+(\d{1,2})\b/i.exec(signal)?.[1];
+    if (topic) {
+      if (!byTopic.has(topic)) byTopic.set(topic, signal);
+    } else if (!ungrouped.includes(signal)) {
+      ungrouped.push(signal);
+    }
   }
+  return [...byTopic.values(), ...ungrouped].slice(0, 12);
 }
 
 function renderFormula(data: ExtractedData, formula: LearningFormula): string {
+  const lines = readableFormulaLines(formula.typst);
+  const compact = lines.some((line) => line.length > 68);
   return `#sb-formula(
   name: ${typstString(formula.name)},
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
   source: ${sourceReferenceList(data, formula.source_ids) ?? typstString(data.language === "en" ? "General subject theory" : "Allgemeine Fachtheorie")},
-  note: [${text(formula.context)}],
+  note: [${proseText(formula.context)}],
+  compact: ${compact},
 )[
-  ${math(formula.typst)}
+  ${lines.map(math).join("\n  #linebreak()\n  ")}
 ]
 `;
+}
+
+function readableFormulaLines(value: string): string[] {
+  const body = stripMathDelimiters(value);
+  const parts = body
+    .split(/\s*(?:;\s*quad|,\s*quad|,\s*space)\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length > 1 ? parts : [body];
 }
 
 function renderExample(data: ExtractedData, example: WorkedExample): string {
   return `#sb-example(
   title: ${typstString(example.learning_goal)},
-  result: [${text(example.result)}],
+  result: [${proseText(example.result)}],
 )[
-  #text(weight: "bold")[${data.language === "en" ? "Starting point" : "Ausgangslage"}:] ${text(example.prompt)}
+  #text(weight: "bold")[${data.language === "en" ? "Starting point" : "Ausgangslage"}:] ${proseText(example.prompt)}
   ${sourceLine(data, example.source_ids) ?? ""}
   #v(4pt)
-  ${numberedList(example.steps, data.language)}
+  ${renderExampleSteps(example.steps, data.language)}
 ]
 `;
+}
+
+function renderExampleSteps(
+  steps: string[],
+  language: ExtractedData["language"],
+): string {
+  if (steps.length === 0) return numberedList([], language);
+  const rows = steps.map((step) =>
+    `[${renderReadableExampleStep(cleanOuterProseArtifact(step))}]`
+  ).join(",\n    ");
+  return `#sb-steps(
+  rows: (
+    ${rows},
+  ),
+)`;
+}
+
+function renderReadableExampleStep(value: string): string {
+  const colon = value.indexOf(":");
+  if (colon < 0) return text(value);
+  const label = value.slice(0, colon + 1).trim();
+  const calculation = value.slice(colon + 1).trim().replace(/[.]$/, "");
+  const equalityParts = calculation.split(/\s*=\s*/).map((part) => part.trim()).filter(Boolean);
+  if (
+    value.length < 75 ||
+    equalityParts.length < 4 ||
+    calculation.includes(";") ||
+    /(?:gegeben|gesucht|starting point|given)/i.test(label)
+  ) return text(value);
+
+  const firstLine = `${equalityParts[0]} = ${equalityParts[1]}`;
+  const continuation = equalityParts.slice(2).map((part) => `= ${part}`);
+  return `${text(label)}
+#v(2pt)
+#block(inset: (left: 7pt))[
+  ${[firstLine, ...continuation].map(math).join("\n  #linebreak()\n  ")}
+]`;
 }
 
 function assignToSections<T>(
@@ -384,10 +482,14 @@ function assignToSections<T>(
     let bestIndex = itemIndex % sections.length;
     let bestScore = -1;
     for (const [sectionIndex, section] of sections.entries()) {
+      const headingTerms = teachingTerms(section.heading);
       const sectionTerms = teachingTerms(
         `${section.heading} ${section.summary} ${section.key_concepts.join(" ")}`,
       );
-      const score = [...itemTerms].filter((term) => sectionTerms.has(term)).length;
+      const score = [...itemTerms].reduce(
+        (sum, term) => sum + (headingTerms.has(term) ? 3 : sectionTerms.has(term) ? 1 : 0),
+        0,
+      );
       if (score > bestScore) {
         bestScore = score;
         bestIndex = sectionIndex;
@@ -432,13 +534,35 @@ function renderFigure(
 ): string | null {
   const asset = assetsById.get(figure.asset_id);
   if (!asset?.relative_path) return null;
+  if (!isReadableTeachingFigure(asset, figure)) return null;
+  const visibleIndex = data.figures
+    .filter((candidate) => {
+      const candidateAsset = assetsById.get(candidate.asset_id);
+      return Boolean(candidateAsset?.relative_path) &&
+        isReadableTeachingFigure(candidateAsset!, candidate);
+    })
+    .indexOf(figure);
   const caption = sourceReferenceList(data, figure.source_ids)
     ? `[${text(figure.caption)} #h(3pt) ${sourceReferenceList(data, figure.source_ids)}]`
     : typstString(figure.caption);
-  return `#sb-figure(label-text: ${typstString(`${data.language === "en" ? "Fig." : "Abb."} ${index + 1}`)}, caption: ${caption})[
+  return `#sb-figure(label-text: ${typstString(`${data.language === "en" ? "Fig." : "Abb."} ${visibleIndex >= 0 ? visibleIndex + 1 : index + 1}`)}, caption: ${caption})[
   #image(${typstString(asset.relative_path)}, width: 90%)
 ]
 `;
+}
+
+function isReadableTeachingFigure(
+  asset: ExtractedData["visual_assets"][number],
+  _figure: LearningFigure,
+): boolean {
+  // A rasterized full PDF page is source evidence, not a teaching figure.
+  // It duplicates text/formulas at a smaller scale and cannot be cropped
+  // reliably without semantic bounding boxes. Embedded source figures and
+  // generated diagrams remain available.
+  const rasterPage = asset.kind === "moodle_pdf_page" &&
+    (/(?:png|jpe?g)$/i.test(asset.relative_path ?? "") ||
+      /^image\/(?:png|jpe?g)$/i.test(asset.mime_type ?? ""));
+  return !rasterPage;
 }
 
 function heading(level: number, value: string): string {
@@ -450,11 +574,34 @@ function divider(label?: string): string {
 }
 
 function paragraph(value: string): string {
-  return `${text(value)}\n`;
+  return `${proseText(value)}\n`;
 }
 
 function text(value: string): string {
-  return renderTypstInlineText(value, (mathValue) => normalizeTypstMath(stripMathDelimiters(mathValue)));
+  const rendered = renderTypstInlineText(
+    value,
+    (mathValue) => normalizeTypstMath(stripMathDelimiters(mathValue)),
+  );
+  return rendered.startsWith("[") && rendered.endsWith("]")
+    ? rendered.slice(1, -1)
+    : rendered;
+}
+
+function proseText(value: string): string {
+  return text(cleanOuterProseArtifact(value));
+}
+
+function cleanOuterProseArtifact(value: string): string {
+  const trimmed = value.trim();
+  if (
+    trimmed.length > 12 &&
+    trimmed.startsWith("[") &&
+    trimmed.endsWith("]") &&
+    /[A-Za-zÄÖÜäöüß]{3}/.test(trimmed)
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
 }
 
 function math(value: string): string {
@@ -469,7 +616,12 @@ function stripMathDelimiters(value: string): string {
   if (body.startsWith("$") && body.endsWith("$")) {
     body = body.slice(1, -1).trim();
   }
-  return body;
+  // Analyzer formula fields represent one complete math expression. Models
+  // occasionally splice Markdown-style inline math segments into that field
+  // (`$f(x)$ for $x != 0$`), which would prematurely close the renderer's
+  // single Typst math block. Removing the redundant inner delimiters preserves
+  // the expression and lets quoteBareMathText handle connecting prose.
+  return body.replace(/\$/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function normalizeTypstMath(value: string): string {
@@ -485,11 +637,49 @@ function normalizeTypstMath(value: string): string {
       .replace(/([A-Za-z])(?=[\p{Script=Greek}])/gu, "$1 ")
       .replace(/\\ddot\s*\{([^{}]+)\}/g, "accent($1, dot.double)")
       .replace(/\\dot\s*\{([^{}]+)\}/g, "dot($1)");
+  const normalizedVectors = replaceTypstMathFunctionCalls(
+    normalizeCurriedBinaryFunction(normalized, "frac"),
+    "vec",
+    (argument) => `vec(${argument.replace(/;/g, ",")})`,
+  );
   return quoteBareMathText(replaceTypstMathFunctionCalls(
-    normalized,
+    normalizedVectors,
     "ddot",
     (argument) => `accent(${argument}, dot.double)`,
   ));
+}
+
+function normalizeCurriedBinaryFunction(value: string, functionName: string): string {
+  let result = value;
+  let cursor = 0;
+  while (cursor < result.length) {
+    const index = result.indexOf(functionName, cursor);
+    if (index < 0) break;
+    const before = result[index - 1] ?? "";
+    let firstOpen = index + functionName.length;
+    while (/\s/.test(result[firstOpen] ?? "")) firstOpen += 1;
+    if (/[A-Za-z0-9_\\]/.test(before) || result[firstOpen] !== "(") {
+      cursor = index + functionName.length;
+      continue;
+    }
+    const firstClose = findMatchingParen(result, firstOpen);
+    if (firstClose < 0) break;
+    let secondOpen = firstClose + 1;
+    while (/\s/.test(result[secondOpen] ?? "")) secondOpen += 1;
+    if (result[secondOpen] !== "(") {
+      cursor = firstClose + 1;
+      continue;
+    }
+    const secondClose = findMatchingParen(result, secondOpen);
+    if (secondClose < 0) break;
+    const numerator = result.slice(firstOpen + 1, firstClose).trim();
+    const denominator = result.slice(secondOpen + 1, secondClose).trim();
+    result =
+      `${result.slice(0, index)}${functionName}(${numerator}, ${denominator})` +
+      result.slice(secondClose + 1);
+    cursor = index + functionName.length + numerator.length + denominator.length + 4;
+  }
+  return result;
 }
 
 function replaceTypstMathFunctionCalls(
@@ -597,6 +787,16 @@ function sourceTitles(data: ExtractedData, ids: string[]): string {
     .join("; ");
 }
 
+function referencedSourceIds(data: ExtractedData): Set<string> {
+  return new Set([
+    ...data.sections.flatMap((section) => section.source_ids),
+    ...data.formulas.flatMap((formula) => formula.source_ids),
+    ...data.figures.flatMap((figure) => figure.source_ids),
+    ...data.worked_examples.flatMap((example) => example.source_ids),
+    ...data.quiz_style_questions.flatMap((item) => item.source_ids),
+  ]);
+}
+
 function sourceLine(data: ExtractedData, ids: string[]): string | null {
   const refs = sourceReferenceList(data, ids);
   if (!refs) {
@@ -616,7 +816,6 @@ function sourceEntry(data: ExtractedData, id: string): string {
   const sourceContent = `[${sourceRef(data, id)} #h(4pt) ${text(source.title)}]`;
   const parts = [
     source.url ? `#link(${typstString(source.url)})[${text(source.url)}]` : "",
-    source.path ? text(source.path) : "",
     source.page ? text(`${data.language === "en" ? "Page" : "Seite"} ${source.page}`) : "",
   ].filter(Boolean);
   const coverage = parts.length > 0 ? `[${parts.join(" #text(\" · \") ")}]` : typstString(source.kind);
@@ -660,6 +859,7 @@ function stripLeadingNumber(item: string): string {
 }
 
 function joinLocalizedList(items: string[], language: ExtractedData["language"]): string {
+  items = items.map((item) => cleanOuterProseArtifact(item).replace(/[.;:,]+\s*$/, ""));
   const conjunction = language === "en" ? "and" : "und";
   if (items.length === 0) {
     return language === "en" ? "no separately extracted terms" : "keine gesondert extrahierten Begriffe";

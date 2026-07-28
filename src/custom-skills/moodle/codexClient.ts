@@ -1,4 +1,14 @@
-import { Codex, type ModelReasoningEffort, type Usage } from "@openai/codex-sdk";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  Codex,
+  type ModelReasoningEffort,
+  type ThreadItem,
+  type Usage,
+  type UserInput,
+} from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
   resolveTaskModelPolicy,
@@ -12,7 +22,90 @@ export interface CodexClient {
     outputSchema?: unknown;
     task?: StudyBuddyModelTask;
     attempt?: number;
+    /** Preselected evidence images attached to the initial turn without a tool round. */
+    localImages?: string[];
   }): Promise<string>;
+}
+
+export interface CodexTaskAccessPolicy {
+  leafWorker: boolean;
+  sandboxMode: "read-only" | "workspace-write";
+  approvalPolicy: "never" | "on-failure";
+  networkAccessEnabled: boolean;
+  webSearchMode: "disabled" | "cached";
+  isolatedWorkingDirectory: boolean;
+}
+
+export interface CodexToolUsage {
+  toolCalls: number;
+  commandExecutions: number;
+  fileChanges: number;
+  mcpToolCalls: number;
+  webSearches: number;
+}
+
+const LEAF_MODEL_TASKS = new Set<StudyBuddyModelTask>([
+  "artifact_planner",
+  "content_analyzer",
+  "quality_reviewer",
+]);
+const MODEL_PROMPT_CHARACTER_BUDGETS: Record<StudyBuddyModelTask, number> = {
+  artifact_planner: 60_000,
+  content_analyzer: 60_000,
+  quality_reviewer: 45_000,
+  quiz_solver: 120_000,
+  artifact_builder: 120_000,
+};
+
+const LEAF_WORKER_BOUNDARY = [
+  "Internal Study Buddy leaf-worker boundary:",
+  "- Complete this transformation directly from the supplied prompt, schema, and attached images.",
+  "- Do not invoke skills, shell commands, filesystem search, web search, MCP tools, apps, or other external tools.",
+  "- Do not open source paths or gather more context. If evidence is insufficient, preserve the gap in the requested JSON instead of researching.",
+].join("\n");
+
+export function resolveCodexTaskAccessPolicy(task: StudyBuddyModelTask): CodexTaskAccessPolicy {
+  if (LEAF_MODEL_TASKS.has(task)) {
+    return {
+      leafWorker: true,
+      sandboxMode: "read-only",
+      approvalPolicy: "never",
+      networkAccessEnabled: false,
+      webSearchMode: "disabled",
+      isolatedWorkingDirectory: true,
+    };
+  }
+  return {
+    leafWorker: false,
+    sandboxMode: "workspace-write",
+    approvalPolicy: "on-failure",
+    networkAccessEnabled: false,
+    webSearchMode: "cached",
+    isolatedWorkingDirectory: false,
+  };
+}
+
+export function resolveModelPromptCharacterBudget(task: StudyBuddyModelTask): number {
+  return MODEL_PROMPT_CHARACTER_BUDGETS[task];
+}
+
+export function summarizeCodexToolUsage(items: ThreadItem[]): CodexToolUsage {
+  const usage: CodexToolUsage = {
+    toolCalls: 0,
+    commandExecutions: 0,
+    fileChanges: 0,
+    mcpToolCalls: 0,
+    webSearches: 0,
+  };
+  for (const item of items) {
+    if (item.type === "command_execution") usage.commandExecutions += 1;
+    if (item.type === "file_change") usage.fileChanges += 1;
+    if (item.type === "mcp_tool_call") usage.mcpToolCalls += 1;
+    if (item.type === "web_search") usage.webSearches += 1;
+  }
+  usage.toolCalls =
+    usage.commandExecutions + usage.fileChanges + usage.mcpToolCalls + usage.webSearches;
+  return usage;
 }
 
 export type CodexErrorCategory =
@@ -64,9 +157,35 @@ export class ModelCallTimeoutError extends Error {
 }
 
 export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
-  const codex = new Codex(
-    config.codexPath ? { codexPathOverride: config.codexPath } : undefined,
+  const codexOptions = config.codexPath ? { codexPathOverride: config.codexPath } : {};
+  const codex = new Codex(codexOptions);
+  const studyBuddySkillPath = path.join(
+    os.homedir(),
+    ".agents",
+    "skills",
+    "study-buddy",
+    "SKILL.md",
   );
+  const leafCodex = new Codex({
+    ...codexOptions,
+    ...(existsSync(studyBuddySkillPath)
+      ? {
+          config: {
+            skills: {
+              config: [{
+                path: studyBuddySkillPath,
+                enabled: false,
+              }],
+            },
+          },
+        }
+      : {}),
+  });
+  // Keep leaf-worker CWDs stable across runs. The former run-directory hash
+  // changed an otherwise identical SDK context every time and reduced the
+  // reusable prompt prefix. These directories are read-only worker shells and
+  // contain no run data.
+  const leafWorkspaceRoot = path.join(os.tmpdir(), "study-buddy-leaf-workers");
   let extractionCapacityFailure: ModelCallTimeoutError | null = null;
 
   return {
@@ -81,11 +200,44 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       }
       const task = options?.task ?? "content_analyzer";
       const attempt = Math.max(1, options?.attempt ?? 1);
-      const sanitizedPrompt = sanitizeUnicode(prompt);
+      const accessPolicy = resolveCodexTaskAccessPolicy(task);
+      const sanitizedPrompt = sanitizeUnicode(
+        accessPolicy.leafWorker ? `${LEAF_WORKER_BOUNDARY}\n\n${prompt}` : prompt,
+      );
       const requestCharacters = sanitizedPrompt.length;
+      const promptCharacterBudget = resolveModelPromptCharacterBudget(task);
+      const leafWorkspace = path.join(leafWorkspaceRoot, task);
       const schemaCharacters = options?.outputSchema
         ? JSON.stringify(options.outputSchema).length
         : 0;
+      const totalRequestCharacters = requestCharacters + schemaCharacters;
+      const localImages = [...new Set(options?.localImages ?? [])]
+        .map((imagePath) => path.resolve(imagePath))
+        .filter((imagePath) => existsSync(imagePath))
+        .slice(0, 2);
+      if (accessPolicy.isolatedWorkingDirectory) {
+        await mkdir(leafWorkspace, { recursive: true });
+      }
+      if (totalRequestCharacters > promptCharacterBudget) {
+        await config.diagnostics?.log(
+          "warn",
+          "model",
+          `${task} request exceeds its ${promptCharacterBudget}-character budget.`,
+          {
+            task,
+            requestCharacters,
+            schemaCharacters,
+            totalRequestCharacters,
+            promptCharacterBudget,
+            overBudgetCharacters: totalRequestCharacters - promptCharacterBudget,
+          },
+        );
+        throw new NonRetryableCodexError(
+          `${task} request has ${totalRequestCharacters} prompt/schema characters and exceeds its hard ` +
+          `${promptCharacterBudget}-character budget; compact the producer payload before retrying.`,
+          "invalid_request",
+        );
+      }
       const policyInput = {
         profile: config.executionProfile,
         task,
@@ -130,11 +282,17 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
         const signal = combineSignals(config.abortSignal, timeoutController.signal);
         try {
-          const thread = codex.startThread({
-            workingDirectory: config.runDir,
+          const thread = (accessPolicy.leafWorker ? leafCodex : codex).startThread({
+            workingDirectory: accessPolicy.isolatedWorkingDirectory
+              ? leafWorkspace
+              : config.runDir,
             skipGitRepoCheck: true,
             model: policy.model,
             modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
+            sandboxMode: accessPolicy.sandboxMode,
+            approvalPolicy: accessPolicy.approvalPolicy,
+            networkAccessEnabled: accessPolicy.networkAccessEnabled,
+            webSearchMode: accessPolicy.webSearchMode,
           });
           await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
             callId,
@@ -146,11 +304,27 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             queueWaitMs: admission.queueWaitMs,
             requestCharacters,
             schemaCharacters,
+            promptCharacterBudget,
+            attachedImages: localImages.length,
+            leafWorker: accessPolicy.leafWorker,
+            sandboxMode: accessPolicy.sandboxMode,
+            networkAccessEnabled: accessPolicy.networkAccessEnabled,
+            webSearchMode: accessPolicy.webSearchMode,
           });
-          const turn = await thread.run(sanitizedPrompt, {
+          const input: string | UserInput[] = localImages.length > 0
+            ? [
+                { type: "text", text: sanitizedPrompt },
+                ...localImages.map((imagePath): UserInput => ({
+                  type: "local_image",
+                  path: imagePath,
+                })),
+              ]
+            : sanitizedPrompt;
+          const turn = await thread.run(input, {
             outputSchema: options?.outputSchema,
             signal,
           });
+          const toolUsage = summarizeCodexToolUsage(turn.items);
           await recordCall({
             config,
             callId,
@@ -164,9 +338,20 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             queueWaitMs: admission.queueWaitMs,
             requestCharacters,
             schemaCharacters,
+            attachedImages: localImages.length,
+            leafWorker: accessPolicy.leafWorker,
+            toolUsage,
             status: "completed",
             usage: turn.usage,
           });
+          if (accessPolicy.leafWorker && toolUsage.toolCalls > 0) {
+            await config.diagnostics?.log(
+              "warn",
+              "model",
+              `${task} leaf worker used ${toolUsage.toolCalls} prohibited tool(s); the result is retained but flagged for prompt-policy regression.`,
+              { task, callId, ...toolUsage },
+            );
+          }
           return turn.finalResponse;
         } catch (error) {
           const timeoutReached = timeoutController.signal.aborted && !config.abortSignal?.aborted;
@@ -185,6 +370,9 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             queueWaitMs: admission.queueWaitMs,
             requestCharacters,
             schemaCharacters,
+            attachedImages: localImages.length,
+            leafWorker: accessPolicy.leafWorker,
+            toolUsage: emptyToolUsage(),
             status,
             usage: null,
             errorCategory: classification?.category ?? status,
@@ -287,6 +475,9 @@ async function recordCall(input: {
   queueWaitMs: number;
   requestCharacters: number;
   schemaCharacters: number;
+  attachedImages: number;
+  leafWorker: boolean;
+  toolUsage: CodexToolUsage;
   status: "completed" | "failed" | "timeout" | "canceled";
   usage: Usage | null;
   errorCategory?: string;
@@ -299,6 +490,17 @@ async function recordCall(input: {
     output_tokens: 0,
     reasoning_output_tokens: 0,
   };
+  const freshInputTokens = Math.max(0, usage.input_tokens - usage.cached_input_tokens);
+  const estimatedPromptTokens = Math.max(
+    1,
+    Math.ceil((input.requestCharacters + input.schemaCharacters) / 4),
+  );
+  const cacheHitRate = usage.input_tokens > 0
+    ? usage.cached_input_tokens / usage.input_tokens
+    : 0;
+  const inputAmplification = usage.input_tokens > 0
+    ? usage.input_tokens / estimatedPromptTokens
+    : 0;
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
     task: input.task,
@@ -312,6 +514,13 @@ async function recordCall(input: {
     queueWaitMs: input.queueWaitMs,
     requestCharacters: input.requestCharacters,
     schemaCharacters: input.schemaCharacters,
+    attachedImages: input.attachedImages,
+    leafWorker: input.leafWorker,
+    estimatedPromptTokens,
+    freshInputTokens,
+    cacheHitRate,
+    inputAmplification,
+    ...input.toolUsage,
     status: input.status,
     inputTokens: usage.input_tokens,
     cachedInputTokens: usage.cached_input_tokens,
@@ -333,14 +542,46 @@ async function recordCall(input: {
       queueWaitMs: input.queueWaitMs,
       requestCharacters: input.requestCharacters,
       schemaCharacters: input.schemaCharacters,
+      attachedImages: input.attachedImages,
+      leafWorker: input.leafWorker,
       status: input.status,
       tokensIn: usage.input_tokens,
       tokensCached: usage.cached_input_tokens,
+      tokensFresh: freshInputTokens,
       tokensOut: usage.output_tokens,
       tokensReasoning: usage.reasoning_output_tokens,
+      estimatedPromptTokens,
+      cacheHitRate,
+      inputAmplification,
+      ...input.toolUsage,
       ...(input.errorCategory ? { errorCategory: input.errorCategory } : {}),
     },
   );
+  if (input.leafWorker && input.status === "completed" && inputAmplification > 4) {
+    await input.config.diagnostics?.log(
+      "warn",
+      "model",
+      `${input.task} leaf worker exceeded the 4x input-amplification guardrail.`,
+      {
+        callId: input.callId,
+        task: input.task,
+        inputAmplification,
+        inputTokens: usage.input_tokens,
+        estimatedPromptTokens,
+        toolCalls: input.toolUsage.toolCalls,
+      },
+    );
+  }
+}
+
+function emptyToolUsage(): CodexToolUsage {
+  return {
+    toolCalls: 0,
+    commandExecutions: 0,
+    fileChanges: 0,
+    mcpToolCalls: 0,
+    webSearches: 0,
+  };
 }
 
 function combineSignals(primary: AbortSignal | undefined, timeout: AbortSignal): AbortSignal {

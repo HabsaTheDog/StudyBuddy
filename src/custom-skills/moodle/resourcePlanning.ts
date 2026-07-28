@@ -2,6 +2,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StudyBuddyExecutionProfile } from "./modelPolicy.js";
 import { canonicalizeResourceUrl } from "./resourceAcquisition.js";
+import { isLikelyMoodleUrl } from "./moodleSite.js";
 
 export type ResourceRole =
   | "overview"
@@ -61,6 +62,19 @@ const PROBE_LIMITS: Record<StudyBuddyExecutionProfile, number> = {
   quality: 7,
   custom: 5,
 };
+
+export async function remainingInitialProbeSlots(
+  runDir: string,
+  profile: StudyBuddyExecutionProfile,
+  remainingDownloadBudget: number,
+): Promise<number> {
+  const previous = await readExistingPlan(path.join(runDir, "resource-plan.json"));
+  const alreadySelected = previous?.entries.filter((entry) => entry.selected).length ?? 0;
+  return Math.max(
+    0,
+    Math.min(remainingDownloadBudget, PROBE_LIMITS[profile] - alreadySelected),
+  );
+}
 
 export function planCourseResources<T extends ResourcePlanningCandidate>(
   candidates: T[],
@@ -315,8 +329,16 @@ function mergeSerializablePlans(
 }
 
 export function classifyResourceRole(candidate: Pick<ResourcePlanningCandidate, "href" | "label" | "sectionTitle">): ResourceRole {
+  if (!isLikelyMoodleUrl(candidate.href)) {
+    try {
+      new URL(candidate.href);
+      return "external_reference";
+    } catch {
+      return "supplementary";
+    }
+  }
   try {
-    if (new URL(candidate.href).hostname !== "moodle.technikum-wien.at") return "external_reference";
+    new URL(candidate.href);
   } catch {
     return "supplementary";
   }

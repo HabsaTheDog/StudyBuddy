@@ -512,20 +512,22 @@ async function cropPdfPageVisual(
   let region: { x: number; y: number; width: number; height: number };
   if (portrait) {
     region = cropMode === "context"
-      ? { x: 0.055, y: 0.105, width: 0.89, height: 0.79 }
+      ? { x: 0, y: 0.07, width: 1, height: 0.9 }
       : cropMode === "focused" && drawingLike
-        ? { x: 0.075, y: 0.16, width: 0.85, height: 0.57 }
-        : { x: 0.06, y: 0.13, width: 0.88, height: 0.68 };
+        ? { x: 0, y: 0.14, width: 1, height: 0.64 }
+        : tableLike
+          ? { x: 0, y: 0.1, width: 1, height: 0.82 }
+          : { x: 0, y: 0.11, width: 1, height: 0.74 };
   } else if (cropMode === "context") {
-    region = { x: 0.018, y: 0.16, width: 0.964, height: 0.78 };
+    region = { x: 0, y: 0.16, width: 1, height: 0.78 };
   } else if (cropMode === "focused") {
     region = tableLike
-      ? { x: 0.018, y: 0.19, width: 0.964, height: 0.72 }
-      : { x: 0.035, y: 0.20, width: 0.93, height: drawingLike ? 0.68 : 0.7 };
+      ? { x: 0, y: 0.19, width: 1, height: 0.72 }
+      : { x: 0, y: 0.20, width: 1, height: drawingLike ? 0.68 : 0.7 };
   } else {
     region = tableLike
-      ? { x: 0.018, y: 0.18, width: 0.964, height: 0.74 }
-      : { x: 0.025, y: 0.17, width: 0.95, height: 0.74 };
+      ? { x: 0, y: 0.18, width: 1, height: 0.74 }
+      : { x: 0, y: 0.17, width: 1, height: 0.74 };
   }
 
   const x = Math.max(0, Math.floor(dimensions.width * region.x));

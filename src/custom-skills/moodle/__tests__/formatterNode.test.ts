@@ -43,6 +43,8 @@ describe("formatterNode", () => {
     );
 
     expect(receivedPrompt).toContain('"document_title": "DYN2"');
+    expect(receivedPrompt).toContain("appropriate to the course discipline");
+    expect(receivedPrompt).not.toContain("engineering study note");
     expect(receivedPrompt).toContain("sb-flowchart-branch");
     expect(receivedPrompt).toContain("Never draw diagrams with text arrow glyphs");
     expect(receivedPrompt).toContain("Default to normal Typst prose paragraphs");
@@ -91,7 +93,8 @@ describe("formatterNode", () => {
 
     expect(codexCalls).toBe(0);
     expect(result.error_log).toBeNull();
-    expect(result.final_document).toContain("Konkrete Laborvorgaben stammen");
+    expect(result.final_document).toContain("So arbeitest du mit dieser Unterlage");
+    expect(result.final_document).toContain("Erarbeite zuerst die Erklärung");
     expect(result.final_document).not.toContain("Quellen und Modellannahmen");
   });
 

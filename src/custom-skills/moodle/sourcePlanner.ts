@@ -153,7 +153,7 @@ export function planSourcesForPrompt(
     "what are we doing",
     "fachlabor",
     "laborinhalt",
-  ]) || /https:\/\/moodle\.technikum-wien\.at\//i.test(prompt);
+  ]) || /https:\/\/[^\s]+\/(?:course\/view\.php|mod\/|pluginfile\.php|my\/?)/i.test(prompt);
   const needsFiles = hasAny(normalized, [
     "pdf",
     "folie",

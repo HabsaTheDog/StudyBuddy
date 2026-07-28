@@ -1,4 +1,5 @@
 import type { PipelineStage } from "./types.js";
+import { extractMoodleUrlFromText, isLikelyMoodleUrl } from "./moodleSite.js";
 
 export type StudyBuddyIntent =
   | "quick_answer"
@@ -76,7 +77,9 @@ export function classifyStudyBuddyIntent(input: {
   const onlyShortAnswer = /\b(?:nenne nur|nur den termin|kurz|nur kurz|nur datum|nur die antwort)\b/i.test(prompt);
   const scheduleSignal = /\b(?:termin|prüfung|pruefung|test|klausur|raum|räume|raeume|uhrzeit|heute|morgen|deadline|frist|wann|wo|schedule|timetable|exam|room|today|tomorrow|anwesenheit|attendance|lv-info|administrativ)\b/i
     .test(prompt);
-  const explicitMoodleSource = /\bmoodle\b|https:\/\/moodle\.technikum-wien\.at\//i.test(prompt);
+  const explicitMoodleUrl = extractMoodleUrlFromText(prompt);
+  const explicitMoodleSource = /\bmoodle\b/i.test(prompt) ||
+    Boolean(explicitMoodleUrl && isLikelyMoodleUrl(explicitMoodleUrl));
   const courseMaterial = /\b(?:lernunterlagen|kursunterlagen|unterlagen|prüfungsrelevante|pruefungsrelevante|materialien|skript|folie|folien|pdf|datei|kursmaterial|fachlabor|laborinhalt)\b|was machen wir|what are we doing/i
     .test(prompt);
   const needsDownloadedFiles = wantsPdf ||

@@ -60,6 +60,20 @@ describe("domain-neutral learning architecture", () => {
       summary: "Analyze a case study, compare alternatives, and justify a decision.",
       expectedMode: "mixed",
     },
+    {
+      domain: "humanities",
+      title: "Seminar 05 - Colonial Narratives",
+      topic: "Colonial Narratives",
+      summary: "Interpret narrative voice and compare competing readings in their historical context.",
+      expectedMode: "conceptual",
+    },
+    {
+      domain: "language",
+      title: "Workshop 06 - Academic Peer Review",
+      topic: "Academic Peer Review",
+      summary: "Follow a step-by-step writing and peer-review procedure, then revise the draft.",
+      expectedMode: "procedural",
+    },
   ])("creates a meaningful $domain module without subject-specific routing", (fixture) => {
     const url = `https://moodle.example/resource/${encodeURIComponent(fixture.domain)}.pdf`;
     const architecture = buildDeterministicLearningArchitecture({
@@ -222,6 +236,17 @@ describe("domain-neutral learning architecture", () => {
       "Risk Classification",
       "Decision Models",
     ]));
+  });
+
+  it("keeps an unclassified primary lecture in mixed learning mode", () => {
+    const architecture = buildDeterministicLearningArchitecture({
+      briefs: [],
+      catalog: [
+        catalog("Lecture 4 - Angular Momentum", "Angular Momentum", "https://moodle.example/angular.pdf"),
+      ],
+    });
+
+    expect(architecture.modules[0].contentMode).toBe("mixed");
   });
 
   it("validates model JSON strictly and rejects incomplete modules", () => {

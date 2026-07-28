@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { deriveMoodleBrowserDomains } from "./moodleSite.js";
 import {
   assertNoSensitiveCommandArguments,
   buildCredentialFreeChildEnvironment,
@@ -80,6 +81,14 @@ export function createAgentBrowserClient(config: MoodleRuntimeConfig): AgentBrow
 
 function buildAgentBrowserCommandSpec(config: MoodleRuntimeConfig): CommandSpec {
   const session = `sb-${shortHash(`${config.requestName}:${config.runDir}`)}`;
+  const inferredDomains = deriveMoodleBrowserDomains(config.baseUrl, [
+    config.dashboardUrl,
+    ...config.cisUrls,
+    config.cisBaseUrl,
+    config.cisDashboardUrl,
+    ...(config.moodleLoginAllowedOrigins ?? []),
+    ...(config.cisLoginAllowedOrigins ?? []),
+  ]);
   return {
     command: process.env.AGENT_BROWSER_BIN || "npx",
     baseArgs: [
@@ -89,10 +98,10 @@ function buildAgentBrowserCommandSpec(config: MoodleRuntimeConfig): CommandSpec 
       "--session",
       process.env.MOODLE_BROWSER_SESSION || session,
       "--session-name",
-      process.env.MOODLE_BROWSER_SESSION_NAME || "study-buddy-technikum",
+      process.env.MOODLE_BROWSER_SESSION_NAME || "study-buddy-moodle",
       "--allowed-domains",
       process.env.MOODLE_BROWSER_ALLOWED_DOMAINS ||
-        "moodle.technikum-wien.at,cis.technikum-wien.at,*.technikum-wien.at",
+        inferredDomains.join(","),
       "--content-boundaries",
       "--max-output",
       process.env.MOODLE_BROWSER_MAX_OUTPUT || "50000",

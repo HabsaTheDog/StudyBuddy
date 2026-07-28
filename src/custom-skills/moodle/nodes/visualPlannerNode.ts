@@ -1,16 +1,15 @@
 import type { CodexClient } from "../codexClient.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
-import { parseJsonObjectOrArray } from "../validation.js";
 import {
   buildVisualPageIndex,
-  compactVisualPageIndexForPrompt,
   VisualRetrievalPlanSchema,
-  visualRetrievalPlanJsonSchema,
+  type VisualPageIndex,
+  type VisualRetrievalPlan,
   writeVisualRetrievalPlan,
 } from "../visualPlanner.js";
 
-export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: CodexClient) {
+export function createVisualPlannerNode(config: MoodleRuntimeConfig, _codex: CodexClient) {
   return async function visualPlannerNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
@@ -31,36 +30,13 @@ export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: Code
         return { error_log: null };
       }
 
-      const response = await codex.run(buildVisualPlannerPrompt(config, state, pageIndex), {
-        outputSchema: visualRetrievalPlanJsonSchema,
-        task: "artifact_planner",
-        attempt: state.retry_count + 1,
-      });
-      const parsed = VisualRetrievalPlanSchema.parse(parseJsonObjectOrArray(response));
-      const allowedResourceIds = new Set(pageIndex.entries.map((entry) => entry.resourceId));
-      const pageCountsByResource = new Map(pageIndex.entries.map((entry) => [entry.resourceId, entry.pageCount]));
-      const sanitized = VisualRetrievalPlanSchema.parse({
-        ...parsed,
-        requests: parsed.requests
-          .filter((request) => allowedResourceIds.has(request.resourceId))
-          .map((request) => {
-            const pageCount = pageCountsByResource.get(request.resourceId) ?? 0;
-            return {
-              ...request,
-              pages: [...new Set(request.pages)]
-                .filter((page) => page >= 1 && page <= pageCount)
-                .sort((left, right) => left - right),
-            };
-          })
-          .filter((request) => request.pages.length > 0),
-      });
-      const completePlan = augmentLookupDependencies(sanitized, pageIndex);
+      const completePlan = buildDeterministicVisualPlan(config, state, pageIndex);
 
       await writeVisualRetrievalPlan(config.runDir, completePlan);
       await config.diagnostics?.log(
         "info",
         "diagnostic",
-        `Visual planner requested ${completePlan.requests.reduce((sum, request) => sum + request.pages.length, 0)} page(s) across ${completePlan.requests.length} request(s).`,
+        `Deterministic visual planner selected ${completePlan.requests.reduce((sum, request) => sum + request.pages.length, 0)} page(s) across ${completePlan.requests.length} request(s) without a model call.`,
       );
       return { error_log: null };
     } catch (error) {
@@ -76,48 +52,93 @@ export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: Code
   };
 }
 
-function buildVisualPlannerPrompt(
+/**
+ * Visual page selection is intentionally deterministic. The previous model
+ * planner repeated the full architecture, evidence summary, and page index,
+ * which made it one of the largest prompts in a normal PDF run while adding
+ * no new factual evidence. Page-text signals and architecture assignments are
+ * sufficient to make a bounded, reproducible retrieval plan.
+ */
+export function buildDeterministicVisualPlan(
   config: MoodleRuntimeConfig,
   state: LangGraphAgentState,
-  pageIndex: Awaited<ReturnType<typeof buildVisualPageIndex>>,
-): string {
-  const evidence = {
-    records: state.evidence_package.records.slice(0, 240).map((record) => ({
-      resourceId: record.resourceId,
-      kind: record.kind,
-      locator: record.locator,
-      content: record.content.slice(0, 500),
-    })),
-    warnings: state.evidence_package.warnings,
+  pageIndex: VisualPageIndex,
+): VisualRetrievalPlan {
+  const maxPages = {
+    auto: 16,
+    fast: 8,
+    balanced: 14,
+    quality: 24,
+    custom: 14,
+  }[config.executionProfile];
+  const maxPagesPerResource = config.executionProfile === "quality"
+    ? 3
+    : config.executionProfile === "fast"
+      ? 1
+      : 2;
+  const architectureUrls = new Set(
+    (state.source_architect_decision.learningArchitecture?.modules ?? [])
+      .flatMap((module) => module.resourceUrls),
+  );
+  const directResourceIds = new Set(
+    state.resource_manifest.resources
+      .filter((resource) =>
+        architectureUrls.has(resource.originUrl) ||
+        (resource.resolvedUrl ? architectureUrls.has(resource.resolvedUrl) : false)
+      )
+      .map((resource) => resource.id),
+  );
+  const candidates = pageIndex.entries.map((entry, entryIndex) => ({
+    entry,
+    entryIndex,
+    direct: directResourceIds.has(entry.resourceId),
+    pages: entry.pages
+      .map((page) => ({ page, score: visualPageScore(page.signals) }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => right.score - left.score || left.page.page - right.page.page),
+  }));
+  const selected = new Map<string, typeof pageIndex.entries[number]["pages"]>();
+  const add = (
+    entry: typeof pageIndex.entries[number],
+    page: typeof entry.pages[number] | undefined,
+  ) => {
+    if (!page) return;
+    if ([...selected.values()].reduce((sum, pages) => sum + pages.length, 0) >= maxPages) return;
+    const pages = selected.get(entry.resourceId) ?? [];
+    if (pages.length >= maxPagesPerResource || pages.some((candidate) => candidate.page === page.page)) return;
+    selected.set(entry.resourceId, [...pages, page]);
   };
-  const resources = state.resource_manifest.resources
-    .filter((resource) => resource.sectionPath.length > 0)
-    .map((resource) => ({
-      id: resource.id,
-      title: resource.title,
-      sectionPath: resource.sectionPath,
-      localPath: resource.localPath,
-    }));
-  return [
-    "You are the Study Buddy Visual Planner for Moodle/CIS learning artifacts.",
-    "Your job is not to write the document. Your job is to request visual retrieval from source PDFs before the final analyzer runs.",
-    "Return only JSON matching the schema. Do not include Markdown fences.",
-    "Planning principles:",
-    "- Visuals are usually valuable for learning. Prefer requesting useful pages over being overly conservative.",
-    "- Request pages for worked examples, cases, exercises, solutions, tables, diagrams, anatomical/process illustrations, charts, maps, financial statements, formula/reference pages, and meaningful chapter context.",
-    "- If examples or solutions are near the end of a PDF, explicitly request those late pages.",
-    "- A worked example that explicitly says to use a table, table book (for example TB 2-1), diagram, characteristic curve, or nomogram is not self-contained without that lookup asset. Request both the example page and the relevant table/diagram pages, including nearby preceding reference pages.",
-    "- Spread requests over Moodle chapters and sources; do not spend all requests on the first chapter unless the course material genuinely only covers that chapter.",
-    "- Use source-related title/cover/logo/context visuals when they improve orientation, but do not request random decorative pages.",
-    "- Keep requests focused: use concrete page numbers. Prefer 1-4 pages per reason; use more only for dense example/table sections.",
-    "- Do not invent facts. Base page choices on page index signals, evidence records, and Moodle chapter/resource names.",
-    `Artifact profile: ${config.artifactIntent.profile}.`,
-    `User request:\n${config.prompt}`,
-    `Model-derived learning architecture:\n${JSON.stringify(state.source_architect_decision.learningArchitecture ?? null, null, 2)}`,
-    `Moodle resource map (section paths are metadata, not necessarily learning modules):\n${JSON.stringify(resources, null, 2)}`,
-    `Evidence summary:\n${JSON.stringify(evidence, null, 2)}`,
-    `Visual page index:\n${JSON.stringify(compactVisualPageIndexForPrompt(pageIndex), null, 2)}`,
-  ].join("\n\n");
+
+  // First preserve architecture breadth, then add one stronger second visual
+  // per resource. This avoids allowing one long slide deck to consume the run.
+  for (let rank = 0; rank < maxPagesPerResource; rank += 1) {
+    for (const candidate of [...candidates].sort((left, right) =>
+      Number(right.direct) - Number(left.direct) || left.entryIndex - right.entryIndex
+    )) {
+      add(candidate.entry, candidate.pages[rank]?.page);
+    }
+  }
+
+  const base = VisualRetrievalPlanSchema.parse({
+    schemaVersion: "1.0",
+    strategy:
+      `Deterministic bounded selection from PDF page-text signals (${maxPages} page ceiling; ` +
+      `${maxPagesPerResource} per resource) with architecture-assigned resources prioritized.`,
+    requests: pageIndex.entries.flatMap((entry) => {
+      const pages = selected.get(entry.resourceId);
+      if (!pages?.length) return [];
+      const signals = new Set(pages.flatMap((page) => page.signals));
+      return [{
+        resourceId: entry.resourceId,
+        pages: pages.map((page) => page.page).sort((left, right) => left - right),
+        purpose: visualPurpose(signals),
+        priority: directResourceIds.has(entry.resourceId) ? "high" : "medium",
+        placementHint: "Place beside the matching explanation or worked example in the assigned chapter.",
+        reason: "Selected deterministically from source-backed page signals and bounded for broad chapter coverage.",
+      }];
+    }),
+  });
+  return augmentLookupDependencies(base, pageIndex);
 }
 
 function augmentLookupDependencies(
@@ -125,8 +146,13 @@ function augmentLookupDependencies(
   pageIndex: Awaited<ReturnType<typeof buildVisualPageIndex>>,
 ): ReturnType<typeof VisualRetrievalPlanSchema.parse> {
   const requests = [...plan.requests];
-  for (const entry of pageIndex.entries) {
-    const dependencyPages = entry.pages.filter((page) => hasLookupDependency(page.hint));
+  const plannedResourceIds = new Set(requests.map((request) => request.resourceId));
+  for (const entry of pageIndex.entries.filter((candidate) =>
+    plannedResourceIds.has(candidate.resourceId)
+  )) {
+    const dependencyPages = entry.pages
+      .filter((page) => hasLookupDependency(page.hint))
+      .slice(0, 2);
     if (dependencyPages.length === 0) continue;
     const pages = new Set<number>();
     for (const dependency of dependencyPages) {
@@ -162,6 +188,28 @@ function augmentLookupDependencies(
     }
   }
   return VisualRetrievalPlanSchema.parse({ ...plan, requests });
+}
+
+function visualPageScore(signals: string[]): number {
+  const values = new Set(signals);
+  return (
+    Number(values.has("solution")) * 9 +
+    Number(values.has("worked_example")) * 8 +
+    Number(values.has("table")) * 7 +
+    Number(values.has("diagram_or_figure")) * 6 +
+    Number(values.has("formula_or_math")) * 3 -
+    Number(values.has("context_logo")) * 10
+  );
+}
+
+function visualPurpose(
+  signals: Set<string>,
+): VisualRetrievalPlan["requests"][number]["purpose"] {
+  if (signals.has("table")) return "table";
+  if (signals.has("solution") || signals.has("worked_example")) return "worked_example";
+  if (signals.has("diagram_or_figure")) return "diagram";
+  if (signals.has("formula_or_math")) return "formula_reference";
+  return "context";
 }
 
 function hasLookupDependency(text: string): boolean {

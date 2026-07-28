@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   isNonRetryableCodexError,
@@ -32,13 +32,17 @@ import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
 import { languageName } from "../../shared/languagePolicy.js";
 import {
+  extractResolvedCourseIdentity,
+  resolveRequestedCourseCode,
+} from "../courseTargeting.js";
+import {
   adaptiveEvidenceSliceLimit,
   applyAdaptiveExtractionBudget,
   updateAdaptiveRuntimeProgress,
 } from "../adaptiveRuntimeBudget.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-18.12-output-language";
+const CHAPTER_ANALYZER_VERSION = "2026-07-26.8-subtopic-frequency";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
@@ -58,9 +62,14 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       throwIfAborted(config.abortSignal);
-      const validated = shouldAnalyzeByChapter(config, state)
+      const analyzed = shouldAnalyzeByChapter(config, state)
         ? await analyzeCourseChapters(config, state, codex)
         : await analyzeWholeRequest(config, state, codex);
+      const validated = reconcileRequestedCourseIdentity(
+        config,
+        analyzed,
+        state.moodle_raw_text,
+      );
       throwIfAborted(config.abortSignal);
       await persistExtractedData(config.runDir, validated);
       await config.diagnostics?.log("info", "analyzer", "Validated and persisted extracted study data.");
@@ -99,6 +108,41 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   };
 }
 
+export function reconcileRequestedCourseIdentity(
+  config: MoodleRuntimeConfig,
+  data: ReturnType<typeof validateExtractedData>,
+  sourceText = "",
+): ReturnType<typeof validateExtractedData> {
+  const resolvedIdentity = extractResolvedCourseIdentity(sourceText);
+  const requestedCode = resolveRequestedCourseCode(
+    config.prompt,
+    config.originalUserPrompt ?? "",
+    sourceText,
+  );
+  const courseTitle = resolvedIdentity &&
+      resolvedIdentity.confidence !== "low" &&
+      resolvedIdentity.confidence !== "direct"
+    ? resolvedIdentity.title
+    : requestedCode ?? (resolvedIdentity?.confidence === "direct"
+      ? resolvedIdentity.title
+      : undefined);
+  if (!courseTitle) return data;
+  const title = config.artifactIntent.profile === "study_guide"
+    ? `${courseTitle} – Study Guide`
+    : data.document_title.toLowerCase().includes(courseTitle.toLowerCase())
+      ? data.document_title
+      : `${courseTitle} – ${data.document_title}`;
+  return validateExtractedData({
+    ...data,
+    document_title: title,
+    course: {
+      ...data.course,
+      title: courseTitle,
+      ...(resolvedIdentity?.url ? { url: resolvedIdentity.url } : {}),
+    },
+  });
+}
+
 async function analyzeWholeRequest(
   config: MoodleRuntimeConfig,
   state: LangGraphAgentState,
@@ -108,6 +152,7 @@ async function analyzeWholeRequest(
     outputSchema: extractedDataJsonSchema,
     task: "content_analyzer",
     attempt: state.retry_count + 1,
+    localImages: await analyzerVisualAttachments(config.runDir, state),
   });
   return validateAnalyzerResponse(response, config);
 }
@@ -126,10 +171,12 @@ function validateAnalyzerResponse(
   });
 }
 
-interface ChapterFocus {
+export interface ChapterFocus {
   key: string;
   title: string;
   resourceIds: string[];
+  directResourceIds?: string[];
+  supportResourceIds?: string[];
   matchTerms: string[];
   priority?: "essential" | "important" | "supplementary";
   contentMode?: "quantitative" | "conceptual" | "procedural" | "case_based" | "mixed";
@@ -159,10 +206,24 @@ async function analyzeCourseChapters(
     .slice(0, analysisBudget.maxSelectedSlices);
   await applyAdaptiveExtractionBudget(config, state, focuses.length);
   const evidenceSlicesPerChapter = config.executionProfile === "quality" ? 4 : 2;
-  const sliceBudgets = focuses.map(() => Math.min(
-    evidenceSlicesPerChapter,
-    analysisBudget.maxModelCallsPerModule,
-  ));
+  const sliceBudgets = focuses.map((focus) => {
+    const evidencedDirectResources = new Set(
+      state.evidence_package.records
+        .filter((record) => (focus.directResourceIds ?? focus.resourceIds).includes(record.resourceId))
+        .map((record) => record.resourceId),
+    ).size;
+    // A direct exercise/solution dependency must not disappear merely because
+    // a chapter has more assigned sources than the default slice count. Up to
+    // four compact slices can still be packed into one bounded model call.
+    return Math.min(
+      Math.max(
+        evidenceSlicesPerChapter,
+        Math.min(4, evidencedDirectResources),
+        Math.min(4, 1 + (focus.learningObjectives?.length ?? 0)),
+      ),
+      analysisBudget.maxModelCallsPerModule,
+    );
+  });
   const cacheDir = path.join(config.runDir, "chapter-handoffs");
   const sharedCacheDir = path.join(config.runtimeCacheDir, "chapter-handoffs");
   await Promise.all([
@@ -218,7 +279,11 @@ async function analyzeCourseChapters(
       }
       try {
         ensureChapterRuntimeBudget(config, state, focus, results);
-        const dense = isDenseChapter(state, focus);
+        const dense = isDenseChapter(state, focus) ||
+          (
+            config.artifactIntent.profile === "study_guide" &&
+            focusNeedsQuantitativeApplication(focus)
+          );
         await config.diagnostics?.log(
           "info",
           "analyzer",
@@ -241,6 +306,7 @@ async function analyzeCourseChapters(
                 outputSchema: extractedDataJsonSchema,
                 task: "content_analyzer",
                 attempt: state.retry_count + 1,
+                localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
             ), config);
         const data = ensureFocusLearningModule(analyzed, focus);
@@ -288,7 +354,7 @@ async function analyzeCourseChapters(
   }, () => worker()));
   if (failures.length > 0) {
     throw new Error(failures
-      .map(({ focus, message }) => `Chapter analyzer failed for "${focus.title}": ${message}`)
+      .map(({ focus, message }) => `[chapter: ${focus.title}] Chapter analyzer failed: ${message}`)
       .join("\n"));
   }
   return mergeChapterHandoffs(results, focuses, config);
@@ -299,7 +365,7 @@ type ManifestResource = LangGraphAgentState["resource_manifest"]["resources"][nu
 type VisualManifest = NonNullable<Awaited<ReturnType<typeof readVisualManifest>>>;
 type VisualCandidate = VisualManifest["candidates"][number];
 
-interface ChapterSlice {
+export interface ChapterSlice {
   key: string;
   label: string;
   resourceIds: string[];
@@ -331,22 +397,38 @@ async function analyzeDenseChapter(
   maxSlices: number,
   repairFeedbackOverride?: string | null,
 ): Promise<ReturnType<typeof validateExtractedData>> {
-  const candidateSlices = buildChapterSlices(state, focus);
+  const allCandidateSlices = buildChapterSlices(state, focus);
+  const directResourceIds = new Set(focus.directResourceIds ?? focus.resourceIds);
+  const directEvidenceCharacters = state.evidence_package.records
+    .filter((record) => directResourceIds.has(record.resourceId))
+    .reduce((sum, record) => sum + record.content.length, 0);
+  const candidateSlices = directEvidenceCharacters >= 600
+    ? allCandidateSlices.filter((slice) =>
+        slice.resourceIds.some((resourceId) => directResourceIds.has(resourceId)) ||
+        supportSliceMatchesFocus(slice, focus)
+      )
+    : allCandidateSlices;
   const profileBudget = resolveAnalysisBudget(config.executionProfile);
+  const repairFeedback = repairFeedbackOverride === undefined
+    ? focusMatchesError(focus, state.error_log) ? state.error_log : null
+    : repairFeedbackOverride;
+  const officialTopicCount = officialCourseTopics(focus).length;
+  const effectiveMaxSlices = officialTopicCount > 0
+    ? Math.max(maxSlices, Math.min(4, candidateSlices.length))
+    : maxSlices;
   const retrievalRequests = await readVisualRetrievalRequests(config.runDir);
   const dependencyResourceIds = new Set(retrievalRequests
     .filter((request) => request.priority === "high" && focus.resourceIds.includes(request.resourceId))
     .map((request) => request.resourceId));
-  const selected = selectAnalysisSlices<AnalysisSliceCandidate & { slice: ChapterSlice }>({
-    candidates: candidateSlices.map((slice, index) => {
+  const candidates = candidateSlices.map((slice, index) => {
       const sourceRole = dominantSliceRole(state, slice);
-      const reservation = slice.resourceIds.some((id) => dependencyResourceIds.has(id))
+      const reservation = slice.resourceIds.some((id) =>
+        (focus.directResourceIds ?? focus.resourceIds).includes(id)
+      )
         ? "dependency" as const
-        : ["primary_lecture", "overview"].includes(sourceRole)
-          ? "primary" as const
-          : ["sample_exam", "worked_example", "exercise", "solution"].includes(sourceRole)
-            ? "practice" as const
-            : undefined;
+        : slice.resourceIds.some((id) => dependencyResourceIds.has(id))
+          ? "dependency" as const
+          : undefined;
       return {
         id: slice.key,
         resourceId: slice.resourceIds.join("+") || focus.key,
@@ -354,48 +436,63 @@ async function analyzeDenseChapter(
         sourceRole,
         title: slice.label,
         content: slice.records.map((record) => record.content).join(" "),
-        tags: [
-          ...focus.matchTerms,
-          ...(focus.learningObjectives ?? []),
-          ...(focus.assessmentSignals ?? []),
-        ],
+        tags: sliceSourceTags(state, slice),
         ordinal: index,
         totalSlices: candidateSlices.length,
         reservation,
         slice,
       };
-    }),
+    });
+  const selected = selectAnalysisSlices<AnalysisSliceCandidate & { slice: ChapterSlice }>({
+    candidates,
     relevanceTerms: [
       focus.title,
       ...focus.matchTerms,
       ...(focus.learningObjectives ?? []),
       ...(focus.assessmentSignals ?? []),
+      ...(repairFeedback ? [repairFeedback] : []),
     ],
     profile: config.executionProfile,
     limits: {
       ...profileBudget,
-      maxGlobalModelCalls: maxSlices,
-      maxModelCallsPerModule: maxSlices,
-      maxSelectedSlices: maxSlices,
+      maxGlobalModelCalls: effectiveMaxSlices,
+      maxModelCallsPerModule: effectiveMaxSlices,
+      maxSlicesPerResource: Math.max(
+        profileBudget.maxSlicesPerResource,
+        effectiveMaxSlices,
+      ),
+      maxSelectedSlices: effectiveMaxSlices,
     },
   });
-  const slices = packSelectedSlices(selected.selected);
+  const courseBalancedSelection = ensureOfficialTopicEvidenceSelection(
+    selected.selected,
+    candidates,
+    focus,
+    effectiveMaxSlices,
+  );
+  const selectedCandidates = ensureDirectEvidenceSelection(
+    courseBalancedSelection,
+    candidates,
+    focus.directResourceIds ?? focus.resourceIds,
+    effectiveMaxSlices,
+  );
+  assertSelectedChapterEvidence(state, focus, selectedCandidates);
+  const slices = packSelectedSlices(selectedCandidates);
   await config.diagnostics?.log(
     selected.omittedCount > 0 ? "warn" : "info",
     "analyzer",
-    `Budgeted ${focus.title}: retained ${selected.selected.length}/${candidateSlices.length} evidence slice(s) in ${slices.length} model call(s).`,
+    `Budgeted ${focus.title}: retained ${selectedCandidates.length}/${candidateSlices.length} evidence slice(s) in ${slices.length} model call(s).`,
     {
       contentMode: focus.contentMode ?? "mixed",
       omittedSlices: selected.omittedCount,
       modelCallPacks: slices.length,
       countsByResource: selected.countsByResource,
+      directResources: focus.directResourceIds ?? focus.resourceIds,
+      supportResources: focus.supportResourceIds ?? [],
     },
   );
   const visualManifest = await readVisualManifest(config.runDir);
   const fragments: ChapterFragment[] = [];
-  const repairFeedback = repairFeedbackOverride === undefined
-    ? focusMatchesError(focus, state.error_log) ? state.error_log : null
-    : repairFeedbackOverride;
   const fragmentCacheDir = path.join(config.runtimeCacheDir, "chapter-fragments");
   await mkdir(fragmentCacheDir, { recursive: true });
 
@@ -408,9 +505,10 @@ async function analyzeDenseChapter(
     let sliceRepairFeedback = repairFeedback;
     const fingerprintBase = {
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
-      prompt: config.prompt,
+      outputLanguage: config.outputLanguage,
+      profile: config.artifactIntent.profile,
       policy: STUDENT_FIRST_POLICY_VERSION,
-      focus: focus.key,
+      focus,
       slice: slice.key,
       repairFeedback: sliceRepairFeedback,
     };
@@ -430,6 +528,11 @@ async function analyzeDenseChapter(
     })).digest("hex");
     const fragmentCachePaths = [...new Set([semanticFingerprint, legacyFingerprint])]
       .map((fingerprint) => path.join(fragmentCacheDir, `${fingerprint}.json`));
+    const requiresApplication =
+      sliceRequiresAppliedExample(state, focus, slice) ||
+      (slices.length === 1 && focusNeedsQuantitativeApplication(focus));
+    const minimumLearningCharacters =
+      slices.length === 1 && focusNeedsQuantitativeApplication(focus) ? 1_200 : 0;
     let cachedFragment: ChapterFragment | null = null;
     for (const cachePath of fragmentCachePaths) {
       cachedFragment = await readFile(cachePath, "utf8")
@@ -454,6 +557,19 @@ async function analyzeDenseChapter(
         `Invalidated formula-metadata fragment ${index + 1}/${slices.length}: ${slice.label}`,
       );
     }
+    const cachedApplicationError = cachedFragment && requiresApplication
+      ? appliedFragmentQualityError(cachedFragment, focus, minimumLearningCharacters)
+      : null;
+    if (cachedFragment && cachedApplicationError) {
+      cachedFragment = null;
+      sliceRepairFeedback =
+        `Validator-Diagnose: ${cachedApplicationError}`;
+      await config.diagnostics?.log(
+        "info",
+        "analyzer",
+        `Invalidated weak application fragment ${index + 1}/${slices.length}: ${slice.label}`,
+      );
+    }
     if (cachedFragment) {
       fragments.push(cachedFragment);
       await config.diagnostics?.log(
@@ -469,28 +585,66 @@ async function analyzeDenseChapter(
       "analyzer",
       `Analyzing ${focus.title}, topic fragment ${index + 1}/${slices.length}: ${slice.label}`,
     );
-    const prompt = buildChapterFragmentPrompt(
-      config,
-      state,
-      focus,
+    const localImages = await chapterVisualAttachments(
+      config.runDir,
       slice,
-      index,
-      slices.length,
       visualManifest,
       retrievalRequests,
-      sliceRepairFeedback,
     );
-    const response = await codex.run(prompt, {
-      outputSchema: chapterFragmentJsonSchema,
-      task: "content_analyzer",
-      attempt: state.retry_count + 1,
-    });
-    throwIfAborted(config.abortSignal);
-    const fragment = normalizeFragmentReferences(
-      ChapterFragmentSchema.parse(parseJsonObjectOrArray(response)),
-      slice,
-      visualManifest,
-    );
+    let fragment: ChapterFragment | null = null;
+    let localRepairFeedback = sliceRepairFeedback;
+    const localAttempts = requiresApplication ? 2 : 1;
+    for (let localAttempt = 0; localAttempt < localAttempts; localAttempt += 1) {
+      const prompt = buildChapterFragmentPrompt(
+        config,
+        state,
+        focus,
+        slice,
+        index,
+        slices.length,
+        visualManifest,
+        retrievalRequests,
+        localRepairFeedback,
+      );
+      try {
+        const response = await codex.run(prompt, {
+          outputSchema: chapterFragmentJsonSchema,
+          task: "content_analyzer",
+          attempt: state.retry_count + localAttempt + 1,
+          localImages,
+        });
+        throwIfAborted(config.abortSignal);
+        const candidate = normalizeFragmentReferences(
+          ChapterFragmentSchema.parse(parseJsonObjectOrArray(response)),
+          slice,
+          visualManifest,
+        );
+        const applicationError = requiresApplication
+          ? appliedFragmentQualityError(candidate, focus, minimumLearningCharacters)
+          : null;
+        if (applicationError) {
+          throw new Error(applicationError);
+        }
+        fragment = candidate;
+        break;
+      } catch (error) {
+        throwIfAborted(config.abortSignal);
+        if (error instanceof ModelCallTimeoutError) throw error;
+        if (localAttempt + 1 >= localAttempts) throw error;
+        localRepairFeedback =
+          `Validator-Diagnose für den einmaligen lokalen Reparaturversuch: ${
+            error instanceof Error ? error.message : String(error)
+          } Die bereits ausgewählte Anwendungsquelle muss als vollständig nachvollziehbares Beispiel mit Aufgabenstellung, konkreter mathematischer Beziehung, geordneten Schritten, Ergebnis und Kontrolle umgesetzt werden. Falls die Quellwerte nicht vollständig lesbar sind, erstelle aus den belegten Beziehungen ein kleines origin='derived'-Beispiel mit ausdrücklich gesetzten Werten.`;
+        await config.diagnostics?.log(
+          "warn",
+          "analyzer",
+          `Repairing only the invalid ${focus.title} topic fragment before advancing.`,
+        );
+      }
+    }
+    if (!fragment) {
+      throw new Error(`Chapter fragment repair produced no result for ${focus.title}.`);
+    }
     await Promise.all(fragmentCachePaths.map((cachePath) =>
       writeFile(cachePath, `${JSON.stringify(fragment, null, 2)}\n`, "utf8")
     ));
@@ -506,6 +660,153 @@ async function analyzeDenseChapter(
     retrievalRequests,
   );
   return enrichCachedChapterHandoff(config, state, focus, materialized);
+}
+
+function supportSliceMatchesFocus(
+  slice: ChapterSlice,
+  focus: ChapterFocus,
+): boolean {
+  const content = normalizeFocusText(slice.records.map((record) => record.content).join(" "));
+  const titleAnchors = focusAnchorTerms(focus.title);
+  if (titleAnchors.some((anchor) => content.includes(anchor))) return true;
+  const assessmentAnchors = focusAnchorTerms((focus.assessmentSignals ?? []).join(" "));
+  return assessmentAnchors.filter((anchor) => content.includes(anchor)).length >= 2;
+}
+
+function sliceRequiresAppliedExample(
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+  slice: ChapterSlice,
+): boolean {
+  if (focus.contentMode === "conceptual") return false;
+  return slice.resourceIds.some((resourceId) => {
+    const resource = state.resource_manifest.resources.find((item) => item.id === resourceId);
+    const role = resource?.selection?.role;
+    return role === "worked_example" ||
+      role === "sample_exam" ||
+      /(?:beispiel|example|übung|uebung|lösung|loesung|solution|aufgabe|exercise)/i
+        .test(resource?.title ?? "");
+  });
+}
+
+function appliedFragmentQualityError(
+  fragment: ChapterFragment,
+  focus: ChapterFocus,
+  minimumLearningCharacters = 0,
+): string | null {
+  const example = fragment.worked_examples[0];
+  if (!example) {
+    return `The ${focus.title} fragment requires an applied example but returned none.`;
+  }
+  if (example.steps.length < 4) {
+    return `The ${focus.title} worked example needs at least four ordered reasoning and checking steps.`;
+  }
+  if (example.result.trim().length < 24) {
+    return `The ${focus.title} worked example result is too short to be independently checked.`;
+  }
+  if (minimumLearningCharacters > 0) {
+    const learningCharacters = [
+      ...fragment.sections.flatMap((section) => [
+        section.heading,
+        section.summary,
+        ...section.key_concepts,
+      ]),
+      ...fragment.formulas.flatMap((formula) => [
+        formula.name,
+        formula.typst,
+        ...formula.variables,
+        ...formula.units,
+        formula.context,
+      ]),
+      ...fragment.worked_examples.flatMap((item) => [
+        item.learning_goal,
+        item.prompt,
+        ...item.steps,
+        item.result,
+      ]),
+    ].join(" ").replace(/\s+/g, " ").trim().length;
+    if (learningCharacters < minimumLearningCharacters) {
+      return `The ${focus.title} fragment is too shallow to learn from (${learningCharacters}/${minimumLearningCharacters} learning characters).`;
+    }
+  }
+  if (focusNeedsQuantitativeApplication(focus)) {
+    const formulaText = fragment.formulas.map((formula) =>
+      `${formula.name} ${formula.typst} ${formula.context} ${formula.variables.join(" ")}`
+    ).join(" ");
+    if (
+      fragment.formulas.length === 0 ||
+      !formulaAlignsWithQuantitativeFocus(formulaText, focus)
+    ) {
+      return `The quantitative ${focus.title} fragment has no central formula aligned with its named learning objectives.`;
+    }
+    const exampleText = [
+      example.prompt,
+      ...example.steps,
+      example.result,
+    ].join(" ");
+    if (!/[=≤≥<>]|(?:<=|>=|approx|sqrt|sum|integral|dot\(|vec\()/i.test(exampleText)) {
+      return `The quantitative ${focus.title} worked example contains no executable mathematical relationship.`;
+    }
+    if (!/(?:prüf|kontroll|plausib|einheit|vorzeichen|probe|check)/i.test(exampleText)) {
+      return `The quantitative ${focus.title} worked example contains no explicit result check.`;
+    }
+  }
+  return null;
+}
+
+function formulaAlignsWithQuantitativeFocus(
+  formulaText: string,
+  focus: ChapterFocus,
+): boolean {
+  const normalizedFormula = normalizeFocusText(formulaText);
+  const titleAnchors = focusAnchorTerms(focus.title);
+  const titleMatches = titleAnchors.some((anchor) => normalizedFormula.includes(anchor));
+  const objectiveAnchors = focusAnchorTerms((focus.learningObjectives ?? []).join(" "))
+    .filter((anchor) => !titleAnchors.some((titleAnchor) =>
+      anchor.includes(titleAnchor) || titleAnchor.includes(anchor)
+    ));
+  const objectiveMatches = objectiveAnchors
+    .filter((anchor) => normalizedFormula.includes(anchor)).length;
+  const assessmentAnchors = focusAnchorTerms((focus.assessmentSignals ?? []).join(" "));
+  const assessmentMatches = assessmentAnchors
+    .filter((anchor) => normalizedFormula.includes(anchor)).length;
+  return (
+    titleMatches && (objectiveAnchors.length === 0 || objectiveMatches >= 1)
+  ) || objectiveMatches >= 2 || assessmentMatches >= 2;
+}
+
+function focusAnchorTerms(value: string): string[] {
+  const ignored = new Set([
+    "anwenden", "aufstellen", "bestimmen", "berechnen", "durchfuhren", "durchfuehren",
+    "erklaren", "erklaeren", "formulieren", "geeignete", "korrekte", "korrekten",
+    "losen", "loesen", "prufen", "pruefen", "verwenden", "wahlen", "waehlen",
+    "apply", "calculate", "choose", "determine", "explain", "formulate", "solve", "verify",
+    "beziehungen", "ergebnis", "methode", "method", "rechnung", "relationships",
+  ]);
+  return [...new Set(normalizeFocusText(value).split(" ")
+    .filter((token) => token.length >= 6 && !ignored.has(token))
+    .map((token) => token.slice(0, Math.min(token.length, 8))))];
+}
+
+function normalizeFocusText(value: string): string {
+  return value
+    .toLocaleLowerCase("de")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function focusNeedsQuantitativeApplication(focus: ChapterFocus): boolean {
+  if (focus.contentMode === "quantitative") return true;
+  if (focus.contentMode !== "mixed") return false;
+  const learningSignal = [
+    focus.title,
+    ...(focus.learningObjectives ?? []),
+    ...(focus.assessmentSignals ?? []),
+  ].join(" ");
+  return /(?:berechn|rechnung|gleichung|formel|bilanz|numer|quantit|herleit|ableit|lösen|loesen|aufstellen|geschwindigkeit|beschleunigung|moment|kraft|spannung|frequenz)/i
+    .test(learningSignal);
 }
 
 function capacityCheckpoint(
@@ -597,6 +898,242 @@ function dominantSliceRole(state: LangGraphAgentState, slice: ChapterSlice): str
     if (roles.includes(preferred as typeof roles[number])) return preferred;
   }
   return roles[0] ?? "supplementary";
+}
+
+function sliceSourceTags(state: LangGraphAgentState, slice: ChapterSlice): string[] {
+  return state.resource_manifest.resources
+    .filter((resource) => slice.resourceIds.includes(resource.id))
+    .flatMap((resource) => [
+      resource.title,
+      ...resource.sectionPath,
+      resource.selection?.topic ?? "",
+      resource.selection?.role ?? "",
+    ])
+    .filter(Boolean);
+}
+
+/**
+ * Generic relevance selection balances source roles and document positions.
+ * Architecture-assigned sources are a stronger contract: when they contain
+ * evidence, one slice from each assigned source must survive. Repair the
+ * selection deterministically before a model call instead of sending
+ * support-only context or repeating the same failed graph attempt.
+ */
+export function ensureDirectEvidenceSelection<
+  T extends AnalysisSliceCandidate & { slice: ChapterSlice },
+>(
+  selected: readonly T[],
+  candidates: readonly T[],
+  directResourceIds: readonly string[],
+  limit: number,
+): T[] {
+  const boundedLimit = Math.max(0, limit);
+  const result = [...selected].slice(0, boundedLimit);
+  const directIds = [...new Set(directResourceIds)];
+  const covers = (candidate: T, resourceId: string) =>
+    candidate.slice.resourceIds.includes(resourceId);
+  const isDirect = (candidate: T) =>
+    directIds.some((resourceId) => covers(candidate, resourceId));
+  const candidateScore = (candidate: T) =>
+    candidate.slice.records.reduce(
+      (score, record) =>
+        score +
+        (record.kind === "solution" ? 12 : record.kind === "exercise" ? 10 : 1) +
+        Math.min(4, record.content.length / 1_000),
+      0,
+    );
+
+  for (const resourceId of directIds) {
+    if (result.some((candidate) => covers(candidate, resourceId))) continue;
+    const replacement = candidates
+      .filter((candidate) => covers(candidate, resourceId))
+      .sort((left, right) => candidateScore(right) - candidateScore(left))[0];
+    if (!replacement) continue;
+    if (result.length < boundedLimit) {
+      result.push(replacement);
+      continue;
+    }
+    const supportIndex = lastMatchingIndex(result, (candidate) => !isDirect(candidate));
+    if (supportIndex >= 0) {
+      result[supportIndex] = replacement;
+      continue;
+    }
+    const duplicateIndex = lastMatchingIndex(result, (candidate, index) =>
+      candidate.slice.resourceIds.every((coveredId) =>
+        !directIds.includes(coveredId) ||
+        result.some((other, otherIndex) =>
+          otherIndex !== index && covers(other, coveredId)
+        )
+      )
+    );
+    if (duplicateIndex >= 0) result[duplicateIndex] = replacement;
+  }
+  return uniqueBy(result, (candidate) => candidate.id);
+}
+
+export function ensureOfficialTopicEvidenceSelection<
+  T extends AnalysisSliceCandidate & { slice: ChapterSlice },
+>(
+  selected: readonly T[],
+  candidates: readonly T[],
+  focus: ChapterFocus,
+  limit: number,
+): T[] {
+  const topics = officialCourseTopics(focus);
+  if (topics.length === 0 || limit < topics.length) {
+    return [...selected].slice(0, Math.max(0, limit));
+  }
+  const originalIndex = new Map(candidates.map((candidate, index) => [candidate.id, index]));
+  const required: T[] = [];
+  const used = new Set<string>();
+  const candidateTerms = new Map(candidates.map((candidate) => [
+    candidate.id,
+    matchTerms(`${candidate.title ?? ""} ${candidate.content} ${(candidate.tags ?? []).join(" ")}`),
+  ]));
+
+  const rankedForTopic = (topic: OfficialCourseTopic) => candidates
+    .filter((candidate) => !used.has(candidate.id))
+    .map((candidate) => {
+      const terms = candidateTerms.get(candidate.id) ?? [];
+      const detailScores = topic.details.map((detail) =>
+        semanticOverlap(matchTerms(detail), terms)
+      );
+      const detailFrequencyScores = topic.details.map((detail) =>
+        termFrequencyOverlap(matchTerms(detail), terms)
+      );
+      return {
+        candidate,
+        // Course objectives are ordered from overview to concrete subsections.
+        // Prefer a slice that covers the latest (and usually easiest to omit)
+        // subsection before comparing broad title/overview overlap. This keeps
+        // 21.3 Newton/root iteration from losing to a keyword-dense 21.2 curve
+        // discussion, while remaining fully data-driven for other courses.
+        lastDetailFrequencyScore: detailFrequencyScores.at(-1) ?? 0,
+        lastDetailScore: detailScores.at(-1) ?? 0,
+        coveredDetails: detailScores.filter((score) => score > 0).length,
+        detailFrequencyScore: detailFrequencyScores.reduce((sum, score) => sum + score, 0),
+        detailScore: detailScores.reduce((sum, score) => sum + score, 0),
+        titleScore: semanticOverlap(matchTerms(topic.title), terms),
+      };
+    })
+    .sort((left, right) =>
+      right.lastDetailFrequencyScore - left.lastDetailFrequencyScore ||
+      right.lastDetailScore - left.lastDetailScore ||
+      right.coveredDetails - left.coveredDetails ||
+      right.detailFrequencyScore - left.detailFrequencyScore ||
+      right.detailScore - left.detailScore ||
+      right.titleScore - left.titleScore ||
+      (originalIndex.get(left.candidate.id) ?? 0) -
+        (originalIndex.get(right.candidate.id) ?? 0)
+    );
+
+  for (const topic of topics) {
+    const ranked = rankedForTopic(topic);
+    let best = ranked[0]?.candidate;
+    if (!best) continue;
+    const finalDetail = topic.details.at(-1);
+    if (finalDetail) {
+      const finalTerms = [...new Set(matchTerms(finalDetail))]
+        .filter((term) => term.length >= 5);
+      const normalizedContent = best.content.toLocaleLowerCase("de");
+      const anchors = finalTerms
+        .map((term) => normalizedContent.indexOf(term))
+        .filter((position) => position >= 0);
+      const anchor = anchors.length > 0 ? Math.min(...anchors) : -1;
+      const remainingCharacters = anchor >= 0 ? normalizedContent.length - anchor : Infinity;
+      const currentIndex = originalIndex.get(best.id) ?? -1;
+      const continuation = currentIndex >= 0
+        ? candidates.slice(currentIndex + 1).find((candidate) =>
+            candidate.slice.resourceIds.some((resourceId) =>
+              best?.slice.resourceIds.includes(resourceId)
+            )
+          )
+        : undefined;
+      // Long PDF sections often put a subsection heading at the end of one
+      // chunk and the executable method in the next. Prefer that continuation
+      // when the heading leaves too little teaching text and the next chunk
+      // still matches the same objective.
+      if (
+        anchor > normalizedContent.length * 0.25 &&
+        remainingCharacters < 2_500 &&
+        continuation &&
+        semanticOverlap(
+          finalTerms,
+          candidateTerms.get(continuation.id) ?? [],
+        ) > 0 &&
+        !used.has(continuation.id)
+      ) {
+        best = continuation;
+      }
+    }
+    required.push(best);
+    used.add(best.id);
+  }
+
+  // A chapter consisting of one official topic can still contain several
+  // independently teachable subsections (for example 6.1 sequences and 6.2
+  // series). Spend otherwise free slots on those explicit subsections.
+  if (topics.length === 1) {
+    const topic = topics[0];
+    for (const detail of topic.details.slice().reverse()) {
+      if (required.length >= limit) break;
+      const detailTerms = matchTerms(detail);
+      const best = candidates
+        .filter((candidate) => !used.has(candidate.id))
+        .map((candidate) => ({
+          candidate,
+          score: termFrequencyOverlap(detailTerms, candidateTerms.get(candidate.id) ?? []),
+        }))
+        .filter(({ score }) => score > 0)
+        .sort((left, right) =>
+          right.score - left.score ||
+          (originalIndex.get(left.candidate.id) ?? 0) -
+            (originalIndex.get(right.candidate.id) ?? 0)
+        )[0]?.candidate;
+      if (!best) continue;
+      required.push(best);
+      used.add(best.id);
+    }
+  }
+
+  for (const candidate of selected) {
+    if (required.length >= limit) break;
+    if (used.has(candidate.id)) continue;
+    required.push(candidate);
+    used.add(candidate.id);
+  }
+  return required.sort((left, right) =>
+    (originalIndex.get(left.id) ?? 0) - (originalIndex.get(right.id) ?? 0)
+  );
+}
+
+function lastMatchingIndex<T>(
+  values: readonly T[],
+  predicate: (value: T, index: number) => boolean,
+): number {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (predicate(values[index], index)) return index;
+  }
+  return -1;
+}
+
+function assertSelectedChapterEvidence(
+  state: LangGraphAgentState,
+  focus: ChapterFocus,
+  selected: Array<AnalysisSliceCandidate & { slice: ChapterSlice }>,
+): void {
+  const evidencedDirect = new Set(
+    state.evidence_package.records
+      .filter((record) => (focus.directResourceIds ?? focus.resourceIds).includes(record.resourceId))
+      .map((record) => record.resourceId),
+  );
+  if (evidencedDirect.size === 0) return;
+  const selectedIds = new Set(selected.flatMap((candidate) => candidate.slice.resourceIds));
+  if ([...evidencedDirect].some((resourceId) => selectedIds.has(resourceId))) return;
+  throw new Error(
+    `[chapter: ${focus.title}] Evidence selection omitted every directly assigned source ` +
+    `(${[...evidencedDirect].join(", ")}); refusing a support-only model call.`,
+  );
 }
 
 function focusPriority(focus: ChapterFocus): number {
@@ -769,8 +1306,70 @@ export function buildChapterFragmentPrompt(
       title: resource.title,
       role: resource.selection?.role ?? null,
       url: resource.originUrl,
-      path: resource.localPath,
     }));
+  const requests = retrievalRequests.filter((request) =>
+    slice.resourceIds.includes(request.resourceId)
+  );
+  const candidates = selectChapterVisualCandidates(
+    slice,
+    visualManifest,
+    retrievalRequests,
+  )
+    .map((candidate) => ({
+      id: candidate.id,
+      kind: candidate.kind,
+      source_id: candidate.source_id,
+      source_page: candidate.source_page,
+      title: candidate.title,
+      width_px: candidate.width_px,
+      height_px: candidate.height_px,
+      caption_hint: candidate.caption_hint,
+    }));
+
+  const documentLanguage = languageName(config.outputLanguage);
+  const officialTopicCount = officialCourseTopics(focus).length;
+  const sectionMinimum = Math.max(3, officialTopicCount);
+  const sectionMaximum = Math.max(6, officialTopicCount + 2);
+  const applicationCount = Math.min(2, officialTopicCount);
+  const applicationTarget = officialTopicCount > 0 && focus.contentMode !== "conceptual"
+    ? `${applicationCount} fully traceable applications spanning ${applicationCount === 1 ? "the official topic" : "different official topics"}`
+    : "at most one fully traceable application";
+  return [
+    "Return only schema-valid JSON. Use only the supplied evidence and allowed IDs; do not research, open files, repeat other chapters, or invent claims, sources, relationships, or values.",
+    `Depth target: ${sectionMinimum}–${sectionMaximum} explanatory sections, 2–8 central formulas when applicable, ${applicationTarget}, at most 2 essential figures, and at most 2 warnings. Explain meaning, relationships, method choice, boundary conditions, and typical errors rather than listing keywords.`,
+    officialTopicCount > 0
+      ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
+      : "",
+    "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
+    "Choose a discipline-appropriate teaching path (calculation, case, source interpretation, decision, comparison, or procedure). The application must show givens/question, ordered reasoning, result/decision, and a check when the evidence supports it.",
+    "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
+    "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
+    "Use an attached visual only when it is necessary and legible. Attached images correspond to the listed candidate IDs; never use shell or filesystem tools to inspect them. Choose figures by candidate ID and give a concrete placement_hint.",
+    "For table, diagram, glossary, corpus, map, timeline, or other reference lookups, use concrete values or claims only when visible in evidence or an attached candidate. Otherwise teach the complete source-selection and interpretation path; a copied answer never replaces the lookup method.",
+    `Create one compact, pedagogically complete and discipline-appropriate chapter fragment in ${documentLanguage}; retain official source titles and identifiers in their original language.`,
+    `Chapter context: ${JSON.stringify({
+      title: focus.title,
+      contentMode: focus.contentMode ?? "mixed",
+      learningObjectives: focus.learningObjectives ?? [],
+      assessmentSignals: focus.assessmentSignals ?? [],
+      part: `${index + 1}/${total}`,
+      evidenceBlock: slice.label,
+    })}`,
+    `Teil ${index + 1}/${total}: ${slice.label}. Lernmodus: ${focus.contentMode ?? "mixed"}.`,
+    `Nutzerauftrag: ${config.prompt}`,
+    repairFeedback ? `Verbindliche Review-Rückmeldung für diesen Reparaturversuch:\n${repairFeedback}` : "",
+    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, 2)}`,
+    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, 2)}`,
+    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, 2)}`,
+    `Evidenz für diesen Teil: ${JSON.stringify(slice.records, null, 2)}`,
+  ].join("\n\n");
+}
+
+function selectChapterVisualCandidates(
+  slice: ChapterSlice,
+  visualManifest: VisualManifest | null,
+  retrievalRequests: VisualRetrievalRequest[],
+): VisualCandidate[] {
   const requests = retrievalRequests.filter((request) =>
     slice.resourceIds.includes(request.resourceId)
   );
@@ -780,76 +1379,38 @@ export function buildChapterFragmentPrompt(
     request.pages.forEach((page) => pages.add(page));
     requestedPages.set(request.resourceId, pages);
   }
-  const candidates = (visualManifest?.candidates ?? [])
+  return (visualManifest?.candidates ?? [])
     .filter((candidate) => {
       if (!candidate.source_id || !slice.resourceIds.includes(candidate.source_id)) return false;
       const pages = requestedPages.get(candidate.source_id);
       return pages?.size && candidate.source_page ? pages.has(candidate.source_page) : true;
     })
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
-    // Local image inspection is useful but expensive: each candidate can add
-    // a full PDF-page image to the model context. The visual planner has
-    // already ranked the dependency, so two candidates are enough for a
-    // chapter-level decision.
-    .slice(0, 2)
-    .map((candidate) => ({
-      id: candidate.id,
-      kind: candidate.kind,
-      source_id: candidate.source_id,
-      source_page: candidate.source_page,
-      title: candidate.title,
-      relative_path: candidate.relative_path,
-      source_path: candidate.source_path,
-      width_px: candidate.width_px,
-      height_px: candidate.height_px,
-      caption_hint: candidate.caption_hint,
-    }));
+    .slice(0, 2);
+}
 
-  const documentLanguage = languageName(config.outputLanguage);
-  const toleranceGuidance = /(?:toleranz|passung)/i.test(focus.title)
-    ? [
-        "Bei Toleranzen/Passungen müssen EI, ES, ei, es, Nennmaßbereich, Toleranzgrad, Grundabmaß, Grenzmaße und Passungskennwerte in korrekter Reihenfolge erklärt werden.",
-        "Bei Verweisen auf TB 2-1 bis TB 2-3 muss mindestens ein Beispiel jeden Nachschlageschritt ausdrücklich nennen: Nennmaßbereich finden, IT-Zeile/-Spalte wählen, Grundabmaß über Buchstabenfeld lesen, zweites Abmaß herleiten, Grenzmaße und Po/Pu/PT berechnen.",
-      ]
-    : [];
-  const elasticityGuidance = /(?:elastiz|ersatzmodul)/i.test(focus.title)
-    ? ["Unterscheide ähnlich benannte Formeln eindeutig nach Geltungsfall und erkläre Faktor-2-Konventionen beim Ersatz-Elastizitätsmodul ausdrücklich."]
-    : [];
-
-  return [
-    `Create a compact, technically deep part of the study guide in ${documentLanguage} for the actual course evidence.`,
-    `All learner-facing JSON content must be in ${documentLanguage}; retain official source titles, identifiers, and necessary quoted terminology in their original language.`,
-    `Kapitel: ${focus.title}`,
-    `Lernmodus: ${focus.contentMode ?? "mixed"}`,
-    `Lernziele: ${JSON.stringify(focus.learningObjectives ?? [])}`,
-    `Prüfungssignale: ${JSON.stringify(focus.assessmentSignals ?? [])}`,
-    `Teil ${index + 1}/${total}: ${slice.label}`,
-    "Gib ausschließlich JSON gemäß Schema zurück.",
-    "Bearbeite nur die bereitgestellte Evidenz. Wiederhole keine allgemeinen Einleitungen und fasse andere Kapitel nicht zusammen.",
-    "Halte diesen Kapitelbaustein bewusst begrenzt, aber didaktisch flexibel: Wähle je nach Stoff 3 bis 6 gehaltvolle Abschnitte, 2 bis 5 zentrale Formeln, 1 vollständig nachvollziehbares Anwendungsbeispiel, bis zu 2 wirklich notwendige Abbildungen und höchstens 2 Warnhinweise. Tiefe entsteht durch klare Auswahl und Rechenschritte, nicht durch Wiederholung.",
-    "Wähle für dieses konkrete Kapitel eine passende Lehrdramaturgie statt einer Standardschablone: zum Beispiel bildgestützter Modellaufbau, Tabellen-/Nachschlageweg, Versagensarten mit Nachweisen, konstruktiver Entscheidungsfall, Fehlerkontrast oder schrittweise Rechnung. Überschriften, Zusammenfassungen und key_concepts sollen diese Dramaturgie sichtbar tragen.",
-    "Vermeide die monotone Folge aus kurzem Definitionsabsatz und austauschbarer Stichpunktliste. Nutze key_concepts je nach Stoff als Entscheidungskriterien, Beobachtungsauftrag für eine Abbildung, geordneten Rechenweg, Fehlercheck, Vergleich oder konstruktive Konsequenzen.",
-    "Schlage kein Flowchart für bloß lineare Kapitelabschnitte, Formelfolgen oder normale Rechenschritte vor. Ein Flowchart ist nur sinnvoll, wenn die Evidenz eine echte Verzweigung, Rückkopplung, einen Kreislauf, Zustandsübergang oder komplexen Automatisierungsablauf zeigt. Jeder Knoten trägt dann nur ein bis drei Wörter; niemals Satz, Abschnittsüberschrift plus Untertitel oder erklärenden Fließtext in einen Knoten setzen.",
-    "Die Abschnitte sollen den Stoff erklären: Bedeutung, Zusammenhänge, Erkennungsmerkmale, Vorgehen, Randbedingungen und typische Fehler — nicht nur Stichworte aufzählen.",
-    "Formeln ausschließlich in Typst-Mathematiksyntax ohne LaTeX-Dollarzeichen oder LaTeX-Befehle ausgeben.",
-    "For every emitted formula, provide non-empty variables, units, and context metadata. State explicitly when a quantity is dimensionless instead of leaving units empty.",
-    "Verwende in source_ids ausschließlich IDs aus der Ressourcenliste. Erfinde keine Quellen oder Zahlenwerte.",
-    "Wähle die passende Anwendungsform für dieses Fach: vollständige Rechnung, klinischer oder wirtschaftlicher Fall, Quellen-/Dateninterpretation, Entscheidungsweg, Argumentationsanalyse oder schrittweise Prozedur. Ausgangslage, Ziel/Fragestellung, nachvollziehbare Schritte, Ergebnis/Entscheidung und Kontrolle müssen sichtbar sein, sofern die Evidenz dafür reicht.",
-    "Wenn eine Quelllösung nur Ergebnisse oder unvollständige Zahlen enthält, kopiere diese Ergebnisse nicht als scheinbar gerechnetes Beispiel. Erzeuge stattdessen ein klar als derived markiertes, vollständig reproduzierbares Beispiel mit einfachen gewählten Werten und den in der Evidenz belegten Formeln/Regeln.",
-    "Ein bereits in einer Lösung angegebener Tabellenwert ersetzt niemals die Nachschlagemethode.",
-    ...toleranceGuidance,
-    "Benutze Tabellenwerte nur dann numerisch, wenn die bereitgestellte Evidenz oder der lesbare Tabellenkandidat den konkreten Wert zeigt. Andernfalls lehre den vollständigen Tabellenweg mit symbolischem Tabellenwert und führe ein separates, klar abgeleitetes Zahlenbeispiel aus.",
-    ...elasticityGuidance,
-    "Wenn Verfügbare Bildkandidaten relative_path enthalten, inspiziere die lokalen Bilddateien mit deinem Bildwerkzeug. Lies Aufgabenstellung, Werte, Einheiten, Formeln, Tabellen und Diagramme direkt aus dem Bild; verlasse dich nicht auf Dateiname oder caption_hint. Wenn der Bildinhalt nicht sicher lesbar ist, kennzeichne die Lücke statt Zahlen zu erfinden.",
-    "Wenn ein Verfahren eine Tabelle, ein Diagramm oder eine Skizze benötigt, wähle bis zu zwei wirklich notwendige Kandidaten-IDs als figures. Formuliere placement_hint so konkret, dass der Renderer jede Abbildung unmittelbar nach der erklärenden Information oder direkt vor dem davon abhängigen Beispiel einmischen kann. Vollseitige Screenshots nur als letzte Wahl.",
-    "Theorie- und Referenzblöcke dürfen ohne worked_example enden. Quantitative, prozedurale, fallbasierte und gemischte Anwendungsblöcke sollen ein passendes worked_example liefern; bei rein konzeptuellen Modulen genügt ein belastbares Erklär- oder Vergleichsbeispiel. Referenzblöcke liefern nur die für dieses Modul relevanten Definitionen, Formeln, Tabellen oder Nachschlagehinweise. Das Gesamtkapitel wird anschließend deterministisch aus allen Teilen zusammengesetzt.",
-    `Nutzerauftrag: ${config.prompt}`,
-    repairFeedback ? `Verbindliche Review-Rückmeldung für diesen Reparaturversuch:\n${repairFeedback}` : "",
-    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, 2)}`,
-    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, 2)}`,
-    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, 2)}`,
-    `Evidenz für diesen Teil: ${JSON.stringify(slice.records, null, 2)}`,
-  ].join("\n\n");
+async function chapterVisualAttachments(
+  runDir: string,
+  slice: ChapterSlice,
+  visualManifest: VisualManifest | null,
+  retrievalRequests: VisualRetrievalRequest[],
+): Promise<string[]> {
+  const normalizedRunDir = path.resolve(runDir);
+  const candidates = selectChapterVisualCandidates(slice, visualManifest, retrievalRequests);
+  const paths = candidates
+    .map((candidate) => candidate.relative_path)
+    .filter((relativePath): relativePath is string => Boolean(relativePath))
+    .map((relativePath) => path.resolve(normalizedRunDir, relativePath))
+    .filter((candidatePath) => {
+      const relative = path.relative(normalizedRunDir, candidatePath);
+      return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+    });
+  const usable = await Promise.all(paths.map(async (candidatePath) =>
+    stat(candidatePath)
+      .then((entry) => entry.isFile() && entry.size > 0 ? candidatePath : null)
+      .catch(() => null)
+  ));
+  return usable.filter((candidatePath): candidatePath is string => Boolean(candidatePath));
 }
 
 function normalizeFragmentReferences(
@@ -874,6 +1435,7 @@ function normalizeFragmentReferences(
     })),
     formulas: fragment.formulas.map((formula) => ({
       ...formula,
+      typst: normalizeAnalyzerFormulaSyntax(formula.typst),
       source_ids: normalizeSources(formula.source_ids),
     })),
     worked_examples: fragment.worked_examples.map((example) => ({
@@ -887,6 +1449,10 @@ function normalizeFragmentReferences(
         source_ids: normalizeSources(figure.source_ids),
       })),
   });
+}
+
+export function normalizeAnalyzerFormulaSyntax(value: string): string {
+  return value.replace(/\$/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function materializeDenseChapter(
@@ -1263,7 +1829,145 @@ function ensureFocusLearningModule(
   // or split the module and thereby reintroduce Moodle-session headings.
   return validateExtractedData({
     ...data,
+    sections: preserveVisibleCourseTopicSections(data.sections, focus, data.language),
+    worked_examples: preserveVisibleCourseTopicExamples(data.worked_examples, focus),
     learning_modules: [focusLearningModule(focus, focus.resourceIds)],
+    warnings: data.warnings.filter((warning) => !isCrossChapterBoundaryWarning(warning, focus)),
+  });
+}
+
+function isCrossChapterBoundaryWarning(warning: string, focus: ChapterFocus): boolean {
+  const normalized = warning.toLocaleLowerCase("de");
+  const boundaryLanguage =
+    /(?:evidenzgrenze|evidence boundary|auftrag|request|kapitelkontext|chapter context|kapitel- und evidenzbasis|chapter and evidence)/i
+      .test(warning) &&
+    /(?:only|nur|ausschließlich)/i.test(warning) &&
+    /(?:cannot|not covered|unavailable|unsupported|no (?:source|evidence|task)|nicht abgedeckt|nicht behandelt|nicht belegt|unbelegt|keine?[^.]{0,40}(?:quelle|evidenz|aufgabeninhalt)|liegt[^.]{0,50}(?:keine|nicht))/i
+      .test(warning);
+  if (!boundaryLanguage) return false;
+
+  const focusNumbers = new Set(officialCourseTopics(focus).map((topic) => topic.number));
+  if (focusNumbers.size === 0) return false;
+  const mentionedNumbers = [...normalized.matchAll(
+    /(?:thema|themen|topic|topics)\s+(\d{1,2})(?:\s*[–-]\s*(\d{1,2}))?/gi,
+  )].flatMap((match) => {
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : start;
+    const lower = Math.min(start, end);
+    const upper = Math.max(start, end);
+    return Array.from({ length: upper - lower + 1 }, (_, index) => lower + index);
+  });
+  return mentionedNumbers.some((number) => !focusNumbers.has(number));
+}
+
+interface OfficialCourseTopic {
+  number: number;
+  title: string;
+  details: string[];
+}
+
+function officialCourseTopics(focus: ChapterFocus): OfficialCourseTopic[] {
+  const topics = new Map<number, OfficialCourseTopic>();
+  for (const objective of focus.learningObjectives ?? []) {
+    const match = /^(?:Thema|Topic)\s+(\d{1,2})\s*[–-]\s*([^:·]+)(?::|\s+·\s+)?\s*(.*)$/i
+      .exec(objective);
+    if (!match) continue;
+    const number = Number(match[1]);
+    const topic = topics.get(number) ?? {
+      number,
+      title: match[2].trim(),
+      details: [],
+    };
+    if (match[3].trim()) topic.details.push(match[3].trim());
+    topics.set(number, topic);
+  }
+  return [...topics.values()]
+    .map((topic) => ({ ...topic, details: [...new Set(topic.details)] }))
+    .sort((left, right) => left.number - right.number);
+}
+
+function preserveVisibleCourseTopicSections(
+  sections: ReturnType<typeof validateExtractedData>["sections"],
+  focus: ChapterFocus,
+  language: "de" | "en",
+): ReturnType<typeof validateExtractedData>["sections"] {
+  const officialTopics = officialCourseTopics(focus);
+  if (officialTopics.length === 0) return sections;
+  const remaining = sections.map((section, index) => ({ section, index }));
+  const mapped = officialTopics.map((topic) => {
+    const exactIndex = remaining.findIndex(({ section }) =>
+      new RegExp(`(?:Thema|Topic)\\s+${topic.number}\\b`, "i")
+        .test(`${section.heading} ${section.summary}`)
+    );
+    const rankedIndex = exactIndex >= 0
+      ? exactIndex
+      : remaining
+          .map(({ section }, index) => ({
+            index,
+            score: semanticOverlap(
+              matchTerms(`${topic.title} ${topic.details.join(" ")}`),
+              matchTerms(`${section.heading} ${section.summary} ${section.key_concepts.join(" ")}`),
+            ),
+          }))
+          .sort((left, right) => right.score - left.score || left.index - right.index)[0]?.index ?? -1;
+    const selected = rankedIndex >= 0 ? remaining.splice(rankedIndex, 1)[0]?.section : undefined;
+    const officialLabel = `${language === "en" ? "Topic" : "Thema"} ${topic.number} – ${topic.title}`;
+    if (selected) {
+      const alreadyLabeled = new RegExp(`(?:Thema|Topic)\\s+${topic.number}\\b`, "i")
+        .test(selected.heading);
+      return {
+        ...selected,
+        heading: alreadyLabeled
+          ? selected.heading
+          : `${officialLabel}: ${selected.heading}`,
+      };
+    }
+    return {
+      heading: officialLabel,
+      summary: language === "en"
+        ? `Official Moodle scope for this topic: ${topic.details.join(" ")}`
+        : `Offizieller Moodle-Umfang dieses Themas: ${topic.details.join(" ")}`,
+      key_concepts: topic.details,
+      source_ids: focus.resourceIds.slice(0, 1),
+    };
+  });
+  return [...mapped, ...remaining.map(({ section }) => section)];
+}
+
+function preserveVisibleCourseTopicExamples(
+  examples: ReturnType<typeof validateExtractedData>["worked_examples"],
+  focus: ChapterFocus,
+): ReturnType<typeof validateExtractedData>["worked_examples"] {
+  const topics = officialCourseTopics(focus);
+  if (topics.length === 0 || examples.length === 0) return examples;
+  const remainingTopics = [...topics];
+  return examples.map((example, index) => {
+    const exactIndex = remainingTopics.findIndex((topic) =>
+      new RegExp(`(?:Thema|Topic)\\s+${topic.number}\\b`, "i")
+        .test(`${example.learning_goal} ${example.prompt}`)
+    );
+    const rankedIndex = exactIndex >= 0
+      ? exactIndex
+      : remainingTopics
+          .map((topic, topicIndex) => ({
+            topicIndex,
+            score: semanticOverlap(
+              matchTerms(`${topic.title} ${topic.details.join(" ")}`),
+              matchTerms(`${example.learning_goal} ${example.prompt} ${example.steps.join(" ")}`),
+            ),
+          }))
+          .sort((left, right) => right.score - left.score || left.topicIndex - right.topicIndex)[0]?.topicIndex ??
+        (index % remainingTopics.length);
+    const topic = remainingTopics.splice(Math.max(0, rankedIndex), 1)[0];
+    if (!topic) return example;
+    const label = `Topic ${topic.number}`;
+    return {
+      ...example,
+      learning_goal: new RegExp(`(?:Thema|Topic)\\s+${topic.number}\\b`, "i")
+          .test(example.learning_goal)
+        ? example.learning_goal
+        : `${label} – ${topic.title}: ${example.learning_goal}`,
+    };
   });
 }
 
@@ -1473,6 +2177,7 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
       canonicalizeResourceUrl(resource.originUrl),
       resource,
     ]));
+    const practiceAssignments = assignPracticeResourcesToModules(state, architecture.modules);
     const supportResources = architecture.supportResources.map((support) => ({
       support,
       resourceIds: support.resourceUrls
@@ -1481,40 +2186,71 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
         .map((resource) => resource.id),
     }));
     const focuses = architecture.modules.flatMap((module): ChapterFocus[] => {
-      const directResources = module.resourceUrls
-        .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
-        .filter((resource): resource is ManifestResource => Boolean(resource?.localPath));
+      const directResources = uniqueBy([
+        ...module.resourceUrls
+          .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
+          .filter((resource): resource is ManifestResource => Boolean(resource?.localPath)),
+        ...(practiceAssignments.get(module.id) ?? []),
+      ], (resource) => resource.id);
       const semanticTerms = matchTerms([
         module.title,
         ...module.learningObjectives,
         ...module.assessmentSignals,
       ].join(" "));
-      const matchingSupport = supportResources
+      const directResourceIds = new Set(directResources.map((resource) => resource.id));
+      const directEvidenceCharacters = state.evidence_package.records
+        .filter((record) => directResourceIds.has(record.resourceId))
+        .reduce((sum, record) => sum + record.content.length, 0);
+      const rankedSupport = supportResources
         .map((entry) => ({
           ...entry,
           score: semanticOverlap(
             semanticTerms,
             matchTerms(`${entry.support.title} ${entry.support.purpose}`),
           ),
-        }))
-        .filter((entry) => entry.resourceIds.length > 0 && (
-          entry.support.purpose === "general_reference" ||
-          (entry.support.purpose === "formula_reference" &&
-            ["quantitative", "mixed"].includes(module.contentMode)) ||
-          entry.score > 0
-        ))
+          evidenceScore: semanticOverlap(
+            semanticTerms,
+            matchTerms(state.evidence_package.records
+              .filter((record) => entry.resourceIds.includes(record.resourceId))
+              .map((record) => record.content)
+              .join(" ")
+            ),
+          ),
+        }));
+      const matchingSupport = rankedSupport
+        // A broad formula/reference PDF is not chapter evidence merely because
+        // the chapter is quantitative. Require at least two semantic matches
+        // so direct lecture/practice material cannot be displaced by generic
+        // support with one word such as "calculus" or "formula".
+        .filter((entry) => entry.resourceIds.length > 0 && entry.score >= 2)
         .sort((left, right) => right.score - left.score)
         .slice(0, 2)
-        .flatMap((entry) => entry.resourceIds);
+        .flatMap((entry) => entry.resourceIds.slice(0, 1));
+      const sparseFallbackSupport = directEvidenceCharacters < 1_200
+        ? rankedSupport
+          .filter((entry) =>
+            entry.resourceIds.length > 0 &&
+            entry.support.purpose === "general_reference" &&
+            entry.evidenceScore >= 1
+          )
+          .slice(0, 1)
+          .flatMap((entry) => entry.resourceIds.slice(0, 1))
+        : [];
+      const selectedSupport = [...new Set([
+        ...matchingSupport,
+        ...sparseFallbackSupport,
+      ])].slice(0, 2);
       const resourceIds = [...new Set([
         ...directResources.map((resource) => resource.id),
-        ...matchingSupport,
+        ...selectedSupport,
       ])];
       if (resourceIds.length === 0) return [];
       return [{
         key: safeChapterKey(module.id || module.title),
         title: module.title,
         resourceIds,
+        directResourceIds: directResources.map((resource) => resource.id),
+        supportResourceIds: selectedSupport,
         matchTerms: semanticTerms,
         priority: module.priority,
         contentMode: module.contentMode,
@@ -1530,8 +2266,17 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
     if (!resource.localPath || resource.sectionPath.length === 0) continue;
     const title = resource.sectionPath.join(" > ");
     const key = safeChapterKey(title);
-    const group = groups.get(key) ?? { key, title, resourceIds: [], matchTerms: [] };
+    const group = groups.get(key) ?? {
+      key,
+      title,
+      resourceIds: [],
+      directResourceIds: [],
+      supportResourceIds: [],
+      matchTerms: [],
+    };
     if (!group.resourceIds.includes(resource.id)) group.resourceIds.push(resource.id);
+    group.directResourceIds ??= [];
+    if (!group.directResourceIds.includes(resource.id)) group.directResourceIds.push(resource.id);
     group.matchTerms = [...new Set([...group.matchTerms, ...matchTerms(resource.title)])];
     if (resource.selection?.role === "primary_lecture") {
       group.title = `${title} — ${resource.title}`;
@@ -1541,12 +2286,82 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
   return [...groups.values()];
 }
 
+function assignPracticeResourcesToModules(
+  state: LangGraphAgentState,
+  modules: NonNullable<
+    LangGraphAgentState["source_architect_decision"]["learningArchitecture"]
+  >["modules"],
+): Map<string, ManifestResource[]> {
+  const practiceRoles = new Set(["worked_example", "sample_exam", "exercise", "solution"]);
+  const moduleTerms = new Map(modules.map((module) => [
+    module.id,
+    matchTerms([
+      module.title,
+      ...module.learningObjectives,
+      ...module.assessmentSignals,
+    ].join(" ")),
+  ]));
+  const assignedUrls = new Map<string, Set<string>>(modules.map((module) => [
+    module.id,
+    new Set(module.resourceUrls.map(canonicalizeResourceUrl)),
+  ]));
+  const recordsByResource = new Map<string, string[]>();
+  for (const record of state.evidence_package.records) {
+    const values = recordsByResource.get(record.resourceId) ?? [];
+    if (values.join(" ").length < 16_000) values.push(record.content);
+    recordsByResource.set(record.resourceId, values);
+  }
+  const result = new Map<string, ManifestResource[]>();
+  const practiceResources = state.resource_manifest.resources.filter((resource) =>
+    Boolean(resource.localPath) && practiceRoles.has(resource.selection?.role ?? "")
+  );
+
+  for (const resource of practiceResources) {
+    const resourceTerms = matchTerms([
+      resource.title,
+      ...resource.sectionPath,
+      resource.selection?.topic ?? "",
+      ...(recordsByResource.get(resource.id) ?? []),
+    ].join(" "));
+    const ranked = modules
+      .map((module, index) => ({
+        module,
+        index,
+        assigned: assignedUrls.get(module.id)?.has(canonicalizeResourceUrl(resource.originUrl)) ?? false,
+        score: semanticOverlap(moduleTerms.get(module.id) ?? [], resourceTerms),
+      }))
+      .sort((left, right) =>
+        Number(right.assigned) - Number(left.assigned) ||
+        right.score - left.score ||
+        left.index - right.index
+      );
+    const best = ranked[0];
+    if (!best || (!best.assigned && best.score < 2)) continue;
+    const resources = result.get(best.module.id) ?? [];
+    if (resources.length >= 3) continue;
+    resources.push(resource);
+    result.set(best.module.id, resources);
+  }
+  return result;
+}
+
 function semanticOverlap(left: string[], right: string[]): number {
   const rightTerms = new Set(right);
   return left.filter((term) => rightTerms.has(term)).length;
 }
 
-function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
+function termFrequencyOverlap(left: string[], right: string[]): number {
+  const frequencies = new Map<string, number>();
+  for (const term of right) {
+    frequencies.set(term, Math.min(8, (frequencies.get(term) ?? 0) + 1));
+  }
+  return [...new Set(left)].reduce(
+    (score, term) => score + (frequencies.get(term) ?? 0),
+    0,
+  );
+}
+
+export function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
   if (!errorLog) return false;
   const normalized = errorLog.toLowerCase();
   const taggedChapters = [...errorLog.matchAll(/\[chapter:\s*([^\]]+)\]/gi)]
@@ -1644,7 +2459,6 @@ function chapterFingerprint(
     .map((resource) => ({ id: resource.id, checksum: resource.checksum, status: resource.status }));
   return createHash("sha256").update(JSON.stringify({
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
-    prompt: config.prompt,
     outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
     profile: config.artifactIntent.profile,
@@ -1662,6 +2476,45 @@ function assertChapterHandoff(
   }
   if (focus.contentMode !== "conceptual" && data.worked_examples.length === 0) {
     throw new Error(`Chapter analyzer returned no applied example, case, or procedure for ${focus.title}.`);
+  }
+  const expectedTopicNumbers = [...new Set(
+    (focus.learningObjectives ?? []).flatMap((objective) =>
+      [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)].map((match) => Number(match[1]))
+    ),
+  )];
+  const sectionTexts = data.sections.map((section) =>
+    `${section.heading} ${section.summary}`
+  );
+  const topicSectionIndices = new Map(expectedTopicNumbers.map((number) => [
+    number,
+    sectionTexts.findIndex((value) =>
+      new RegExp(`(?:Thema|Topic)\\s+${number}\\b`, "i").test(value)
+    ),
+  ]));
+  const missingTopicNumbers = expectedTopicNumbers.filter((number) =>
+    (topicSectionIndices.get(number) ?? -1) < 0
+  );
+  if (missingTopicNumbers.length > 0) {
+    throw new Error(
+      `Chapter analyzer lost the visible Moodle topic mapping for ${focus.title}: ${missingTopicNumbers.join(", ")}.`,
+    );
+  }
+  if (
+    expectedTopicNumbers.length > 1 &&
+    new Set(topicSectionIndices.values()).size < expectedTopicNumbers.length
+  ) {
+    throw new Error(
+      `Chapter analyzer merged distinct Moodle topic labels into one section for ${focus.title}.`,
+    );
+  }
+  if (
+    focus.contentMode !== "conceptual" &&
+    expectedTopicNumbers.length > 0 &&
+    data.worked_examples.length < 1
+  ) {
+    throw new Error(
+      `Chapter analyzer returned no representative example for ${focus.title}.`,
+    );
   }
 }
 
@@ -1758,7 +2611,7 @@ export async function buildAnalyzerPrompt(
   const visualManifest = await readVisualManifest(config.runDir);
   const contextBudget = focus
     ? FOCUSED_CONTEXT_BUDGET
-    : resolveTaskBudget(config.intentDecision).maxModelInputChars;
+    : Math.min(resolveTaskBudget(config.intentDecision).maxModelInputChars, 40_000);
   const evidenceBudget = focus
     ? FOCUSED_EVIDENCE_BUDGET
     : Math.floor(contextBudget * 0.7);
@@ -1787,7 +2640,6 @@ export async function buildAnalyzerPrompt(
       activityType: resource.activityType,
       title: resource.title,
       originUrl: resource.originUrl,
-      localPath: resource.localPath,
       status: resource.status,
       selection: resource.selection,
       extraction: resource.extraction,
@@ -1799,18 +2651,21 @@ export async function buildAnalyzerPrompt(
         warnings: visualManifest.warnings,
         candidates: visualManifest.candidates
           .filter((candidate) => !focus || (candidate.source_id && focus.resourceIds.includes(candidate.source_id)))
-          .slice(0, focus ? FOCUSED_VISUAL_CANDIDATE_LIMIT : undefined)
+          .slice(
+            0,
+            focus
+              ? FOCUSED_VISUAL_CANDIDATE_LIMIT
+              : Math.max(6, Math.min(config.maxVisualAssets * 2, 16)),
+          )
           .map((candidate) => ({
           id: candidate.id,
           kind: candidate.kind,
           title: candidate.title,
-          relative_path: candidate.relative_path,
           mime_type: candidate.mime_type,
           width_px: candidate.width_px,
           height_px: candidate.height_px,
           source_id: candidate.source_id,
           source_url: candidate.source_url,
-          source_path: candidate.source_path,
           source_page: candidate.source_page,
           confidence: candidate.confidence,
           caption_hint: candidate.caption_hint,
@@ -1819,8 +2674,11 @@ export async function buildAnalyzerPrompt(
     : null;
   const rawSource = focus ? focusedRawSource(state.moodle_raw_text, analyzerManifest.resources) : state.moodle_raw_text;
   const sourceOverview = focusedEvidence.records.length > 0
-    ? rawSource.slice(0, Math.min(focus ? FOCUSED_SOURCE_OVERVIEW_BUDGET : 24_000, sourceBudget))
-    : rawSource.slice(0, contextBudget);
+    ? ""
+    : rawSource.slice(0, Math.min(
+        focus ? FOCUSED_SOURCE_OVERVIEW_BUDGET : 12_000,
+        sourceBudget || contextBudget,
+      ));
   const figureLimit = analyzerVisuals
     ? analyzerVisuals.candidates.length
     : config.maxVisualAssets > 0
@@ -1829,78 +2687,42 @@ export async function buildAnalyzerPrompt(
   return [
     "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a learner in the requested course, regardless of discipline.",
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
-    `Artifact profile: ${config.artifactIntent.profile}.`,
-    focus
-      ? `Chapter handoff: analyze only "${focus.title}". Return complete learning material for this chapter and do not summarize or mention other chapters.`
-      : "Analyze the complete requested scope.",
-    focus
-      ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
-      : "Infer the appropriate balance of concepts, calculations, cases, procedures, evidence interpretation, and argumentation from the course itself.",
-    "Return only JSON matching the requested schema. Do not include Markdown fences.",
-    `Output language is ${languageName(config.outputLanguage)}. Write every learner-facing title, explanation, learning objective, example, question, answer, caption, and warning in that language.`,
-    "Keep official course titles, source titles, identifiers, quotations, and specialized source terms in their original language when translating them would reduce traceability; explain them in the output language where useful.",
-    "Represent formulas in Typst math syntax where possible.",
-    "For every emitted formula, provide non-empty variables, units, and context metadata. State explicitly when a quantity is dimensionless instead of leaving units empty.",
-    "Never invent source citations.",
-    "Treat calendar_event as the primary source for dates, times, exams, and rooms.",
-    "Treat CIS as the fallback for missing calendar facts and as the source for attendance or administrative LV information.",
-    "The calendar input is already filtered; do not infer events that are not present.",
-    "Visual policy:",
+    "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
+    "Keep official titles and identifiers traceable. Calendar is primary for dates/times/exams/rooms; CIS is the fallback and the source for attendance or administrative LV facts.",
+    "A study guide must teach the material: preserve Moodle chapter order, explain relationships, method choice and conditions, and include one representative self-contained application per covered technical chapter when evidence supports it.",
+    "When learning objectives contain official labels such as 'Thema 2' or 'Topic 2', create a distinct subject section for every listed number and retain that label in its heading. Related official topics may share one broader learning module, but their mapping must remain visible.",
+    "For a quantitative grouped module, include two self-contained worked examples spanning different official Moodle topics (one example for a single-topic module). Retain each example's 'Thema N' or 'Topic N' label in its learning_goal. Examples should teach method selection, ordered steps, and a quick result check rather than merely state an answer.",
+    "Use source-backed exercise/solution pairs when reproducible. Otherwise use origin='derived' with declared values, ordered reasoning, units, result, and plausibility check. Never copy lookup values without teaching the table/diagram selection path.",
+    "Use Typst math syntax. Every formula needs variables, units (or explicit dimensionless status), context, and valid source_ids.",
     figureLimit > 0
-      ? `- Select at most ${figureLimit} figures from the available visual candidates. This is a candidate ceiling, not a target.`
-      : "- No visual candidate ceiling is available; still create figures only when supported by the sources or by an approved didactic diagram/prompt.",
-    "- Default to using visuals in learning artifacts. Images usually improve comprehension and orientation; choose zero figures only when no useful source image, title/cover image, logo/context image, diagram, table, sketch, or didactic visualization is available or appropriate.",
-    "- Prefer Moodle/CIS visual candidates over generated or placeholder visuals.",
-    "- Prefer directly extracted moodle_pdf_image candidates over full moodle_pdf_page screenshots when both explain the same content.",
-    "- Treat moodle_pdf_page screenshots as fallback only. Do not use a full exercise, full solution, or text-heavy page as a figure when the text can be rewritten as a worked example.",
-    "- Do not select mostly blank slide/background/logo candidates, cover/title crops, or screenshots whose meaningful content would be unreadable when placed as a figure.",
-    "- When a source page contains a whole example, extract the problem statement, givens, method, and result into worked_examples instead of embedding the whole page image.",
-    "- For multi-chapter guides, distribute figures across the covered Moodle chapters. Select at least one suitable source figure for each covered chapter when candidates exist; never spend the visual budget on the first chapter alone.",
-    "- Use two to three figures in a chapter when separate diagrams, tables, worked-example sketches, or formula reference tables materially improve learning.",
-    "- A figure must be assigned to the chapter supported by its source_id/source_url and placement_hint.",
-    "- Include visuals when they materially help the topic, including diagrams, anatomical or process illustrations, charts, maps, timelines, case tables, financial statements, formula tables, experimental setups, and worked-example sketches.",
-    "- For text-heavy topics, use a relevant title image, source cover crop, organization/company logo already present in source material, process overview, or simple didactic diagram when it improves readability and memory.",
-    "- If a worked example is based on a source table, sketch, diagram, plot, or page crop, include that source visual as a figure with the same source_ids and chapter placement so the renderer can place it next to the example.",
-    "- Lookup dependencies are mandatory: when the source tells the student to use a table/table book (for example TB 2-1), diagram, characteristic curve, or nomogram, select the relevant lookup visual and place it in the same chapter. The example is incomplete without it.",
-    "- Avoid random decorative visuals. Aesthetic/title visuals are allowed when they are source-related or clearly support orientation, not when they mislead about course content.",
-    "- If no Moodle/CIS image is suitable but a simple technical visualization helps, create a typst_diagram visual asset with no relative_path and describe the intended approved component in caption_hint.",
-    "- If neither source image nor approved Typst diagram fits, create a placeholder_prompt visual asset with a concrete generation_prompt.",
-    "- Generated or placeholder visuals are didactic visualizations, not original Moodle/CIS sources.",
-    "Use the source coverage JSON as a hard boundary: failed or empty sources can only support warnings, not factual claims.",
-    "Use the evidence package as the factual input. Resource titles alone prove that a resource exists, not its subject content.",
-    "The resource manifest includes localPath for the small selected source set. When embedded text is sparse or an exercise depends on a diagram/table, inspect that already-downloaded PDF or its listed visual candidate directly before omitting the material.",
-    "Inspect only selected local resources needed for the requested guide. Do not crawl, download, or OCR the remaining catalog from inside the analyzer.",
-    "Visual-candidate metadata is not itself factual evidence; use the actual local image/PDF when its content is needed.",
-    "Learning-depth policy:",
-    "- A study guide must teach the material; it is not an executive summary or a one-paragraph syllabus overview.",
-    "- Split each Moodle chapter into multiple meaningful subject sections when the evidence contains definitions, classifications, procedures, boundary conditions, calculations, or applications.",
-    "- Explain why concepts work, how related quantities interact, when a method applies, and how a student recognizes the correct method. Preserve source-supported detail instead of compressing a whole slide deck into a few bullets.",
-    "- For every covered technical chapter, include at least one complete worked example with a concrete learning_goal, problem, ordered method, intermediate reasoning, result, and source IDs.",
-    "- Prefer an acquired exercise/solution pair and set origin='source' only when the supplied evidence contains enough givens, substitutions, and intermediate steps to reproduce the result.",
-    "- If a source exercise or solution is incomplete, ambiguous, diagram-dependent, or only states an end result, do not pretend it is fully solved. Instead create one clearly marked origin='derived' example using a source-backed rule or formula and simple explicitly chosen values.",
-    "- Every example must be self-contained: state all givens and assumptions, show the formula selection, substitute values with units, show meaningful intermediate results, and finish with a result plus a short plausibility or unit check.",
-    "- Never shortcut a table-dependent method by copying already-read values from a solution and starting the calculation there. Teach the lookup itself: identify the nominal-size interval, choose the applicable row/column or tolerance grade and fundamental-deviation letter, read the base/deviation value, derive the paired deviation when required, and only then calculate limits or fits.",
-    "- For tolerance examples involving EI/ES/ei/es, include at least one complete table-dependent workflow whenever the source references tolerance tables. The worked steps must explain how the values are found, not merely state them as givens.",
-    "- A derived example must remain reproducible from its cited definitions, rules, or formulas. Chosen didactic values are allowed when identified as assumptions; never present them as course facts or disguise the example as an original Moodle exercise.",
-    "- One complete representative example per chapter is required. It need not exercise every formula or proof method in that chapter.",
-    "- Use key_concepts for concise, testable takeaways; put the actual explanation in section.summary, using multiple paragraphs where useful.",
-    "Course structure policy:",
-    "- Infer learning priority from course evidence: a method repeated across lecture examples, assigned task/solution pairs, a dedicated Moodle test, or explicit table-book instructions is high priority. Label it inferred rather than confirmed exam scope unless the source explicitly confirms the exam scope.",
-    "- Treat resource_manifest.sectionPath as the authoritative Moodle chapter structure.",
-    "- Emit subject sections in the same order and with the same subject boundaries as the Moodle course; do not reorganize them into generic theory/formula/example buckets.",
-    "- Keep formulas, figures, tables, and worked examples source-linked to the subject section where they are taught.",
-    "- If a Moodle chapter is discovered but lacks usable evidence, do not invent content; preserve the gap through warnings so the renderer can show it as open.",
+      ? `Use at most ${figureLimit} source-backed figures, only when they materially support the chapter. Attached images correspond to candidate IDs; never use tools to inspect other files. Prefer extracted images over full-page screenshots and keep lookup assets beside dependent examples.`
+      : "Use figures only when source-supported or as a clearly identified didactic Typst diagram.",
     config.artifactIntent.profile === "study_guide" || config.artifactIntent.profile === "exam_navigator"
       ? "Set quiz_style_questions to an empty array. These profiles use one learning checklist and no practice bank."
       : "Practice questions must test subject knowledge, have a concrete learning purpose, and cite subject evidence. Never ask about alias, date, time, room, teacher, or source-page metadata.",
-    "Do not invent source claims, common mistakes, formulas, definitions, or diagram relationships. Derived examples are allowed only under the learning-depth policy above.",
+    `Output language is ${languageName(config.outputLanguage)}.`,
+    `Task context: ${JSON.stringify({
+      artifactProfile: config.artifactIntent.profile,
+      outputLanguage: languageName(config.outputLanguage),
+      chapter: focus
+        ? {
+            title: focus.title,
+            contentMode: focus.contentMode ?? "mixed",
+            learningObjectives: focus.learningObjectives ?? [],
+            assessmentSignals: focus.assessmentSignals ?? [],
+          }
+        : null,
+    })}`,
+    focus
+      ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
+      : "",
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
     `Source coverage JSON:\n${JSON.stringify(config.diagnostics?.getCoverage() ?? {}, null, 2)}`,
     analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(analyzerVisuals, null, 2)}` : "Visual candidates JSON: none",
     `Resource manifest JSON:\n${JSON.stringify(analyzerManifest, null, 2)}`,
     `Evidence package selection JSON:\n${JSON.stringify(evidenceView, null, 2)}`,
-    `Moodle/CIS source overview:\n${sourceOverview}`,
+    sourceOverview ? `Moodle/CIS source overview:\n${sourceOverview}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -1939,7 +2761,7 @@ function compactEvidenceForAnalyzer(
   }
   return {
     ...evidence,
-    records: selected,
+    records: selected.map((record) => ({ ...record, localPath: null })),
     warnings: [
       ...evidence.warnings,
       ...(selected.length < evidence.records.length
@@ -1947,6 +2769,34 @@ function compactEvidenceForAnalyzer(
         : []),
     ],
   };
+}
+
+async function analyzerVisualAttachments(
+  runDir: string,
+  state: LangGraphAgentState,
+  focus?: ChapterFocus,
+): Promise<string[]> {
+  const visualManifest = await readVisualManifest(runDir);
+  const allowedResourceIds = focus ? new Set(focus.resourceIds) : null;
+  const normalizedRunDir = path.resolve(runDir);
+  const paths = (visualManifest?.candidates ?? [])
+    .filter((candidate) => !allowedResourceIds ||
+      Boolean(candidate.source_id && allowedResourceIds.has(candidate.source_id)))
+    .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
+    .map((candidate) => candidate.relative_path)
+    .filter((relativePath): relativePath is string => Boolean(relativePath))
+    .map((relativePath) => path.resolve(normalizedRunDir, relativePath))
+    .filter((candidatePath) => {
+      const relative = path.relative(normalizedRunDir, candidatePath);
+      return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+    })
+    .slice(0, 2);
+  const usable = await Promise.all(paths.map(async (candidatePath) =>
+    stat(candidatePath)
+      .then((entry) => entry.isFile() && entry.size > 0 ? candidatePath : null)
+      .catch(() => null)
+  ));
+  return usable.filter((candidatePath): candidatePath is string => Boolean(candidatePath));
 }
 
 function focusedRawSource(rawText: string, resources: Array<{ originUrl: string }>): string {

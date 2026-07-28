@@ -391,13 +391,22 @@ function normalizeWorkedExample(
 }
 
 function hasExplicitChapterGap(subject: string, warnings: string[]): boolean {
+  const ignored = new Set([
+    "thema", "themen", "topic", "topics", "kapitel", "chapter", "grundlag", "anwend", "lernblock",
+  ]);
   const terms = normalizeSubject(subject)
     .split(" ")
     .map(stemSubjectToken)
-    .filter((term) => term.length >= 5);
+    .filter((term) => term.length >= 4 && !ignored.has(term));
+  if (terms.length === 0) return false;
   return warnings.some((warning) => {
     const normalized = normalizeSubject(warning);
-    const describesGap = /\b(?:fehlt|fehlend|keine|nicht|missing|unavailable|no usable)\b/i.test(warning);
+    const describesGap =
+      /\b(?:fehlt|fehlend|missing|unavailable)\b/i.test(warning) ||
+      /\b(?:keine?|no)\s+(?:nutzbare?|verwertbare?|usable)\b.{0,50}\b(?:evidenz|evidence|quelle|source|inhalt|content)\b/i
+        .test(warning) ||
+      /\b(?:nicht|not)\b.{0,35}\b(?:abgedeckt|belegt|enthalten|verfügbar|covered|supported|included|available)\b/i
+        .test(warning);
     return describesGap && terms.some((term) => normalized.includes(term));
   });
 }

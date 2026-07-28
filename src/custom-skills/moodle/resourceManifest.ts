@@ -13,6 +13,7 @@ import {
   resourceLocators,
 } from "./resourceAcquisition.js";
 import { assertPublicHttpsUrl } from "./urlSecurity.js";
+import { isLikelyMoodleUrl } from "./moodleSite.js";
 
 export const RESOURCE_MANIFEST_FILE = "source-map.json";
 
@@ -242,9 +243,10 @@ export function resourcesFromSnapshot(snapshot: AgentBrowserSnapshot): ResourceN
   const resources: ResourceNode[] = [];
   let sectionPath: string[] = [];
   const originUrl = normalizeUrl(snapshot.origin);
+  const snapshotCourseTitle = courseTitle(snapshot);
   if (originUrl) {
     resources.push(resourceNode({
-      title: courseTitle(snapshot) || "Moodle course",
+      title: snapshotCourseTitle || "Moodle course",
       originUrl,
       activityType: originUrl.includes("/course/") ? "course" : "moodle_page",
       sectionPath: [],
@@ -253,7 +255,7 @@ export function resourcesFromSnapshot(snapshot: AgentBrowserSnapshot): ResourceN
   }
 
   for (const line of snapshot.snapshot.split("\n")) {
-    const sectionTitle = sectionTitleFromLine(line);
+    const sectionTitle = sectionTitleFromLine(line, snapshotCourseTitle);
     if (sectionTitle) {
       sectionPath = [sectionTitle];
     }
@@ -518,28 +520,30 @@ function classifyActivity(url: string, title: string): string {
   if (pathname.includes("/mod/forum/")) return "forum";
   if (pathname.includes("/mod/quiz/")) return "quiz";
   if (/\.(?:pdf|docx?|pptx?|xlsx?|zip)(?:$|[?#])/i.test(url)) return "file";
-  if (/^https?:/i.test(url) && !url.includes("moodle.technikum-wien.at")) return "external";
+  if (/^https?:/i.test(url) && !isLikelyMoodleUrl(url)) return "external";
   if (/\b(?:video|youtube)\b/i.test(title)) return "video";
   return "link";
 }
 
-function sectionTitleFromLine(line: string): string | null {
+function sectionTitleFromLine(line: string, currentCourseTitle: string | null): string | null {
   const match = /-\s+(?:button|heading)\s+"([^"]+)"/i.exec(line);
   if (!match) return null;
   const title = cleanTitle(match[1]);
+  const normalized = title.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedCourseTitle = currentCourseTitle?.toLocaleLowerCase().replace(/\s+/g, " ").trim();
   if (
     !title ||
-    /^(?:site-navigation|navigationsleiste|inhalt|kursindex|alles einklappen|nutzermenü)$/i.test(title)
+    title.length > 180 ||
+    normalized === normalizedCourseTitle ||
+    /^(?:course|kurs)\s*:/i.test(title) ||
+    /^(?:site-navigation|navigation|primary navigation|secondary navigation|navigationsleiste|contents?|inhalt|course index|kursindex|collapse all|expand all|alles einklappen|alles ausklappen|user menu|nutzermenü|main menu|hauptmenü|hauptmenue|breadcrumbs?|search|suche|notifications?|benachrichtigungen?)$/i.test(title)
   ) {
     return null;
   }
-  if (
-    /\b(?:eigenstudium|präsenz|praesenz|information|prüfung|pruefung|literatur|kommunikation)\b/i
-      .test(title)
-  ) {
-    return title;
-  }
-  return null;
+  // Moodle themes expose course sections as either buttons or headings. Keep
+  // their actual labels instead of requiring institution-specific German
+  // keywords such as "Eigenstudium" or "Präsenz".
+  return title;
 }
 
 function courseTitle(snapshot: AgentBrowserSnapshot): string | null {
@@ -552,7 +556,7 @@ function isUtilityUrl(url: string): boolean {
 }
 
 function isUtilityTitle(title: string): boolean {
-  return /^(?:datum setzen|zum hauptinhalt|fhtw moodle|startseite|dashboard|alle anzeigen)$/i
+  return /^(?:datum setzen|zum hauptinhalt|skip to main content|startseite|home|dashboard|alle anzeigen|show all|(?:[\p{L}\p{N}&' -]+\s+)?moodle(?:\s+site)?)$/iu
     .test(cleanTitle(title));
 }
 
@@ -581,7 +585,7 @@ function isExternalHttp(url: string): boolean {
     const parsed = new URL(url);
     return (
       (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-      parsed.hostname !== "moodle.technikum-wien.at"
+      !isLikelyMoodleUrl(parsed.toString())
     );
   } catch {
     return false;

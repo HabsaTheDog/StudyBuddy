@@ -445,6 +445,8 @@ function inferContentMode(records: ResourceRecord[]): LearningContentMode {
   if (caseBased) return "case_based";
   if (quantitative) return "quantitative";
   if (procedural) return "procedural";
+  if (conceptual) return "conceptual";
+  if (records.some((record) => record.role === "primary_lecture")) return "mixed";
   return "conceptual";
 }
 

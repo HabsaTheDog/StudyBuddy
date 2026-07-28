@@ -1,20 +1,10 @@
 import { extractCourseTargetHint, rawTextContainsRequestedCourse } from "./courseTargeting.js";
 
-const MOODLE_DASHBOARD_PATHS = new Set(["/", "/my", "/my/"]);
-
-const VERIFIED_TOPIC_SOURCES = [
-  {
-    matches: (prompt: string) => isDcDcRequest(prompt),
-    url: "https://moodle.technikum-wien.at/course/view.php?id=32320",
-  },
-];
-
-export function resolveVerifiedMoodleSource(prompt: string, requestedUrl: string): string {
-  const url = new URL(requestedUrl);
-  if (!MOODLE_DASHBOARD_PATHS.has(url.pathname)) {
-    return requestedUrl;
-  }
-  return VERIFIED_TOPIC_SOURCES.find((source) => source.matches(prompt))?.url ?? requestedUrl;
+export function resolveVerifiedMoodleSource(_prompt: string, requestedUrl: string): string {
+  // Course discovery owns dashboard-to-course resolution. Keeping a
+  // site/course-specific redirect table here made an otherwise portable
+  // Moodle pipeline silently jump to one institution's course.
+  return requestedUrl;
 }
 
 export function hasRequiredTopicEvidence(prompt: string, sourceText: string): boolean {

@@ -20,11 +20,7 @@ import { resolveOutputLanguage } from "../../shared/languagePolicy.js";
 
 const DEFAULT_BROWSER_BACKEND = "playwright";
 const DEFAULT_BROWSER_MAX_OUTPUT = 50_000;
-const DEFAULT_BROWSER_ALLOWED_DOMAINS = [
-  "moodle.technikum-wien.at",
-  "cis.technikum-wien.at",
-  "*.technikum-wien.at",
-];
+const DEFAULT_BROWSER_ALLOWED_DOMAINS: string[] = [];
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../../..");
 
@@ -141,7 +137,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     cisBrowserBackend,
     agentBrowserBin: environment.AGENT_BROWSER_BIN || undefined,
     browserSession: environment.MOODLE_BROWSER_SESSION || `study-buddy-${runSlug}`,
-    browserSessionName: environment.MOODLE_BROWSER_SESSION_NAME || "study-buddy-technikum",
+    browserSessionName: environment.MOODLE_BROWSER_SESSION_NAME || "study-buddy-moodle",
     browserAllowedDomains: deriveBrowserAllowedDomains(input, environment),
     moodleLoginAllowedOrigins: parseAllowedOrigins(environment.MOODLE_LOGIN_ALLOWED_ORIGINS),
     cisLoginAllowedOrigins: parseAllowedOrigins(environment.CIS_LOGIN_ALLOWED_ORIGINS),

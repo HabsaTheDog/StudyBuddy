@@ -100,7 +100,7 @@ export function classifyResourceFailure(
     return {
       status: "tls_failure",
       failureKind: "tls",
-      recommendedAction: "FHTW/HAN-CA-Zertifikat konfigurieren und diese Ressource gezielt erneut laden.",
+      recommendedAction: "Das CA-Zertifikat der Moodle-/Proxy-Instanz konfigurieren und nur diese Ressource gezielt erneut laden.",
     };
   }
   if (/Download job timed out|queue deadline|client-side deadline/i.test(text)) {

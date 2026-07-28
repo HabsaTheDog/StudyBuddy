@@ -34,6 +34,7 @@ describe("Study Buddy Typst components", () => {
         variables: "U: Spannung",
         units: "V",
         note: "Gültig für den ohmschen Widerstand.",
+        compact: true,
       )[$ U = R I $]
 
       #sb-example(
@@ -79,4 +80,14 @@ describe("Study Buddy Typst components", () => {
 
     expect(result).toEqual({ ok: true });
   }, 30_000);
+
+  it("lets table rows grow instead of clipping long cell content", async () => {
+    const supportFiles = await getStudyBuddyTypstSupportFiles();
+    const components = supportFiles.find((file) => file.relativePath === "study-buddy-components.typ");
+    const componentSource = components?.content.toString().replaceAll("\r\n", "\n") ?? "";
+    const tableComponent = componentSource.match(/#let sb-table\([\s\S]*?#let sb-table-section/)?.[0] ?? "";
+
+    expect(tableComponent).not.toContain("#box(height: 5.5mm)");
+    expect(tableComponent).not.toContain("#box(height: 4.5mm)");
+  });
 });

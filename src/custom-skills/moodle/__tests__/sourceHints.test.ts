@@ -6,13 +6,13 @@ import {
 } from "../sourceHints.js";
 
 describe("verified Moodle source hints", () => {
-  it("resolves dashboard DC-DC requests to the verified laboratory course", () => {
+  it("leaves dashboard course discovery site-agnostic instead of using a hard-coded course", () => {
     expect(
       resolveVerifiedMoodleSource(
         "Erstelle ein PDF zum DC-DC-Wandler-Labor",
         "https://moodle.technikum-wien.at/my/",
       ),
-    ).toBe("https://moodle.technikum-wien.at/course/view.php?id=32320");
+    ).toBe("https://moodle.technikum-wien.at/my/");
   });
 
   it("preserves explicit activity and resource URLs", () => {

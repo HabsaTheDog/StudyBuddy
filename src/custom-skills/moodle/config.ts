@@ -26,6 +26,12 @@ import {
   resolveStudyBuddyWorkspacePath,
 } from "../shared/workspaceData.js";
 import { resolveOutputLanguage } from "../shared/languagePolicy.js";
+import {
+  dashboardUrlForMoodle,
+  extractMoodleUrlFromText,
+  isMoodleDashboardUrl,
+  normalizeMoodleDashboardUrl,
+} from "./moodleSite.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const STUDY_BUDDY_ROOT = path.resolve(MODULE_DIR, "../../..");
@@ -77,8 +83,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     : [];
 
   const requestedMoodleUrl = input.moodleUrl || process.env.STUDY_BUDDY_MOODLE_URL || DEFAULT_MOODLE_URL;
-  const promptMoodleUrl = extractMoodleUrlFromPrompt(requestContextPrompt);
-  const selectedMoodleUrl = shouldPreferPromptMoodleUrl(requestedMoodleUrl, promptMoodleUrl)
+  const promptMoodleUrl = extractMoodleUrlFromText(requestContextPrompt);
+  const preferPromptMoodleUrl = shouldPreferPromptMoodleUrl(requestedMoodleUrl, promptMoodleUrl);
+  const selectedMoodleUrl = preferPromptMoodleUrl
     ? promptMoodleUrl
     : requestedMoodleUrl;
   const moodleUrl = resolveVerifiedMoodleSource(requestContextPrompt, selectedMoodleUrl);
@@ -139,7 +146,10 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     maxCisPages: input.maxCisPages ?? parsePositiveInteger(process.env.CIS_MAX_PAGES, 4),
     allowFileDownloads: input.allowFileDownloads ?? true,
     baseUrl: process.env.MOODLE_BASE_URL || new URL(moodleUrl).origin,
-    dashboardUrl: normalizeDashboardUrl(process.env.MOODLE_DASHBOARD_URL || input.moodleUrl),
+    dashboardUrl: normalizeMoodleDashboardUrl(
+      process.env.MOODLE_DASHBOARD_URL ||
+        (preferPromptMoodleUrl ? dashboardUrlForMoodle(moodleUrl) : input.moodleUrl),
+    ),
     username: process.env.MOODLE_USERNAME,
     password: process.env.MOODLE_PASSWORD,
     moodleLoginAllowedOrigins: parseUrlList(process.env.MOODLE_LOGIN_ALLOWED_ORIGINS),
@@ -336,20 +346,12 @@ function inferRequestName(prompt: string): string {
   return (words ?? ["moodle-run"]).slice(0, 6).join("-");
 }
 
-function extractMoodleUrlFromPrompt(prompt: string): string | null {
-  const match = prompt.match(/https:\/\/moodle\.technikum-wien\.at\/[^\s<>)"']+/i);
-  return match ? match[0].replace(/[.,;:!?]+$/g, "") : null;
-}
-
 function shouldPreferPromptMoodleUrl(requestedUrl: string, promptUrl: string | null): promptUrl is string {
   if (!promptUrl) {
     return false;
   }
-  const requested = new URL(requestedUrl);
-  return requested.hostname === "moodle.technikum-wien.at" && MOODLE_DASHBOARD_PATHS.has(requested.pathname);
+  return isMoodleDashboardUrl(requestedUrl);
 }
-
-const MOODLE_DASHBOARD_PATHS = new Set(["/", "/my", "/my/"]);
 
 function safeSlug(value: string): string {
   return value
@@ -368,18 +370,6 @@ function parseUrlList(value: string | undefined): string[] {
 
 function inferBaseUrl(url: string | undefined): string {
   return url ? new URL(url).origin : "https://cis.technikum-wien.at";
-}
-
-function normalizeDashboardUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.hostname === "moodle.technikum-wien.at" && url.pathname === "/my") {
-      url.pathname = "/my/";
-    }
-    return url.toString();
-  } catch {
-    return value;
-  }
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {

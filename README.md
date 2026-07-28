@@ -57,12 +57,14 @@ Dependencies remain system-managed for the student alpha; Study Buddy does not d
 
 | Environment | Status | Notes |
 |---|---|---|
-| Ubuntu/Debian x64 | Tested | Primary development and hackathon path. |
-| Fedora x64 | Best effort | Uses the same Linux runtime; clean-machine verification remains open. |
+| Fedora x64 | Tested | Primary development environment and the only manually end-to-end tested path. |
+| Ubuntu/Debian x64 | CI verified, best effort | Automated checks and clean-clone setup verification pass, but the complete product workflow has not been manually tested end to end. |
 | macOS Apple Silicon/Intel | CI verified, best effort | Typecheck, tests, Typst, Poppler, Playwright, and the runtime doctor pass on GitHub's macOS runner; a manual student install is still required before alpha support. |
 | Windows 11 x64 (native PowerShell) | CI verified, best effort | Typecheck, tests, Typst, Poppler, Playwright, and the runtime doctor pass on GitHub's native Windows runner; a manual student install is still required before alpha support. |
 | WSL 2 | Best effort | Follow the Linux instructions inside WSL, not the native Windows instructions. |
 | Node.js below 22, 32-bit OSes, Windows without PowerShell | Unsupported | These targets are outside the alpha support matrix. |
+
+Study Buddy is designed to be cross-platform, and automated CI covers Ubuntu Linux, macOS, and native Windows. CI verification is not presented as full product validation: manual end-to-end testing has only been completed on Fedora Linux.
 
 The supported baselines are Node.js 22, the Playwright version locked by `package-lock.json` (currently 1.60.x), Typst 0.15, Poppler 24.08, and LibreOffice 24.2 when Office conversion is needed. Newer versions from the package sources below are expected to work and are reported by the doctor command. The `t3code-fork/` interface additionally uses pnpm 10.24.x.
 

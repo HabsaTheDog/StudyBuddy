@@ -83,21 +83,21 @@ again or continuing through more chapters on an unhealthy model lane.
 
 ## Evaluation corpus
 
-The mutable, reviewed corpus is
-`src/custom-skills/moodle/evals/corpus/baseline.json`. Increment a case's
-`revision` whenever its prompt, URL, tags, or expectations change. Every eval
-run copies an immutable corpus snapshot into `output/evals/`.
+The complete reliability/efficiency method, fixed course corpus, replay
+workflow, live-run protocol, regression thresholds, and promotion rule are
+documented in [study-buddy-benchmarking.md](./study-buddy-benchmarking.md).
+Every benchmark copies an immutable corpus snapshot into `output/evals/`.
 
 Plan an evaluation without contacting Moodle or a model:
 
 ```bash
-npm run moodle:eval -- --profile fast --profile balanced
+npm run moodle:benchmark -- --case maes2-comprehensive-en
 ```
 
 Run an ad-hoc comparison against one reproducible direct URL:
 
 ```bash
-npm run moodle:eval -- \
+npm run moodle:benchmark -- \
   --execute \
   --prompt "Create a study guide for <exact topic>" \
   --url "<direct Moodle URL>" \
@@ -108,13 +108,13 @@ npm run moodle:eval -- \
 Run all enabled reviewed corpus cases:
 
 ```bash
-npm run moodle:eval -- --execute --profile fast --profile balanced --profile quality
+npm run moodle:benchmark -- --execute --profile balanced
 ```
 
 Cases execute sequentially because each is an official artifact workflow and
 the workspace enforces one artifact lease at a time. Parallelism happens inside
-each run where source tasks are independent. The report compares validity,
-coverage expectations, required terms, wall time, model time, and token usage.
+each run where source tasks are independent. The report separates reliability
+from efficiency and reports fresh input separately from cached input.
 
 ## Promotion rule
 

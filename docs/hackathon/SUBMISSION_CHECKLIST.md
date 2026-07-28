@@ -24,8 +24,8 @@ Copy this checklist into your task manager if useful.
 - [x] Commit the root implementation, documentation, and cleanup in understandable commits.
 - [x] Fix the red GitHub Actions run and obtain a green Linux, macOS, and Windows matrix on release commit `2a29a6f`.
 - [x] Extend CI path filters to cover `interactive-study-guide/**` and `shared/**`.
-- [x] Run a clean-clone installation test on Ubuntu/Linux using the direct T3 submodule checkout path.
-- [x] Keep Linux labeled as the only end-to-end tested platform in the hackathon submission.
+- [x] Run a clean-clone setup verification on Ubuntu/Linux using the direct T3 submodule checkout path.
+- [x] Keep Fedora Linux labeled as the only manually end-to-end tested platform in the hackathon submission.
 - [ ] Tag the submitted commit, for example `openai-build-week-2026`.
 - [ ] Make the repository public under the existing MIT license.
 

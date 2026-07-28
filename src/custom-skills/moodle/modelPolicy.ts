@@ -203,11 +203,12 @@ const PROFILE_POLICIES: Record<
       escalationTimeoutMs: 4 * 60_000,
     },
     quality_reviewer: {
-      model: "gpt-5.6-sol",
+      model: "gpt-5.6-terra",
       reasoningEffort: "high",
-      timeoutMs: 150_000,
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 180_000,
+      timeoutMs: 90_000,
+      escalationModel: "gpt-5.6-terra",
+      escalationEffort: "high",
+      escalationTimeoutMs: 120_000,
     },
   },
 };

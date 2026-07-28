@@ -12,6 +12,10 @@ import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.j
 import {
   buildChapterFragmentPrompt,
   createAnalyzerNode,
+  ensureDirectEvidenceSelection,
+  ensureOfficialTopicEvidenceSelection,
+  focusMatchesError,
+  normalizeAnalyzerFormulaSyntax,
   visualRequestMatchesChapter,
 } from "../nodes/analyzerNode.js";
 import {
@@ -22,6 +26,291 @@ import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbo
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
+  it("removes Markdown math fences from analyzer Typst formula fields", () => {
+    expect(normalizeAnalyzerFormulaSyntax(
+      "$ vec(v) = dot(r) vec(e)_r $, $ vec(a) = ddot(r) vec(e)_r $",
+    )).toBe(
+      "vec(v) = dot(r) vec(e)_r , vec(a) = ddot(r) vec(e)_r",
+    );
+  });
+
+  it("replaces support-only selection with every bounded direct source", () => {
+    const candidate = (id: string, resourceId: string, sourceRole: string) => ({
+      id,
+      resourceId,
+      moduleId: "chapter",
+      sourceRole,
+      content: id,
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: [resourceId],
+        records: [{
+          id: `ev-${id}`,
+          resourceId,
+          kind: sourceRole === "worked_example" ? "solution" as const : "claim" as const,
+          locator: {},
+          content: id,
+          confidence: 1,
+          pairId: null,
+          sourceUrl: `https://moodle.example/${resourceId}`,
+          localPath: null,
+        }],
+      },
+    });
+    const support = candidate("support", "res-support", "formula");
+    const directA = candidate("direct-a", "res-a", "worked_example");
+    const directB = candidate("direct-b", "res-b", "worked_example");
+
+    const selected = ensureDirectEvidenceSelection(
+      [support, directA],
+      [support, directA, directB],
+      ["res-a", "res-b"],
+      2,
+    );
+
+    expect(selected.flatMap((entry) => entry.slice.resourceIds).sort()).toEqual([
+      "res-a",
+      "res-b",
+    ]);
+  });
+
+  it("reserves one semantically matched evidence slice for every grouped official topic", () => {
+    const candidate = (id: string, content: string) => ({
+      id,
+      resourceId: "res-calculus",
+      moduleId: "calculus",
+      sourceRole: "primary_lecture",
+      title: id,
+      content,
+      tags: [],
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: ["res-calculus"],
+        records: [],
+      },
+    });
+    const limits = candidate("limits", "Grenzwert Stetigkeit Ableitung");
+    const taylor = candidate("taylor", "Taylorpolynom Taylorreihe Restglied");
+    const generic = candidate("generic", "Kursübersicht Organisation");
+    const selected = ensureOfficialTopicEvidenceSelection(
+      [generic, limits],
+      [generic, limits, taylor],
+      {
+        key: "differentialrechnung",
+        title: "Differentialrechnung (Themen 2–4)",
+        resourceIds: ["res-calculus"],
+        matchTerms: [],
+        learningObjectives: [
+          "Thema 2 – Grundlagen der Differentialrechnung: 20.1 Grenzwert und Stetigkeit",
+          "Thema 4 – Anwendungen der Differentialrechnung: 21.1 Taylorreihen",
+        ],
+      },
+      2,
+    );
+
+    expect(selected.map((entry) => entry.id)).toEqual(["limits", "taylor"]);
+  });
+
+  it("prefers the final explicit subsection when one topic must fit in one evidence slot", () => {
+    const candidate = (id: string, content: string) => ({
+      id,
+      resourceId: "res-calculus",
+      moduleId: "calculus",
+      sourceRole: "primary_lecture",
+      title: id,
+      content,
+      tags: [],
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: ["res-calculus"],
+        records: [],
+      },
+    });
+    const derivative = candidate("derivative", "Grenzwert Stetigkeit Ableitung Differenzierbarkeit");
+    const curve = candidate("curve", "Monotonie Krümmung Extremwerte Funktionsuntersuchung");
+    const newton = candidate(
+      "newton",
+      "Iterationsverfahren zur Bestimmung von Nullstellen mit Sekantenverfahren und Newton-Verfahren",
+    );
+
+    const selected = ensureOfficialTopicEvidenceSelection(
+      [derivative, curve],
+      [derivative, curve, newton],
+      {
+        key: "differentialrechnung",
+        title: "Differentialrechnung (Themen 2 und 5)",
+        resourceIds: ["res-calculus"],
+        matchTerms: [],
+        learningObjectives: [
+          "Thema 2 – Grundlagen der Differentialrechnung: 20.1 Grenzwert und Stetigkeit",
+          "Thema 5 – Anwendungen der Differentialrechnung 2: Funktionsuntersuchungen",
+          "Thema 5 – Anwendungen der Differentialrechnung 2 · 21.2 Monotonie, Krümmung und Extremwerte",
+          "Thema 5 – Anwendungen der Differentialrechnung 2 · 21.3 Iterationsverfahren zur Bestimmung von Nullstellen",
+        ],
+      },
+      2,
+    );
+
+    expect(selected.map((entry) => entry.id)).toEqual(["derivative", "newton"]);
+  });
+
+  it("follows a late subsection heading into the next evidence chunk", () => {
+    const candidate = (id: string, content: string) => ({
+      id,
+      resourceId: "res-calculus",
+      moduleId: "calculus",
+      sourceRole: "primary_lecture",
+      title: id,
+      content,
+      tags: [],
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: ["res-calculus"],
+        records: [],
+      },
+    });
+    const previous = candidate(
+      "heading",
+      `${"Monotonie und Krümmung. ".repeat(45)} 21.3 Iterationsverfahren zur Bestimmung von Nullstellen. Kurze Einführung.`,
+    );
+    const continuation = candidate(
+      "method",
+      "Eine Nullstelle wird mit einer Iteration berechnet. Beispiel und Lösung mit Rekursionsformel.",
+    );
+
+    const selected = ensureOfficialTopicEvidenceSelection(
+      [previous],
+      [previous, continuation],
+      {
+        key: "applications",
+        title: "Anwendungen",
+        resourceIds: ["res-calculus"],
+        matchTerms: [],
+        learningObjectives: [
+          "Thema 5 – Anwendungen · 21.3 Iterationsverfahren zur Bestimmung von Nullstellen",
+        ],
+      },
+      1,
+    );
+
+    expect(selected.map((entry) => entry.id)).toEqual(["method"]);
+  });
+
+  it("uses spare evidence slots for explicit subsections inside one official topic", () => {
+    const candidate = (id: string, content: string) => ({
+      id,
+      resourceId: "res-series",
+      moduleId: "series",
+      sourceRole: "primary_lecture",
+      title: id,
+      content,
+      tags: [],
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: ["res-series"],
+        records: [],
+      },
+    });
+    const overview = candidate("overview", "Analysis Konvergenz Überblick");
+    const sequences = candidate("sequences", "Folgen Grenzwert Monotonie");
+    const series = candidate("series", "Reihen Konvergenzkriterien geometrische Reihe");
+
+    const selected = ensureOfficialTopicEvidenceSelection(
+      [overview, sequences],
+      [overview, sequences, series],
+      {
+        key: "series",
+        title: "Thema 1: Folgen und Reihen",
+        resourceIds: ["res-series"],
+        matchTerms: [],
+        learningObjectives: [
+          "Thema 1 – Folgen und Reihen: Voraussetzungen der reellen Analysis",
+          "Thema 1 – Folgen und Reihen · 6.1 Folgen",
+          "Thema 1 – Folgen und Reihen · 6.2 Reihen",
+        ],
+      },
+      3,
+    );
+
+    expect(selected.map((entry) => entry.id).sort()).toEqual([
+      "overview",
+      "sequences",
+      "series",
+    ]);
+  });
+
+  it("prefers substantive repeated subsection evidence over an early table-of-contents mention", () => {
+    const candidate = (id: string, content: string) => ({
+      id,
+      resourceId: "res-series",
+      moduleId: "series",
+      sourceRole: "primary_lecture",
+      title: id,
+      content,
+      tags: [],
+      ordinal: 0,
+      slice: {
+        key: id,
+        label: id,
+        resourceIds: ["res-series"],
+        records: [],
+      },
+    });
+    const contents = candidate("contents", "Inhalt: 6.1 Folgen, 6.2 Reihen");
+    const sequences = candidate("sequences", "Folge Grenzwert Folge Konvergenz Folge");
+    const series = candidate(
+      "series",
+      "Reihe Teilsumme Reihe Konvergenzkriterium Reihe geometrische Reihe Grenzwert",
+    );
+
+    const selected = ensureOfficialTopicEvidenceSelection(
+      [contents, sequences],
+      [contents, sequences, series],
+      {
+        key: "series",
+        title: "Thema 1: Folgen und Reihen",
+        resourceIds: ["res-series"],
+        matchTerms: [],
+        learningObjectives: [
+          "Thema 1 – Folgen und Reihen · 6.1 Folgen",
+          "Thema 1 – Folgen und Reihen · 6.2 Reihen",
+        ],
+      },
+      2,
+    );
+
+    expect(selected.map((entry) => entry.id)).toContain("series");
+  });
+
+  it("localizes tagged analyzer failures to the exact chapter", () => {
+    const differential = {
+      key: "differential",
+      title: "Differential Calculus",
+      resourceIds: ["res_diff"],
+      matchTerms: ["differential", "calculus"],
+    };
+    const applications = {
+      key: "applications",
+      title: "Applications of Differential Calculus",
+      resourceIds: ["res_app"],
+      matchTerms: ["applications", "differential", "calculus"],
+    };
+    const error = "[chapter: Differential Calculus] Chapter analyzer failed: invalid formula.";
+
+    expect(focusMatchesError(differential, error)).toBe(true);
+    expect(focusMatchesError(applications, error)).toBe(false);
+  });
+
   it("does not duplicate a topic-specific lookup figure into unrelated chapters", () => {
     const request = {
       purpose: "diagram",
@@ -41,7 +330,7 @@ describe("analyzerNode", () => {
       assessmentSignals: [],
     }, request)).toBe(false);
   });
-  it("hands selected page image paths to the model for direct visual reading", () => {
+  it("hands selected visual IDs to the model without exposing local source paths", () => {
     const prompt = buildChapterFragmentPrompt(
       moodleTestConfig({
         prompt: "Create an English dynamics guide",
@@ -83,9 +372,12 @@ describe("analyzerNode", () => {
       [{ resourceId: "res_example", pages: [1], purpose: "worked_example", priority: "high", placementHint: "chapter", reason: "read values" }],
     );
 
-    expect(prompt).toContain("assets/visuals/example-page-1.png");
-    expect(prompt).toContain("inspiziere die lokalen Bilddateien");
+    expect(prompt).toContain("\"id\": \"page-image\"");
+    expect(prompt).toContain("Attached images correspond to the listed candidate IDs");
+    expect(prompt).not.toContain("assets/visuals/example-page-1.png");
+    expect(prompt).not.toContain("/tmp/example.pdf");
     expect(prompt).toContain("in English");
+    expect(prompt.length).toBeLessThan(8_000);
   });
 
   it("parses Codex JSON, validates defaults, and passes the schema hint", async () => {
@@ -145,6 +437,125 @@ describe("analyzerNode", () => {
 
     expect(receivedPrompt).toContain("Output language is English");
     expect(result.extracted_data).toMatchObject({ language: "en" });
+  });
+
+  it("reconciles a generic Moodle shell title with the explicitly requested course", async () => {
+    const codex: CodexClient = {
+      async run() {
+        return JSON.stringify({
+          document_title: "Baukasten – Study Guide",
+          language: "en",
+          course: { title: "Baukasten", url: "https://moodle.example/course" },
+        });
+      },
+    };
+    const prompt = "Create an English PDF study guide for MAES2";
+    const result = await createAnalyzerNode(moodleTestConfig({
+      prompt,
+      originalUserPrompt: prompt,
+      outputLanguage: "en",
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+    }), codex)(moodleTestState());
+
+    expect(result.extracted_data).toMatchObject({
+      document_title: "MAES2 – Study Guide",
+      course: { title: "MAES2" },
+    });
+  });
+
+  it("uses the normalized workflow prompt when the original request has no course code", async () => {
+    const codex: CodexClient = {
+      async run() {
+        return JSON.stringify({
+          document_title: "Baukasten – Study Guide",
+          language: "en",
+          course: { title: "Baukasten", url: "https://moodle.example/course" },
+        });
+      },
+    };
+    const result = await createAnalyzerNode(moodleTestConfig({
+      prompt: "Create an English PDF study guide for MAES2",
+      originalUserPrompt: "Make the output clearer and easier to learn from",
+      outputLanguage: "en",
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+    }), codex)(moodleTestState());
+
+    expect(result.extracted_data).toMatchObject({
+      document_title: "MAES2 – Study Guide",
+      course: { title: "MAES2" },
+    });
+  });
+
+  it("reconciles a generic shell title with the single course proven by the acquired corpus", async () => {
+    const codex: CodexClient = {
+      async run() {
+        return JSON.stringify({
+          document_title: "Bachelor Template – Study Guide",
+          language: "de",
+          course: { title: "Bachelor Template", url: "https://moodle.example/course" },
+        });
+      },
+    };
+    const result = await createAnalyzerNode(moodleTestConfig({
+      prompt: "Erstelle einen PDF-Study-Guide für Dynamik.",
+      originalUserPrompt: "Starte Runs bei MEL und Dynamik.",
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+    }), codex)(moodleTestState({
+      moodle_raw_text: "Kurs: Anwendungen der Dynamik\nZusammenfassung-DYN2.pdf",
+    }));
+
+    expect(result.extracted_data).toMatchObject({
+      document_title: "DYN2 – Study Guide",
+      course: { title: "DYN2" },
+    });
+  });
+
+  it("uses a persisted unseen Moodle course identity without requiring a hard-coded alias", async () => {
+    const codex: CodexClient = {
+      async run() {
+        return JSON.stringify({
+          document_title: "Course Shell – Study Guide",
+          language: "en",
+          course: { title: "Course Shell", url: "https://learn.example.edu/course/view.php?id=204" },
+        });
+      },
+    };
+    const result = await createAnalyzerNode(moodleTestConfig({
+      prompt: "Create an English study guide for my modern literature course.",
+      originalUserPrompt: "Create an English study guide for my modern literature course.",
+      outputLanguage: "en",
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+    }), codex)(moodleTestState({
+      moodle_raw_text: [
+        "[Moodle course resolution]",
+        "Selected: HUM-204 World Literature",
+        "Course title: World Literature: Modernism and Memory",
+        "URL: https://learn.example.edu/course/view.php?id=204",
+        "Confidence: high",
+        "Method: model_evidence",
+      ].join("\n"),
+    }));
+
+    expect(result.extracted_data).toMatchObject({
+      document_title: "World Literature: Modernism and Memory – Study Guide",
+      language: "en",
+      course: {
+        title: "World Literature: Modernism and Memory",
+        url: "https://learn.example.edu/course/view.php?id=204",
+      },
+    });
   });
 
   it("keeps invalid analyzer output in retry state", async () => {
@@ -624,6 +1035,265 @@ describe("analyzerNode", () => {
     }
   });
 
+  it("repairs an invalid application fragment locally without restarting valid chapters", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-local-fragment-repair-"));
+    try {
+      const prompts: string[] = [];
+      let vectorCalls = 0;
+      const codex: CodexClient = {
+        async run(prompt) {
+          prompts.push(prompt);
+          const vector = prompt.includes("\"title\":\"Vektorkinematik\"");
+          if (vector) vectorCalls += 1;
+          const repaired = vectorCalls === 2;
+          const sourceId = vector ? "res_theory" : "res_other";
+          return JSON.stringify({
+            sections: [{
+              heading: vector ? "Vektorkinematik" : "Bezugssysteme",
+              summary: vector
+                ? `Geschwindigkeits- und Beschleunigungsbeziehungen werden systematisch aufgestellt. ${"Koordinatenwahl, Kopplungsbedingung, Gültigkeitsbereich und Ergebniskontrolle werden nachvollziehbar erklärt. ".repeat(7)}`
+                : "Inertial- und Relativsysteme werden unterschieden.",
+              key_concepts: vector ? ["Koordinatenwahl", "Kopplungsbedingung"] : ["Bezugssystem"],
+              source_ids: [sourceId],
+            }],
+            formulas: vector && repaired ? [{
+              name: "Geschwindigkeitsbeziehung der Vektorkinematik",
+              typst: "v_P = v_A + omega cross r_(P/A)",
+              variables: ["v_P: Punktgeschwindigkeit", "omega: Winkelgeschwindigkeit"],
+              units: ["v: m/s", "omega: 1/s"],
+              context: "Kinematische Kopplung eines starren Körpers.",
+              source_ids: ["res_theory"],
+            }] : [],
+            worked_examples: vector && repaired ? [{
+              origin: "source",
+              learning_goal: "Eine kinematische Kopplung berechnen",
+              prompt: "Bestimme die gesuchte Winkelgeschwindigkeit.",
+              steps: ["Koordinaten wählen", "v_P = v_A + omega cross r_(P/A) aufstellen", "Nach omega lösen", "Vorzeichen und Einheit prüfen"],
+              result: "Die Kontrolle bestätigt die Kopplungsbedingung und die berechnete Winkelgeschwindigkeit.",
+              source_ids: ["res_example"],
+            }] : [],
+            figures: [],
+            warnings: [],
+          });
+        },
+      };
+      const resources = [
+        chapterResource("theory", "Folien Vektorkinematik", "Vektorkinematik", "primary_lecture"),
+        chapterResource("example", "Beispiel Kopplung Scheibe–Stab", "Vektorkinematik", "worked_example"),
+        chapterResource("other", "Folien Bezugssysteme", "Bezugssysteme", "primary_lecture"),
+      ];
+      const evidenceRecords = resources.flatMap((resource) =>
+        Array.from({ length: 12 }, (_, index) => ({
+          id: `${resource.id}_${index}`,
+          resourceId: resource.id,
+          kind: index === 0 && resource.id === "res_example" ? "exercise" as const : "claim" as const,
+          locator: { page: index + 1 },
+          content: `${resource.title}: Koordinaten, Geschwindigkeit, Beschleunigung und vollständiger Rechenweg ${index}. ${"x".repeat(1_000)}`,
+          confidence: 1,
+          pairId: null,
+          sourceUrl: resource.originUrl,
+          localPath: resource.localPath,
+        }))
+      );
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      });
+      const result = await createAnalyzerNode(config, codex)(moodleTestState({
+        source_architect_decision: {
+          round: 1,
+          status: "sufficient",
+          coverageSummary: "Vektorkinematik mit Übungsquelle ist abgedeckt.",
+          requestedUrls: [],
+          remainingAvailable: 0,
+          reasons: [],
+          learningArchitecture: {
+            schemaVersion: 1,
+            modules: [{
+              id: "vector-kinematics",
+              title: "Vektorkinematik",
+              priority: "essential",
+              contentMode: "quantitative",
+              learningObjectives: ["Kinematische Kopplungen berechnen"],
+              assessmentSignals: ["Rechenbeispiel"],
+              resourceUrls: resources.slice(0, 2).map((resource) => resource.originUrl),
+            }, {
+              id: "reference-frames",
+              title: "Bezugssysteme",
+              priority: "important",
+              contentMode: "conceptual",
+              learningObjectives: ["Bezugssysteme unterscheiden"],
+              assessmentSignals: [],
+              resourceUrls: [resources[2].originUrl],
+            }],
+            supportResources: [],
+            excludedResourceUrls: [],
+          },
+        },
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources,
+        },
+        evidence_package: {
+          schemaVersion: "1.0",
+          generatedAt: new Date().toISOString(),
+          records: evidenceRecords,
+          warnings: [],
+        },
+      }));
+
+      const vectorPrompts = prompts.filter((prompt) =>
+        prompt.includes("\"title\":\"Vektorkinematik\"")
+      );
+      expect(vectorPrompts).toHaveLength(2);
+      expect(vectorPrompts[1]).toContain("Validator-Diagnose für den einmaligen lokalen Reparaturversuch");
+      expect(result.error_log).toBeNull();
+      expect(result.extracted_data).toMatchObject({
+        worked_examples: [{ learning_goal: "Eine kinematische Kopplung berechnen" }],
+      });
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps directly assigned MAES evidence ahead of generic calculus support", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-direct-evidence-"));
+    try {
+      const prompts: string[] = [];
+      const codex: CodexClient = {
+        async run(prompt) {
+          prompts.push(prompt);
+          const sourceId = prompt.includes("Differential Equations")
+            ? "res_ode10"
+            : "res_other";
+          return JSON.stringify({
+            sections: [{
+              heading: "Method",
+              summary: `A source-grounded method. ${"The classification, assumptions, solution path, boundary conditions, and verification are explained for independent study. ".repeat(8)}`,
+              key_concepts: ["verification"],
+              source_ids: [sourceId],
+            }],
+            formulas: sourceId === "res_ode10" ? [{
+              name: "Differential equation",
+              typst: "y'' + y = 0",
+              variables: ["y: unknown function"],
+              units: ["dimensionless"],
+              context: "Linear homogeneous differential equation.",
+              source_ids: [sourceId],
+            }] : [],
+            worked_examples: [{
+              origin: "source",
+              learning_goal: "Apply the method",
+              prompt: "Solve the assigned task",
+              steps: ["Classify the equation", "Set y = exp(lambda x)", "Solve lambda^2 + 1 = 0", "Check the solution by substitution"],
+              result: "The substitution check confirms the resulting solution family.",
+              source_ids: [sourceId],
+            }],
+            figures: [],
+            warnings: [],
+          });
+        },
+      };
+      const ode10 = chapterResource("ode10", "Minitest 10 solutions", "ODE", "worked_example");
+      const ode11 = chapterResource("ode11", "Minitest 11 solutions", "ODE", "worked_example");
+      const differential = chapterResource(
+        "diff_overview",
+        "General Differential Calculus",
+        "Library",
+        "primary_lecture",
+      );
+      const integral = chapterResource(
+        "integral_overview",
+        "General Integral Calculus",
+        "Library",
+        "primary_lecture",
+      );
+      const other = chapterResource("other", "Other module", "Other", "primary_lecture");
+      const resources = [ode10, ode11, differential, integral, other];
+      const records = resources.flatMap((resource) =>
+        Array.from({ length: 20 }, (_, index) => ({
+          id: `${resource.id}_ev_${index}`,
+          resourceId: resource.id,
+          kind: "claim" as const,
+          locator: { page: index + 1 },
+          content: `${resource.title} evidence ${index}.`,
+          confidence: 1,
+          pairId: null,
+          sourceUrl: resource.originUrl,
+          localPath: resource.localPath,
+        }))
+      );
+      const config = moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+        outputLanguage: "en",
+      });
+      const result = await createAnalyzerNode(config, codex)(moodleTestState({
+        source_architect_decision: {
+          round: 2,
+          status: "sufficient",
+          coverageSummary: "Direct resources acquired.",
+          requestedUrls: [],
+          remainingAvailable: 0,
+          reasons: [],
+          learningArchitecture: {
+            schemaVersion: 1,
+            modules: [{
+              id: "differential-equations",
+              title: "Differential Equations",
+              priority: "essential",
+              contentMode: "quantitative",
+              learningObjectives: ["Solve differential equations."],
+              assessmentSignals: ["Minitests 10 and 11"],
+              resourceUrls: [ode10.originUrl, ode11.originUrl],
+            }, {
+              id: "other",
+              title: "Other module",
+              priority: "important",
+              contentMode: "mixed",
+              learningObjectives: ["Apply another method."],
+              assessmentSignals: ["Course task"],
+              resourceUrls: [other.originUrl],
+            }],
+            supportResources: [{
+              id: "calculus",
+              title: "Differential calculus overview",
+              purpose: "general_reference",
+              resourceUrls: [differential.originUrl, integral.originUrl],
+            }],
+            excludedResourceUrls: [],
+          },
+        },
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources,
+        },
+        evidence_package: {
+          schemaVersion: "1.0",
+          generatedAt: new Date().toISOString(),
+          records,
+          warnings: [],
+        },
+      }));
+
+      const odePrompts = prompts.filter((prompt) => prompt.includes("Differential Equations"));
+      expect(odePrompts).toHaveLength(1);
+      expect(odePrompts[0]).toContain("Minitest 10 solutions");
+      expect(odePrompts[0]).toContain("Minitest 11 solutions");
+      expect(odePrompts[0]).not.toContain("General Differential Calculus");
+      expect(odePrompts[0]).not.toContain("General Integral Calculus");
+      expect(result.error_log).toBeNull();
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses model-planned domain modules and bounds a large course independently of Moodle session names", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-domain-modules-"));
     try {
@@ -635,17 +1305,24 @@ describe("analyzerNode", () => {
             return JSON.stringify({
               sections: [{
                 heading: "Differentialgleichungen lösen",
-                summary: "Ein ausführlicher mathematischer Lernabschnitt mit Lösungsstrategie.",
+                summary: `Ein ausführlicher mathematischer Lernabschnitt mit Lösungsstrategie. ${"Klassifikation, Ansatzwahl, Randbedingungen, Rechenschritte und Einsetzprobe werden lernorientiert erklärt. ".repeat(8)}`,
                 key_concepts: ["Ansatz auswählen", "Lösung kontrollieren"],
                 source_ids: ["res_math"],
               }],
-              formulas: [],
+              formulas: [{
+                name: "Differentialgleichung",
+                typst: "y'' + y = 0",
+                variables: ["y: gesuchte Funktion"],
+                units: ["dimensionslos"],
+                context: "Lineare Differentialgleichung mit konstanten Koeffizienten.",
+                source_ids: ["res_math"],
+              }],
               worked_examples: [{
                 origin: "source",
                 learning_goal: "Eine Differentialgleichung lösen",
                 prompt: "Löse eine repräsentative Gleichung.",
-                steps: ["Typ erkennen", "Ansatz wählen", "Einsetzen", "Kontrollieren"],
-                result: "Die Lösung erfüllt die Gleichung.",
+                steps: ["Typ erkennen", "Ansatz y = exp(lambda x) wählen", "In lambda^2 + 1 = 0 einsetzen", "Lösung durch Einsetzen kontrollieren"],
+                result: "Die Einsetzprobe bestätigt, dass die Lösung die Gleichung erfüllt.",
                 source_ids: ["res_math"],
               }],
               figures: [],
@@ -800,8 +1477,7 @@ describe("analyzerNode", () => {
       expect(fragmentPrompts.length).toBeLessThanOrEqual(2);
       expect(prompts.some((prompt) => prompt.includes("Lernmodus: quantitative"))).toBe(true);
       expect(prompts.some((prompt) => prompt.includes("Learning mode: case_based"))).toBe(true);
-      expect(prompts.filter((prompt) => prompt.includes("GLOBAL_REFERENCE_SENTINEL")).length)
-        .toBeGreaterThanOrEqual(2);
+      expect(prompts.filter((prompt) => prompt.includes("GLOBAL_REFERENCE_SENTINEL"))).toHaveLength(0);
       expect(result.error_log).toBeNull();
       expect(result.extracted_data).toMatchObject({
         learning_modules: [

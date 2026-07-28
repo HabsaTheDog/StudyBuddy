@@ -17,6 +17,7 @@ export function renderTypstInlineText(
 export function cleanVisibleMathText(value: string): string {
   return value
     .replace(/`/g, "")
+    .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "$1\u0308")
     .replace(/\\(?:cdot|dot)\b/g, "·")
     .replace(/\\times\b/g, "×")
     .replace(/\\approx\b/g, "≈")
@@ -33,21 +34,34 @@ export function cleanVisibleMathText(value: string): string {
     .replace(/\bgamma(?=_|\b)/gi, "γ")
     .replace(/\bnu(?=_|\b)/gi, "ν")
     .replace(/\bpi\b/gi, "π")
+    .replace(/\bDelta\b/g, "Δ")
+    .replace(/\blambda\b/g, "λ")
     .replace(/\bdot\b/gi, "·")
     .replace(/\bapprox\b/gi, "≈")
     .replace(/\bdots\b/gi, "…")
     .replace(/\bsqrt\b/gi, "√")
+    .replace(/\bintegral(?=_|\b)/g, "∫")
+    .replace(/\binfinity\b/g, "∞")
+    .replace(/\barrow\b/g, "→")
+    .replace(/\bcompose\b/g, "∘")
+    .replace(/\bdif\s+([A-Za-z])/g, "d$1")
     .replace(/<=/g, "≤")
     .replace(/>=/g, "≥")
     .replace(/\^2\b/g, "²")
     .replace(/\^3\b/g, "³")
     .replace(/_\("?([^)"]+)"?\)/g, "_$1")
-    .replace(/_"([^"]+)"/g, "_$1");
+    .replace(/_"([^"]+)"/g, "_$1")
+    .replace(/_([0-9]+)/g, (_, digits: string) =>
+      [...digits].map((digit) => "₀₁₂₃₄₅₆₇₈₉"[Number(digit)]).join("")
+    );
 }
 
 export function normalizeInlineMathSource(value: string): string {
-  return value
+  const normalized = value
     .trim()
+    .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "accent($1, dot.double)")
+    .replace(/·/g, " dot ")
+    .replace(/×/g, " times ")
     .replace(/\\text\s*\{([^{}]*)\}/g, (_, text: string) => `"${text.trim().replace(/"/g, "'")}"`)
     .replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, "frac($1, $2)")
     .replace(/\\sqrt\s*\{([^{}]+)\}/g, "sqrt($1)")
@@ -82,17 +96,31 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9]*\([^)]+\))\)/g, (_, label: string) => `_"${label}"`)
     .replace(/_([A-Za-z][A-Za-z0-9]{1,})\b/g, (_, label: string) => `_"${label}"`);
+  return normalized
+    .split(/("[^"]*")/)
+    .map((part) =>
+      part.startsWith('"') && part.endsWith('"')
+        ? part
+        : part
+          .replace(/(?<![A-Za-z])([A-Za-z])(\d+[A-Za-z]+)\b/g, "$1_($2)")
+          .replace(/\b([A-Za-z])(\d+)\b/g, "$1_$2")
+    )
+    .join("");
 }
 
 export function quoteBareMathText(value: string): string {
   const mathKeywords = new Set([
-    "accent", "alpha", "and", "approx", "beta", "chi", "cos", "delta", "dif", "div", "dot",
+    "accent", "alpha", "and", "approx", "arrow", "beta", "chi", "compose", "cos", "delta", "dif", "div", "dot",
     "dots", "double", "epsilon", "eta", "exp", "frac", "gamma", "kappa", "lambda", "lim",
-    "ln", "log", "max", "min", "mu", "nu", "omega", "or", "phi", "pi", "psi", "quad",
+    "infinity", "integral", "ln", "log", "max", "min", "mu", "NN", "nu", "omega", "or", "phi", "pi", "psi", "quad", "RR",
     "forall", "in", "minus", "plus", "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "without", "zeta",
     "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
   ]);
   return value
+    .replace(
+      /(\d(?:[.,]\d+)?)\s+(N\/mm(?:\^?[23]|[²³])?|N\/m(?:\^?[23]|[²³])?|kN|MPa|GPa|Pa|mm[²³]?|cm[²³]?|kg|Nm|J|W|V)(?=$|[\s,;)\]<>=+\-])/g,
+      '$1 "$2"',
+    )
     .split(/("[^"]*")/)
     .map((part) => {
       if (part.startsWith('"') && part.endsWith('"')) return part;
