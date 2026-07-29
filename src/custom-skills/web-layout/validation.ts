@@ -189,6 +189,8 @@ async function validateHtmlFileInBrowser(
   await mkdir(screenshotsDir, { recursive: true });
   const screenshotPaths = [
     path.join(screenshotsDir, "desktop.png"),
+    path.join(screenshotsDir, "laptop.png"),
+    path.join(screenshotsDir, "tablet.png"),
     path.join(screenshotsDir, "mobile.png"),
   ];
   const browser = await chromium.launch({ headless: !options.headed });
@@ -211,7 +213,9 @@ async function validateHtmlFileInBrowser(
 
     const viewports = [
       { width: 1440, height: 900, path: screenshotPaths[0] },
-      { width: 390, height: 844, path: screenshotPaths[1] },
+      { width: 1024, height: 768, path: screenshotPaths[1] },
+      { width: 768, height: 1024, path: screenshotPaths[2] },
+      { width: 390, height: 844, path: screenshotPaths[3] },
     ];
     for (const viewport of viewports) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -273,11 +277,111 @@ async function validateStudyGuideInteractionMatrix(
   const audit: Array<Record<string, unknown>> = [];
   const viewports = [
     { name: "desktop", width: 1440, height: 900 },
+    { name: "laptop", width: 1024, height: 768 },
+    { name: "tablet", width: 768, height: 1024 },
     { name: "mobile", width: 390, height: 844 },
   ];
   let failureCount = 0;
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "load", timeout: 20_000 });
+    const continueTargets: string[] = [];
+    const continueButton = page.locator("[data-continue]").first();
+    if (await continueButton.count()) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await continueButton.click();
+        await page.waitForTimeout(40);
+        continueTargets.push(await page.evaluate(() =>
+          document.activeElement?.closest<HTMLElement>(".task")?.dataset.id ?? ""
+        ));
+      }
+    }
+    const controlAudit = await page.evaluate(() => {
+      const content = JSON.parse(
+        document.querySelector<HTMLScriptElement>("#study-content")?.textContent || "{\"topics\":[]}",
+      ) as {
+        topics?: Array<{
+          exercises?: Array<{
+            id: string;
+            type: string;
+            acceptedAnswers?: string[];
+          }>;
+        }>;
+      };
+      const exercises = (content.topics ?? []).flatMap((topic) => topic.exercises ?? []);
+      const calculation = exercises.find((exercise) =>
+        exercise.type === "calculation" &&
+        !exercise.acceptedAnswers?.includes("__self_check__")
+      );
+      const calculationCard = calculation
+        ? document.querySelector<HTMLElement>(`.calculation[data-id="${CSS.escape(calculation.id)}"]`)
+        : null;
+      const calculationInput = calculationCard?.querySelector<HTMLInputElement>(".calc-answer");
+      const calculationButton = calculationCard?.querySelector<HTMLButtonElement>("[data-check-calc]");
+      let calculationWrongThenCorrect = calculation === undefined;
+      let calculationRepeatable = calculation === undefined;
+      if (calculation && calculationCard && calculationInput && calculationButton) {
+        calculationInput.value = "__definitely_wrong__";
+        calculationInput.dispatchEvent(new Event("input", { bubbles: true }));
+        calculationButton.click();
+        const wrongShown = calculationCard.querySelector(".feedback")?.classList.contains("bad") === true;
+        calculationInput.value = calculation.acceptedAnswers?.[0] ?? "";
+        calculationInput.dispatchEvent(new Event("input", { bubbles: true }));
+        calculationButton.click();
+        const correctShown = calculationCard.querySelector(".feedback")?.classList.contains("good") === true;
+        calculationWrongThenCorrect = wrongShown && correctShown && calculationCard.classList.contains("is-complete");
+        calculationButton.click();
+        calculationRepeatable = !calculationButton.disabled &&
+          calculationCard.querySelector(".feedback")?.classList.contains("good") === true;
+      }
+
+      const applicationCard = document.querySelector<HTMLElement>("[data-sb-application-exercise]");
+      let applicationCriteriaToggle = applicationCard === null;
+      let applicationRepeatable = applicationCard === null;
+      if (applicationCard) {
+        const draft = applicationCard.querySelector<HTMLTextAreaElement>("[data-application-draft]");
+        if (draft) {
+          draft.value = "A source-grounded draft for interaction validation.";
+          draft.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        applicationCard.querySelector<HTMLButtonElement>("[data-review-application]")?.click();
+        applicationCard.querySelector<HTMLButtonElement>("[data-application-ok]")?.click();
+        const completed = applicationCard.classList.contains("is-complete") &&
+          applicationCard.querySelector("[data-application-ok]")?.getAttribute("aria-pressed") === "true";
+        applicationCard.querySelector<HTMLButtonElement>("[data-application-review]")?.click();
+        const reopened = !applicationCard.classList.contains("is-complete") &&
+          applicationCard.querySelector("[data-application-review]")?.getAttribute("aria-pressed") === "true";
+        applicationCriteriaToggle = completed && reopened;
+        applicationCard.querySelector<HTMLButtonElement>("[data-application-ok]")?.click();
+        applicationRepeatable = applicationCard.classList.contains("is-complete") &&
+          applicationCard.querySelector("[data-application-ok]")?.getAttribute("aria-pressed") === "true";
+      }
+      return {
+        calculationWrongThenCorrect,
+        calculationRepeatable,
+        applicationCriteriaToggle,
+        applicationRepeatable,
+      };
+    });
+    const distinctContinueTargets = new Set(continueTargets.filter(Boolean)).size;
+    const controlsOk = distinctContinueTargets >= Math.min(2, continueTargets.length) &&
+      Object.values(controlAudit).every(Boolean);
+    audit.push({
+      viewport: viewport.name,
+      state: "controls",
+      continueTargets,
+      distinctContinueTargets,
+      ...controlAudit,
+      ok: controlsOk,
+    });
+    if (!controlsOk) {
+      failureCount += 1;
+      issues.push(issue(
+        "study-guide-control-matrix",
+        `${viewport.name}: continue targets=${continueTargets.join(", ") || "none"}, calculation wrong→correct=${controlAudit.calculationWrongThenCorrect}, calculation repeatable=${controlAudit.calculationRepeatable}, application toggle=${controlAudit.applicationCriteriaToggle}, application repeatable=${controlAudit.applicationRepeatable}.`,
+      ));
+    }
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: "load", timeout: 20_000 });
     const tabCount = await page.locator('[role="tab"]').count();
@@ -330,6 +434,64 @@ async function validateStudyGuideInteractionMatrix(
           const overflow = Math.max(0, feedback.scrollWidth - feedback.clientWidth);
           return length > 8_000 || overflow > 2 ? [{ task: feedback.closest<HTMLElement>(".task")?.dataset.id || "unknown", length, overflow }] : [];
         });
+        const overlapIssues = Array.from(panel?.querySelectorAll<HTMLElement>(".lesson-step") || [])
+          .flatMap((step, index) => {
+            const marker = step.querySelector<HTMLElement>(".step-marker");
+            const content = step.querySelector<HTMLElement>(".step-content");
+            if (!marker || !content || getComputedStyle(marker).display === "none") return [];
+            const markerRect = marker.getBoundingClientRect();
+            const contentRect = content.getBoundingClientRect();
+            const area =
+              Math.max(0, Math.min(markerRect.right, contentRect.right) - Math.max(markerRect.left, contentRect.left)) *
+              Math.max(0, Math.min(markerRect.bottom, contentRect.bottom) - Math.max(markerRect.top, contentRect.top));
+            return area > 2 ? [{ type: "marker-content", step: index + 1, area: Math.round(area) }] : [];
+          });
+        const formulaCards = Array.from(panel?.querySelectorAll<HTMLElement>(".formula-deck .formula") || []);
+        for (let leftIndex = 0; leftIndex < formulaCards.length; leftIndex += 1) {
+          for (let rightIndex = leftIndex + 1; rightIndex < formulaCards.length; rightIndex += 1) {
+            const leftRect = formulaCards[leftIndex]!.getBoundingClientRect();
+            const rightRect = formulaCards[rightIndex]!.getBoundingClientRect();
+            const area =
+              Math.max(0, Math.min(leftRect.right, rightRect.right) - Math.max(leftRect.left, rightRect.left)) *
+              Math.max(0, Math.min(leftRect.bottom, rightRect.bottom) - Math.max(leftRect.top, rightRect.top));
+            if (area > 2) {
+              overlapIssues.push({
+                type: "formula-card",
+                step: leftIndex + 1,
+                area: Math.round(area),
+              });
+            }
+          }
+        }
+        const clippedControls = Array.from(panel?.querySelectorAll<HTMLElement>(
+          "button,.step-marker small,.task-source,.question-content",
+        ) || []).flatMap((element) => {
+          const rect = element.getBoundingClientRect();
+          if (element.offsetParent === null || rect.width === 0 || rect.height === 0) return [];
+          const owner = element.closest<HTMLElement>(".task,.step-content,.lesson-step") ?? panel;
+          const ownerRect = owner?.getBoundingClientRect();
+          const outsideOwner = ownerRect
+            ? rect.left < ownerRect.left - 2 || rect.right > ownerRect.right + 2
+            : false;
+          const outsideViewport = rect.left < -2 || rect.right > innerWidth + 2;
+          return outsideOwner || outsideViewport
+            ? [{
+                selector: element.matches("button") ? "button" : element.className,
+                text: element.innerText.trim().slice(0, 80),
+                outsideOwner,
+                outsideViewport,
+              }]
+            : [];
+        }).slice(0, 12);
+        const formulaScrollIssues = innerWidth < 700
+          ? []
+          : Array.from(panel?.querySelectorAll<HTMLElement>(".formula-deck .math-scroll") || [])
+            .flatMap((container) => container.scrollWidth > container.clientWidth + 2
+              ? [{
+                  label: container.querySelector("math")?.getAttribute("aria-label")?.slice(0, 120) ?? "",
+                  overflow: container.scrollWidth - container.clientWidth,
+                }]
+              : []);
         const visibleText = panel?.innerText || "";
         const rawNotationIssues = [
           ...visibleText.matchAll(/[A-Za-z0-9)}]\s*\^\s*\{?[+−-]?[A-Za-z0-9∞]/g),
@@ -373,6 +535,9 @@ async function validateStudyGuideInteractionMatrix(
           mathIssues,
           feedbackCount: panel?.querySelectorAll(".feedback:not([hidden])").length || 0,
           feedbackIssues,
+          overlapIssues,
+          clippedControls,
+          formulaScrollIssues,
           rawNotationIssues,
           openDetails: panel?.querySelectorAll("details[open]").length || 0,
           contentIssue,
@@ -380,11 +545,23 @@ async function validateStudyGuideInteractionMatrix(
           blankCenters,
         };
       });
-      const failed = measurement.visiblePanels !== 1 || measurement.pageOverflow > 2 || measurement.panelOverflow > 2 || measurement.mathIssues.length > 0 || measurement.feedbackIssues.length > 0 || measurement.rawNotationIssues.length > 0 || measurement.blankCenters > 0 || !measurement.contentIssue || measurement.contentIssue.maxStringLength > 8_000 || measurement.contentIssue.hasBinaryOrPath;
+      const failed = measurement.visiblePanels !== 1 ||
+        measurement.pageOverflow > 2 ||
+        measurement.panelOverflow > 2 ||
+        measurement.mathIssues.length > 0 ||
+        measurement.feedbackIssues.length > 0 ||
+        measurement.overlapIssues.length > 0 ||
+        measurement.clippedControls.length > 0 ||
+        measurement.formulaScrollIssues.length > 0 ||
+        measurement.rawNotationIssues.length > 0 ||
+        measurement.blankCenters > 0 ||
+        !measurement.contentIssue ||
+        measurement.contentIssue.maxStringLength > 8_000 ||
+        measurement.contentIssue.hasBinaryOrPath;
       audit.push({ viewport: viewport.name, tab: tabName, ...measurement, ok: !failed });
       if (failed) {
         failureCount += 1;
-        const message = `${viewport.name} · ${tabName}: panels=${measurement.visiblePanels}, page overflow=${measurement.pageOverflow}px, panel overflow=${measurement.panelOverflow}px, math issues=${measurement.mathIssues.length}, feedback issues=${measurement.feedbackIssues.length}, raw notation issues=${measurement.rawNotationIssues.length}, max content field=${measurement.contentIssue?.maxStringLength ?? "missing"}.`;
+        const message = `${viewport.name} · ${tabName}: panels=${measurement.visiblePanels}, page overflow=${measurement.pageOverflow}px, panel overflow=${measurement.panelOverflow}px, math issues=${measurement.mathIssues.length}, feedback issues=${measurement.feedbackIssues.length}, overlap issues=${measurement.overlapIssues.length}, clipped controls=${measurement.clippedControls.length}, formula scroll issues=${measurement.formulaScrollIssues.length}, raw notation issues=${measurement.rawNotationIssues.length}, max content field=${measurement.contentIssue?.maxStringLength ?? "missing"}.`;
         issues.push(issue("study-guide-interaction-matrix", message));
         const safeName = tabName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `tab-${index + 1}`;
         await page.screenshot({ path: path.join(runDir, "screenshots", `audit-failure-${viewport.name}-${safeName}.png`), fullPage: true }).catch(() => undefined);
@@ -397,8 +574,8 @@ async function validateStudyGuideInteractionMatrix(
     id: "study-guide-all-tabs-all-states",
     ok: failureCount === 0,
     evidence: failureCount === 0
-      ? `Playwright opened, exercised, and scrolled all ${audit.length} desktop/mobile chapter states without deterministic layout or math violations. Report: ${reportPath}`
-      : `Playwright found ${failureCount} failing desktop/mobile chapter states. Report: ${reportPath}`,
+      ? `Playwright opened, exercised, and scrolled all ${audit.length} desktop, laptop, tablet, and mobile chapter states without deterministic layout or math violations. Report: ${reportPath}`
+      : `Playwright found ${failureCount} failing desktop, laptop, tablet, or mobile chapter states. Report: ${reportPath}`,
   };
 }
 

@@ -85,6 +85,7 @@ function deterministicStandardGuideFindings(state: LangGraphWebLayoutState, html
   if (formulas.length > 0 && (!/<math\b/i.test(html) || !/<(?:msup|msub|mi|mn|mo)\b/i.test(html))) findings.push("Strukturiertes MathML für vorhandene Formeln fehlt.");
   if (requirements.selectionTarget > 0 && !/data-sb-cross-exercise/i.test(html)) findings.push("Der für dieses Kursprofil erforderliche Auswahl-/Retrievalblock fehlt.");
   if (requirements.calculationTarget > 0 && !/data-sb-calculation-exercise/i.test(html)) findings.push("Der für dieses quantitative Kursprofil erforderliche Rechenblock fehlt.");
+  if (requirements.applicationTarget > 0 && !/data-sb-application-exercise/i.test(html)) findings.push("Der für dieses Kursprofil erforderliche offene Anwendungs-, Fall- oder Verfahrensblock fehlt.");
   if (!/data-sb-sources/i.test(html)) findings.push("Quellenregister fehlt.");
   return findings;
 }

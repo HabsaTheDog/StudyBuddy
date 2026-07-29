@@ -122,7 +122,9 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
     const exampleTask = exercises.find((exercise) => exercise.type === "calculation") ?? exercises[0];
     const exampleSteps = exampleTask.type === "calculation"
       ? exampleTask.steps
-      : ["Aufgabentyp und Bedingungen identifizieren.", exampleTask.explanation];
+      : exampleTask.type === "cross"
+        ? ["Aufgabentyp und Bedingungen identifizieren.", exampleTask.explanation]
+        : exampleTask.instructions;
     const theoryOverride = THEORY_OVERRIDES[id];
     return {
       id,
@@ -137,7 +139,11 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
         title: `Quellenbeispiel: ${exampleTask.source.sourceTask}`,
         prompt: exampleTask.prompt,
         steps: exampleSteps.length >= 2 ? exampleSteps : [exampleSteps[0] ?? "Aufgabe analysieren.", "Ergebnis kontrollieren."],
-        answer: exampleTask.type === "calculation" ? exampleTask.steps.at(-1) ?? "Siehe Quellenlösung." : exampleTask.explanation,
+        answer: exampleTask.type === "calculation"
+          ? exampleTask.steps.at(-1) ?? "Siehe Quellenlösung."
+          : exampleTask.type === "cross"
+            ? exampleTask.explanation
+            : exampleTask.sampleAnswer,
         source: exampleTask.source,
       }],
       exercises,

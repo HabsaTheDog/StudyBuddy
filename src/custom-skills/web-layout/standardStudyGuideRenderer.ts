@@ -10,6 +10,7 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
   const crossCount = allExercises.filter((exercise) => exercise.type === "cross").length;
   const calculationCount = allExercises.filter((exercise) => exercise.type === "calculation").length;
   const contentJson = JSON.stringify(clientContentForDisplay(content)).replace(/</g, "\\u003c");
+  const interactionController = standardStudyGuideInteractionController(storageNamespace, language);
   const chapterTabsHtml = content.topics.map((topic, index) => `<button class="topic-link${index === 0 ? " is-active" : ""}" id="tab-${esc(topic.id)}" type="button" role="tab" aria-selected="${index === 0 ? "true" : "false"}" aria-controls="topic-${esc(topic.id)}" tabindex="${index === 0 ? "0" : "-1"}" data-topic-tab="${esc(topic.id)}"><span class="chapter-number">${String(index + 1).padStart(2, "0")}</span><span class="chapter-copy"><strong>${esc(topic.title)}</strong><small data-chapter-status="${esc(topic.id)}">0 / ${topic.exercises.length} ${text("erledigt", "completed")}</small></span><span class="chapter-state" aria-hidden="true"></span></button>`).join("");
   const dashboardTopicsHtml = content.topics.map((topic, index) => `<button class="dashboard-topic" type="button" data-dashboard-topic="${esc(topic.id)}" data-dashboard-state="open"><span class="dashboard-topic-index">${String(index + 1).padStart(2, "0")}</span><span class="dashboard-topic-copy"><strong>${esc(topic.title)}</strong><small data-dashboard-topic-status="${esc(topic.id)}">0 ${text("von", "of")} ${topic.exercises.length}</small></span><span class="dashboard-topic-bar"><i data-dashboard-topic-bar="${esc(topic.id)}"></i></span></button>`).join("");
   const topicsHtml = content.topics.map((topic, topicIndex) => {
@@ -18,7 +19,13 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
     const examPractice = topic.exercises.slice(5);
     const quantitative = topic.exercises.some((exercise) => exercise.type === "calculation") || topic.theory.formulas.length > 0;
     const renderExercises = (exercises: typeof topic.exercises, offset: number) => exercises
-      .map((exercise, exerciseIndex) => exercise.type === "cross" ? crossHtml(exercise, exerciseIndex + offset, language) : calculationHtml(exercise, exerciseIndex + offset, language))
+      .map((exercise, exerciseIndex) =>
+        exercise.type === "cross"
+          ? crossHtml(exercise, exerciseIndex + offset, language)
+          : exercise.type === "calculation"
+            ? calculationHtml(exercise, exerciseIndex + offset, language)
+            : applicationHtml(exercise, exerciseIndex + offset, language)
+      )
       .join("");
     return `
     <section class="topic" id="topic-${esc(topic.id)}" data-sb-topic="${esc(topic.id)}" role="tabpanel" aria-labelledby="tab-${esc(topic.id)}"${topicIndex === 0 ? "" : " hidden"}>
@@ -64,6 +71,10 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
 @media(max-width:430px){.brand-text span{max-width:108px}.hot-actions .primary{font-size:.72rem}.dashboard-progress{grid-template-columns:96px minmax(0,1fr);gap:14px}.progress-orbit{width:92px}.dashboard-metrics{gap:9px}.dashboard-metrics strong{font-size:1.1rem}.dashboard-metrics span{font-size:.68rem}}
 .chapter-nav-inner{max-width:1232px;margin:auto;padding:8px 24px;display:block}.chapter-menu>summary{height:44px;grid-template-columns:auto minmax(0,1fr) auto auto;gap:12px}.chapter-menu>summary:after{justify-self:end}@media(max-width:800px){.chapter-nav-inner{padding:7px 12px;display:block}.chapter-menu>summary{height:42px;padding:0 13px;grid-template-columns:minmax(0,1fr) auto;gap:10px}.chapter-menu>summary strong{grid-column:1}.chapter-menu>summary:after{grid-column:2}.chapter-menu-label,.chapter-menu-status{display:none}}
 .source-link{display:inline-flex;align-items:center;gap:6px;margin-top:4px;color:var(--sb-blue);font-size:.82rem;font-weight:800;text-decoration-thickness:1.5px;text-underline-offset:3px}.source-link:focus-visible{outline:3px solid #dbe3ff;outline-offset:3px;border-radius:3px}
+.application-instructions{margin:0 0 16px;padding-left:1.35rem}.application-instructions li+li{margin-top:.45rem}.application-draft{display:grid;gap:8px}.application-draft textarea{width:100%;min-height:132px;resize:vertical;border:1px solid #b9c2d0;border-radius:12px;padding:13px;line-height:1.55;color:var(--sb-ink);background:#fff}.application-draft textarea:focus-visible{outline:3px solid #dbe3ff;border-color:var(--sb-blue)}.application-sample,.application-rubric{padding:12px 0}.application-sample+ .application-rubric{border-top:1px solid currentColor}.application-rubric ul{margin:.55rem 0 0}.application .feedback{color:var(--sb-ink);background:#f2f5fc}.application .self-check{padding-top:10px;border-top:1px solid #d2d9e7}
+.formula-deck{grid-template-columns:repeat(2,minmax(0,1fr))}.formula-deck .formula{overflow:hidden;padding:18px}.formula-deck .math-scroll{padding:4px 2px 8px;scrollbar-width:thin}.formula-deck math{display:block;width:max-content;max-width:none;font-size:clamp(.98rem,1.3vw,1.16rem)}.step-marker{min-width:0}.step-marker small{width:84px;max-width:100%;overflow-wrap:anywhere;hyphens:auto}.self-check{flex-wrap:wrap}.self-check button,.task-actions button,.calc-input button{min-height:44px}.application-state{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#eaf8f2;color:#0d6041;font-weight:800}.application[data-learning-state="review"] .application-state{background:#fff8e7;color:#76520e}
+@media(max-width:1050px){.lesson-step{grid-template-columns:1fr}.step-marker{display:none}.step-content{width:100%}}
+@media(max-width:700px){.formula-deck{grid-template-columns:1fr}.formula-deck .formula{padding:15px}.formula-deck math{font-size:1rem}.task-actions,.self-check{display:grid;grid-template-columns:1fr}.task-actions button,.self-check button{width:100%}}
 </style></head><body>
 <a class="skip" href="#main">${text("Zum Lerninhalt springen", "Skip to learning content")}</a>
 <header class="hotbar" data-sb-hotbar><div class="hotbar-main"><div class="brand"><img src="assets/logo.png" alt="Study Buddy" data-study-buddy-logo><div class="brand-text"><strong>Study Buddy · ${esc(courseIdentity)}</strong><span>${esc(content.courseTitle)}</span></div></div><div class="hot-actions"><div class="progress-pill" data-sb-progress><span>${text("Gesamtfortschritt", "Overall progress")}</span><div class="bar"><i data-progress-bar></i></div><strong data-progress-text>0 / ${allExercises.length}</strong></div><button class="primary" type="button" data-continue>${text("Weiterlernen", "Continue learning")}</button><button class="secondary" type="button" data-reset>${text("Fortschritt löschen", "Reset progress")}</button></div></div><nav class="chapter-nav" aria-label="${text("Kapitel", "Chapters")}" data-sb-course-tabs><div class="chapter-nav-inner"><details class="chapter-menu" data-chapter-menu><summary><span class="chapter-menu-label">${text("Kapitel", "Chapters")}</span><strong data-current-topic-title>1. ${esc(content.topics[0]?.title ?? text("Kapitel", "Chapter"))}</strong><span class="chapter-menu-status" data-current-topic-status>0 / ${content.topics[0]?.exercises.length ?? 0}</span></summary><div class="chapter-menu-panel"><div class="chapter-menu-head"><div><span class="kicker">${text("Kursnavigation", "Course navigation")}</span><h2>${text("Kapitel auswählen", "Select a chapter")}</h2></div><span><i class="state-dot state-dot--complete"></i> ${text("Fertig", "Complete")} <i class="state-dot state-dot--started"></i> ${text("Begonnen", "Started")}</span></div><div class="chapter-tab-grid" role="tablist" aria-label="${text("Kapitel auswählen", "Select a chapter")}">${chapterTabsHtml}</div></div></details></div></nav></header>
@@ -91,16 +102,179 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
 (()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',C=JSON.parse(document.getElementById('study-content').textContent),byId=new Map(C.topics.flatMap(topic=>topic.exercises).map(exercise=>[exercise.id,exercise])),read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}},write=state=>localStorage.setItem(KEY,JSON.stringify(state)),norm=value=>String(value).trim().toLowerCase().replace(/,/g,'.').split(' ').join('');function refresh(state){const exercises=[...byId.values()],done=exercises.filter(exercise=>state.completed?.[exercise.id]).length;document.querySelectorAll('[data-progress-text]').forEach(node=>node.textContent=done+' / '+exercises.length);document.querySelectorAll('[data-progress-bar]').forEach(node=>node.style.width=(exercises.length?done/exercises.length*100:0)+'%');C.topics.forEach(topic=>{const topicDone=topic.exercises.filter(exercise=>state.completed?.[exercise.id]).length,node=document.querySelector('[data-topic-status="'+CSS.escape(topic.id)+'"]');if(node)node.textContent=topicDone+' / '+topic.exercises.length})}document.addEventListener('click',event=>{const button=event.target.closest('[data-check-calc]');if(!button)return;const card=button.closest('.calculation'),exercise=byId.get(card?.dataset.id||'');if(!card||!exercise||exercise.type!=='calculation')return;event.preventDefault();event.stopImmediatePropagation();const input=card.querySelector('.calc-answer'),value=input?.value||'',solution=card.querySelector('[data-solution]')?.innerHTML||'',selfCheck=exercise.acceptedAnswers.includes('__self_check__'),correct=!selfCheck&&exercise.acceptedAnswers.map(norm).includes(norm(value)),feedback=card.querySelector('.feedback');feedback.hidden=false;feedback.className='feedback '+(correct?'good':'bad');feedback.innerHTML=(selfCheck?'<strong>Vergleiche deinen Ansatz mit der Quellenlösung:</strong>':correct?'<strong>Richtig.</strong>':'<strong>Noch nicht.</strong>')+solution+(selfCheck?'<div class="self-check"><button type="button" class="primary" data-self-ok>Stimmt überein</button><button type="button" class="secondary" data-self-review>Noch üben</button></div>':'');const state=read();state.drafts=state.drafts||{};state.revealed=state.revealed||{};state.completed=state.completed||{};state.drafts[exercise.id]=value;state.revealed[exercise.id]=true;if(correct)state.completed[exercise.id]=true;write(state);refresh(state)},true)})();
 </script><script>
 (()=>{'use strict';const KEY='study-buddy-maes2-standard-v1',C=JSON.parse(document.getElementById('study-content').textContent),tabs=[...document.querySelectorAll('[data-topic-tab]')],menu=document.querySelector('[data-chapter-menu]');let filter='all',queued=false;const read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}},queue=()=>{if(queued)return;queued=true;setTimeout(()=>{queued=false;refresh()},0)},started=(state,id)=>Boolean(state.completed?.[id]||state.drafts?.[id]||state.evaluated?.[id]||state.revealed?.[id]||(state.selections?.[id]||[]).length);function refresh(){const state=read(),exercises=C.topics.flatMap(topic=>topic.exercises),done=exercises.filter(exercise=>state.completed?.[exercise.id]).length,open=exercises.length-done;let completedChapters=0;C.topics.forEach((topic,index)=>{const topicDone=topic.exercises.filter(exercise=>state.completed?.[exercise.id]).length,topicStarted=topic.exercises.some(exercise=>started(state,exercise.id)),status=topicDone===topic.exercises.length?'complete':topicStarted?'started':'open';if(status==='complete')completedChapters+=1;const tab=tabs[index],tile=document.querySelector('[data-dashboard-topic="'+CSS.escape(topic.id)+'"]');tab?.classList.toggle('is-complete',status==='complete');tab?.classList.toggle('is-started',status==='started');if(tile){tile.classList.toggle('is-complete',status==='complete');tile.classList.toggle('is-started',status==='started');tile.dataset.dashboardState=status;tile.hidden=filter!=='all'&&filter!==status}document.querySelectorAll('[data-chapter-status="'+CSS.escape(topic.id)+'"]').forEach(node=>node.textContent=topicDone+' / '+topic.exercises.length+' erledigt');document.querySelectorAll('[data-dashboard-topic-status="'+CSS.escape(topic.id)+'"]').forEach(node=>node.textContent=topicDone+' von '+topic.exercises.length+' · '+(status==='complete'?'fertig':status==='started'?'begonnen':'offen'));document.querySelectorAll('[data-dashboard-topic-bar="'+CSS.escape(topic.id)+'"]').forEach(node=>node.style.width=(topic.exercises.length?topicDone/topic.exercises.length*100:0)+'%')});const percent=exercises.length?Math.round(done/exercises.length*100):0,next=exercises.find(exercise=>!state.completed?.[exercise.id]),nextTopic=C.topics.find(topic=>topic.exercises.some(exercise=>exercise.id===next?.id)),activeIndex=Math.max(0,tabs.findIndex(tab=>tab.getAttribute('aria-selected')==='true')),activeTopic=C.topics[activeIndex];document.querySelectorAll('[data-progress-percent]').forEach(node=>node.textContent=percent+'%');document.querySelectorAll('[data-progress-orbit]').forEach(node=>node.style.setProperty('--progress',String(percent)));document.querySelectorAll('[data-dashboard-done]').forEach(node=>node.textContent=String(done));document.querySelectorAll('[data-dashboard-open]').forEach(node=>node.textContent=String(open));document.querySelectorAll('[data-dashboard-chapters]').forEach(node=>node.textContent=String(completedChapters));document.querySelectorAll('[data-dashboard-heading]').forEach(node=>node.textContent=nextTopic?'Weiter geht es mit „'+nextTopic.title+'“.':'Alles geschafft – der gesamte Lernpfad ist abgeschlossen.');document.querySelectorAll('[data-dashboard-next-copy]').forEach(node=>node.textContent=nextTopic?(open+' Aufgaben sind noch offen. Die nächste liegt in Kapitel '+(C.topics.indexOf(nextTopic)+1)+'.'):'Du kannst jetzt gezielt wiederholen oder deinen Fortschritt zurücksetzen.');document.querySelectorAll('[data-current-topic-title]').forEach(node=>node.textContent=(activeIndex+1)+'. '+(activeTopic?.title||'Kapitel'));document.querySelectorAll('[data-current-topic-status]').forEach(node=>{const activeDone=activeTopic?.exercises.filter(exercise=>state.completed?.[exercise.id]).length||0;node.textContent=activeDone+' / '+(activeTopic?.exercises.length||0)})}document.addEventListener('click',event=>{const target=event.target.closest('button');if(!target)return;if(target.matches('[data-dashboard-topic]')){tabs.find(tab=>tab.dataset.topicTab===target.dataset.dashboardTopic)?.click();document.querySelector('main')?.scrollIntoView({behavior:'smooth',block:'start'})}if(target.matches('[data-dashboard-filter]')){filter=target.dataset.dashboardFilter||'all';document.querySelectorAll('[data-dashboard-filter]').forEach(button=>button.classList.toggle('is-active',button===target));refresh()}if(target.matches('[data-open-chapters]')&&menu){menu.open=true;menu.querySelector('summary')?.focus()}if(target.matches('[data-chapter-prev],[data-chapter-next]')){const active=Math.max(0,tabs.findIndex(tab=>tab.getAttribute('aria-selected')==='true')),delta=target.matches('[data-chapter-next]')?1:-1;tabs[(active+delta+tabs.length)%tabs.length]?.click()}if(target.matches('[data-topic-tab]')&&menu)menu.open=false;queue()},true);document.addEventListener('change',queue);document.addEventListener('input',queue);window.addEventListener('storage',queue);refresh()})();
-</script></body></html>`;
+</script><script>
+(()=>{'use strict';const KEY=${JSON.stringify(storageNamespace)},OK=${JSON.stringify(text("Kriterien erfüllt", "Meets the criteria"))},REVIEW=${JSON.stringify(text("Noch überarbeiten", "Needs revision"))},C=JSON.parse(document.getElementById('study-content').textContent),byId=new Map(C.topics.flatMap(topic=>topic.exercises).filter(exercise=>exercise.type==='application').map(exercise=>[exercise.id,exercise])),read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}},write=state=>{localStorage.setItem(KEY,JSON.stringify(state));window.dispatchEvent(new Event('storage'))},restore=()=>{const state=read();document.querySelectorAll('[data-sb-application-exercise]').forEach(card=>{const id=card.dataset.id,draft=card.querySelector('[data-application-draft]'),feedback=card.querySelector('.feedback');if(draft&&state.drafts?.[id]!==undefined)draft.value=state.drafts[id];if(feedback&&state.revealed?.[id]){feedback.hidden=false;feedback.innerHTML=(card.querySelector('[data-application-solution]')?.innerHTML||'')+'<div class="self-check"><button type="button" class="primary" data-application-ok>'+OK+'</button><button type="button" class="secondary" data-application-review>'+REVIEW+'</button></div>'}})};document.addEventListener('input',event=>{const draft=event.target.closest('[data-application-draft]');if(!draft)return;const card=draft.closest('[data-sb-application-exercise]'),state=read();state.drafts=state.drafts||{};state.drafts[card.dataset.id]=draft.value;write(state)});document.addEventListener('click',event=>{const button=event.target.closest('[data-review-application],[data-application-ok],[data-application-review]');if(!button)return;const card=button.closest('[data-sb-application-exercise]'),exercise=byId.get(card?.dataset.id||'');if(!card||!exercise)return;const state=read();state.drafts=state.drafts||{};state.revealed=state.revealed||{};state.completed=state.completed||{};state.drafts[exercise.id]=card.querySelector('[data-application-draft]')?.value||'';if(button.matches('[data-review-application]'))state.revealed[exercise.id]=true;if(button.matches('[data-application-ok]'))state.completed[exercise.id]=true;if(button.matches('[data-application-review]'))state.completed[exercise.id]=false;write(state);restore()});restore()})();
+</script><script>${interactionController}</script></body></html>`;
+}
+
+function standardStudyGuideInteractionController(
+  storageNamespace: string,
+  language: "de" | "en",
+): string {
+  const label = (german: string, english: string) => language === "de" ? german : english;
+  return `(()=>{'use strict';
+const KEY=${JSON.stringify(storageNamespace)};
+const COPY=${JSON.stringify({
+    correct: label("Richtig.", "Correct."),
+    incorrect: label("Noch nicht.", "Not yet."),
+    incomplete: label("Noch nicht – gib alle verlangten Ergebnisse an.", "Not yet — include every requested result."),
+    selfCompare: label("Vergleiche deinen Ansatz mit der Quellenlösung:", "Compare your approach with the source solution:"),
+    understood: label("Als verstanden markiert.", "Marked as understood."),
+    review: label("Zur Überarbeitung markiert.", "Marked for revision."),
+    appDone: label("Kriterien als erfüllt markiert. Du kannst die Einschätzung jederzeit ändern.", "Criteria marked as met. You can change this assessment at any time."),
+    appReview: label("Bleibt zur Überarbeitung offen.", "Remains open for revision."),
+    meets: label("Kriterien erfüllt", "Meets the criteria"),
+    revise: label("Noch überarbeiten", "Needs revision"),
+  })};
+const CONTENT=JSON.parse(document.getElementById('study-content').textContent);
+const exercises=CONTENT.topics.flatMap(topic=>topic.exercises);
+const byId=new Map(exercises.map(exercise=>[exercise.id,exercise]));
+const tasks=[...document.querySelectorAll('.task')];
+const read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch{return {}}};
+const write=state=>{localStorage.setItem(KEY,JSON.stringify(state));window.dispatchEvent(new Event('storage'))};
+const announce=message=>{const live=document.querySelector('[data-live]');if(live)live.textContent=message};
+const normalize=value=>String(value).trim().toLowerCase().replace(/,/g,'.').replace(/\\s+/g,'');
+const numericValues=value=>(String(value).match(/[+-]?\\d+(?:[.,]\\d+)?/g)||[]).map(raw=>String(Number(raw.replace(',','.'))));
+const includesNumbers=(expected,actual)=>{const pool=[...actual];return expected.every(value=>{const index=pool.indexOf(value);if(index<0)return false;pool.splice(index,1);return true})};
+const matchesAnswer=(answers,value)=>answers.some(answer=>{if(normalize(answer)===normalize(value))return true;const expected=numericValues(answer),actual=numericValues(value);return expected.length>0&&actual.length>=expected.length&&includesNumbers(expected,actual)});
+function updateTaskStates(state){
+  tasks.forEach(task=>{
+    const done=Boolean(state.completed?.[task.dataset.id]);
+    task.classList.toggle('is-complete',done);
+    task.dataset.learningState=done?'complete':state.revealed?.[task.dataset.id]?'review':'open';
+  });
+}
+function calculationFeedback(card,exercise,state){
+  const feedback=card.querySelector('.feedback');
+  if(!feedback)return;
+  const value=card.querySelector('.calc-answer')?.value||'';
+  const selfCheck=exercise.acceptedAnswers.includes('__self_check__');
+  const correct=!selfCheck&&matchesAnswer(exercise.acceptedAnswers,value);
+  const expectedCounts=exercise.acceptedAnswers.map(answer=>numericValues(answer).length).filter(Boolean);
+  const expectedCount=expectedCounts.length?Math.min(...expectedCounts):0;
+  const incomplete=!selfCheck&&!correct&&expectedCount>1&&numericValues(value).length<expectedCount;
+  const solution=card.querySelector('[data-solution]')?.innerHTML||'';
+  feedback.hidden=false;
+  feedback.className='feedback '+(correct?'good':'bad');
+  feedback.innerHTML=(selfCheck?'<strong>'+COPY.selfCompare+'</strong>':correct?'<strong>'+COPY.correct+'</strong>':'<strong>'+(incomplete?COPY.incomplete:COPY.incorrect)+'</strong>')+solution+(selfCheck?'<div class="self-check"><button type="button" class="primary" data-self-ok>'+COPY.meets+'</button><button type="button" class="secondary" data-self-review>'+COPY.revise+'</button></div>':'');
+  state.drafts=state.drafts||{};
+  state.revealed=state.revealed||{};
+  state.completed=state.completed||{};
+  state.drafts[exercise.id]=value;
+  state.revealed[exercise.id]=true;
+  if(!selfCheck)state.completed[exercise.id]=correct;
+  write(state);
+  updateTaskStates(state);
+  announce(correct?COPY.correct:COPY.incorrect);
+}
+function renderApplication(card,state){
+  const id=card.dataset.id;
+  const feedback=card.querySelector('.feedback');
+  const draft=card.querySelector('[data-application-draft]');
+  if(draft&&state.drafts?.[id]!==undefined&&document.activeElement!==draft)draft.value=state.drafts[id];
+  const done=Boolean(state.completed?.[id]);
+  card.classList.toggle('is-complete',done);
+  card.dataset.learningState=done?'complete':state.revealed?.[id]?'review':'open';
+  if(!feedback||!state.revealed?.[id]){if(feedback)feedback.hidden=true;return}
+  feedback.hidden=false;
+  feedback.className='feedback '+(done?'good':'');
+  feedback.innerHTML=(card.querySelector('[data-application-solution]')?.innerHTML||'')+'<div class="self-check"><button type="button" class="primary" aria-pressed="'+String(done)+'" data-application-ok>'+COPY.meets+'</button><button type="button" class="secondary" aria-pressed="'+String(!done)+'" data-application-review>'+COPY.revise+'</button></div><p class="application-state">'+(done?COPY.appDone:COPY.appReview)+'</p>';
+}
+function activatePanel(panel){
+  if(!panel)return;
+  const id=panel.dataset.sbTopic;
+  document.querySelectorAll('[data-sb-topic]').forEach(candidate=>candidate.hidden=candidate!==panel);
+  document.querySelectorAll('[data-topic-tab]').forEach(tab=>{
+    const active=tab.dataset.topicTab===id;
+    tab.classList.toggle('is-active',active);
+    tab.setAttribute('aria-selected',String(active));
+    tab.tabIndex=active?0:-1;
+  });
+}
+function continueLearning(){
+  const state=read();
+  const open=tasks.filter(task=>!state.completed?.[task.dataset.id]);
+  const candidates=open.length?open:tasks;
+  if(!candidates.length)return;
+  const activeTask=document.activeElement?.closest?.('.task');
+  const anchorId=activeTask?.dataset.id||state.lastContinueId;
+  const anchorIndex=candidates.findIndex(task=>task.dataset.id===anchorId);
+  const next=candidates[(anchorIndex+1+candidates.length)%candidates.length];
+  state.lastContinueId=next.dataset.id;
+  write(state);
+  activatePanel(next.closest('[data-sb-topic]'));
+  requestAnimationFrame(()=>{
+    next.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
+    next.querySelector('input:not([type="hidden"]),textarea,button')?.focus({preventScroll:true});
+  });
+}
+window.addEventListener('click',event=>{
+  const button=event.target.closest?.('button');
+  if(!button)return;
+  const handled=button.matches('[data-check-calc],[data-self-ok],[data-self-review],[data-review-application],[data-application-ok],[data-application-review],[data-continue]');
+  if(!handled)return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if(button.matches('[data-continue]')){continueLearning();return}
+  const card=button.closest('.task');
+  const exercise=byId.get(card?.dataset.id||'');
+  if(!card||!exercise)return;
+  const state=read();
+  if(button.matches('[data-check-calc]')&&exercise.type==='calculation'){calculationFeedback(card,exercise,state);return}
+  if(button.matches('[data-self-ok],[data-self-review]')){
+    state.completed=state.completed||{};
+    state.completed[exercise.id]=button.matches('[data-self-ok]');
+    write(state);
+    updateTaskStates(state);
+    announce(state.completed[exercise.id]?COPY.understood:COPY.review);
+    return;
+  }
+  if(exercise.type!=='application')return;
+  state.drafts=state.drafts||{};
+  state.revealed=state.revealed||{};
+  state.completed=state.completed||{};
+  state.drafts[exercise.id]=card.querySelector('[data-application-draft]')?.value||'';
+  if(button.matches('[data-review-application]'))state.revealed[exercise.id]=true;
+  if(button.matches('[data-application-ok]')){state.revealed[exercise.id]=true;state.completed[exercise.id]=true}
+  if(button.matches('[data-application-review]')){state.revealed[exercise.id]=true;state.completed[exercise.id]=false}
+  write(state);
+  renderApplication(card,state);
+  updateTaskStates(state);
+  announce(state.completed[exercise.id]?COPY.appDone:COPY.appReview);
+},true);
+window.addEventListener('input',event=>{
+  const field=event.target.closest?.('.calc-answer,[data-application-draft]');
+  if(!field)return;
+  const card=field.closest('.task');
+  const state=read();
+  state.drafts=state.drafts||{};
+  state.drafts[card.dataset.id]=field.value;
+  write(state);
+},true);
+const initial=read();
+document.querySelectorAll('.calculation').forEach(card=>{const input=card.querySelector('.calc-answer');if(input&&initial.drafts?.[card.dataset.id]!==undefined)input.value=initial.drafts[card.dataset.id]});
+document.querySelectorAll('[data-sb-application-exercise]').forEach(card=>renderApplication(card,initial));
+updateTaskStates(initial);
+})();`;
 }
 
 export function matchesCalculationAnswer(acceptedAnswers: string[], value: string): boolean {
   const normalize = (entry: string) => entry.trim().toLowerCase().replace(/,/g, ".").replace(/\s+/g, "");
-  const numbers = (entry: string) => (entry.match(/[+-]?\d+(?:[.,]\d+)?/g) ?? []).map(normalize);
-  return acceptedAnswers.some((answer) =>
-    normalize(answer) === normalize(value) ||
-    (numbers(answer).length === 1 && numbers(value).includes(numbers(answer)[0]!))
-  );
+  const numbers = (entry: string) => (entry.match(/[+-]?\d+(?:[.,]\d+)?/g) ?? [])
+    .map((raw) => String(Number(raw.replace(",", "."))));
+  return acceptedAnswers.some((answer) => {
+    if (normalize(answer) === normalize(value)) return true;
+    const expected = numbers(answer);
+    const actual = numbers(value);
+    if (expected.length === 0 || actual.length < expected.length) return false;
+    const pool = [...actual];
+    return expected.every((expectedValue) => {
+      const index = pool.indexOf(expectedValue);
+      if (index < 0) return false;
+      pool.splice(index, 1);
+      return true;
+    });
+  });
 }
 
 function crossHtml(
@@ -120,11 +294,30 @@ function calculationHtml(
 ): string {
   const text = (german: string, english: string) => language === "de" ? german : english;
   const hasClearAnswerPrompt = /\b(?:berechne|bestimme|ermittle|löse|gib\s+(?:den|die|das)|wie\s+(?:groß|lautet)|calculate|compute|determine|find|solve|what\s+is|how\s+(?:large|much|many))\b/i.test(exercise.prompt);
+  const multiValueAnswer = exercise.acceptedAnswers.some((answer) =>
+    (answer.match(/[+-]?\d+(?:[.,]\d+)?/g) ?? []).length > 1
+  );
+  const answerLabel = multiValueAnswer
+    ? text("Deine Kurzantworten", "Your short answers")
+    : text("Deine Kurzantwort", "Your short answer");
+  const answerPlaceholder = multiValueAnswer
+    ? text("Alle Ergebnisse eingeben, z. B. A=…; B=…", "Enter every result, e.g. A=…; B=…")
+    : text("Wert oder Ergebnis eingeben", "Enter a value or result");
   const answerControl = hasClearAnswerPrompt
-    ? `<label><span class="block-label">${text("Deine Kurzantwort", "Your short answer")}</span><input class="calc-answer" type="text" autocomplete="off" inputmode="decimal" aria-label="${text("Deine Kurzantwort", "Your short answer")}" placeholder="${text("Wert oder Ergebnis eingeben", "Enter a value or result")}"></label>`
+    ? `<label><span class="block-label">${answerLabel}</span><input class="calc-answer" type="text" autocomplete="off" inputmode="${multiValueAnswer ? "text" : "decimal"}" aria-label="${answerLabel}" placeholder="${answerPlaceholder}"></label>`
     : `<input class="calc-answer" type="hidden" value="__solution_revealed__"><p class="solve-offline"><strong>${text("Arbeite zuerst ohne Lösung.", "Work without the solution first.")}</strong><span>${text("Nutze Papier oder dein Tablet und öffne den Rechenweg erst danach.", "Use paper or your tablet, then open the solution path.")}</span></p>`;
   const solution = `<ol>${exercise.steps.map((step) => `<li>${richMathText(step)}</li>`).join("")}</ol><p><strong>${text("Typischer Fehler:", "Common mistake:")}</strong> ${richMathText(exercise.commonMistake)}</p>`;
   return `<article class="task calculation${hasClearAnswerPrompt ? " calculation--answer" : " calculation--paper"}" data-sb-calculation-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${hasClearAnswerPrompt ? text("Kurzantwort", "Short answer") : text("Rechenauftrag", "Calculation task")}</span><span class="task-source">${sourceLabel(exercise.source, language)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div>${exercise.givens.some((given) => !given.startsWith("Alle Größen") && !given.startsWith("All quantities")) ? `<ul>${exercise.givens.map((given) => `<li>${richMathText(given)}</li>`).join("")}</ul>` : ""}<div class="calc-input">${answerControl}<button class="primary" type="button" data-check-calc>${hasClearAnswerPrompt ? text("Lösung vergleichen", "Check solution") : text("Lösungsweg anzeigen", "Show solution path")}</button></div><details class="hints"><summary>${text("Methodenhinweis", "Method hint")}</summary><p>${text("Notiere zuerst die Voraussetzungen und wähle dann die passende Definition oder Rechenregel. Kontrolliere das Ergebnis unabhängig.", "Write down the assumptions first, then choose the appropriate definition or calculation rule. Check the result independently.")}</p></details><template data-solution>${solution}</template><div class="feedback" hidden></div></article>`;
+}
+
+function applicationHtml(
+  exercise: Extract<StudyGuideContent["topics"][number]["exercises"][number], { type: "application" }>,
+  index: number,
+  language: "de" | "en",
+): string {
+  const text = (german: string, english: string) => language === "de" ? german : english;
+  const solution = `<div class="application-sample"><strong>${text("Musterlösung oder Beispielantwort", "Sample response")}</strong><p>${richMathText(exercise.sampleAnswer)}</p></div><div class="application-rubric"><strong>${text("Selbstcheck", "Self-check")}</strong><ul>${exercise.selfCheck.map((criterion) => `<li>${richMathText(criterion)}</li>`).join("")}</ul></div>`;
+  return `<article class="task application" data-sb-application-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${text("Offene Anwendung", "Open application")}</span><span class="task-source">${sourceLabel(exercise.source, language)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div><ol class="application-instructions">${exercise.instructions.map((instruction) => `<li>${richMathText(instruction)}</li>`).join("")}</ol><label class="application-draft"><span class="block-label">${text("Dein Entwurf", "Your draft")}</span><textarea rows="6" data-application-draft autocomplete="off" placeholder="${text("Notiere hier deinen Ansatz, deine Analyse oder deine Formulierung …", "Write your approach, analysis, or response here …")}"></textarea></label><template data-application-solution>${solution}</template><div class="task-actions"><button class="primary" type="button" data-review-application>${text("Mit Beispiel und Kriterien vergleichen", "Compare with example and criteria")}</button></div><div class="feedback" hidden></div></article>`;
 }
 
 function richMathText(value: string, preferMath = false): string {
@@ -243,12 +436,18 @@ function clientContentForDisplay(content: StudyGuideContent): StudyGuideContent 
           feedback: typographicScripts(option.feedback),
         })),
         explanation: typographicScripts(exercise.explanation),
-      } : {
+      } : exercise.type === "calculation" ? {
         ...exercise,
         prompt: typographicScripts(exercise.prompt),
         givens: exercise.givens.map(typographicScripts),
         steps: exercise.steps.map(typographicScripts),
         commonMistake: typographicScripts(exercise.commonMistake),
+      } : {
+        ...exercise,
+        prompt: typographicScripts(exercise.prompt),
+        instructions: exercise.instructions.map(typographicScripts),
+        sampleAnswer: typographicScripts(exercise.sampleAnswer),
+        selfCheck: exercise.selfCheck.map(typographicScripts),
       }),
       retrieval: topic.retrieval.map((item) => ({
         prompt: typographicScripts(item.prompt),

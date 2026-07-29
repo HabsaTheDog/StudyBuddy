@@ -124,6 +124,7 @@ export function buildGeneratorPrompt(
       "- Do not generate, parameterize, clone, or summarize exercises. Do not create generic qs(), calc(), makeQuestion(), or equivalent task factories.",
       "- Build controls directly from each concrete exercise record. Respect selectionMode, show option-specific feedback, and reveal the supplied explanation only after evaluation.",
       "- Calculation fields must accept every supplied acceptedAnswers value after trimming and decimal-comma normalization; never leak accepted answers into the initial DOM-visible prompt.",
+      "- Open application fields must preserve drafts and reveal the supplied sample response plus self-check criteria only on request; let the learner mark the response complete or needing revision.",
       "- Convert formula strings and mathematical expressions into real structured MathML using elements such as mfrac, msup, msub, msqrt, mrow, mo, mi, and mn. Never wrap a whole formula in mtext.",
       "- The UI architecture is fixed: one sticky top Hotbar, one centered responsive chapter dropdown containing the tablist, then repeated topic blocks in the order Orientierung → Theorie → worked example → evidence-appropriate practice → retrieval. Never create a left sidebar or separate previous/next navigation arrows.",
       "- Store answer drafts, evaluated state, completed items, topic progress, and last position in localStorage.",
@@ -161,7 +162,7 @@ function interactionGuidance(kind: string): string {
   const byKind: Record<string, string> = {
     "study-guide": [
       "Create a course-dependent study guide, not a quiz dashboard.",
-      "Include persistent topic navigation and progress, readable source-grounded theory, properly typeset formula/reference content, worked examples with collapsible reasoning, deterministic applied practice, a small retrieval/flashcard layer only where useful, and a mixed final check.",
+      "Include persistent topic navigation and progress, readable source-grounded theory, properly typeset formula/reference content, worked examples with collapsible reasoning, evidence-appropriate selection/calculation/open application practice, a small retrieval layer only where useful, and a mixed final check.",
       "Use data-sb-learning-content for the reading workspace, data-sb-practice for applied practice, data-sb-progress for the persisted progress readout, and data-sb-retrieval for the retrieval-practice layer.",
       "Each chapter must tell the learner what to read, what to notice, what to do next, and how to diagnose a mistake. Persist progress and practice state locally.",
     ].join("\n"),

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deriveStudyGuideRequirements, isMaes2PracticeCorpus } from "../studyGuideProfile.js";
+import {
+  deriveStudyGuideRequirements,
+  handoffSourceRegistry,
+  isMaes2PracticeCorpus,
+} from "../studyGuideProfile.js";
 
 function handoff(courseTitle: string, sections: string[], sources: unknown[] = []): string {
   return `## Extracted data\n\n${JSON.stringify({ course: { title: courseTitle }, sections: sections.map((heading) => ({ heading, summary: "x".repeat(120) })), sources, formulas: [] })}\n\n`;
@@ -23,9 +27,10 @@ describe("adaptive study-guide profile", () => {
     expect(isMaes2PracticeCorpus(source)).toBe(false);
     expect(profile.archetype).toBe("case-based");
     expect(profile.topicTarget).toBe(6);
-    expect(profile.exerciseTarget).toBe(18);
+    expect(profile.exerciseTarget).toBe(12);
     expect(profile.calculationTarget).toBe(0);
-    expect(profile.derivedPracticeMinimum).toBe(18);
+    expect(profile.applicationTarget).toBeGreaterThan(0);
+    expect(profile.derivedPracticeMinimum).toBe(12);
   });
 
   it("recognizes a quantitative course without borrowing MAES2 chapters", () => {
@@ -37,5 +42,47 @@ describe("adaptive study-guide profile", () => {
     expect(profile.sectionTitles).toEqual(["Kinematik", "Kinetik", "Impuls", "Drall", "Schwingungen"]);
     expect(profile.calculationTarget).toBeGreaterThan(0);
     expect(isMaes2PracticeCorpus(source)).toBe(false);
+  });
+
+  it("uses declared Moodle learning modes for an unseen procedural language course", () => {
+    const source = `## Extracted data\n\n${JSON.stringify({
+      course: { title: "LANG-210 Academic English" },
+      sections: [
+        { heading: "Peer review", summary: "Review and revise a draft." },
+        { heading: "Oral presentation", summary: "Plan and deliver a short presentation." },
+        { heading: "Argument structure", summary: "Build a coherent argument." },
+        { heading: "Editing workflow", summary: "Apply an editing checklist." },
+      ],
+      learning_modules: [
+        { title: "Peer review", content_mode: "procedural" },
+        { title: "Oral presentation", content_mode: "procedural" },
+      ],
+      sources: [],
+      formulas: [],
+    })}`;
+
+    const profile = deriveStudyGuideRequirements(source);
+
+    expect(profile).toMatchObject({
+      courseCode: "LANG",
+      courseTitle: "LANG-210 Academic English",
+      archetype: "procedural",
+      calculationTarget: 0,
+    });
+    expect(profile.applicationTarget).toBeGreaterThan(profile.selectionTarget);
+  });
+
+  it("keeps source links from arbitrary standard Moodle installations", () => {
+    const source = handoff("HUM-204 World Literature", ["Modernism"], [{
+      id: "reader",
+      title: "Modernism Reader",
+      url: "https://portal.example.edu/learning/moodle/mod/resource/view.php?id=8",
+    }]);
+
+    expect(handoffSourceRegistry(source)).toEqual([{
+      id: "reader",
+      label: "Modernism Reader",
+      url: "https://portal.example.edu/learning/moodle/mod/resource/view.php?id=8",
+    }]);
   });
 });

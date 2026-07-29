@@ -88,6 +88,88 @@ describe("generator prompt", () => {
     expect(result.html_document).not.toContain("Antwort auswerten");
   });
 
+  it("renders open applications as persistent draft-and-self-check workspaces", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-application-guide-"));
+    tempDirs.push(runDir);
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build a World Literature study guide",
+      kind: "study-guide",
+      language: "en",
+      runDir,
+    });
+    const source = {
+      label: "Modernism Reader",
+      sourceTask: "Chapter 2: Narrative voice",
+      provenance: "source" as const,
+    };
+    const application = {
+      id: "close-reading-1",
+      type: "application" as const,
+      prompt: "Compare how two passages restrict the reader's access to the narrator's motives.",
+      instructions: [
+        "Mark one textual observation in each passage.",
+        "Explain how each observation supports a different interpretation.",
+      ],
+      sampleAnswer: "Passage A withholds motive through free indirect discourse, while passage B names the motive explicitly; the first therefore supports a more ambiguous interpretation.",
+      selfCheck: [
+        "The response distinguishes observation from interpretation.",
+        "Both claims cite a concrete feature of the passages.",
+      ],
+      source,
+    };
+    const result = await createGeneratorNode(config, {
+      run: async () => {
+        throw new Error("The standardized renderer must not call the model.");
+      },
+    })({
+      ...initialWebLayoutState,
+      study_guide_content: {
+        courseTitle: "HUM-204 World Literature",
+        courseCode: "HUM-204",
+        scopeNote: "Covers the supplied Modernism reader.",
+        topics: [{
+          id: "modernism",
+          title: "Modernism and narrative voice",
+          learningGoals: ["Support an interpretation with textual evidence."],
+          theory: {
+            summary: "Close reading separates what a passage explicitly presents from the interpretation a reader builds from narrative voice, form, and historical context.",
+            keyIdeas: ["Observation comes before interpretation.", "Competing readings require comparative evidence."],
+            formulas: [],
+          },
+          workedExamples: [{
+            title: "Comparing two narrators",
+            prompt: "Which details make one narrator appear less reliable?",
+            steps: ["Identify contradictions.", "Compare them with external events in the passage."],
+            answer: "The contradictions weaken the narrator's reliability.",
+            source,
+          }],
+          exercises: [
+            application,
+            { ...application, id: "close-reading-2" },
+            { ...application, id: "close-reading-3" },
+          ],
+          retrieval: [{
+            prompt: "What comes before interpretation?",
+            answer: "A precise textual observation.",
+          }],
+        }],
+        sources: [{
+          id: "reader",
+          label: "Modernism Reader",
+          url: "https://portal.example.edu/moodle/mod/resource/view.php?id=8",
+          coverage: "Narrative voice and close reading",
+        }],
+      },
+    });
+
+    expect(result.error_log).toBeNull();
+    expect(result.html_document).toContain("data-sb-application-exercise");
+    expect(result.html_document).toContain("data-application-draft");
+    expect(result.html_document).toContain("Compare with example and criteria");
+    expect(result.html_document).toContain("The response distinguishes observation from interpretation.");
+    expect(result.html_document).toContain("localStorage");
+  });
+
   it("contains Study Buddy design tokens and single-file rules", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-prompt-"));
     tempDirs.push(runDir);

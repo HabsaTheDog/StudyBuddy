@@ -6,6 +6,7 @@ import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import { buildContentFromPracticeCorpus } from "../practiceCorpusContent.js";
 import { deriveStudyGuideRequirements, handoffSourceRegistry, isMaes2PracticeCorpus, knownHandoffSourceUrls, readExtractionHandoff, type StudyGuideRequirements } from "../studyGuideProfile.js";
+import { balancedExcerpt } from "../modelText.js";
 
 export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function studyGuideContentNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
@@ -20,6 +21,7 @@ export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, code
         : null;
       if (deterministic) {
         const parsed = studyGuideContentSchema.parse(deterministic);
+        normalizeFormulaNotation(parsed);
         const issues = [...validateStudyGuideContentQuality(parsed, requirements), ...validateSourceRegistry(parsed, state.source_text)];
         if (issues.length > 0) throw new Error(issues.join("\n- "));
         await writeFile(path.join(config.runDir, "study-guide-content.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
@@ -51,46 +53,108 @@ async function buildChunkedModelContent(
   requirements: StudyGuideRequirements,
 ): Promise<StudyGuideContent> {
   const chunks = buildEvidenceChunks(state.source_text, requirements);
-  const topics: StudyGuideContent["topics"] = [];
-  const sources: StudyGuideContent["sources"] = [];
-  const notes: string[] = [];
+  const plans: Array<{
+    chunk: { title: string; evidence: string };
+    index: number;
+    exerciseTarget: number;
+    calculationTarget: number;
+    applicationTarget: number;
+  }> = [];
   let remainingExercises = requirements.exerciseTarget;
   let remainingCalculations = requirements.calculationTarget;
+  let remainingApplications = requirements.applicationTarget;
   for (let index = 0; index < chunks.length; index += 1) {
     const topicsLeft = chunks.length - index;
     const exerciseTarget = Math.max(3, Math.ceil(remainingExercises / topicsLeft));
     const calculationTarget = Math.min(exerciseTarget, Math.ceil(remainingCalculations / topicsLeft));
+    const applicationTarget = Math.min(
+      exerciseTarget - calculationTarget,
+      Math.ceil(remainingApplications / topicsLeft),
+    );
+    plans.push({
+      chunk: chunks[index],
+      index,
+      exerciseTarget,
+      calculationTarget,
+      applicationTarget,
+    });
+    remainingExercises -= exerciseTarget;
+    remainingCalculations -= calculationTarget;
+    remainingApplications -= applicationTarget;
+  }
+  const concurrency = webContentConcurrency();
+  await config.diagnostics?.log(
+    "info",
+    "planner",
+    `Building ${plans.length} evidence-bounded chapter(s) with concurrency ${concurrency}.`,
+  );
+  const chapterContent = await mapWithConcurrency(plans, concurrency, async ({
+    chunk: evidenceChunk,
+    index,
+    exerciseTarget,
+    calculationTarget,
+    applicationTarget,
+  }) => {
     const chunkPath = path.join(config.runDir, `study-guide-content-chunk-${index + 1}.json`);
     const cached = await readCachedChunk(chunkPath);
-    const canReuse = cached && !chunkNeedsRepair(cached, chunks[index].title, index, state.error_log);
+    const canReuse = cached && !chunkNeedsRepair(cached, evidenceChunk.title, index, state.error_log);
     let chunk: StudyGuideContent;
     if (canReuse) {
       chunk = cached;
-      await config.diagnostics?.log("info", "planner", `Reusing validated content chunk ${index + 1}/${chunks.length}: ${chunks[index].title}`);
+      await config.diagnostics?.log("info", "planner", `Reusing validated content chunk ${index + 1}/${chunks.length}: ${evidenceChunk.title}`);
     } else {
-      await config.diagnostics?.log("info", "planner", `Generating grounded content chunk ${index + 1}/${chunks.length}: ${chunks[index].title}`);
-      const response = await codex.run(buildStudyGuideTopicPrompt(config, state, requirements, chunks[index], index, chunks.length, exerciseTarget, calculationTarget), {
+      await config.diagnostics?.log("info", "planner", `Generating grounded content chunk ${index + 1}/${chunks.length}: ${evidenceChunk.title}`);
+      const response = await codex.run(buildStudyGuideTopicPrompt(config, state, requirements, evidenceChunk, index, chunks.length, exerciseTarget, calculationTarget, applicationTarget), {
         outputSchema: studyGuideContentJsonSchema,
-        task: "quiz_solver",
+        task: "content_analyzer",
         attempt: state.content_retry_count + 1,
       });
       chunk = normalizeDerivedSourceTasks(studyGuideContentSchema.parse(normalizeModelContent(JSON.parse(stripJsonFence(response)))));
       await writeFile(chunkPath, `${JSON.stringify(chunk, null, 2)}\n`, "utf8");
     }
     if (chunk.topics.length !== 1) throw new Error(`Content chunk ${index + 1} returned ${chunk.topics.length} topics instead of exactly one.`);
-    topics.push(chunk.topics[0]);
-    sources.push(...chunk.sources);
-    notes.push(chunk.scopeNote);
-    remainingExercises -= chunk.topics[0].exercises.length;
-    remainingCalculations -= chunk.topics[0].exercises.filter((exercise) => exercise.type === "calculation").length;
-  }
-  return hydrateSourceUrls(normalizeDerivedSourceTasks(studyGuideContentSchema.parse({
+    return chunk;
+  });
+  const topics = chapterContent.map((chunk) => chunk.topics[0]);
+  const sources = chapterContent.flatMap((chunk) => chunk.sources);
+  const notes = chapterContent.map((chunk) => chunk.scopeNote);
+  const aggregate = studyGuideContentSchema.parse({
     courseTitle: requirements.courseTitle,
     courseCode: requirements.courseCode,
     scopeNote: [...new Set(notes)].join(" "),
     topics,
     sources: deduplicateSources(sources),
-  })), state.source_text);
+  });
+  normalizeAggregateIdentity(aggregate);
+  normalizeFormulaNotation(aggregate);
+  normalizeSourceReferences(aggregate);
+  return hydrateSourceUrls(normalizeDerivedSourceTasks(aggregate), state.source_text);
+}
+
+function webContentConcurrency(): number {
+  const configured = Number(process.env.STUDY_BUDDY_WEB_CONTENT_CONCURRENCY ?? 3);
+  if (!Number.isFinite(configured)) return 3;
+  return Math.min(4, Math.max(1, Math.floor(configured)));
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  work: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await work(values[index]);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+  );
+  return results;
 }
 
 async function readCachedChunk(chunkPath: string): Promise<StudyGuideContent | null> {
@@ -108,7 +172,7 @@ function chunkNeedsRepair(
   errorLog: string | null,
 ): boolean {
   if (!errorLog) return false;
-  const globalFinding = /Expected (?:evidence-adaptive|at least)|prompts must be unique|IDs must be globally unique|dropped all of them|not present in the validated Moodle handoff/i;
+  const globalFinding = /Expected (?:evidence-adaptive|at least)|dropped all of them|not present in the validated Moodle handoff/i;
   if (globalFinding.test(errorLog)) return true;
   if (new RegExp(`chunk\\s+${index + 1}\\b`, "i").test(errorLog)) return true;
   const identifiers = [title, ...chunk.topics.flatMap((topic) => [
@@ -134,6 +198,81 @@ function normalizeDerivedSourceTasks(content: StudyGuideContent): StudyGuideCont
   return content;
 }
 
+function normalizeAggregateIdentity(content: StudyGuideContent): void {
+  const usedTopicIds = new Set<string>();
+  const usedExerciseIds = new Set<string>();
+  const usedPrompts = new Set<string>();
+  for (const [topicIndex, topic] of content.topics.entries()) {
+    topic.id = uniqueIdentifier(topic.id, `topic-${topicIndex + 1}`, usedTopicIds);
+    for (const [exerciseIndex, exercise] of topic.exercises.entries()) {
+      exercise.id = uniqueIdentifier(
+        `${topic.id}-${exercise.id}`,
+        `${topic.id}-exercise-${exerciseIndex + 1}`,
+        usedExerciseIds,
+      );
+      const promptKey = exercise.prompt.trim().toLocaleLowerCase();
+      if (usedPrompts.has(promptKey)) {
+        const base = `${exercise.prompt.replace(/[.\s]+$/, "")} — ${topic.title}`;
+        let candidate = `${base}.`;
+        let suffix = 2;
+        while (usedPrompts.has(candidate.trim().toLocaleLowerCase())) {
+          candidate = `${base} (${suffix}).`;
+          suffix += 1;
+        }
+        exercise.prompt = candidate;
+      }
+      usedPrompts.add(exercise.prompt.trim().toLocaleLowerCase());
+    }
+  }
+}
+
+function uniqueIdentifier(value: string, fallback: string, used: Set<string>): string {
+  const base = value.trim().replace(/\s+/g, "-") || fallback;
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function normalizeSourceReferences(content: StudyGuideContent): void {
+  const sourceLabels = content.sources.map((source) => source.label);
+  const exactLabels = new Map(sourceLabels.map((label) => [label.toLocaleLowerCase(), label]));
+  const normalize = (reference: StudyGuideContent["topics"][number]["workedExamples"][number]["source"]) => {
+    if (exactLabels.has(reference.label.toLocaleLowerCase())) {
+      reference.label = exactLabels.get(reference.label.toLocaleLowerCase())!;
+      return;
+    }
+    const segments = reference.label.split(/\s*[;|]\s*/).filter(Boolean);
+    const exactSegment = segments
+      .map((segment) => exactLabels.get(segment.toLocaleLowerCase()))
+      .find((label): label is string => Boolean(label));
+    const fuzzy = sourceLabels.find((label) =>
+      labelsOverlap(normalizeSourceKey(reference.label), normalizeSourceKey(label))
+    );
+    const replacement = exactSegment ?? fuzzy;
+    if (replacement) reference.label = replacement;
+  };
+  for (const topic of content.topics) {
+    for (const example of topic.workedExamples) normalize(example.source);
+    for (const exercise of topic.exercises) normalize(exercise.source);
+  }
+}
+
+function normalizeFormulaNotation(content: StudyGuideContent): void {
+  for (const topic of content.topics) {
+    for (const formula of topic.theory.formulas) {
+      formula.expression = formula.expression.replace(
+        /\b([A-Za-z])([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{2,})\b/g,
+        "$1_$2",
+      );
+    }
+  }
+}
+
 function buildStudyGuideTopicPrompt(
   config: WebLayoutRuntimeConfig,
   state: Pick<LangGraphWebLayoutState, "error_log">,
@@ -143,21 +282,25 @@ function buildStudyGuideTopicPrompt(
   total: number,
   exerciseTarget: number,
   calculationTarget: number,
+  applicationTarget: number,
 ): string {
+  const selectionTarget = exerciseTarget - calculationTarget - applicationTarget;
   return [
     "Build one source-grounded chapter for the canonical Study Buddy content bank. Return JSON only.",
-    `Course: ${requirements.courseCode} · ${requirements.courseTitle}. Course profile: ${requirements.archetype}. Chapter ${index + 1}/${total}: ${chunk.title}.`,
-    `Return exactly one topics entry for this chapter with exactly ${exerciseTarget} substantive exercises. Include exactly ${calculationTarget} genuine calculation exercises and ${exerciseTarget - calculationTarget} cross/selection exercises. Do not create calculations unless the supplied evidence provides the necessary method and quantities.`,
-    "Write a readable theory summary, at least two precise key ideas, one complete worked example, learning goals, and retrieval prompts. Use concrete course-specific misconceptions for distractors and targeted feedback for every option.",
+    "This is a bounded content transformation. Do not use tools, inspect files, browse, or discuss UI implementation.",
+    "Write a readable theory summary, at least two precise key ideas, a complete evidence-appropriate worked example, learning goals, and retrieval prompts.",
+    "Use cross exercises for concrete misconception, comparison, classification, or sequencing checks. Use calculation exercises only when the evidence supplies a real quantitative method and necessary quantities.",
+    "Use application exercises for open case analysis, source interpretation, writing, speaking, translation, laboratory procedures, design decisions, or other work that cannot be assessed honestly as multiple choice. Each application needs executable instructions, a useful sample answer, and specific self-check criteria.",
     "Use provenance=source for directly evidenced tasks, provenance=adapted for an evidenced parameter variation, and provenance=derived only for new practice synthesized from the named source concept. Every sourceTask must identify the concrete task, slide, script section, table procedure, formula, or worked example.",
     "Never invent course facts, constants, clinical/legal rules, exam scoring, or generic filler. A calculation prompt must contain complete givens, units, a derivable result, progressive solution steps, and a concrete common mistake.",
     "Formula expressions must be concise mathematical notation, never prose, HTML, MathML, TeX delimiters, or Typst markup. Leave formulas empty if this chapter has no meaningful formula.",
-    "The flat Structured Output exercise object requires every field. For cross exercises fill selectionMode/options/explanation and use givens=[], acceptedAnswers=[], unit='', steps=[], commonMistake=''. For calculation exercises use selectionMode='none', options=[], explanation='', and fill all calculation fields. Irrelevant fields are removed before internal validation.",
+    "The flat Structured Output exercise object requires every field. Cross exercises fill selectionMode/options/explanation; calculation exercises fill givens/acceptedAnswers/unit/steps/commonMistake; application exercises fill instructions/sampleAnswer/selfCheck. Use empty arrays or empty strings for every field irrelevant to that type. Irrelevant fields are removed before internal validation.",
     "The sources array must include every source label cited by this chapter. Copy only HTTPS Moodle URLs present in the evidence; otherwise use an empty URL. Set courseCode and courseTitle exactly as stated above. scopeNote should briefly state source limits for this chapter.",
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these prior validation findings where applicable:\n${state.error_log}` : "",
+    `Return exactly one topics entry with exactly ${exerciseTarget} substantive exercises: ${selectionTarget} cross/selection, ${calculationTarget} genuine calculation, and ${applicationTarget} open application exercises.`,
+    `Course: ${requirements.courseCode} · ${requirements.courseTitle}. Course profile: ${requirements.archetype}. Chapter ${index + 1}/${total}: ${chunk.title}.`,
     `Language: ${config.language}`,
-    `Required JSON schema:\n${JSON.stringify(studyGuideContentJsonSchema, null, 2)}`,
-    `Validated evidence for this chapter only:\n${chunk.evidence}`,
+    `Validated evidence for this chapter only:\n${balancedExcerpt(chunk.evidence, 28_000)}`,
   ].filter(Boolean).join("\n\n");
 }
 
@@ -233,8 +376,9 @@ export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, sta
     "Never manufacture generic prompts such as 'Welche Aussage trifft zu?', 'Wähle alle sinnvollen Schritte', or 'Berechne den Wert' without a complete mathematical statement.",
     "Kreuzerl distractors must encode plausible course-specific misconceptions and each option needs targeted feedback.",
     "Calculation exercises must be fully specified, include accepted exact/decimal answers as needed, and include a real derivation plus a concrete common mistake. Do not force calculation exercises into a non-quantitative topic.",
-    "The response schema uses one flat exercise object for Structured Output compatibility. For cross exercises fill selectionMode/options/explanation and return empty arrays or empty strings for givens/acceptedAnswers/unit/steps/commonMistake. For calculation exercises set selectionMode='none', options=[], explanation='', and fill the calculation fields. Irrelevant empty fields are removed before strict internal validation.",
-    `Evidence-adaptive course profile: ${requirements.archetype}. Cover at least ${requirements.topicTarget} evidenced topics and create at least ${requirements.exerciseTarget} substantive exercises total, including at least ${requirements.selectionTarget} selection/retrieval exercises and ${requirements.calculationTarget} genuine calculations. The handoff exposes about ${requirements.sourceExerciseCount} direct source exercises, so at least ${requirements.derivedPracticeMinimum} tasks may need to be transparently derived from course content.`,
+    "Open application exercises must support cases, source analysis, writing, speaking, translation, procedures, or design work with a sample response and an explicit self-check rubric.",
+    "The response schema uses one flat exercise object for Structured Output compatibility. Fill only the fields relevant to cross, calculation, or application, and use empty arrays or strings for all other required fields. Irrelevant empty fields are removed before strict internal validation.",
+    `Evidence-adaptive course profile: ${requirements.archetype}. Cover at least ${requirements.topicTarget} evidenced topics and create at least ${requirements.exerciseTarget} substantive exercises total, including at least ${requirements.selectionTarget} selection/retrieval exercises, ${requirements.calculationTarget} genuine calculations, and ${requirements.applicationTarget} open applications. The handoff exposes about ${requirements.sourceExerciseCount} direct source exercises, so at least ${requirements.derivedPracticeMinimum} tasks may need to be transparently derived from course content.`,
     `Profile rationale: ${requirements.rationale}`,
     "Write readable theory and a complete worked example for every topic. Formula strings must contain normal mathematical notation suitable for deterministic MathML rendering later; never output HTML or MathML here. Leave formulas empty for topics without meaningful mathematical notation.",
     "Set courseCode to the official short course identifier when present and courseTitle to the actual course title, never a generic 'Interaktiver Study Guide' label.",
@@ -242,8 +386,7 @@ export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, sta
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these content-bank validation findings:\n${state.error_log}` : "",
     `Language: ${config.language}`,
     `Layout plan for scope only:\n${JSON.stringify(state.layout_spec, null, 2)}`,
-    `Required JSON schema:\n${JSON.stringify(studyGuideContentJsonSchema, null, 2)}`,
-    `Canonical source corpus:\n${state.source_text}`,
+    `Canonical source corpus:\n${balancedExcerpt(state.source_text, 55_000)}`,
   ].filter(Boolean).join("\n\n");
 }
 
@@ -345,6 +488,17 @@ function normalizeModelContent(value: unknown): unknown {
               unit: item.unit,
               steps: item.steps,
               commonMistake: item.commonMistake,
+              source: item.source,
+            };
+          }
+          if (item.type === "application") {
+            return {
+              id: item.id,
+              type: item.type,
+              prompt: item.prompt,
+              instructions: item.instructions,
+              sampleAnswer: item.sampleAnswer,
+              selfCheck: item.selfCheck,
               source: item.source,
             };
           }

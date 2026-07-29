@@ -86,6 +86,7 @@ export class WebLayoutRunDiagnostics {
       input.artifactBytes !== undefined ? `- Final HTML size: ${formatBytes(input.artifactBytes)}` : "- Final HTML size: unknown",
       input.embeddedAssetBytes !== undefined ? `- Embedded media before Base64: ${formatBytes(input.embeddedAssetBytes)}` : "- Embedded media before Base64: unknown",
       input.estimatedDecodedImageBytes !== undefined ? `- Estimated decoded raster memory: ${formatBytes(input.estimatedDecodedImageBytes)}` : "- Estimated decoded raster memory: unknown",
+      input.metricsPath ? `- Execution metrics: ${input.metricsPath}` : "- Execution metrics: none",
       "",
       "## State",
       `- Source text: ${input.stateHasSource ? "yes" : "no"}`,

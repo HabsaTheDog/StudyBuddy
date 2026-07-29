@@ -4,6 +4,7 @@ import type {
   StudyBuddyModelPolicyOverrides,
 } from "../shared/modelPolicy.js";
 import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
+import type { ExecutionTelemetry } from "../moodle/executionTelemetry.js";
 
 export type WebLayoutKind =
   | "auto"
@@ -53,6 +54,7 @@ export interface WebLayoutResult {
   error?: string;
   validationReportPath?: string;
   screenshotPaths?: string[];
+  metricsPath?: string;
 }
 
 export interface WebLayoutRuntimeConfig {
@@ -81,6 +83,7 @@ export interface WebLayoutRuntimeConfig {
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
   abortSignal?: AbortSignal;
   diagnostics?: WebLayoutDiagnosticsLike;
+  executionTelemetry?: ExecutionTelemetry;
 }
 
 export interface WebLayoutDiagnosticsLike {
@@ -115,6 +118,7 @@ export interface WebLayoutRunSummaryInput {
   artifactBytes?: number;
   embeddedAssetBytes?: number;
   estimatedDecodedImageBytes?: number;
+  metricsPath?: string;
   error?: string;
   stateHasSource: boolean;
   stateHasLayoutSpec: boolean;
