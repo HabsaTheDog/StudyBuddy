@@ -1,6 +1,12 @@
 import type { StudyGuideContent } from "./studyGuideContent.js";
+import { isLikelyMoodleUrl } from "../moodle/moodleSite.js";
 
-export type StudyGuideArchetype = "quantitative" | "mixed" | "conceptual" | "case-based";
+export type StudyGuideArchetype =
+  | "quantitative"
+  | "mixed"
+  | "conceptual"
+  | "procedural"
+  | "case-based";
 
 export interface StudyGuideRequirements {
   courseTitle: string;
@@ -11,6 +17,7 @@ export interface StudyGuideRequirements {
   exerciseTarget: number;
   selectionTarget: number;
   calculationTarget: number;
+  applicationTarget: number;
   sourceExerciseCount: number;
   derivedPracticeMinimum: number;
   rationale: string;
@@ -35,6 +42,7 @@ interface ExtractionHandoff {
   sources?: HandoffSource[];
   sections?: HandoffSection[];
   formulas?: unknown[];
+  learning_modules?: Array<{ content_mode?: unknown }>;
 }
 
 export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequirements {
@@ -46,33 +54,59 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
         ? handoff.document_title
         : "Interaktiver Study Guide",
   );
-  const identity = inferCourseIdentity(extractedCourseTitle, sourceText);
+  const identity = inferCourseIdentity(extractedCourseTitle);
   const courseTitle = identity.title;
   const courseCode = identity.code;
   const sectionTitles = selectRepresentativeSections(handoff?.sections ?? []);
   const practice = countPracticeEvidence(sourceText);
   const formulaCount = Array.isArray(handoff?.formulas) ? handoff.formulas.length : 0;
-  const quantitativeName = /\b(?:maes|mathematik|dynamik|mechanik|maschinen|physik|elektro|thermo|statistik|rechnung|engineering)\b/i.test(courseTitle);
-  const caseName = /\b(?:medizin|pflege|diagnos|therap|gesundheit|wirtschaft|management|marketing|recht|ethik)\b/i.test(courseTitle);
+  const declaredModes = new Set((handoff?.learning_modules ?? []).flatMap((module) =>
+    typeof module.content_mode === "string" ? [module.content_mode] : []
+  ));
+  const quantitativeName = /\b(?:mathematics?|mathematik|dynamics?|dynamik|mechanics?|mechanik|physics?|physik|statistics?|statistik|calculus|rechnung)\b/i.test(courseTitle);
+  const proceduralName = /\b(?:language|sprache|labor|lab|writing|schreiben|communication|kommunikation|practice|praxis)\b/i.test(courseTitle);
+  const caseName = /\b(?:medicine|medizin|pflege|diagnos|therap|health|gesundheit|business|wirtschaft|management|marketing|law|recht|ethics?|ethik)\b/i.test(courseTitle);
   const caseSignals = countMatches(sourceText, /\b(?:fallbeispiel|fallstudie|patient|diagnos|therap|entscheidungssituation|unternehmen|stakeholder|szenario)\b/gi);
   const quantitativeSignals = countMatches(sourceText, /(?:\b(?:berechne|bestimme|ermittle|gleichung|integral|ableitung|moment|kraft|spannung|leistung)\b|[=∫Σ√])/gi);
-  const archetype: StudyGuideArchetype = quantitativeName || practice.calculation >= 5 || formulaCount >= 5 || quantitativeSignals >= 80
-    ? practice.selection >= 8 ? "mixed" : "quantitative"
-    : caseName || caseSignals >= 12
-      ? "case-based"
-      : practice.calculation > 0
-        ? "mixed"
-        : "conceptual";
+  const archetype = inferArchetype({
+    declaredModes,
+    quantitativeName,
+    proceduralName,
+    caseName,
+    caseSignals,
+    quantitativeSignals,
+    formulaCount,
+    practice,
+  });
   const evidenceTopics = sectionTitles.length || practice.sourceFiles || 6;
   const topicTarget = clamp(evidenceTopics, 4, 12);
-  const baselinePerTopic = archetype === "quantitative" || archetype === "mixed" ? 4 : 3;
+  const baselinePerTopic = archetype === "quantitative" || archetype === "mixed" ? 3 : 2;
   const usefulMinimum = topicTarget * baselinePerTopic;
   const maes2 = /\bMAES2\b/i.test(`${courseCode} ${courseTitle}`);
-  const exerciseTarget = maes2 ? 40 : clamp(Math.max(usefulMinimum, Math.min(practice.total, 44)), 18, 44);
+  const exerciseTarget = maes2 ? 40 : clamp(Math.max(usefulMinimum, Math.min(practice.total, 36)), 12, 36);
   const calculationShare = archetype === "quantitative" ? 0.4 : archetype === "mixed" ? 0.25 : 0;
-  const selectionShare = archetype === "case-based" ? 0.5 : archetype === "conceptual" ? 0.55 : 0.35;
+  const selectionShare = archetype === "conceptual"
+    ? 0.45
+    : archetype === "case-based"
+      ? 0.3
+      : archetype === "procedural"
+        ? 0.25
+        : 0.35;
+  const applicationShare = archetype === "case-based" || archetype === "procedural"
+    ? 0.45
+    : archetype === "conceptual"
+      ? 0.3
+      : archetype === "mixed"
+        ? 0.2
+        : 0.1;
   const calculationTarget = maes2 ? 18 : Math.round(exerciseTarget * calculationShare);
   const selectionTarget = maes2 ? 20 : Math.min(exerciseTarget - calculationTarget, Math.round(exerciseTarget * selectionShare));
+  const applicationTarget = maes2
+    ? 0
+    : Math.min(
+        exerciseTarget - calculationTarget - selectionTarget,
+        Math.max(1, Math.round(exerciseTarget * applicationShare)),
+      );
   const sourceExerciseCount = practice.total;
   const derivedPracticeMinimum = Math.max(0, exerciseTarget - sourceExerciseCount);
   return {
@@ -84,9 +118,10 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
     exerciseTarget,
     selectionTarget,
     calculationTarget,
+    applicationTarget,
     sourceExerciseCount,
     derivedPracticeMinimum,
-    rationale: `${sectionTitles.length} belegte Kursabschnitte, ${practice.total} erkannte Quellaufgaben, ${formulaCount} Formeleinträge; Profil ${archetype}.`,
+    rationale: `${sectionTitles.length} evidenced course sections, ${practice.total} recognized source tasks, ${formulaCount} formula entries; profile ${archetype}.`,
   };
 }
 
@@ -101,6 +136,7 @@ export function fallbackStudyGuideRequirements(content: StudyGuideContent): Stud
       exerciseTarget: 40,
       selectionTarget: 20,
       calculationTarget: 18,
+      applicationTarget: 0,
       sourceExerciseCount: 40,
       derivedPracticeMinimum: 0,
       rationale: "Legacy MAES2 quality floor.",
@@ -116,6 +152,7 @@ export function fallbackStudyGuideRequirements(content: StudyGuideContent): Stud
     exerciseTarget,
     selectionTarget: Math.ceil(exerciseTarget / 2),
     calculationTarget: 0,
+    applicationTarget: Math.max(1, Math.floor(exerciseTarget / 4)),
     sourceExerciseCount: 0,
     derivedPracticeMinimum: 0,
     rationale: "Schema-only fallback quality floor.",
@@ -166,7 +203,7 @@ export function knownHandoffSourceUrls(sourceText: string): Set<string> {
   const handoff = readExtractionHandoff(sourceText);
   return new Set((handoff?.sources ?? [])
     .map((source) => typeof source.url === "string" ? source.url : "")
-    .filter((url) => /^https:\/\/moodle\.technikum-wien\.at\/(?:course\/|mod\/|pluginfile\.php\/)/i.test(url)));
+    .filter((url) => /^https:\/\//i.test(url) && isLikelyMoodleUrl(url)));
 }
 
 export function handoffSourceRegistry(sourceText: string): Array<{ id: string; label: string; url: string }> {
@@ -175,7 +212,7 @@ export function handoffSourceRegistry(sourceText: string): Array<{ id: string; l
     const id = typeof source.id === "string" ? source.id.trim() : "";
     const label = typeof source.title === "string" ? source.title.trim() : "";
     const url = typeof source.url === "string" ? source.url.trim() : "";
-    return label && /^https:\/\/moodle\.technikum-wien\.at\/(?:course\/|mod\/|pluginfile\.php\/)/i.test(url)
+    return label && /^https:\/\//i.test(url) && isLikelyMoodleUrl(url)
       ? [{ id, label, url }]
       : [];
   });
@@ -198,17 +235,7 @@ function inferCourseCode(title: string): string {
   return title.split(/[–—:\-]/, 1)[0].trim().slice(0, 24) || "Kurs";
 }
 
-function inferCourseIdentity(extractedTitle: string, sourceText: string): { code: string; title: string } {
-  const evidence = `${extractedTitle}\n${sourceText.slice(0, 80_000)}`;
-  if (/\bMAES\s*2\b|Mathematik für Engineering Science 2/i.test(evidence)) {
-    return { code: "MAES2", title: "Mathematik für Engineering Science 2" };
-  }
-  if (/\bDYN\s*2\b|Anwendungen der Dynamik/i.test(evidence)) {
-    return { code: "DYN2", title: "Anwendungen der Dynamik" };
-  }
-  if (/\bMEL\s*1?\b|Maschinenelemente 1/i.test(evidence)) {
-    return { code: "MEL1", title: "Maschinenelemente 1" };
-  }
+function inferCourseIdentity(extractedTitle: string): { code: string; title: string } {
   return { code: inferCourseCode(extractedTitle), title: extractedTitle };
 }
 
@@ -251,4 +278,36 @@ function unique(values: string[]): string[] {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function inferArchetype(input: {
+  declaredModes: Set<string>;
+  quantitativeName: boolean;
+  proceduralName: boolean;
+  caseName: boolean;
+  caseSignals: number;
+  quantitativeSignals: number;
+  formulaCount: number;
+  practice: { total: number; selection: number; calculation: number; sourceFiles: number };
+}): StudyGuideArchetype {
+  const normalizedModes = new Set([...input.declaredModes].map((mode) =>
+    mode === "case_based" ? "case-based" : mode
+  ));
+  normalizedModes.delete("mixed");
+  if (normalizedModes.size > 1 || input.declaredModes.has("mixed")) return "mixed";
+  if (normalizedModes.has("quantitative")) return "quantitative";
+  if (normalizedModes.has("procedural")) return "procedural";
+  if (normalizedModes.has("case-based")) return "case-based";
+  if (normalizedModes.has("conceptual")) return "conceptual";
+  if (
+    input.quantitativeName ||
+    input.practice.calculation >= 5 ||
+    input.formulaCount >= 5 ||
+    input.quantitativeSignals >= 80
+  ) {
+    return input.practice.selection >= 8 ? "mixed" : "quantitative";
+  }
+  if (input.caseName || input.caseSignals >= 12) return "case-based";
+  if (input.proceduralName) return "procedural";
+  return input.practice.calculation > 0 ? "mixed" : "conceptual";
 }

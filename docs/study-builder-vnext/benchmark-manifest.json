@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "id": "adaptive-study-builder-vnext",
+  "revision": 1,
+  "status": "specification",
+  "description": "Cross-course, permission-safe benchmark contract for the adaptive single-file Study Builder.",
+  "references": {
+    "charter": "implementation-charter.md",
+    "productSpec": "product-spec.md",
+    "implementationPlan": "implementation-plan.md",
+    "existingInteractiveBenchmark": "../interactive-study-buddy-benchmarking.md"
+  },
+  "runtimeConstraints": {
+    "singleOfflineHtml": true,
+    "networkRequestsAtRuntime": 0,
+    "backendRequired": false,
+    "attemptHistoryRequired": false,
+    "finalMoodleQuizSubmissionAllowed": false
+  },
+  "viewports": [
+    {
+      "id": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "id": "laptop",
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "id": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "id": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "hardGates": {
+    "terminalArtifact": true,
+    "emptyErrorLog": true,
+    "qualityReviewPassed": true,
+    "permissionViolations": 0,
+    "finalQuizSubmissions": 0,
+    "runtimeNetworkRequests": 0,
+    "blockingBrowserIssues": 0,
+    "questionsWithStableIdRatio": 1,
+    "questionsWithObjectiveRatio": 1,
+    "questionsWithResponseContractRatio": 1,
+    "questionsWithOriginRatio": 1,
+    "questionsWithScopeBasisRatio": 1,
+    "questionsWithPassingReviewRatio": 1,
+    "generatedQuestionsOutsideScope": 0,
+    "unsupportedOfficialAssessmentClaims": 0,
+    "requiredLearnerStateScenariosPassed": true
+  },
+  "learnerStateScenarios": [
+    "unseen-to-seen",
+    "incorrect-to-review",
+    "correct-clears-review-without-auto-learning",
+    "manual-learned-clears-review",
+    "manual-review-clears-learned",
+    "star-independent-of-learning-status",
+    "repeated-wrong-then-correct-attempt",
+    "repeated-correct-attempt",
+    "reset-one-question",
+    "reset-all-questions",
+    "reload-restores-compact-state",
+    "minimum-route-filter",
+    "depth-route-filter",
+    "review-pool-filter",
+    "starred-pool-filter",
+    "assessment-pool-filter"
+  ],
+  "permissionScenarios": [
+    {
+      "id": "quiz-access-disabled",
+      "permissionSource": "existing-effective-permission",
+      "setup": "Select the existing setting that disallows quiz access.",
+      "expected": {
+        "quizOpenCalls": 0,
+        "quizStartCalls": 0,
+        "quizSubmitCalls": 0,
+        "fallbackContinuesWithoutQuizEvidence": true
+      }
+    },
+    {
+      "id": "quiz-read-only",
+      "permissionSource": "existing-effective-permission",
+      "setup": "Select the existing read-only quiz inspection permission when available.",
+      "expected": {
+        "onlyAuthorizedVisibleEvidenceRead": true,
+        "answersChanged": 0,
+        "quizSubmitCalls": 0
+      }
+    },
+    {
+      "id": "quiz-assist",
+      "permissionSource": "existing-effective-permission",
+      "setup": "Select the existing Quiz Assist permission.",
+      "expected": {
+        "actionsDoNotExceedExistingQuizAssistSemantics": true,
+        "quizSubmitCalls": 0
+      }
+    },
+    {
+      "id": "permission-escalation-attempt",
+      "permissionSource": "existing-effective-permission",
+      "setup": "Request an action beyond the active permission.",
+      "expected": {
+        "requestedActionBlocked": true,
+        "permissionViolations": 0,
+        "quizSubmitCalls": 0
+      }
+    }
+  ],
+  "courseCases": [
+    {
+      "id": "mel-quantitative-de",
+      "enabled": false,
+      "source": {
+        "kind": "persisted-run-or-enrolled-course",
+        "selector": "configure-locally"
+      },
+      "prompt": "Erstelle einen adaptiven deutschen Study Buddy für MEL. Bewahre die Kursstruktur, decke Begriffe, Formeln, Rechenwege, Anwendungen und die dokumentierte Prüfungsform ab.",
+      "language": "de",
+      "requiredCapabilities": [
+        "course-blueprint",
+        "assessment-blueprint",
+        "numeric-and-multi-result-questions",
+        "worked-calculations",
+        "minimum-and-depth-routes",
+        "question-origin",
+        "learner-state",
+        "assessment-simulation"
+      ],
+      "forbiddenBehavior": [
+        "fixed-question-quota",
+        "unsupported-standards-or-values",
+        "moodle-structure-loss"
+      ]
+    },
+    {
+      "id": "dynamics-methods-de",
+      "enabled": false,
+      "source": {
+        "kind": "persisted-run-or-enrolled-course",
+        "selector": "configure-locally"
+      },
+      "prompt": "Erstelle einen adaptiven deutschen Study Buddy für Dynamik. Leite Lern- und Prüfungsblöcke aus dem tatsächlichen Kurs ab und bewahre die Reihenfolge der Methoden und Themen.",
+      "language": "de",
+      "requiredCapabilities": [
+        "course-blueprint",
+        "method-selection",
+        "multi-step-problems",
+        "diagram-or-source-interpretation-when-supported",
+        "minimum-and-depth-routes",
+        "assessment-simulation"
+      ],
+      "forbiddenBehavior": [
+        "mel-specific-template",
+        "unsupported-constants",
+        "topic-reinterpretation"
+      ]
+    },
+    {
+      "id": "english-assessment-en",
+      "enabled": false,
+      "source": {
+        "kind": "persisted-run-or-enrolled-course",
+        "selector": "configure-locally"
+      },
+      "prompt": "Create an adaptive English Study Buddy from the actual course sequence and assessment evidence. Choose vocabulary, reading, grammar, speaking, listening, or writing activities only where the course supports them.",
+      "language": "en",
+      "requiredCapabilities": [
+        "course-blueprint",
+        "evidence-driven-toolbox-selection",
+        "contextual-language-activities",
+        "open-response-rubric",
+        "variable-learning-stages",
+        "assessment-section-fidelity"
+      ],
+      "forbiddenBehavior": [
+        "language-equals-flashcards-template",
+        "invented-assessment-sections",
+        "unrelated-vocabulary"
+      ]
+    },
+    {
+      "id": "business-or-theory-course",
+      "enabled": false,
+      "source": {
+        "kind": "persisted-run-or-enrolled-course",
+        "selector": "configure-locally"
+      },
+      "prompt": "Erstelle einen adaptiven Study Buddy für einen nichttechnischen Theorie- oder Wirtschaftskurs. Bewahre die Kursstruktur und wähle Begriffs-, Fall-, Daten-, Argumentations- oder Schreibaufgaben aus den tatsächlichen Lernzielen.",
+      "language": "de",
+      "requiredCapabilities": [
+        "course-blueprint",
+        "case-or-concept-learning",
+        "evidence-driven-toolbox-selection",
+        "open-response-rubric",
+        "minimum-and-depth-routes",
+        "transparent-assessment-inference"
+      ],
+      "forbiddenBehavior": [
+        "invented-mathematics",
+        "technical-course-template",
+        "unsupported-official-rules"
+      ]
+    }
+  ],
+  "consistencyProtocol": {
+    "representativeCaseTrials": 3,
+    "breadthTrialsPerCase": 1,
+    "unchangedSourceFingerprintRequired": true,
+    "reportStructureRanges": [
+      "courseModules",
+      "learningObjectives",
+      "questionBankItems",
+      "learningStages",
+      "assessmentSections"
+    ]
+  },
+  "efficiencyMetrics": [
+    "wallMs",
+    "modelMs",
+    "inputTokens",
+    "freshInputTokens",
+    "cachedInputTokens",
+    "cacheHitRate",
+    "outputTokens",
+    "modelCalls",
+    "retries",
+    "maxRequestChars",
+    "maxInputAmplification",
+    "questionsGenerated",
+    "questionsAccepted",
+    "questionsRepaired",
+    "questionsRejected",
+    "duplicateQuestionsRemoved",
+    "tokensPerAcceptedQuestion",
+    "artifactBytes",
+    "embeddedAssetBytes"
+  ],
+  "promotionPolicy": {
+    "requiredReliabilityPassRate": 1,
+    "criticalQualityRegressionAllowed": false,
+    "permissionRegressionAllowed": false,
+    "interactionRegressionAllowed": false,
+    "maxMedianWallOrFreshInputRegressionRatio": 0.15,
+    "minimumImprovementRatioToChangeProductionDefault": 0.15,
+    "cachedAndFreshInputReportedSeparately": true,
+    "singleAnecdotalRunSufficient": false
+  }
+}
+

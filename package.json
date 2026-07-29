@@ -13,6 +13,7 @@
     "moodle:benchmark": "tsx src/custom-skills/moodle/evals/cli.ts",
     "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
     "web-layout:bundle": "tsx src/custom-skills/web-layout/bundleCli.ts",
+    "web-layout:benchmark": "tsx src/custom-skills/web-layout/evals/cli.ts",
     "web-layout:rerender-study-guide": "tsx src/custom-skills/web-layout/rerenderStudyGuideCli.ts",
     "interactive-study-guide": "tsx src/custom-skills/interactive-study-guide/cli.ts",
     "typecheck": "tsc --noEmit",

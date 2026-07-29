@@ -35,9 +35,20 @@ const calculationExerciseSchema = z.object({
   source: sourceRefSchema,
 });
 
+const applicationExerciseSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("application"),
+  prompt: z.string().min(8),
+  instructions: z.array(z.string().min(1)).min(2),
+  sampleAnswer: z.string().min(12),
+  selfCheck: z.array(z.string().min(1)).min(2),
+  source: sourceRefSchema,
+});
+
 const exerciseSchema = z.discriminatedUnion("type", [
   crossExerciseSchema,
   calculationExerciseSchema,
+  applicationExerciseSchema,
 ]);
 
 const topicSchema = z.object({
@@ -114,10 +125,10 @@ export const studyGuideContentJsonSchema = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source"],
+              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "instructions", "sampleAnswer", "selfCheck", "source"],
               properties: {
                 id: { type: "string" },
-                type: { enum: ["cross", "calculation"] },
+                type: { enum: ["cross", "calculation", "application"] },
                 prompt: { type: "string" },
                 selectionMode: { enum: ["single", "multiple", "true-false", "dropdown", "none"] },
                 options: { type: "array", items: { $ref: "#/$defs/option" } },
@@ -127,6 +138,9 @@ export const studyGuideContentJsonSchema = {
                 unit: { type: "string" },
                 steps: { type: "array", items: { type: "string" } },
                 commonMistake: { type: "string" },
+                instructions: { type: "array", items: { type: "string" } },
+                sampleAnswer: { type: "string" },
+                selfCheck: { type: "array", items: { type: "string" } },
                 source: { $ref: "#/$defs/sourceRef" },
               },
             },
@@ -142,6 +156,7 @@ export const studyGuideContentJsonSchema = {
     option: { type: "object", additionalProperties: false, required: ["text", "correct", "feedback"], properties: { text: { type: "string" }, correct: { type: "boolean" }, feedback: { type: "string" } } },
     crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
     calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
+    applicationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "instructions", "sampleAnswer", "selfCheck", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "application" }, prompt: { type: "string" }, instructions: { type: "array", items: { type: "string" } }, sampleAnswer: { type: "string" }, selfCheck: { type: "array", items: { type: "string" } }, source: { $ref: "#/$defs/sourceRef" } } },
     workedExample: { type: "object", additionalProperties: false, required: ["title", "prompt", "steps", "answer", "source"], properties: { title: { type: "string" }, prompt: { type: "string" }, steps: { type: "array", items: { type: "string" } }, answer: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
   },
 } as const;
@@ -157,11 +172,13 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
   const exercises = content.topics.flatMap((topic) => topic.exercises);
   const crosses = exercises.filter((exercise) => exercise.type === "cross");
   const calculations = exercises.filter((exercise) => exercise.type === "calculation");
+  const applications = exercises.filter((exercise) => exercise.type === "application");
   const issues: string[] = [];
   if (content.topics.length < requirements.topicTarget) issues.push(`Expected evidence-adaptive course coverage of at least ${requirements.topicTarget} topics; received ${content.topics.length}.`);
   if (exercises.length < requirements.exerciseTarget) issues.push(`Expected at least ${requirements.exerciseTarget} substantive exercises for the ${requirements.archetype} course profile; received ${exercises.length}.`);
   if (crosses.length < requirements.selectionTarget) issues.push(`Expected at least ${requirements.selectionTarget} selection/retrieval exercises; received ${crosses.length}.`);
   if (calculations.length < requirements.calculationTarget) issues.push(`Expected at least ${requirements.calculationTarget} calculation exercises for the ${requirements.archetype} course profile; received ${calculations.length}.`);
+  if (applications.length < requirements.applicationTarget) issues.push(`Expected at least ${requirements.applicationTarget} open application, case, writing, or procedural exercises for the ${requirements.archetype} course profile; received ${applications.length}.`);
   const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
   const uniquePrompts = new Set(prompts);
   if (uniquePrompts.size !== prompts.length) issues.push("Exercise prompts must be unique; duplicated prompts were found.");
@@ -179,7 +196,9 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
   for (const exercise of exercises) {
     const fields = exercise.type === "cross"
       ? [exercise.prompt, exercise.explanation, ...exercise.options.map((option) => option.text)]
-      : [exercise.prompt, ...exercise.givens, ...exercise.steps, exercise.commonMistake];
+      : exercise.type === "calculation"
+        ? [exercise.prompt, ...exercise.givens, ...exercise.steps, exercise.commonMistake]
+        : [exercise.prompt, ...exercise.instructions, exercise.sampleAnswer, ...exercise.selfCheck];
     if (fields.some((field) => forbiddenInfrastructure.test(field))) {
       issues.push(`${exercise.id} leaks infrastructure or embedded-asset data into learning content.`);
     }

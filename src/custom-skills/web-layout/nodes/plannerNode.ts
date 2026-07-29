@@ -7,6 +7,7 @@ import type { CodexClient } from "../codexClient.js";
 import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 import { studyGuideBlockGuidance } from "../studyGuideBlockContract.js";
 import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
+import { balancedExcerpt } from "../modelText.js";
 
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
@@ -89,10 +90,9 @@ export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<L
     config.sourceMode === "prompt"
       ? "Only the user prompt is available. Plan a clearly labelled demo without course-specific factual claims, citations, or source-management UI."
       : "Plan source-aware citations only for sources actually present in the supplied handoff or files.",
-    "Return exactly this schema with no Markdown fences and no prose:",
-    JSON.stringify(layoutSpecJsonSchema, null, 2),
+    "Return JSON matching the supplied Structured Output schema, with no Markdown fences and no prose.",
     state.error_log ? `Previous error to repair:\n${state.error_log}` : "",
-    `Source text:\n${state.source_text}`,
+    `Source text:\n${balancedExcerpt(state.source_text, 45_000)}`,
   ].filter(Boolean).join("\n\n");
 }
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,6 +46,13 @@ describe("web layout graph", () => {
     expect(result.outputPath).toContain(
       path.join(workspace, "study-buddy-data", "runs", "retry-test"),
     );
+    expect(result.metricsPath).toBe(path.join(result.runDir, "run-metrics.json"));
+    const metrics = JSON.parse(await readFile(result.metricsPath!, "utf8")) as {
+      status: string;
+      totals: { modelCalls: number };
+    };
+    expect(metrics.status).toBe("success");
+    expect(metrics.totals.modelCalls).toBe(0);
   });
 
   it("aborts after three invalid generations", async () => {

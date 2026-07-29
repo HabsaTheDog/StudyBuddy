@@ -15,6 +15,8 @@ import { createValidatorNode } from "./nodes/validatorNode.js";
 import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
 import { createStudyGuideContentNode } from "./nodes/studyGuideContentNode.js";
 import { acquireRunLease } from "../shared/runLease.js";
+import { ExecutionTelemetry } from "../moodle/executionTelemetry.js";
+import { STUDY_BUDDY_MODEL_POLICY_VERSION } from "../shared/modelPolicy.js";
 
 const MAX_RETRIES = 3;
 
@@ -38,10 +40,18 @@ export async function runWebLayoutGraph(
   try {
   const diagnostics = new WebLayoutRunDiagnostics({ runDir: baseConfig.runDir });
   await diagnostics.init();
+  const executionTelemetry = new ExecutionTelemetry({
+    runDir: baseConfig.runDir,
+    policyVersion: STUDY_BUDDY_MODEL_POLICY_VERSION,
+    profile: baseConfig.executionProfile,
+    configuredDownloadConcurrency: 1,
+  });
+  await executionTelemetry.init();
   const abortController = new AbortController();
   const config: WebLayoutRuntimeConfig = {
     ...baseConfig,
     diagnostics,
+    executionTelemetry,
     abortSignal: abortController.signal,
   };
   await diagnostics.log("info", "config", `Run directory: ${config.runDir}`);
@@ -81,6 +91,13 @@ export async function runWebLayoutGraph(
 
   await persistRunArtifacts(config, state);
   const ok = !state.error_log && outputExists && validationReportExists;
+  await executionTelemetry.complete(
+    ok
+      ? "success"
+      : state.error_log?.startsWith("Study Buddy web layout run timed out")
+        ? "timeout"
+        : "failed",
+  );
   await diagnostics.writeSummary({
     status: ok ? "success" : state.error_log?.startsWith("Study Buddy web layout run timed out") ? "timeout" : "failed",
     prompt: config.originalUserPrompt,
@@ -93,6 +110,7 @@ export async function runWebLayoutGraph(
     artifactBytes: artifactSummary?.artifactBytes,
     embeddedAssetBytes: artifactSummary?.embeddedAssetBytes,
     estimatedDecodedImageBytes: artifactSummary?.estimatedDecodedImageBytes,
+    metricsPath: executionTelemetry.metricsPath,
     error: state.error_log ?? undefined,
     stateHasSource: Boolean(state.source_text.trim()),
     stateHasLayoutSpec: Object.keys(state.layout_spec).length > 0,
@@ -108,6 +126,7 @@ export async function runWebLayoutGraph(
     error: state.error_log ?? undefined,
     validationReportPath: validationReportExists ? validationReportPath : undefined,
     screenshotPaths,
+    metricsPath: executionTelemetry.metricsPath,
   };
   } finally {
     await releaseOutputLease();

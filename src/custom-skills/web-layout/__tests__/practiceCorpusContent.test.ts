@@ -62,7 +62,11 @@ describe("practice-corpus source links", () => {
           { expression: "ηHonig/ηWasser≈10⁴", meaning: "Viskositätsverhältnis" },
         ] },
         workedExamples: [{ title: "Beispiel", prompt: "Berechne A_K.", steps: ["Setze l_m ein.", "Multipliziere mit s_m."], answer: "A_K = 1", source: exercise.source }],
-        exercises: [exercise, { ...exercise, id: "mel-math-2" }, { ...exercise, id: "mel-math-3" }],
+        exercises: [
+          exercise,
+          { ...exercise, id: "mel-math-2", acceptedAnswers: ["Po = 0,055; Pu = 0,010; PT = 0,045"] },
+          { ...exercise, id: "mel-math-3" },
+        ],
         retrieval: [{ prompt: "Was bedeutet A_K?", answer: "Klebefläche" }],
       }],
       sources: [{ id: "mel", label: "MEL", url: "", coverage: "Toleranzen" }],
@@ -77,6 +81,9 @@ describe("practice-corpus source links", () => {
     expect(html).toContain("Kapitel Toleranzen mit <var>n</var><sub>z</sub> und <var>t</var><sub>m</sub>");
     expect(html).toContain('<math xmlns="http://www.w3.org/1998/Math/MathML" aria-label="ηHonig/ηWasser≈10⁴"><mrow><mfrac><msub><mi>η</mi><mi>Honig</mi></msub><msub><mi>η</mi><mi>Wasser</mi></msub></mfrac><mo>≈</mo><msup><mn>10</mn><mn>4</mn></msup></mrow></math>');
     expect(html).toContain("study-buddy-guide-mel1-maschinenelemente-1-v1");
+    expect(html).toContain("Deine Kurzantworten");
+    expect(html).toContain("Alle Ergebnisse eingeben, z. B. A=…; B=…");
+    expect(html).toContain("Noch nicht – gib alle verlangten Ergebnisse an.");
   });
 
   it("accepts a target value inside a traceable multi-result calculation answer", () => {
@@ -84,5 +91,13 @@ describe("practice-corpus source links", () => {
     expect(matchesCalculationAnswer(accepted, "a_min = 29,00 mm; a_max = 29,03 mm; T_a = 0,03 mm")).toBe(true);
     expect(matchesCalculationAnswer(["1"], "10")).toBe(false);
     expect(matchesCalculationAnswer(["1,5"], "Ergebnis: 1.5 mm")).toBe(true);
+    expect(matchesCalculationAnswer(
+      ["Po = 0,055 mm; Pu = 0,010 mm; PT = 0,045 mm"],
+      "Po 0.055, Pu 0.01 und PT 0.045",
+    )).toBe(true);
+    expect(matchesCalculationAnswer(
+      ["Po = 0,055 mm; Pu = 0,010 mm; PT = 0,045 mm"],
+      "PT = 0,045 mm",
+    )).toBe(false);
   });
 });

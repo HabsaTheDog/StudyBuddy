@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "interactive-portability",
+  "version": "1.0.0",
+  "description": "Cross-discipline interactive Study Guide templates. Replace placeholder URLs with real enrolled Moodle courses and enable only the cases you intend to run.",
+  "cases": [
+    {
+      "id": "quantitative-course-de",
+      "revision": 1,
+      "enabled": false,
+      "prompt": "Erstelle eine interaktive deutsche Lernwebsite für diesen quantitativen Kurs. Übernimm die echte Kursstruktur, erkläre Konzepte und Rechenwege und biete nachvollziehbare Übungsaufgaben.",
+      "language": "de",
+      "moodleUrl": "https://moodle.example.edu/course/view.php?id=replace-quantitative",
+      "tags": ["portability", "quantitative", "german"],
+      "expected": {
+        "requiredLanguage": "de",
+        "minTopics": 4,
+        "minExercises": 12,
+        "minApplications": 0,
+        "minWorkedExamples": 4,
+        "minSources": 2,
+        "maxWallMs": 480000,
+        "maxFreshInputTokens": 120000,
+        "maxModelCalls": 12,
+        "maxRetries": 2,
+        "maxLeafToolPolicyViolations": 0,
+        "minCacheHitRate": 0.2,
+        "maxArtifactBytes": 100000000,
+        "forbiddenTerms": ["lorem ipsum"]
+      }
+    },
+    {
+      "id": "literature-course-en",
+      "revision": 1,
+      "enabled": false,
+      "prompt": "Create an interactive English study website for this literature course. Preserve the actual reading and unit sequence, explain central interpretations, and include close-reading and essay-planning applications.",
+      "language": "en",
+      "moodleUrl": "https://learn.example.edu/course/view.php?id=replace-literature",
+      "tags": ["portability", "humanities", "case-based", "english"],
+      "expected": {
+        "requiredLanguage": "en",
+        "minTopics": 4,
+        "minExercises": 12,
+        "minApplications": 4,
+        "minWorkedExamples": 4,
+        "minSources": 2,
+        "maxFormulas": 2,
+        "maxWallMs": 480000,
+        "maxFreshInputTokens": 120000,
+        "maxModelCalls": 12,
+        "maxRetries": 2,
+        "maxLeafToolPolicyViolations": 0,
+        "minCacheHitRate": 0.2,
+        "maxArtifactBytes": 100000000,
+        "forbiddenTerms": ["FH Technikum Wien", "lorem ipsum"]
+      }
+    },
+    {
+      "id": "language-course-en",
+      "revision": 1,
+      "enabled": false,
+      "prompt": "Create an interactive English learning website for this language course. Follow the actual Moodle unit sequence and include contextual grammar, vocabulary, reading, writing, speaking, or listening practice supported by the course.",
+      "language": "en",
+      "moodleUrl": "https://campus.example.org/course/view.php?id=replace-language",
+      "tags": ["portability", "language-learning", "procedural", "english"],
+      "expected": {
+        "requiredLanguage": "en",
+        "minTopics": 4,
+        "minExercises": 12,
+        "minApplications": 5,
+        "minWorkedExamples": 4,
+        "minSources": 2,
+        "maxFormulas": 0,
+        "maxWallMs": 480000,
+        "maxFreshInputTokens": 120000,
+        "maxModelCalls": 12,
+        "maxRetries": 2,
+        "maxLeafToolPolicyViolations": 0,
+        "minCacheHitRate": 0.2,
+        "maxArtifactBytes": 100000000,
+        "forbiddenTerms": ["FH Technikum Wien", "lorem ipsum"]
+      }
+    }
+  ]
+}
