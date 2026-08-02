@@ -574,8 +574,20 @@ async function writeChunk(output: ReturnType<typeof createWriteStream>, value: s
   if (!value) return;
   if (output.write(value)) return;
   await new Promise<void>((resolve, reject) => {
-    output.once("drain", resolve);
-    output.once("error", reject);
+    const cleanup = () => {
+      output.off("drain", onDrain);
+      output.off("error", onError);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    output.once("drain", onDrain);
+    output.once("error", onError);
   });
 }
 

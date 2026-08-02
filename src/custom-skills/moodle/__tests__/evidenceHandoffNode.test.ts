@@ -127,4 +127,98 @@ describe("interactive evidence handoff", () => {
     expect(result.document_title).toBe("HUM-204 World Literature – Interactive Study Guide");
     expect(result.learning_modules[0]?.content_mode).toBe("conceptual");
   });
+
+  it("reconstructs generic self-study and class pairs from the visible Moodle hierarchy", () => {
+    const courseUrl = "https://learn.university.example/course/view.php?id=32514";
+    const sectionResources = [
+      ["Self-Study A: Business Forms", "Moodle Lesson: Business Forms"],
+      ["Class 1: Investor Mindset", "Investor Vocabulary"],
+      ["Self-Study B: Team Communication", "Moodle Lesson: Meetings"],
+      ["Class 2: ELF Meetings", "Meeting Role Play"],
+    ];
+    const resources = [{
+      id: "res_course",
+      parentId: null,
+      sectionPath: [],
+      activityType: "course",
+      title: "Course: Business English",
+      originUrl: courseUrl,
+      resolvedUrl: null,
+      localPath: null,
+      previewPath: null,
+      status: "discovered",
+      checksum: null,
+      verifiedAt: null,
+      examRelevance: "unknown",
+      failureReason: null,
+      contentType: null,
+    }, ...sectionResources.map(([section, title], index) => ({
+      id: `res_activity_${index}`,
+      parentId: "res_course",
+      sectionPath: [section],
+      activityType: "lesson",
+      title,
+      originUrl: `${courseUrl}#activity-${index}`,
+      resolvedUrl: null,
+      localPath: null,
+      previewPath: null,
+      status: "discovered",
+      checksum: null,
+      verifiedAt: null,
+      examRelevance: "unknown",
+      failureReason: null,
+      contentType: null,
+    }))];
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-07-19T00:00:00.000Z",
+      courseUrl,
+      resources,
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-07-19T00:00:00.000Z",
+      warnings: [],
+      records: [{
+        id: "ev_course",
+        resourceId: "res_course",
+        kind: "claim",
+        locator: { section: "course" },
+        content: "The Moodle course page defines the visible sequence and learning outcomes.",
+        confidence: 0.99,
+        pairId: null,
+        sourceUrl: courseUrl,
+        localPath: null,
+      }],
+    });
+    const state = moodleTestState({
+      moodle_raw_text: [
+        "Self-Study A: Business Forms",
+        "Prepare the business-form vocabulary.",
+        "Class 1: Investor Mindset",
+        "Explain how a company appeals to investors.",
+        "Self-Study B: Team Communication",
+        "Prepare diplomatic meeting language.",
+        "Class 2: ELF Meetings",
+        "Run and participate in an international meeting.",
+      ].join("\n"),
+      resource_manifest: manifest,
+      evidence_package: evidence,
+    });
+
+    const result = buildEvidenceHandoff(moodleTestConfig({
+      prompt: "Create an adaptive Study Buddy",
+      outputLanguage: "en",
+      moodleUrl: courseUrl,
+      evidenceHandoffOnly: true,
+    }), state);
+
+    expect(result.sections).toHaveLength(2);
+    expect(result.sections[0]?.heading).toContain("Self-Study A");
+    expect(result.sections[0]?.heading).toContain("Class 1");
+    expect(result.sections[0]?.summary).toContain("appeals to investors");
+    expect(result.sections[1]?.summary).toContain("international meeting");
+    expect(result.sections.every((section) => section.source_ids.includes("res_course"))).toBe(true);
+    expect(result.sections.flatMap((section) => section.key_concepts)).toContain("Meeting Role Play");
+  });
 });

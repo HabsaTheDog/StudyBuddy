@@ -57,6 +57,46 @@ describe("Study Buddy task intent", () => {
     expect(intent.needsCalendar).toBe(false);
   });
 
+  it("treats an adaptive Study Buddy as a course-material artifact", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Erstelle für meinen Moodle-Kurs Englisch einen vollständigen adaptiven Study Buddy.",
+      stage: "extract",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "extraction",
+      needsMoodle: true,
+      needsCourseMaterial: true,
+    });
+  });
+
+  it("does not demote an interactive Study Buddy with exam simulation wording to a schedule answer", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: [
+        "Okay, und jetzt machen wir dasselbe nochmal für Englisch. Kannst du mir kurz den Prompt zeigen, den du Study Buddy fragst, solche Läufe zu starten?",
+        "Erstelle für meinen Moodle-Kurs Englisch einen vollständigen adaptiven Study Buddy.",
+        "Bewahre die erkennbare Kursstruktur und den tatsächlichen Prüfungsumfang.",
+        "Erstelle eine realistische Prüfungssimulation ausschließlich danach, was die Kurs- und Prüfungsevidenz rechtfertigt.",
+      ].join(" "),
+      stage: "extract",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "extraction",
+      needsMoodle: true,
+      needsCourseMaterial: true,
+    });
+    expect(intent.reason).toContain("document");
+  });
+
   it("classifies explicit minitest prompts as quiz assistance", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: "Bearbeite den nächsten MEL Minitest",

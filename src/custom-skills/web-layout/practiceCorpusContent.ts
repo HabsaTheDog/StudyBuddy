@@ -124,7 +124,9 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
       ? exampleTask.steps
       : exampleTask.type === "cross"
         ? ["Aufgabentyp und Bedingungen identifizieren.", exampleTask.explanation]
-        : exampleTask.instructions;
+        : exampleTask.type === "application"
+          ? exampleTask.instructions
+          : ["Begriff im Kurskontext identifizieren.", exampleTask.explanation];
     const theoryOverride = THEORY_OVERRIDES[id];
     return {
       id,
@@ -143,7 +145,9 @@ export function buildContentFromPracticeCorpus(sourceText: string, layoutSpec: J
           ? exampleTask.steps.at(-1) ?? "Siehe Quellenlösung."
           : exampleTask.type === "cross"
             ? exampleTask.explanation
-            : exampleTask.sampleAnswer,
+            : exampleTask.type === "application"
+              ? exampleTask.sampleAnswer
+              : exampleTask.acceptedAnswers.join(" / "),
         source: exampleTask.source,
       }],
       exercises,

@@ -14,6 +14,7 @@ import type {
 import { resolveVerifiedMoodleSource } from "./sourceHints.js";
 import { clampConcurrency } from "./downloadQueue.js";
 import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
+import { createQuizSafetyPolicy } from "./interactive/config.js";
 import { classifyStudyBuddyIntent } from "./taskIntent.js";
 import { classifyArtifactIntent } from "./studentFirstPolicy.js";
 import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
@@ -92,6 +93,11 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const isDirectQuizAttempt = isMoodleQuizAttemptUrl(moodleUrl);
   let quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
   const stage = input.stage ?? "all";
+  const evidenceHandoffOnly = input.evidenceHandoffOnly ?? false;
+  const quizSafetyPolicy = createQuizSafetyPolicy(
+    input.quizSafetyPolicy,
+    process.env,
+  );
   const intentDecision = classifyStudyBuddyIntent({
     prompt: requestContextPrompt,
     stage,
@@ -101,7 +107,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     hasCisUrls: cisUrls.length > 0,
     hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
-  if (intentDecision.wantsQuizDiscovery) {
+  if (intentDecision.wantsQuizDiscovery || evidenceHandoffOnly) {
     quizPolicy = {
       ...quizPolicy,
       requestedAutoAnswer: false,
@@ -170,6 +176,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     diagnosticOnly: input.diagnosticOnly ?? false,
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,
+    quizSafetyPolicy,
     maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(stage, intentDecision.wantsQuickAnswer),
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
@@ -179,7 +186,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     resumeExtractionRunDir: input.resumeExtractionRunDir
       ? resolveStudyBuddyWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
       : undefined,
-    evidenceHandoffOnly: input.evidenceHandoffOnly ?? false,
+    evidenceHandoffOnly,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
     downloadConcurrency: clampConcurrency(
@@ -249,6 +256,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     diagnosticOnly: config.diagnosticOnly,
     autoAnswer: config.autoAnswer,
     quizPolicy: config.quizPolicy,
+    quizSafetyPolicy: config.quizSafetyPolicy,
     maxRuntimeMs: config.maxRuntimeMs,
     idleTimeoutMs: config.idleTimeoutMs,
     stage: config.stage,

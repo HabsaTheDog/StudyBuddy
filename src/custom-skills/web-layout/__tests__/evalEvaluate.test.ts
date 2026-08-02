@@ -2,9 +2,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
 import { applyOfflineSecurityPolicy } from "../htmlShell.js";
 import { InteractiveEvalCorpusSchema } from "../evals/corpus.js";
 import { evaluateInteractiveRun } from "../evals/evaluate.js";
+import {
+  loadVNextBenchmarkManifest,
+  VNextBenchmarkManifestSchema,
+} from "../evals/vnextBenchmark.js";
 import { renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 import { validateSingleFileHtml } from "../validation.js";
@@ -81,8 +86,142 @@ describe("interactive benchmark replay", () => {
       category: "efficiency",
       passed: false,
     });
+    expect(result.vNext).toBeUndefined();
+    expect(result.checks.some((check) => check.id.startsWith("vnext:"))).toBe(false);
+  });
+
+  it("loads the vNext benchmark contract and reports persisted handoff ratios and hard gates", async () => {
+    const webDir = await createCompleteRun();
+    const model = buildAdaptiveStudyModel(
+      testContent(),
+      "Assessment structure\nTask 1: Interpretation (20 points)",
+      "en",
+    );
+    const manifest = await loadVNextBenchmarkManifest(
+      path.resolve("docs/study-builder-vnext/benchmark-manifest.json"),
+    );
+    await Promise.all([
+      writeFile(path.join(webDir, "course-blueprint.json"), JSON.stringify(model.courseBlueprint), "utf8"),
+      writeFile(path.join(webDir, "assessment-blueprint.json"), JSON.stringify(model.assessmentBlueprint), "utf8"),
+      writeFile(path.join(webDir, "question-bank.json"), JSON.stringify(model.questionBank), "utf8"),
+      writeFile(path.join(webDir, "error.log"), "", "utf8"),
+      writeFile(path.join(webDir, "interaction-audit.json"), JSON.stringify({
+        ok: true,
+        failureCount: 0,
+        permissionAudit: {
+          permissionViolations: 0,
+          finalQuizSubmissions: 0,
+        },
+        browserAudit: {
+          runtimeNetworkRequests: 0,
+        },
+        unsupportedOfficialAssessmentClaims: 0,
+        learnerStateScenarios: Object.fromEntries(
+          manifest.learnerStateScenarios.map((id) => [id, true]),
+        ),
+      }), "utf8"),
+    ]);
+
+    const result = await evaluateInteractiveRun(webDir, undefined, manifest);
+
+    expect(result.vNext?.hardChecks.filter((check) => !check.passed)).toEqual([]);
+    expect(result.vNext).toMatchObject({
+      detected: true,
+      hardGatesPassed: true,
+      structure: {
+        courseModules: 4,
+        learningObjectives: 4,
+        questionBankItems: 16,
+        assessmentSections: 1,
+      },
+      quality: {
+        questionsWithStableIdRatio: 1,
+        questionsWithObjectiveRatio: 1,
+        questionsWithResponseContractRatio: 1,
+        questionsWithOriginRatio: 1,
+        questionsWithScopeBasisRatio: 1,
+        questionsWithPassingReviewRatio: 1,
+      },
+    });
+    expect(result.vNext?.hardChecks).toHaveLength(Object.keys(manifest.hardGates).length);
+    expect(result.checks.filter((check) => check.id.startsWith("vnext:") && !check.passed)).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails vNext hard gates with explicit evidence while retaining raw question ratios", async () => {
+    const webDir = await createCompleteRun();
+    const model = buildAdaptiveStudyModel(testContent(), "", "en");
+    const invalidBank = structuredClone(model.questionBank) as unknown as {
+      items: Array<Record<string, unknown>>;
+    };
+    invalidBank.items[0]!.learningObjectiveIds = [];
+    invalidBank.items[1]!.id = invalidBank.items[0]!.id;
+    invalidBank.items[1]!.review = {
+      status: "approved",
+      checks: { schema: true, scope: false, answer: true, provenance: true, rendering: true },
+      findings: ["outside scope"],
+    };
+    await Promise.all([
+      writeFile(path.join(webDir, "course-blueprint.json"), JSON.stringify(model.courseBlueprint), "utf8"),
+      writeFile(path.join(webDir, "assessment-blueprint.json"), JSON.stringify(model.assessmentBlueprint), "utf8"),
+      writeFile(path.join(webDir, "question-bank.json"), JSON.stringify(invalidBank), "utf8"),
+      writeFile(path.join(webDir, "error.log"), "blocking validation finding\n", "utf8"),
+      writeFile(path.join(webDir, "interaction-audit.json"), JSON.stringify({
+        ok: false,
+        failureCount: 2,
+        permissionViolations: 1,
+        finalQuizSubmissions: 0,
+        runtimeNetworkRequests: 0,
+        requiredLearnerStateScenariosPassed: false,
+      }), "utf8"),
+    ]);
+
+    const result = await evaluateInteractiveRun(webDir);
+
+    expect(result.vNext?.artifacts.questionBank.valid).toBe(false);
+    expect(result.vNext?.quality.questionsWithStableIdRatio).toBe(14 / 16);
+    expect(result.vNext?.quality.questionsWithObjectiveRatio).toBe(15 / 16);
+    expect(result.vNext?.quality.questionsWithPassingReviewRatio).toBe(15 / 16);
+    expect(result.vNext?.hardGatesPassed).toBe(false);
+    expect(result.checks.find((check) => check.id === "vnext:emptyErrorLog")?.passed).toBe(false);
+    expect(result.checks.find((check) => check.id === "vnext:permissionViolations")?.passed).toBe(false);
+    expect(result.qualityPassed).toBe(false);
+    expect(result.reliabilityPassed).toBe(false);
+    expect(result.passed).toBe(false);
+  });
+
+  it("rejects an incomplete vNext benchmark manifest with useful schema paths", () => {
+    const parsed = VNextBenchmarkManifestSchema.safeParse({
+      schemaVersion: 1,
+      id: "vnext",
+      revision: 1,
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.map((issue) => issue.path.join(".")))
+        .toEqual(expect.arrayContaining(["status", "runtimeConstraints", "hardGates"]));
+    }
   });
 });
+
+async function createCompleteRun(): Promise<string> {
+  const webDir = await mkdtemp(path.join(os.tmpdir(), "interactive-vnext-eval-"));
+  tempDirs.push(webDir);
+  const content = testContent();
+  const html = applyOfflineSecurityPolicy(renderStandardStudyGuide(content, "en"))
+    .replace('src="assets/logo.png"', 'src="data:image/png;base64,iVBORw0KGgo="');
+  await Promise.all([
+    writeFile(path.join(webDir, "document.html"), html, "utf8"),
+    writeFile(path.join(webDir, "run-summary.md"), "Run status: success\n", "utf8"),
+    writeFile(path.join(webDir, "validation-report.json"), JSON.stringify({ ok: true }), "utf8"),
+    writeFile(path.join(webDir, "quality-review.json"), JSON.stringify({ ok: true, findings: [] }), "utf8"),
+    writeFile(path.join(webDir, "study-guide-content.json"), JSON.stringify(content), "utf8"),
+    writeFile(path.join(webDir, "source.txt"), "", "utf8"),
+    writeFile(path.join(webDir, "run-metrics.json"), JSON.stringify(metrics(500, 400, 300)), "utf8"),
+  ]);
+  return webDir;
+}
 
 function testContent(): StudyGuideContent {
   const source = {

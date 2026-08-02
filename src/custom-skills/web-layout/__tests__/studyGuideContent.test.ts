@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWebLayoutRuntimeConfig } from "../config.js";
-import { buildStudyGuideContentPrompt, createStudyGuideContentNode } from "../nodes/studyGuideContentNode.js";
+import { buildEvidenceChunks, buildStudyGuideContentPrompt, createStudyGuideContentNode } from "../nodes/studyGuideContentNode.js";
+import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { initialWebLayoutState } from "../state.js";
 import { validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
 
@@ -32,9 +33,9 @@ describe("study-guide canonical content bank", () => {
       }],
       sources: [{ id: "m1", label: "M1", url: "", coverage: "Folgen" }],
     } as StudyGuideContent;
-    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 40");
+    expect(validateStudyGuideContentQuality(content).join("\n")).toContain("at least 12");
     expect(validateStudyGuideContentQuality(content).join("\n")).toContain(
-      "at least 20 selection/retrieval exercises",
+      "at least 6 selection/retrieval exercises",
     );
   });
 
@@ -50,6 +51,11 @@ describe("study-guide canonical content bank", () => {
     expect(prompt).toContain("at least 12 substantive exercises");
     expect(prompt).toContain("open applications");
     expect(prompt).toContain("Do not describe layouts");
+    expect(prompt).toContain("Never create learner questions asking what topics an exam contains");
+    expect(prompt).toContain("preserve those technical, conceptual, writing, language, case, or calculation tasks");
+    expect(prompt).toContain("Generated practice values are allowed");
+    expect(prompt).toContain("navigationTitle as a concise learner-facing label");
+    expect(prompt).toContain("at most 64 characters");
     expect(prompt).not.toContain('"$defs"');
   });
 
@@ -97,6 +103,52 @@ describe("study-guide canonical content bank", () => {
     expect(new Set(exercises.map((exercise) => exercise.prompt)).size).toBe(12);
     expect(exercises.every((exercise) => exercise.source.label === "Course Reader")).toBe(true);
     expect(content.topics[0].theory.formulas[0]?.expression).toBe("P = I_Bohrung − I_Welle");
+
+    const repairTasks: string[] = [];
+    const repairNode = createStudyGuideContentNode(config, {
+      run: async (prompt, options) => {
+        repairTasks.push(options.task);
+        return JSON.stringify(modelChapter(prompt));
+      },
+    });
+    const repaired = await repairNode({
+      ...initialWebLayoutState,
+      source_text: languageHandoff(),
+      error_log: "chunk 2 needs repair",
+    });
+
+    expect(repaired.error_log).toBeNull();
+    expect(repairTasks).toEqual(["content_analyzer"]);
+    const repairedContent = JSON.parse(await readFile(path.join(runDir, "study-guide-content.json"), "utf8")) as StudyGuideContent;
+    expect(repairedContent.topics.map((topic) => topic.title)).toEqual([
+      "Unit 1",
+      "Unit 2",
+      "Unit 3",
+      "Unit 4",
+    ]);
+  });
+
+  it("keeps explicit learning modules separate when they share a Moodle course-page source", () => {
+    const source = `## Extracted data
+
+${JSON.stringify({
+  course: { title: "BMR Business English" },
+  learning_modules: [
+    { id: "unit-a", title: "Self-Study A + Class 1", content_mode: "procedural" },
+    { id: "unit-b", title: "Self-Study B + Class 2", content_mode: "procedural" },
+  ],
+  sections: [
+    { heading: "Self-Study A + Class 1", summary: "Business forms and investor vocabulary.", source_ids: ["course_page"] },
+    { heading: "Self-Study B + Class 2", summary: "Diplomatic meeting language and summarising.", source_ids: ["course_page"] },
+  ],
+  sources: [{ id: "course_page", title: "Moodle course page", url: "https://learn.example.edu/course/view.php?id=1" }],
+})}`;
+    const chunks = buildEvidenceChunks(source, deriveStudyGuideRequirements(source));
+
+    expect(chunks.map((chunk) => chunk.title)).toEqual([
+      "Self-Study A + Class 1",
+      "Self-Study B + Class 2",
+    ]);
   });
 });
 

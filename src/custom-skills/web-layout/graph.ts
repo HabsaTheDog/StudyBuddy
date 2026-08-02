@@ -337,6 +337,9 @@ async function persistRunArtifacts(config: WebLayoutRuntimeConfig, state: WebLay
     writeFile(path.join(config.runDir, "source.txt"), state.source_text, "utf8"),
     writeJson(path.join(config.runDir, "layout-spec.json"), state.layout_spec),
     writeJson(path.join(config.runDir, "study-guide-content.json"), state.study_guide_content),
+    writeJson(path.join(config.runDir, "course-blueprint.json"), state.course_blueprint),
+    writeJson(path.join(config.runDir, "assessment-blueprint.json"), state.assessment_blueprint),
+    writeJson(path.join(config.runDir, "question-bank.json"), state.question_bank),
     writeJson(path.join(config.runDir, "validation-report.json"), state.validation_report),
     writeJson(path.join(config.runDir, "state.json"), {
       ...state,
@@ -354,10 +357,21 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayoutState> {
   const resumeDir = config.resumeRunDir;
   if (!resumeDir) return initialWebLayoutState;
-  const [persistedSourceText, layoutSpec, studyGuideContent, qualityReview] = await Promise.all([
+  const [
+    persistedSourceText,
+    layoutSpec,
+    studyGuideContent,
+    courseBlueprint,
+    assessmentBlueprint,
+    questionBank,
+    qualityReview,
+  ] = await Promise.all([
     readFile(path.join(resumeDir, "source.txt"), "utf8").catch(() => ""),
     readOptionalResumeJson(path.join(resumeDir, "layout-spec.json")),
     readOptionalResumeJson(path.join(resumeDir, "study-guide-content.json")),
+    readOptionalResumeJson(path.join(resumeDir, "course-blueprint.json")),
+    readOptionalResumeJson(path.join(resumeDir, "assessment-blueprint.json")),
+    readOptionalResumeJson(path.join(resumeDir, "question-bank.json")),
     readOptionalResumeJson(path.join(resumeDir, "quality-review.json")),
   ]);
   // A resume source.txt may contain only an earlier repair prompt. Whenever a
@@ -396,6 +410,9 @@ async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayou
     source_text: sourceText,
     layout_spec: resumeLayoutSpec,
     study_guide_content: studyGuideContent ?? {},
+    course_blueprint: courseBlueprint ?? {},
+    assessment_blueprint: assessmentBlueprint ?? {},
+    question_bank: questionBank ?? {},
     html_document: htmlDocument,
     // A failed source run may contain a stale validation report for a rejected
     // candidate even though .build/document.html has already been restored to

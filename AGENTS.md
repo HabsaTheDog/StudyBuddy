@@ -4,6 +4,7 @@
 - Preserve the recognizable Moodle course hierarchy, keep generated practice inside established course scope, and select learning blocks from course and assessment evidence rather than fixed subject templates.
 - Treat every interactive question as a validated bank item with a stable ID, learning objective, answer or rubric, origin, scope basis, stage, and review result.
 - Use only the existing effective Moodle quiz permission. Do not create a shadow permission path or access, start, change, or inspect a quiz beyond that permission.
+- Automatic Study Builder evidence acquisition may inspect authorized completed quiz attempts but must never start or continue an attempt; broader Quiz Assist actions require a separate explicit quiz-assistance request.
 - Keep the adaptive learner runtime to one offline HTML file with compact local state; do not add a backend, account system, detailed attempt history, spaced-repetition scheduler, or user-authored question builder without an explicit charter change.
 - Benchmark adaptive Study Builder changes against `docs/study-builder-vnext/benchmark-manifest.json`; permission, correctness, scope, provenance, and interaction gates remain hard requirements even when optimizing runtime or tokens.
 - Keep all Moodle/CIS pipeline logic isolated under `src/custom-skills/moodle/`.

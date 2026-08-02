@@ -373,6 +373,33 @@ describe("createRuntimeConfig", () => {
     });
   });
 
+  it("keeps Study Builder extraction read-only while consuming the effective Quiz Assist mode", async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-study-builder-quiz-config-"));
+    vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
+    vi.stubEnv("MOODLE_QUIZ_ACCESS_MODE", "quiz-assist");
+    vi.stubEnv("MOODLE_QUIZ_AUTO_ANSWER", "true");
+    vi.stubEnv("MOODLE_QUIZ_OPEN_ATTEMPTS", "true");
+    vi.stubEnv("MOODLE_QUIZ_ALLOW_PAGE_SAVE_OR_MOVE", "true");
+
+    const config = createRuntimeConfig({
+      prompt: "Create an interactive Study Guide",
+      moodleUrl: "https://moodle.example/course/view.php?id=42",
+      evidenceHandoffOnly: true,
+      stage: "extract",
+    });
+
+    expect(config.quizSafetyPolicy.accessMode).toBe("quiz-assist");
+    expect(config.quizSafetyPolicy.allowReadingQuestions).toBe(true);
+    expect(config.quizPolicy).toMatchObject({
+      requestedAutoAnswer: false,
+      allowAttemptOpen: false,
+      allowAnswerFill: false,
+      allowAnswerChange: false,
+      allowSaveOrMovePage: false,
+      allowFinalSubmit: false,
+    });
+  });
+
   it("uses a direct Moodle URL from the prompt when the configured URL is the dashboard", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-prompt-url-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);

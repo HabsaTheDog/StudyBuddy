@@ -1,8 +1,9 @@
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Codex } from "@openai/codex-sdk";
-import type { ModelReasoningEffort, Usage } from "@openai/codex-sdk";
+import type { ModelReasoningEffort, Usage, UserInput } from "@openai/codex-sdk";
 import { minimalValidStudyBuddyHtml } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 import {
@@ -26,7 +27,13 @@ const LEAF_WORKER_BOUNDARY = [
 export interface CodexClient {
   run(
     prompt: string,
-    options: { task: StudyBuddyModelTask; attempt?: number; outputSchema?: unknown },
+    options: {
+      task: StudyBuddyModelTask;
+      attempt?: number;
+      outputSchema?: unknown;
+      timeoutMs?: number;
+      localImages?: string[];
+    },
   ): Promise<string>;
 }
 
@@ -57,6 +64,10 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
       const schemaCharacters = options.outputSchema
         ? JSON.stringify(options.outputSchema).length
         : 0;
+      const localImages = [...new Set(options.localImages ?? [])]
+        .map((imagePath) => path.resolve(imagePath))
+        .filter((imagePath) => existsSync(imagePath))
+        .slice(0, 4);
       const promptBudget = resolveModelPromptCharacterBudget(task);
       if (requestCharacters + schemaCharacters > promptBudget) {
         throw new Error(
@@ -81,7 +92,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
       const startedMs = Date.now();
       const callId = `${task}-${attempt}-${startedMs}`;
       const timeoutController = new AbortController();
-      const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
+      const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
+      const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
       const signal = combineSignals(config.abortSignal, timeoutController.signal);
       await config.diagnostics?.log("info", "planner", `Starting ${task} model call.`, {
         task,
@@ -95,7 +107,16 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
       let observedToolUsage = emptyToolUsage();
       let observedUsage: Usage | null = null;
       try {
-        const turn = await thread.run(sanitizedPrompt, {
+        const input: string | UserInput[] = localImages.length > 0
+          ? [
+              { type: "text", text: sanitizedPrompt },
+              ...localImages.map((imagePath): UserInput => ({
+                type: "local_image",
+                path: imagePath,
+              })),
+            ]
+          : sanitizedPrompt;
+        const turn = await thread.run(input, {
           ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
           signal,
         });
@@ -140,7 +161,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
           usage: observedUsage,
         });
         if (timedOut) {
-          throw new Error(`${task} model call timed out after ${policy.timeoutMs}ms.`);
+          throw new Error(`${task} model call timed out after ${timeoutMs}ms.`);
         }
         throw error;
       } finally {
@@ -153,6 +174,48 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
 function createTestCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
   return {
     async run(prompt, options) {
+      if (prompt.includes("ASSESSMENT_VISUAL_CROP_PLANNER")) {
+        const ids = [...prompt.matchAll(/"legacyExerciseId"\s*:\s*"([^"]+)"/g)]
+          .map((match) => match[1]);
+        return JSON.stringify({
+          items: [...new Set(ids)].map((legacyExerciseId) => ({
+            legacyExerciseId,
+            crop: { x: 100, y: 100, width: 500, height: 400 },
+            alt: "Technische Zeichnung mit Bemaßung",
+            reason: "Die Zeichnung enthält lösungsrelevante Geometrie.",
+          })),
+        });
+      }
+      if (prompt.includes("ASSESSMENT_SOLUTION_REVIEWER")) {
+        const ids = [...prompt.matchAll(/"legacyExerciseId"\s*:\s*"([^"]+)"/g)]
+          .map((match) => match[1]);
+        return JSON.stringify({
+          items: [...new Set(ids)].map((legacyExerciseId) => ({
+            legacyExerciseId,
+            approved: true,
+            findings: [],
+          })),
+        });
+      }
+      if (prompt.includes("ASSESSMENT_SOLUTION_AUTHOR")) {
+        const ids = [...prompt.matchAll(/"legacyExerciseId"\s*:\s*"([^"]+)"/g)]
+          .map((match) => match[1]);
+        return JSON.stringify({
+          items: [...new Set(ids)].map((legacyExerciseId) => ({
+            legacyExerciseId,
+            completeness: "complete",
+            summary: "Vollständige Test-Musterlösung mit nachvollziehbarem Ergebnis.",
+            steps: [
+              "Ausgangsbeziehung angeben und nach der gesuchten Größe umformen.",
+              "Gegebene Werte mit Einheiten einsetzen und das Ergebnis prüfen.",
+            ],
+            finalAnswer: "Das vollständig geprüfte Testergebnis lautet 1.",
+            assumptions: [],
+            evidenceBasis: ["Validierte Testaufgabe"],
+            missingEvidence: [],
+          })),
+        });
+      }
       if (options.task === "quality_reviewer") {
         return JSON.stringify({ ok: true, summary: "Test review passed.", findings: [] });
       }

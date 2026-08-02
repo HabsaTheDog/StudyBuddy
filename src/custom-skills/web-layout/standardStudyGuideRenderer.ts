@@ -24,7 +24,9 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
           ? crossHtml(exercise, exerciseIndex + offset, language)
           : exercise.type === "calculation"
             ? calculationHtml(exercise, exerciseIndex + offset, language)
-            : applicationHtml(exercise, exerciseIndex + offset, language)
+            : exercise.type === "application"
+              ? applicationHtml(exercise, exerciseIndex + offset, language)
+              : vocabularyHtml(exercise, exerciseIndex + offset, language)
       )
       .join("");
     return `
@@ -63,7 +65,9 @@ export function renderStandardStudyGuide(contentValue: JsonObject, language: "de
 <html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="study-buddy-renderer" content="standard-study-guide-v1"><title>${esc(content.courseTitle)} · Study Buddy</title>
 <style>
 :root{--sb-navy:#19254b;--sb-blue:#323a61;--sb-gold:#dfbb63;--sb-gold-dark:#c3994d;--sb-cyan:#397f93;--sb-green:#23805A;--sb-amber:#c3994d;--sb-red:#B33A3A;--sb-ink:#20263f;--sb-muted:#66708f;--sb-line:#d9ddea;--sb-soft:#f6f7fb;--sb-white:#FFFFFF;--ink:var(--sb-ink);--muted:var(--sb-muted);--line:var(--sb-line);--paper:var(--sb-white);--wash:var(--sb-soft);--navy:var(--sb-navy);--blue:var(--sb-blue);--cyan:var(--sb-cyan);--orange:var(--sb-gold-dark);--green:var(--sb-green);--red:var(--sb-red);--radius:18px;--shadow:0 14px 40px rgba(24,34,53,.08)}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:142px}body{margin:0;background:var(--wash);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}button,input{font:inherit}button{cursor:pointer}.skip{position:fixed;left:12px;top:-80px;z-index:100;background:#fff;padding:12px}.skip:focus{top:12px}.hotbar{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}.hotbar-main{height:76px;max-width:1280px;margin:auto;padding:10px 24px;display:flex;align-items:center;gap:18px}.brand{display:flex;align-items:center;gap:12px;min-width:0}.brand img{width:44px;height:44px;object-fit:contain}.brand-text{min-width:0}.brand-text strong,.brand-text span{display:block}.brand-text span{font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hot-actions{margin-left:auto;display:flex;align-items:center;gap:10px}.progress-pill{min-width:150px}.progress-pill strong,.progress-pill span{display:block;font-size:.8rem}.bar{height:6px;border-radius:99px;background:#e9edf3;overflow:hidden}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--cyan));transition:width .2s}.primary,.secondary,.text-button{border:0;border-radius:10px;padding:10px 14px;font-weight:750}.primary{background:var(--blue);color:#fff}.secondary{background:#eaf0ff;color:var(--navy)}.text-button{padding:4px 0;background:transparent;color:var(--blue);text-decoration:underline}.topic-strip{border-top:1px solid #edf0f5;overflow-x:auto;scrollbar-width:thin}.topic-strip-inner{width:max-content;min-width:100%;max-width:1280px;margin:auto;padding:8px 24px;display:flex;gap:7px}.topic-link{border:1px solid transparent;background:transparent;color:#596579;border-radius:99px;padding:7px 11px;white-space:nowrap;text-decoration:none;font-size:.82rem;font-weight:700}.topic-link:hover,.topic-link:focus-visible{border-color:#b8c5ed;color:var(--blue);outline:0}.hero{max-width:1280px;margin:0 auto;padding:64px 24px 36px}.hero-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:24px}.kicker,.eyebrow,.block-label{color:var(--blue);font-size:.72rem;letter-spacing:.11em;text-transform:uppercase;font-weight:850}.hero h1{font-size:clamp(2.2rem,5vw,5rem);line-height:.97;letter-spacing:-.055em;margin:14px 0 24px;max-width:900px}.hero-lead{font-size:1.13rem;color:#4c586d;max-width:760px}.scope-card{background:var(--navy);color:#fff;border-radius:24px;padding:26px;box-shadow:var(--shadow)}.scope-card p{color:#cbd5e5}.scope-card dl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0 0}.scope-card dt{font-size:.74rem;color:#aab8cf}.scope-card dd{font-size:1.45rem;font-weight:850;margin:2px 0}.course-map{max-width:1232px;margin:0 auto 54px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.map-item{padding:14px;border-left:3px solid var(--cyan)}.map-item strong,.map-item span{display:block}.map-item span{font-size:.84rem;color:var(--muted)}main{max-width:1232px;margin:auto;padding:0 24px 80px}.topic{margin:0 0 80px;scroll-margin-top:145px}.topic-head{display:flex;align-items:end;justify-content:space-between;border-bottom:2px solid var(--ink);padding:0 0 16px;margin-bottom:20px}.topic-head>div:first-child{display:grid;grid-template-columns:auto 1fr;column-gap:14px}.topic-index{grid-row:1/3;font-size:2rem;font-weight:900;color:#c5ccda}.topic-head .eyebrow{margin:0}.topic-head h2{margin:0;font-size:clamp(1.65rem,3vw,2.6rem);letter-spacing:-.035em}.topic-status{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 12px;font-size:.84rem;font-weight:800}.topic-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr);gap:18px}.topic-grid>*{min-width:0}.theory,.orientation{min-width:0;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px}.theory{box-shadow:var(--shadow)}.theory h3,.orientation h3,.practice h3{font-size:1.35rem;margin:4px 0 14px}.theory ul,.orientation ol{padding-left:1.2rem}.next-step{border-left:3px solid var(--orange);padding-left:14px}.formula{margin:22px 0 0;padding:16px;background:#f7f9fe;border-radius:12px}.math-scroll{max-width:100%;overflow-x:auto;padding:2px}.formula math{font-size:1.18rem}.formula figcaption{font-size:.78rem;color:var(--muted);margin-top:7px}.examples{margin:18px 0}.worked{background:#eef3ff;border:1px solid #cad6fc;border-radius:var(--radius)}.worked summary{list-style:none;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:16px;font-weight:800}.worked summary::-webkit-details-marker{display:none}.summary-action{font-size:.78rem;color:var(--blue)}.worked-body{padding:0 22px 22px}.problem{font-size:1.05rem}.steps{counter-reset:step;list-style:none;padding:0}.steps li{position:relative;padding:10px 10px 10px 42px;border-top:1px solid #d7e0f7}.steps li:before{counter-increment:step;content:counter(step);position:absolute;left:8px;top:9px;width:24px;height:24px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:.75rem;font-weight:900}.result{background:#fff;padding:12px;border-radius:10px}.source-chip{font-size:.75rem;color:#52617a}.practice{background:#e9edf3;border-radius:24px;padding:26px;margin-top:18px}.practice-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px}.practice-head p{margin:0;color:var(--muted)}.task-list{display:grid;gap:14px}.task{min-width:0;background:#fff;border:1px solid #d8dee8;border-radius:16px;padding:22px;transition:border-color .15s;overflow-wrap:anywhere}.task.is-complete{border-color:#84cfb2}.task-top{display:flex;align-items:center;gap:9px;margin-bottom:12px}.task-number{font-weight:900;color:var(--blue)}.task-kind{font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.08em;background:#edf1f7;border-radius:99px;padding:4px 8px}.task-source{margin-left:auto;font-size:.72rem;color:var(--muted)}.task h4{font-size:1.08rem;margin:0 0 14px;white-space:pre-line}.options{border:0;padding:0;margin:0;display:grid;gap:8px}.option{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:11px;padding:11px}.option:has(input:checked){border-color:var(--blue);background:#f3f6ff}.option input{margin-top:5px}.task-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.feedback{margin-top:14px;padding:14px;border-radius:12px;background:#f5f7fa}.feedback.good{background:#eaf8f2;color:#0d6041}.feedback.bad{background:#fff1f0;color:#8f2018}.feedback ul{margin:.5rem 0 0;padding-left:1.2rem}.calc-input{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:620px}.calc-input input{width:100%;border:1px solid #b9c2d0;border-radius:10px;padding:11px}.hints{margin-top:12px}.hints summary{font-weight:750;color:var(--blue)}.self-check{display:flex;gap:8px;margin-top:12px}.retrieval{margin-top:14px;background:#fff;border:1px dashed #aeb8c7;border-radius:14px;padding:14px 18px}.retrieval summary{font-weight:800}.retrieval-item{padding:8px 0}.sources{background:#fff;border-top:4px solid var(--navy);padding:42px 24px 70px}.sources-inner{max-width:1184px;margin:auto}.source-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.source{border:1px solid var(--line);border-radius:12px;padding:15px}.source p{font-size:.82rem;color:var(--muted)}.footer-actions{margin-top:28px}.sr-live{position:fixed;left:-9999px}.mobile-progress{display:none}@media(max-width:800px){html{scroll-padding-top:132px}.hotbar-main{height:68px;padding:8px 14px}.brand img{width:38px;height:38px}.brand-text span{max-width:170px}.progress-pill,.hot-actions .secondary{display:none}.topic-strip-inner{padding:7px 12px}.hero{padding:40px 16px 26px}.hero-grid,.topic-grid{grid-template-columns:1fr}.hero h1{font-size:2.65rem}.course-map{margin:0 16px 40px;grid-template-columns:1fr 1fr;padding:15px}main{padding:0 16px 60px}.topic{margin-bottom:55px}.topic-head{align-items:flex-start}.topic-status{font-size:.72rem}.theory,.orientation,.practice{padding:18px}.practice-head{align-items:flex-start;flex-direction:column}.task{padding:16px}.task-top{flex-wrap:wrap}.task-source{width:100%;margin:0}.calc-input{grid-template-columns:1fr}.source-grid{grid-template-columns:1fr}.worked summary{align-items:flex-start}.summary-action{display:none}}@media(max-width:430px){.brand-text strong{font-size:.88rem}.brand-text span{max-width:135px}.hot-actions .primary{padding:9px 10px;font-size:.78rem}.course-map{grid-template-columns:1fr}.hero h1{font-size:2.3rem}.topic-head h2{font-size:1.45rem}.topic-index{font-size:1.4rem}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
-.topic[hidden]{display:none}.topic-link.is-active{background:var(--sb-navy);color:#fff;border-color:var(--sb-navy)}.topic-link.is-active:hover,.topic-link.is-active:focus-visible{color:#fff;border-color:var(--sb-gold)}.topic{animation:topic-in .18s ease-out}.question-content{font-size:1.14rem;font-weight:760;line-height:1.65;margin:0 0 18px;color:var(--sb-ink)}.question-content math,.option math,.problem math,.steps math,.result math,.feedback math{font-size:1.08em;vertical-align:middle}.question-content math{margin:.1rem .16rem}.option-content{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.2rem;overflow-x:auto;scrollbar-width:none}.option-content::-webkit-scrollbar{display:none}.option-letter{flex:0 0 28px;width:28px;height:28px;border-radius:8px;background:var(--sb-soft);display:grid;place-items:center;font-size:.76rem;font-weight:900;color:var(--sb-blue)}.option:has(input:checked) .option-letter{background:var(--sb-blue);color:#fff}.calc-input label{display:grid;gap:7px;min-width:0}.calc-input>.primary{align-self:end;min-height:52px}.calc-answer{height:52px;min-height:52px;resize:none;line-height:1.35}.math-inline{display:inline-block;max-width:none;overflow:visible;vertical-align:middle;padding:.08rem .14rem}.feedback ul{display:grid;gap:8px}.feedback .solution-copy{margin:12px 0 0;padding-top:12px;border-top:1px solid currentColor}.task{box-shadow:0 4px 14px rgba(25,37,75,.045)}.hero{padding-top:42px;padding-bottom:26px}.course-map{margin-bottom:34px}.learning-path{position:relative;display:grid;gap:18px}.lesson-step{position:relative;display:grid;grid-template-columns:84px minmax(0,1fr);gap:18px;margin:0}.step-marker{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--sb-muted)}.step-marker:after{content:"";position:absolute;top:48px;bottom:-36px;width:2px;background:#cdd4e1}.lesson-step:last-child .step-marker:after{display:none}.step-marker>span{position:relative;z-index:1;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--sb-navy);color:#fff;border:5px solid var(--sb-soft);font-weight:900}.step-marker small{font-size:.65rem;font-weight:850;text-transform:uppercase;letter-spacing:.07em;writing-mode:vertical-rl}.step-content{min-width:0;background:#fff;border:1px solid var(--sb-line);border-radius:20px;padding:30px;box-shadow:0 8px 26px rgba(25,37,75,.055)}.lesson-step.practice{padding:0;background:transparent;border-radius:0;margin:0}.lesson-step.practice .step-content{background:#eef1f6}.lesson-step--intro .step-content{border-top:5px solid var(--sb-navy)}.lesson-step--deepen .step-content{background:#f2f5fc}.lesson-step--example .step-content{border-left:5px solid var(--sb-gold)}.readable-copy{font-family:Georgia,"Times New Roman",serif}.readable-copy h3,.readable-copy .block-label,.goal-panel{font-family:Inter,ui-sans-serif,system-ui,sans-serif}.lead-copy{font-size:1.12rem;line-height:1.82;margin:0;max-width:78ch}.goal-panel{margin-top:24px;padding:18px 20px;background:var(--sb-soft);border-radius:14px}.goal-panel ul{margin:.6rem 0 0;padding-left:1.25rem}.goal-panel li+li{margin-top:.45rem}.principle-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.principle{display:grid;grid-template-columns:30px 1fr;gap:9px;align-items:start;background:#fff;border:1px solid var(--sb-line);border-radius:13px;padding:14px}.principle>span{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--sb-navy);color:#fff;font-size:.75rem;font-weight:900}.principle p{margin:1px 0 0}.formula-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}.formula-deck .formula{margin:0;background:#fff;border:1px solid var(--sb-line)}.practice--compact .task-list{grid-template-columns:repeat(2,minmax(0,1fr))}.solve-offline{display:grid;gap:2px;margin:0;padding:11px 14px;background:#fff;border:1px dashed #aeb8c7;border-radius:11px}.solve-offline span{font-size:.84rem;color:var(--sb-muted)}.calculation--paper .calc-input{max-width:760px;grid-template-columns:minmax(0,1fr) auto}.calculation--answer .calc-input{max-width:620px}.examples{margin:12px 0 0}.worked{background:#f4f6fb}.topic-head{margin-bottom:28px}@keyframes topic-in{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:none}}@media(max-width:900px){.practice--compact .task-list,.principle-grid{grid-template-columns:1fr}}@media(max-width:800px){.question-content{font-size:1.02rem}.option{padding:10px}.option-letter{flex-basis:25px;width:25px;height:25px}.topic-strip{box-shadow:0 5px 12px rgba(25,37,75,.08)}.hero{padding-top:28px}.hero-grid{gap:14px}.lesson-step{grid-template-columns:1fr}.step-marker{display:none}.step-content{padding:20px;border-radius:16px}.lesson-step.practice .step-content{padding:16px}.lead-copy{font-size:1.02rem;line-height:1.7}.calculation--paper .calc-input{grid-template-columns:1fr}.formula-deck{grid-template-columns:1fr}}
+.topic[hidden]{display:none}.topic-link.is-active{background:var(--sb-navy);color:#fff;border-color:var(--sb-navy)}.topic-link.is-active:hover,.topic-link.is-active:focus-visible{color:#fff;border-color:var(--sb-gold)}.topic{animation:topic-in .18s ease-out}.question-content{font-size:1.14rem;font-weight:760;line-height:1.65;margin:0 0 18px;color:var(--sb-ink)}.question-content math,.option math,.problem math,.steps math,.result math,.feedback math{font-size:1.08em;vertical-align:middle}.question-content math{margin:.1rem .16rem}.math-expression{display:inline-flex;max-width:100%;flex-wrap:wrap;align-items:baseline;gap:.08em .3em;margin:.08em .12em;padding:.08em .24em;border-radius:.35em;background:rgba(50,58,97,.055);font-family:Georgia,"Times New Roman",serif;font-weight:500;vertical-align:baseline}.math-expression__operand,.math-expression__relation{display:inline-flex;align-items:baseline}.math-expression__relation{font-weight:700;color:var(--sb-blue)}.math-expression math{font-size:1.04em}.option-content{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:.2rem;overflow-x:auto;scrollbar-width:none}.option-content::-webkit-scrollbar{display:none}.option-letter{flex:0 0 28px;width:28px;height:28px;border-radius:8px;background:var(--sb-soft);display:grid;place-items:center;font-size:.76rem;font-weight:900;color:var(--sb-blue)}.option:has(input:checked) .option-letter{background:var(--sb-blue);color:#fff}.calc-input label{display:grid;gap:7px;min-width:0}.calc-input>.primary{align-self:end;min-height:52px}.calc-answer{height:52px;min-height:52px;resize:none;line-height:1.35}.math-inline{display:inline-block;max-width:none;overflow:visible;vertical-align:middle;padding:.08rem .14rem}.feedback ul{display:grid;gap:8px}.feedback .solution-copy{margin:12px 0 0;padding-top:12px;border-top:1px solid currentColor}.task{box-shadow:0 4px 14px rgba(25,37,75,.045)}.hero{padding-top:42px;padding-bottom:26px}.course-map{margin-bottom:34px}.learning-path{position:relative;display:grid;gap:18px}.lesson-step{position:relative;display:grid;grid-template-columns:84px minmax(0,1fr);gap:18px;margin:0}.step-marker{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--sb-muted)}.step-marker:after{content:"";position:absolute;top:48px;bottom:-36px;width:2px;background:#cdd4e1}.lesson-step:last-child .step-marker:after{display:none}.step-marker>span{position:relative;z-index:1;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--sb-navy);color:#fff;border:5px solid var(--sb-soft);font-weight:900}.step-marker small{font-size:.65rem;font-weight:850;text-transform:uppercase;letter-spacing:.07em;writing-mode:vertical-rl}.step-content{min-width:0;background:#fff;border:1px solid var(--sb-line);border-radius:20px;padding:30px;box-shadow:0 8px 26px rgba(25,37,75,.055)}.lesson-step.practice{padding:0;background:transparent;border-radius:0;margin:0}.lesson-step.practice .step-content{background:#eef1f6}.lesson-step--intro .step-content{border-top:5px solid var(--sb-navy)}.lesson-step--deepen .step-content{background:#f2f5fc}.lesson-step--example .step-content{border-left:5px solid var(--sb-gold)}.readable-copy{font-family:Georgia,"Times New Roman",serif}.readable-copy h3,.readable-copy .block-label,.goal-panel{font-family:Inter,ui-sans-serif,system-ui,sans-serif}.lead-copy{font-size:1.12rem;line-height:1.82;margin:0;max-width:78ch}.goal-panel{margin-top:24px;padding:18px 20px;background:var(--sb-soft);border-radius:14px}.goal-panel ul{margin:.6rem 0 0;padding-left:1.25rem}.goal-panel li+li{margin-top:.45rem}.principle-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.principle{display:grid;grid-template-columns:30px 1fr;gap:9px;align-items:start;background:#fff;border:1px solid var(--sb-line);border-radius:13px;padding:14px}.principle>span{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--sb-navy);color:#fff;font-size:.75rem;font-weight:900}.principle p{margin:1px 0 0}.formula-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}.formula-deck .formula{margin:0;background:#fff;border:1px solid var(--sb-line)}.practice--compact .task-list{grid-template-columns:repeat(2,minmax(0,1fr))}.solve-offline{display:grid;gap:2px;margin:0;padding:11px 14px;background:#fff;border:1px dashed #aeb8c7;border-radius:11px}.solve-offline span{font-size:.84rem;color:var(--sb-muted)}.calculation--paper .calc-input{max-width:760px;grid-template-columns:minmax(0,1fr) auto}.calculation--answer .calc-input{max-width:620px}.examples{margin:12px 0 0}.worked{background:#f4f6fb}.topic-head{margin-bottom:28px}@keyframes topic-in{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:none}}@media(max-width:900px){.practice--compact .task-list,.principle-grid{grid-template-columns:1fr}}@media(max-width:800px){.question-content{font-size:1.02rem}.option{padding:10px}.option-letter{flex-basis:25px;width:25px;height:25px}.topic-strip{box-shadow:0 5px 12px rgba(25,37,75,.08)}.hero{padding-top:28px}.hero-grid{gap:14px}.lesson-step{grid-template-columns:1fr}.step-marker{display:none}.step-content{padding:20px;border-radius:16px}.lesson-step.practice .step-content{padding:16px}.lead-copy{font-size:1.02rem;line-height:1.7}.calculation--paper .calc-input{grid-template-columns:1fr}.formula-deck{grid-template-columns:1fr}}
+.math-expression{display:inline;max-width:100%;margin:.08em .12em;padding:.08em 0;border-radius:.35em;background:rgba(50,58,97,.055);box-decoration-break:clone;-webkit-box-decoration-break:clone;font-family:Georgia,"Times New Roman",serif;font-weight:500;vertical-align:baseline}.math-expression__operand,.math-expression__relation{display:inline-flex;max-width:100%;align-items:baseline;margin:0 .12em;vertical-align:baseline}.math-expression__relation{font-weight:700;color:var(--sb-blue)}.math-expression math{font-size:clamp(.94em,1.2vw,1.04em)}
+.feedback .math-expression,.solution-copy .math-expression{display:block;width:fit-content;max-width:100%;margin:.34em 0;padding:.1em .16em;overflow-wrap:anywhere}
 .options,.option{min-width:0;width:100%}.task{overflow:hidden}.formula,.formula-deck,.math-scroll{min-width:0;max-width:100%}.math-scroll{width:100%;overflow-x:auto;scrollbar-width:none}.math-scroll::-webkit-scrollbar{display:none}.feedback{min-width:0;max-width:100%;overflow-wrap:anywhere;overflow:hidden}.feedback ul{min-width:0;width:100%;max-width:100%}.feedback li{min-width:0;max-width:100%;overflow:hidden}.feedback .math-inline{display:block;width:100%;max-width:100%;overflow-x:auto;scrollbar-width:none}.feedback .math-inline::-webkit-scrollbar{display:none}.readable-copy var,.question-content var,.feedback var{font-family:Georgia,"Times New Roman",serif;font-style:italic}.bounded-operator{display:inline-flex;align-items:center;white-space:nowrap;font-family:Georgia,"Times New Roman",serif;font-size:1.14em;margin:0 .08em}.bounded-operator sub,.bounded-operator sup{font-size:.62em;line-height:1}
 .chapter-nav{position:relative;border-top:1px solid #edf0f5;background:#fff}.chapter-nav-inner{max-width:1280px;margin:auto;padding:8px 24px;display:grid;grid-template-columns:42px minmax(0,1fr) 42px;gap:8px;align-items:center}.chapter-arrow{height:40px;border:1px solid var(--sb-line);border-radius:11px;background:#fff;color:var(--sb-navy);font-size:1.1rem;font-weight:900}.chapter-arrow:hover,.chapter-arrow:focus-visible{border-color:var(--sb-blue);outline:3px solid #e8edff}.chapter-menu{position:relative;min-width:0}.chapter-menu>summary{height:40px;list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:0 14px;border:1px solid var(--sb-line);border-radius:11px;background:#f8f9fc;cursor:pointer}.chapter-menu>summary::-webkit-details-marker{display:none}.chapter-menu>summary:after{content:"⌄";font-weight:900;color:var(--sb-muted)}.chapter-menu[open]>summary:after{content:"⌃"}.chapter-menu-label{font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:var(--sb-muted);font-weight:850}.chapter-menu>summary strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chapter-menu-status{font-size:.75rem;color:var(--sb-muted);font-weight:800}.chapter-menu-panel{position:absolute;z-index:50;left:0;right:0;top:48px;padding:18px;background:#fff;border:1px solid var(--sb-line);border-radius:16px;box-shadow:0 24px 60px rgba(25,37,75,.18)}.chapter-menu-head{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:12px}.chapter-menu-head h2{font-size:1.15rem;margin:2px 0}.chapter-menu-head>span{font-size:.72rem;color:var(--sb-muted);white-space:nowrap}.state-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 4px 0 10px;background:#c8cfdd}.state-dot--complete{background:var(--sb-green)}.state-dot--started{background:var(--sb-gold-dark)}.chapter-tab-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:min(62vh,520px);overflow-y:auto}.topic-link{width:100%;display:grid;grid-template-columns:34px minmax(0,1fr) 10px;gap:10px;align-items:center;text-align:left;border:1px solid var(--sb-line);background:#fff;color:var(--sb-ink);border-radius:12px;padding:10px 12px;white-space:normal}.topic-link.is-active{background:#eef2ff;color:var(--sb-navy);border-color:var(--sb-blue)}.topic-link.is-complete{border-color:#9bcfb9;background:#f1faf6}.topic-link.is-started:not(.is-complete){border-color:#d9bd79;background:#fffaf0}.chapter-number{font-size:.72rem;font-weight:900;color:var(--sb-muted)}.chapter-copy{min-width:0}.chapter-copy strong,.chapter-copy small{display:block}.chapter-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chapter-copy small{font-size:.7rem;color:var(--sb-muted);margin-top:2px}.chapter-state{width:9px;height:9px;border-radius:50%;background:#c8cfdd}.topic-link.is-complete .chapter-state{background:var(--sb-green)}.topic-link.is-started .chapter-state{background:var(--sb-gold-dark)}.learning-dashboard{max-width:1232px;padding:34px 24px 38px}.dashboard-summary{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:18px}.dashboard-intro,.dashboard-progress,.dashboard-course{background:#fff;border:1px solid var(--sb-line);border-radius:20px;box-shadow:var(--shadow)}.dashboard-intro{padding:30px;border-top:5px solid var(--sb-navy)}.learning-dashboard h1{font-size:clamp(2rem,4vw,3.6rem);line-height:1.03;letter-spacing:-.045em;margin:10px 0 14px;max-width:780px}.learning-dashboard .hero-lead{margin:0}.dashboard-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}.dashboard-continue{min-height:48px}.dashboard-progress{padding:24px;display:grid;grid-template-columns:150px minmax(0,1fr);gap:20px;align-items:center;background:var(--sb-navy);color:#fff}.progress-orbit{--progress:0;width:142px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--sb-gold) calc(var(--progress)*1%),rgba(255,255,255,.14) 0);position:relative}.progress-orbit:before{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--sb-navy)}.progress-orbit>span{position:relative;z-index:1;text-align:center}.progress-orbit strong,.progress-orbit small{display:block}.progress-orbit strong{font-size:2rem;line-height:1}.progress-orbit small{font-size:.72rem;color:#cbd5e5;margin-top:5px}.dashboard-metrics{display:grid;gap:14px}.dashboard-metrics>div{padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14)}.dashboard-metrics>div:last-child{border-bottom:0;padding-bottom:0}.dashboard-metrics strong,.dashboard-metrics span{display:block}.dashboard-metrics strong{font-size:1.35rem}.dashboard-metrics span{font-size:.74rem;color:#cbd5e5}.dashboard-course{margin-top:18px;padding:24px}.dashboard-course-head{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:16px}.dashboard-course-head h2{font-size:1.25rem;margin:3px 0}.dashboard-filters{display:flex;gap:6px;flex-wrap:wrap}.dashboard-filters button{border:1px solid var(--sb-line);border-radius:999px;padding:7px 11px;background:#fff;color:var(--sb-muted);font-size:.75rem;font-weight:800}.dashboard-filters button.is-active{background:var(--sb-navy);border-color:var(--sb-navy);color:#fff}.dashboard-topic-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.dashboard-topic{min-width:0;display:grid;grid-template-columns:32px minmax(0,1fr);gap:0 10px;align-items:center;text-align:left;padding:12px;border:1px solid var(--sb-line);border-radius:12px;background:#fff;color:var(--sb-ink)}.dashboard-topic:hover,.dashboard-topic:focus-visible{border-color:var(--sb-blue);outline:3px solid #edf1ff}.dashboard-topic[hidden]{display:none}.dashboard-topic-index{grid-row:1/3;font-size:.72rem;font-weight:900;color:var(--sb-muted)}.dashboard-topic-copy{min-width:0}.dashboard-topic-copy strong,.dashboard-topic-copy small{display:block}.dashboard-topic-copy strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dashboard-topic-copy small{font-size:.7rem;color:var(--sb-muted)}.dashboard-topic-bar{grid-column:2;display:block;height:4px;border-radius:99px;background:#e8ebf2;overflow:hidden;margin-top:7px}.dashboard-topic-bar i{display:block;width:0;height:100%;background:var(--sb-gold-dark);transition:width .2s}.dashboard-topic.is-complete{border-color:#9bcfb9;background:#f1faf6}.dashboard-topic.is-complete .dashboard-topic-bar i{background:var(--sb-green)}.step-marker:after{top:76px}.step-marker small{position:relative;z-index:1;writing-mode:horizontal-tb;width:82px;padding:3px 4px;background:var(--sb-soft);text-align:center;line-height:1.15;letter-spacing:.045em;white-space:normal;overflow-wrap:normal}
 @media(max-width:900px){.dashboard-topic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-summary{grid-template-columns:1fr}.dashboard-progress{grid-template-columns:130px 1fr}.progress-orbit{width:124px}}
@@ -320,54 +324,229 @@ function applicationHtml(
   return `<article class="task application" data-sb-application-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${text("Offene Anwendung", "Open application")}</span><span class="task-source">${sourceLabel(exercise.source, language)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div><ol class="application-instructions">${exercise.instructions.map((instruction) => `<li>${richMathText(instruction)}</li>`).join("")}</ol><label class="application-draft"><span class="block-label">${text("Dein Entwurf", "Your draft")}</span><textarea rows="6" data-application-draft autocomplete="off" placeholder="${text("Notiere hier deinen Ansatz, deine Analyse oder deine Formulierung …", "Write your approach, analysis, or response here …")}"></textarea></label><template data-application-solution>${solution}</template><div class="task-actions"><button class="primary" type="button" data-review-application>${text("Mit Beispiel und Kriterien vergleichen", "Compare with example and criteria")}</button></div><div class="feedback" hidden></div></article>`;
 }
 
-function richMathText(value: string, preferMath = false): string {
+function vocabularyHtml(
+  exercise: Extract<StudyGuideContent["topics"][number]["exercises"][number], { type: "vocabulary" }>,
+  index: number,
+  language: "de" | "en",
+): string {
+  const text = (german: string, english: string) => language === "de" ? german : english;
+  return `<article class="task vocabulary" data-sb-vocabulary-exercise data-id="${esc(exercise.id)}"><div class="task-top"><span class="task-number">${index + 1}</span><span class="task-kind">${text("Vokabular", "Vocabulary")}</span><span class="task-source">${sourceLabel(exercise.source, language)}</span></div><div class="question-content">${richMathText(exercise.prompt)}</div><p>${richMathText(exercise.context)}</p><details><summary>${text("Antwort aufdecken", "Reveal answer")}</summary><p><strong>${esc(exercise.acceptedAnswers.join(" / "))}</strong></p><p>${richMathText(exercise.explanation)}</p></details></article>`;
+}
+
+export function richMathText(value: string, preferMath = false): string {
   const normalized = value.trim();
   const proseWords = normalized.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)?.filter((word) => !/^(?:lim|sin|cos|tan|exp|log)$/i.test(word)) ?? [];
   const mathDominant = preferMath && normalized.length <= 240 && /[=∫Σ√≤≥≠^]|_[{0-9n]/.test(normalized) && proseWords.length === 0 && delimitersBalanced(normalized);
   if (mathDominant) return `<span class="math-inline">${mathml(normalized)}</span>`;
-  return lightweightMathText(normalized);
+  const equations = inlineEquationRanges(normalized);
+  if (equations.length === 0) return lightweightMathText(normalized);
+  const output: string[] = [];
+  let cursor = 0;
+  for (const equation of equations) {
+    output.push(lightweightMathText(normalized.slice(cursor, equation.start)));
+    output.push(renderInlineEquation(equation.expression));
+    cursor = equation.end;
+  }
+  output.push(lightweightMathText(normalized.slice(cursor)));
+  return output.join("");
 }
 
-function mathml(expression: string): string {
-  const tokens = expression.match(/[α-ωΑ-Ω][A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+|[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝ]+|\d+(?:[.,]\d+)?|[₀-₉]+|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\S/gu) ?? [];
+export function mathml(expression: string): string {
+  const normalized = expression.replace(
+    /([A-Za-zÄÖÜäöüα-ωΑ-Ω])([A-Za-zÄÖÜäöüα-ωΑ-Ω0-9]*),((?:min|max|ges|zul|eff|nom|krit|vorh))\b/giu,
+    (_match, base: string, suffix: string, qualifier: string) =>
+      `${base}_{${suffix ? `${suffix},` : ""}${qualifier}}`,
+  );
+  const tokens = mathTokens(normalized);
   return `<math xmlns="http://www.w3.org/1998/Math/MathML" aria-label="${esc(expression)}"><mrow>${renderMathTokens(tokens)}</mrow></math>`;
+}
+
+type InlineEquationRange = {
+  start: number;
+  end: number;
+  expression: string;
+};
+
+function inlineEquationRanges(value: string): InlineEquationRange[] {
+  const ranges: InlineEquationRange[] = [];
+  const comparator = /[=≈≤≥≠<>]/g;
+  let match: RegExpExecArray | null;
+  while ((match = comparator.exec(value))) {
+    const start = scanEquationStart(value, match.index);
+    if (start >= match.index) continue;
+    if (ranges.some((range) => start < range.end)) continue;
+    const end = scanEquationEnd(value, comparator.lastIndex);
+    const expression = value.slice(start, end).trim().replace(/[,;:]$/, "");
+    if (!expression || !/[=≈≤≥≠<>]/.test(expression)) continue;
+    const trimmedEnd = start + value.slice(start, end).lastIndexOf(expression) + expression.length;
+    ranges.push({ start, end: trimmedEnd, expression });
+    comparator.lastIndex = Math.max(comparator.lastIndex, trimmedEnd);
+  }
+  return ranges;
+}
+
+function scanEquationStart(value: string, comparatorIndex: number): number {
+  const prefix = value.slice(0, comparatorIndex);
+  const hardBoundary = Math.max(
+    prefix.lastIndexOf("\n"),
+    prefix.lastIndexOf("."),
+    prefix.lastIndexOf(";"),
+    prefix.lastIndexOf(":"),
+    prefix.lastIndexOf("!"),
+    prefix.lastIndexOf("?"),
+  );
+  const candidate = value.slice(hardBoundary + 1, comparatorIndex);
+  const tokens = [...candidate.matchAll(/\S+/g)];
+  let start = comparatorIndex;
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index]!;
+    if (!looksLikeEquationLeftToken(token[0])) break;
+    start = hardBoundary + 1 + (token.index ?? 0);
+  }
+  while (start < comparatorIndex && /\s/.test(value[start]!)) start += 1;
+  return start;
+}
+
+function looksLikeEquationLeftToken(token: string): boolean {
+  const normalized = token.replace(/^[,،]+|[,،]+$/g, "");
+  if (!normalized) return false;
+  if (/^(?:ab|am|an|auf|aus|bei|der|die|das|den|dem|des|ein|eine|einer|eines|für|im|in|ist|mit|of|the|to|um|von|wird|zu)$/i.test(normalized)) {
+    return false;
+  }
+  if (/^(?:sin|cos|tan|lim|log|ln|exp|max|min|mod)$/i.test(normalized)) return true;
+  if (/^[A-Za-zÄÖÜäöüα-ωΑ-ΩµμΣ∞ℝ]{1,2}$/u.test(normalized)) return true;
+  if (/^[α-ωΑ-Ω][A-Za-zÄÖÜäöüß]{1,5}$/u.test(normalized)) return true;
+  if (/^[A-Za-zÄÖÜäöü](?:(?:[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9]*)|(?:min|max|ges|zul|eff|nom|krit|vorh))(?:,(?:min|max|ges|zul|eff|nom|krit|vorh))?$/u.test(normalized)) {
+    return true;
+  }
+  if (/^[A-Za-zÄÖÜäöü]{1,4},(?:min|max|ges|zul|eff|nom|krit|vorh)$/u.test(normalized)) return true;
+  return /[0-9₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹()[\]{}_^′'∫Σ√+\-−*/·×]/u.test(normalized);
+}
+
+function scanEquationEnd(value: string, start: number): number {
+  let cursor = start;
+  let depth = 0;
+  let sawRightHandToken = false;
+  while (cursor < value.length) {
+    const character = value[cursor]!;
+    if (character === "(" || character === "[" || character === "{") {
+      depth += 1;
+      cursor += 1;
+      continue;
+    }
+    if (character === ")" || character === "]" || character === "}") {
+      depth = Math.max(0, depth - 1);
+      cursor += 1;
+      continue;
+    }
+    if (depth === 0 && (character === ";" || character === ":" || character === "!" || character === "?")) break;
+    if (depth === 0 && character === "." && /\s|$/.test(value[cursor + 1] ?? "")) break;
+    if (/[A-Za-zÄÖÜäöüα-ωΑ-Ωµμ]/u.test(character)) {
+      const word = value.slice(cursor).match(/^[A-Za-zÄÖÜäöüα-ωΑ-Ωµμ]+/u)?.[0] ?? character;
+      if (sawRightHandToken && !looksLikeMathWord(word)) break;
+      sawRightHandToken = true;
+      cursor += word.length;
+      continue;
+    }
+    if (/\d/.test(character)) sawRightHandToken = true;
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function looksLikeMathWord(word: string): boolean {
+  if (/^(?:ab|an|am|im|in|ist|sind|gilt|folgt|wird|mit|und|oder|als|für|bei|aus|is|are|was|were|as|of|to|or|and|from|with)$/i.test(word)) return false;
+  if (/^(?:sin|cos|tan|lim|log|ln|exp|max|min|mod)$/i.test(word)) return true;
+  if (/^(?:mm|cm|dm|m|km|µm|μm|nm|N|kN|MN|Pa|kPa|MPa|GPa|Nm|kNm|J|kJ|W|kW|Hz|rad|kg|g|s|ms|h)$/u.test(word)) return true;
+  if (word.length <= 2) return true;
+  if (/^[A-Za-zÄÖÜäöü](?:min|max|ges|zul|eff|nom|krit|vorh)$/i.test(word)) return true;
+  if (/[α-ωΑ-Ω]/u.test(word)) return true;
+  if (/[A-ZÄÖÜ]/.test(word.slice(1)) || /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{0,5}$/.test(word)) return true;
+  return /^(?:min|max|ges|zul|eff|nom|krit|vorh)$/i.test(word);
+}
+
+function renderInlineEquation(expression: string): string {
+  const parts = splitInlineEquationParts(expression);
+  return `<wbr><span class="math-expression" role="math" aria-label="${esc(expression)}">${parts.map((part) => {
+    const trimmed = part.trim();
+    return /^(?:=|≈|≤|≥|≠|<|>|\+|−|·|×|-)$/.test(trimmed)
+      ? `<span class="math-expression__relation" aria-hidden="true">${esc(trimmed)}</span>`
+      : `<span class="math-expression__operand">${mathml(trimmed)}</span>`;
+  }).map((part) => `<wbr>${part}`).join("")}</span>`;
+}
+
+function splitInlineEquationParts(expression: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  const operators = new Set(["=", "≈", "≤", "≥", "≠", "<", ">", "+", "−", "·", "×", "-"]);
+  const unaryPredecessors = new Set(["=", "≈", "≤", "≥", "≠", "<", ">", "+", "−", "·", "×", "-", "(", "[", "{", "^", "_", ","]);
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index]!;
+    if (!operators.has(character)) continue;
+    const previous = expression.slice(0, index).trimEnd().at(-1);
+    if (["+", "−", "-"].includes(character) && (!previous || unaryPredecessors.has(previous))) {
+      continue;
+    }
+    const operand = expression.slice(start, index).trim();
+    if (operand) parts.push(operand);
+    parts.push(character);
+    start = index + 1;
+  }
+  const tail = expression.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts;
 }
 
 function renderMathTokens(tokens: string[]): string {
   const output: string[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
-    let node: string;
-    if (tokens[index] === "√") {
-      const radicand = readMathAtom(tokens, index + 1);
-      node = `<msqrt>${radicand.node}</msqrt>`;
-      index = radicand.end;
-    } else {
-      const atom = readMathAtom(tokens, index);
-      node = atom.node;
-      index = atom.end;
-    }
-    let script = tokens[index + 1];
-    while ((script === "_" || script === "^") && tokens[index + 2]) {
-      const argument = readMathAtom(tokens, index + 2, false);
-      node = `<${script === "_" ? "msub" : "msup"}>${node}<mrow>${argument.node}</mrow></${script === "_" ? "msub" : "msup"}>`;
-      index = argument.end;
-      script = tokens[index + 1];
-    }
-    if (/^[₀-₉]+$/.test(script ?? "")) {
-      node = `<msub>${node}<mn>${esc(toNormalDigits(script))}</mn></msub>`;
-      index += 1;
-    } else if (/^[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(script ?? "")) {
-      node = `<msup>${node}<mn>${esc(toNormalDigits(script))}</mn></msup>`;
-      index += 1;
-    }
+    const atom = readDecoratedMathAtom(tokens, index);
+    let node = atom.node;
+    index = atom.end;
     if (tokens[index + 1] === "/" && tokens[index + 2]) {
-      const denominator = readMathAtom(tokens, index + 2, false);
+      const denominator = readDecoratedMathAtom(tokens, index + 2, false);
       node = `<mfrac>${node}${denominator.node}</mfrac>`;
       index = denominator.end;
     }
     output.push(node);
   }
   return output.join("");
+}
+
+function readDecoratedMathAtom(
+  tokens: string[],
+  start: number,
+  preserveDelimiters = true,
+): { node: string; end: number } {
+  let node: string;
+  let end: number;
+  if (tokens[start] === "√") {
+    const radicand = readDecoratedMathAtom(tokens, start + 1, false);
+    node = `<msqrt>${radicand.node}</msqrt>`;
+    end = radicand.end;
+  } else {
+    const atom = readMathAtom(tokens, start, preserveDelimiters);
+    node = atom.node;
+    end = atom.end;
+  }
+  while (tokens[end + 1]) {
+    const script = tokens[end + 1]!;
+    if ((script === "_" || script === "^") && tokens[end + 2]) {
+      const argument = readMathAtom(tokens, end + 2, false);
+      const element = script === "_" ? "msub" : "msup";
+      node = `<${element}>${node}<mrow>${argument.node}</mrow></${element}>`;
+      end = argument.end;
+      continue;
+    }
+    if (isUnicodeSubscript(script) || isUnicodeSuperscript(script)) {
+      const element = isUnicodeSubscript(script) ? "msub" : "msup";
+      node = `<${element}>${node}${mathScriptNode(script)}</${element}>`;
+      end += 1;
+      continue;
+    }
+    break;
+  }
+  return { node, end };
 }
 
 function readMathAtom(tokens: string[], start: number, preserveDelimiters = true): { node: string; end: number } {
@@ -386,6 +565,27 @@ function readMathAtom(tokens: string[], start: number, preserveDelimiters = true
   return { node, end: Math.min(end, tokens.length - 1) };
 }
 
+function mathTokens(value: string): string[] {
+  return value.match(
+    /[α-ωΑ-Ω][A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+|[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝµμ]+|\d+(?:[.,]\d+)?|[₀-₉₊₋₌₍₎ₐₑₒₓₔₕₖₗₘₙₚₛₜ]+|[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+|\S/gu,
+  ) ?? [];
+}
+
+function isUnicodeSubscript(value: string): boolean {
+  return /^[₀-₉₊₋₌₍₎ₐₑₒₓₔₕₖₗₘₙₚₛₜ]+$/u.test(value);
+}
+
+function isUnicodeSuperscript(value: string): boolean {
+  return /^[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+$/u.test(value);
+}
+
+function mathScriptNode(value: string): string {
+  const normalized = toNormalScript(value);
+  if (/^\d+$/.test(normalized)) return `<mn>${esc(normalized)}</mn>`;
+  if (/^[A-Za-zÄÖÜäöüα-ωΑ-Ω]$/u.test(normalized)) return `<mi>${esc(normalized)}</mi>`;
+  return `<mrow>${renderMathTokens(mathTokens(normalized))}</mrow>`;
+}
+
 function delimitersBalanced(value: string): boolean {
   const pairs: Record<string, string> = { ")": "(", "}": "{" };
   const stack: string[] = [];
@@ -400,6 +600,10 @@ function delimitersBalanced(value: string): boolean {
 
 function lightweightMathText(value: string): string {
   return esc(value)
+    .replace(
+      /(\d+(?:[.,]\d+)?)\^\(([+−-]?\d+(?:[.,]\d+)?)\)_([+−-]?\d+(?:[.,]\d+)?)/g,
+      "$1<sup>$2</sup><sub>$3</sub>",
+    )
     .replace(/([∫Σ])_\{?([A-Za-z0-9=+−-]{1,20})\}?\^\{?([A-Za-z0-9∞+−-]{1,20})\}?/g, '<span class="bounded-operator" aria-label="$1 von $2 bis $3">$1<sub>$2</sub><sup>$3</sup></span>')
     .replace(/\blim_\{?([A-Za-z0-9→∞+−-]{1,20})\}?/g, '<span class="bounded-operator" aria-label="Grenzwert für $1">lim<sub>$1</sub></span>')
     .replace(/([A-Za-z])_\{([^{}]{1,20})\}/g, "<var>$1</var><sub>$2</sub>")
@@ -442,12 +646,19 @@ function clientContentForDisplay(content: StudyGuideContent): StudyGuideContent 
         givens: exercise.givens.map(typographicScripts),
         steps: exercise.steps.map(typographicScripts),
         commonMistake: typographicScripts(exercise.commonMistake),
-      } : {
+      } : exercise.type === "application" ? {
         ...exercise,
         prompt: typographicScripts(exercise.prompt),
         instructions: exercise.instructions.map(typographicScripts),
         sampleAnswer: typographicScripts(exercise.sampleAnswer),
         selfCheck: exercise.selfCheck.map(typographicScripts),
+      } : {
+        ...exercise,
+        prompt: typographicScripts(exercise.prompt),
+        term: typographicScripts(exercise.term),
+        acceptedAnswers: exercise.acceptedAnswers.map(typographicScripts),
+        context: typographicScripts(exercise.context),
+        explanation: typographicScripts(exercise.explanation),
       }),
       retrieval: topic.retrieval.map((item) => ({
         prompt: typographicScripts(item.prompt),
@@ -471,17 +682,49 @@ function typographicScripts(value: string): string {
 }
 
 function mathToken(token: string): string {
+  if (/^(?:mm|cm|dm|km|µm|μm|nm|N|kN|MN|Pa|kPa|MPa|GPa|Nm|kNm|J|kJ|W|kW|Hz|rad|kg|ms|DIN|ISO|EN)$/u.test(token)) {
+    return `<mtext>${esc(token)}</mtext>`;
+  }
   const implicitNamedSubscript = token.match(/^([α-ωΑ-Ω])([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+)$/u);
   if (implicitNamedSubscript) {
     return `<msub><mi>${esc(implicitNamedSubscript[1])}</mi><mi>${esc(implicitNamedSubscript[2])}</mi></msub>`;
+  }
+  const implicitGreekSubscript = token.match(/^([α-ωΑ-Ω])([A-Za-zÄÖÜäöüß]+)$/u);
+  if (implicitGreekSubscript) {
+    return `<msub><mi>${esc(implicitGreekSubscript[1])}</mi><mi>${esc(implicitGreekSubscript[2])}</mi></msub>`;
+  }
+  const implicitLatinSubscript = token.match(/^([A-Za-zÄÖÜäöü])([A-Za-zÄÖÜäöüß]+)$/u);
+  if (
+    implicitLatinSubscript &&
+    (
+      /[A-ZÄÖÜ]/.test(implicitLatinSubscript[2]) ||
+      /^(?:min|max|sp|kl|ges|zul|eff|nom|krit|vorh|z|s|t|k|b|v|a|d|w|h|n)$/i.test(implicitLatinSubscript[2])
+    )
+  ) {
+    return `<msub><mi>${esc(implicitLatinSubscript[1])}</mi><mi>${esc(implicitLatinSubscript[2])}</mi></msub>`;
   }
   if (/^\d/.test(token)) return `<mn>${esc(token)}</mn>`;
   if (/^[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝ]+$/u.test(token)) return `<mi>${esc(token)}</mi>`;
   return `<mo>${esc(token)}</mo>`;
 }
 
-function toNormalDigits(value: string): string {
-  const map: Record<string, string> = { "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9" };
+function toNormalScript(value: string): string {
+  const map: Record<string, string> = {
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+    "₊": "+", "₋": "−", "₌": "=", "₍": "(", "₎": ")",
+    "ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₔ": "ə",
+    "ₕ": "h", "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n",
+    "ₚ": "p", "ₛ": "s", "ₜ": "t",
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁺": "+", "⁻": "−", "⁼": "=", "⁽": "(", "⁾": ")",
+    "ᵃ": "a", "ᵇ": "b", "ᶜ": "c", "ᵈ": "d", "ᵉ": "e",
+    "ᶠ": "f", "ᵍ": "g", "ʰ": "h", "ⁱ": "i", "ʲ": "j",
+    "ᵏ": "k", "ˡ": "l", "ᵐ": "m", "ⁿ": "n", "ᵒ": "o",
+    "ᵖ": "p", "ʳ": "r", "ˢ": "s", "ᵗ": "t", "ᵘ": "u",
+    "ᵛ": "v", "ʷ": "w", "ˣ": "x", "ʸ": "y", "ᶻ": "z",
+  };
   return [...value].map((character) => map[character] ?? character).join("");
 }
 
