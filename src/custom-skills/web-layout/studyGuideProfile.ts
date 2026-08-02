@@ -18,16 +18,35 @@ export interface StudyGuideRequirements {
   selectionTarget: number;
   calculationTarget: number;
   applicationTarget: number;
+  vocabularyTarget: number;
+  vocabularyAssessmentRequired: boolean;
   sourceExerciseCount: number;
   derivedPracticeMinimum: number;
   rationale: string;
 }
 
-interface HandoffSource {
+export interface HandoffSource {
   id?: unknown;
   title?: unknown;
   kind?: unknown;
   url?: unknown;
+  path?: unknown;
+  page?: unknown;
+}
+
+export interface HandoffVisualAsset {
+  id?: unknown;
+  kind?: unknown;
+  title?: unknown;
+  relative_path?: unknown;
+  mime_type?: unknown;
+  width_px?: unknown;
+  height_px?: unknown;
+  source_id?: unknown;
+  source_page?: unknown;
+  confidence?: unknown;
+  caption_hint?: unknown;
+  relevance_reason?: unknown;
 }
 
 interface HandoffSection {
@@ -36,13 +55,75 @@ interface HandoffSection {
   source_ids?: unknown;
 }
 
-interface ExtractionHandoff {
+export interface ExtractionHandoff {
   document_title?: unknown;
   course?: { title?: unknown; url?: unknown };
   sources?: HandoffSource[];
   sections?: HandoffSection[];
   formulas?: unknown[];
-  learning_modules?: Array<{ content_mode?: unknown }>;
+  figures?: Array<{
+    asset_id?: unknown;
+    caption?: unknown;
+    placement_hint?: unknown;
+    source_ids?: unknown;
+  }>;
+  visual_assets?: HandoffVisualAsset[];
+  worked_examples?: unknown[];
+  learning_modules?: Array<{
+    id?: unknown;
+    title?: unknown;
+    content_mode?: unknown;
+    learning_objectives?: unknown[];
+    assessment_signals?: unknown[];
+  }>;
+}
+
+export interface HandoffSectionGroup {
+  key: string;
+  title: string;
+  subtopics: string[];
+}
+
+export function handoffSectionGroups(sourceText: string): HandoffSectionGroup[] {
+  const handoff = readExtractionHandoff(sourceText);
+  const explicitModules = (handoff?.learning_modules ?? []).flatMap((module, index) => {
+    const title = typeof module.title === "string" ? cleanSectionTitle(module.title) : "";
+    if (!title) return [];
+    return [{
+      key: typeof module.id === "string" && module.id ? module.id : `module-${index + 1}`,
+      title,
+      subtopics: [] as string[],
+    }];
+  });
+  if (explicitModules.length > 1) return explicitModules;
+  const sections = handoff?.sections ?? [];
+  const groups = new Map<string, string[]>();
+  for (let index = 0; index < sections.length; index += 1) {
+    const section = sections[index];
+    const title = typeof section.heading === "string"
+      ? cleanSectionTitle(section.heading)
+      : "";
+    if (!title) continue;
+    const ids = Array.isArray(section.source_ids)
+      ? section.source_ids.map(String)
+      : [];
+    const chapter = ids
+      .map((id) => /(?:^|_)ch(\d+)(?:_|$)/i.exec(id)?.[1])
+      .find(Boolean);
+    const primarySource = ids[0]?.replace(/_res_[a-z0-9]+$/i, "");
+    const key = chapter ? `chapter-${chapter}` : primarySource || `section-${index + 1}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(title);
+    groups.set(key, bucket);
+  }
+  return [...groups.entries()].map(([key, titles]) => {
+    const subtopics = unique(titles);
+    return {
+      key,
+      title: groupedSectionTitle(subtopics),
+      subtopics,
+    };
+  });
 }
 
 export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequirements {
@@ -60,6 +141,27 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
   const sectionTitles = selectRepresentativeSections(handoff?.sections ?? []);
   const practice = countPracticeEvidence(sourceText);
   const formulaCount = Array.isArray(handoff?.formulas) ? handoff.formulas.length : 0;
+  const workedExampleCount = Array.isArray(handoff?.worked_examples) ? handoff.worked_examples.length : 0;
+  const objectiveCount = Math.max(
+    sectionTitles.length,
+    (handoff?.learning_modules ?? []).reduce(
+      (total, module) => total + (Array.isArray(module.learning_objectives) ? module.learning_objectives.length : 0),
+      0,
+    ),
+  );
+  const assessmentSignalCount = (handoff?.learning_modules ?? []).reduce(
+    (total, module) => total + (Array.isArray(module.assessment_signals) ? module.assessment_signals.length : 0),
+    0,
+  );
+  const structuredLearningEvidence = JSON.stringify({
+    sections: handoff?.sections ?? [],
+    learning_modules: handoff?.learning_modules ?? [],
+  });
+  const vocabularySignals = countMatches(
+    structuredLearningEvidence,
+    /\b(?:vocabulary|vocab|wortschatz|terminology|terms?\s+of|useful\s+expressions?|fachbegriffe?|glossar|glossary)\b/gi,
+  );
+  const vocabularyAssessment = /\b(?:vocabulary|vocab|wortschatz)\s*(?:test|quiz|section|teil|prüfung)\b/i.test(sourceText);
   const declaredModes = new Set((handoff?.learning_modules ?? []).flatMap((module) =>
     typeof module.content_mode === "string" ? [module.content_mode] : []
   ));
@@ -67,7 +169,20 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
   const proceduralName = /\b(?:language|sprache|labor|lab|writing|schreiben|communication|kommunikation|practice|praxis)\b/i.test(courseTitle);
   const caseName = /\b(?:medicine|medizin|pflege|diagnos|therap|health|gesundheit|business|wirtschaft|management|marketing|law|recht|ethics?|ethik)\b/i.test(courseTitle);
   const caseSignals = countMatches(sourceText, /\b(?:fallbeispiel|fallstudie|patient|diagnos|therap|entscheidungssituation|unternehmen|stakeholder|szenario)\b/gi);
-  const quantitativeSignals = countMatches(sourceText, /(?:\b(?:berechne|bestimme|ermittle|gleichung|integral|ableitung|moment|kraft|spannung|leistung)\b|[=∫Σ√])/gi);
+  const applicationSignals = countMatches(
+    sourceText,
+    /\b(?:apply|analyse|analyze|evaluate|critique|write|present|discuss|design|interpret|compare|perform|anwenden|analysieren|bewerten|begründen|schreiben|präsentieren|diskutieren|entwerfen|interpretieren|durchführen)\b/gi,
+  );
+  const quantitativeSignalText = sourceText.replace(/https?:\/\/[^\s"'<>]+/giu, " ");
+  const quantitativeSignals = countMatches(
+    quantitativeSignalText,
+    /(?:\b(?:berechne|bestimme|ermittle|gleichung|integral|ableitung|kraft|spannung)\b|(?:[\p{L}\p{N})]\s*[=∫Σ√]\s*[\p{L}\p{N}(]))/giu,
+  );
+  const hasQuantitativeEvidence = quantitativeName ||
+    declaredModes.has("quantitative") ||
+    formulaCount > 0 ||
+    practice.calculation > 0 ||
+    quantitativeSignals >= 8;
   const archetype = inferArchetype({
     declaredModes,
     quantitativeName,
@@ -80,33 +195,72 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
   });
   const evidenceTopics = sectionTitles.length || practice.sourceFiles || 6;
   const topicTarget = clamp(evidenceTopics, 4, 12);
-  const baselinePerTopic = archetype === "quantitative" || archetype === "mixed" ? 3 : 2;
-  const usefulMinimum = topicTarget * baselinePerTopic;
-  const maes2 = /\bMAES2\b/i.test(`${courseCode} ${courseTitle}`);
-  const exerciseTarget = maes2 ? 40 : clamp(Math.max(usefulMinimum, Math.min(practice.total, 36)), 12, 36);
-  const calculationShare = archetype === "quantitative" ? 0.4 : archetype === "mixed" ? 0.25 : 0;
-  const selectionShare = archetype === "conceptual"
-    ? 0.45
-    : archetype === "case-based"
+  // Coverage is derived from evidenced objectives rather than a fixed
+  // per-course or per-topic quota: every objective needs foundation and
+  // application, complex objectives need depth, and assessment signals add a
+  // representative assessment slot. Existing source questions remain a floor.
+  const objectiveFloor = Math.max(objectiveCount, topicTarget);
+  const foundationAndApplication = objectiveFloor * 2;
+  const depthCoverage = Math.min(
+    objectiveFloor,
+    formulaCount + workedExampleCount,
+  );
+  const assessmentCoverage = assessmentSignalCount > 0 ||
+      /(?:Musterprüfung|Prüfungsaufbau|sample\s+exam|exam\s+(?:format|structure))/i.test(sourceText)
+    ? objectiveFloor
+    : 0;
+  const vocabularyPerTopic = vocabularyAssessment
+    ? clamp(
+        8 + Math.ceil(vocabularySignals / Math.max(1, topicTarget * 2)),
+        10,
+        16,
+      )
+    : 0;
+  const vocabularyTarget = vocabularyAssessment
+    ? Math.min(120, topicTarget * vocabularyPerTopic)
+    : vocabularySignals > 0
+      ? clamp(
+          Math.max(
+            6,
+            vocabularySignals * 3,
+            topicTarget,
+          ),
+          4,
+          Math.min(48, topicTarget * 8),
+        )
+      : 0;
+  const exerciseCeiling = Math.min(
+    180,
+    Math.max(60, vocabularyTarget + topicTarget * 6),
+  );
+  const exerciseTarget = clamp(
+    Math.max(
+      12,
+      practice.total,
+      foundationAndApplication + depthCoverage + assessmentCoverage + Math.ceil(vocabularyTarget / 2),
+      vocabularyTarget > 0 ? vocabularyTarget + topicTarget * 3 : 0,
+    ),
+    12,
+    exerciseCeiling,
+  );
+  const quantitativeEvidenceDensity = formulaCount + workedExampleCount + practice.calculation;
+  const calculationShare = hasQuantitativeEvidence
+    ? quantitativeEvidenceDensity >= objectiveFloor ? 0.4 : 0.25
+    : 0;
+  const applicationShare = declaredModes.has("procedural") || declaredModes.has("case-based")
+    ? 0.55
+    : applicationSignals >= objectiveFloor || caseSignals >= Math.ceil(objectiveFloor / 2)
+    ? 0.4
+    : applicationSignals > 0
       ? 0.3
-      : archetype === "procedural"
-        ? 0.25
-        : 0.35;
-  const applicationShare = archetype === "case-based" || archetype === "procedural"
-    ? 0.45
-    : archetype === "conceptual"
-      ? 0.3
-      : archetype === "mixed"
-        ? 0.2
-        : 0.1;
-  const calculationTarget = maes2 ? 18 : Math.round(exerciseTarget * calculationShare);
-  const selectionTarget = maes2 ? 20 : Math.min(exerciseTarget - calculationTarget, Math.round(exerciseTarget * selectionShare));
-  const applicationTarget = maes2
-    ? 0
-    : Math.min(
-        exerciseTarget - calculationTarget - selectionTarget,
-        Math.max(1, Math.round(exerciseTarget * applicationShare)),
-      );
+      : 0.2;
+  const generalExerciseTarget = Math.max(0, exerciseTarget - vocabularyTarget);
+  const calculationTarget = Math.round(generalExerciseTarget * calculationShare);
+  const applicationTarget = Math.min(
+    generalExerciseTarget - calculationTarget,
+    Math.max(1, Math.round(generalExerciseTarget * applicationShare)),
+  );
+  const selectionTarget = Math.max(0, generalExerciseTarget - calculationTarget - applicationTarget);
   const sourceExerciseCount = practice.total;
   const derivedPracticeMinimum = Math.max(0, exerciseTarget - sourceExerciseCount);
   return {
@@ -114,35 +268,22 @@ export function deriveStudyGuideRequirements(sourceText: string): StudyGuideRequ
     courseCode,
     archetype,
     sectionTitles: sectionTitles.length ? sectionTitles.slice(0, 12) : Array.from({ length: topicTarget }, (_, index) => `Themenbereich ${index + 1}`),
-    topicTarget: maes2 ? 11 : topicTarget,
+    topicTarget,
     exerciseTarget,
     selectionTarget,
     calculationTarget,
     applicationTarget,
+    vocabularyTarget,
+    vocabularyAssessmentRequired: vocabularyAssessment,
     sourceExerciseCount,
     derivedPracticeMinimum,
-    rationale: `${sectionTitles.length} evidenced course sections, ${practice.total} recognized source tasks, ${formulaCount} formula entries; profile ${archetype}.`,
+    rationale: `${sectionTitles.length} evidenced course sections, ${objectiveFloor} objective coverage slots, ${practice.total} recognized source tasks, ${formulaCount} formula entries, ${workedExampleCount} worked examples, ${assessmentSignalCount} assessment signals, and ${vocabularySignals} terminology/vocabulary signals; evidence profile ${archetype}.`,
   };
 }
 
 export function fallbackStudyGuideRequirements(content: StudyGuideContent): StudyGuideRequirements {
-  if (/\bMAES2\b/i.test(`${content.courseCode ?? ""} ${content.courseTitle}`)) {
-    return {
-      courseTitle: content.courseTitle,
-      courseCode: content.courseCode || "MAES2",
-      archetype: "mixed",
-      sectionTitles: content.topics.map((topic) => topic.title),
-      topicTarget: 11,
-      exerciseTarget: 40,
-      selectionTarget: 20,
-      calculationTarget: 18,
-      applicationTarget: 0,
-      sourceExerciseCount: 40,
-      derivedPracticeMinimum: 0,
-      rationale: "Legacy MAES2 quality floor.",
-    };
-  }
-  const exerciseTarget = Math.max(3 * content.topics.length, 12);
+  const objectiveCount = content.topics.reduce((total, topic) => total + topic.learningGoals.length, 0);
+  const exerciseTarget = Math.max(2 * objectiveCount, 3 * content.topics.length, 12);
   return {
     courseTitle: content.courseTitle,
     courseCode: content.courseCode || inferCourseCode(content.courseTitle),
@@ -153,6 +294,8 @@ export function fallbackStudyGuideRequirements(content: StudyGuideContent): Stud
     selectionTarget: Math.ceil(exerciseTarget / 2),
     calculationTarget: 0,
     applicationTarget: Math.max(1, Math.floor(exerciseTarget / 4)),
+    vocabularyTarget: 0,
+    vocabularyAssessmentRequired: false,
     sourceExerciseCount: 0,
     derivedPracticeMinimum: 0,
     rationale: "Schema-only fallback quality floor.",
@@ -266,6 +409,18 @@ function cleanTitle(value: string): string {
 
 function cleanSectionTitle(value: string): string {
   return value.replace(/^THEMA\s*\d+\s*:\s*/i, "").replace(/\s+/g, " ").trim();
+}
+
+function groupedSectionTitle(subtopics: string[]): string {
+  const numbered = subtopics.flatMap((title) => {
+    const match = /^\s*Thema\s*(\d+)\b/i.exec(title);
+    return match ? [Number(match[1])] : [];
+  });
+  const uniqueNumbers = [...new Set(numbered)].sort((left, right) => left - right);
+  if (uniqueNumbers.length <= 1) return subtopics[0] ?? "Kurskapitel";
+  const first = uniqueNumbers[0]!;
+  const last = uniqueNumbers.at(-1)!;
+  return `Themen ${first}–${last}`;
 }
 
 function countMatches(value: string, pattern: RegExp): number {

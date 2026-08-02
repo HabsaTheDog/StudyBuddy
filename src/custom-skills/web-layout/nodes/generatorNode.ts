@@ -7,7 +7,9 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
 import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 import { studyGuideBlockGuidance } from "../studyGuideBlockContract.js";
-import { renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
+import { renderAdaptiveStudyGuide } from "../adaptiveStudyGuideRenderer.js";
+import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
+import { studyGuideContentSchema } from "../studyGuideContent.js";
 
 const REPAIR_DOCUMENT_PATH = ".repair/document.html";
 
@@ -18,7 +20,22 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         config.kind === "study-guide" &&
         Object.keys(state.study_guide_content).length > 0
       ) {
-        const html = applyOfflineSecurityPolicy(renderStandardStudyGuide(state.study_guide_content, config.language));
+        const adaptive = Object.keys(state.course_blueprint).length &&
+            Object.keys(state.assessment_blueprint).length &&
+            Object.keys(state.question_bank).length
+          ? {
+              courseBlueprint: state.course_blueprint,
+              assessmentBlueprint: state.assessment_blueprint,
+              questionBank: state.question_bank,
+            }
+          : buildAdaptiveStudyModel(
+              studyGuideContentSchema.parse(state.study_guide_content),
+              state.source_text,
+              config.language,
+            );
+        const html = applyOfflineSecurityPolicy(
+          renderAdaptiveStudyGuide(state.study_guide_content, adaptive, config.language),
+        );
         assertCompleteHtmlResponse(html);
         await config.diagnostics?.log("info", "generator", `Rendered standardized study-guide HTML deterministically (${html.length} chars).`);
         return { html_document: html, error_log: null };

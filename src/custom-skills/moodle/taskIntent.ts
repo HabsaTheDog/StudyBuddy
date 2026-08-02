@@ -71,7 +71,11 @@ export function classifyStudyBuddyIntent(input: {
   const hasQuizIntent = explicitQuizIntent(prompt);
   const wantsPdf = /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/i
     .test(prompt);
+  const wantsInteractiveStudyArtifact =
+    /\b(?:study buddy|interaktive[rsn]?\s+study guide|interactive\s+study guide|lernumgebung|lernseite)\b/i
+      .test(prompt);
   const wantsDocument = wantsPdf ||
+    wantsInteractiveStudyArtifact ||
     /\b(?:kursübersicht|kursuebersicht|stoffübersicht|stoffuebersicht|zusammenfassung|vorbereitung|lernunterlagen|kursunterlagen|prüfungsrelevante unterlagen|pruefungsrelevante unterlagen)\b/i
       .test(prompt);
   const onlyShortAnswer = /\b(?:nenne nur|nur den termin|kurz|nur kurz|nur datum|nur die antwort)\b/i.test(prompt);
@@ -109,7 +113,7 @@ export function classifyStudyBuddyIntent(input: {
     });
   }
 
-  if (scheduleSignal && !wantsPdf) {
+  if (scheduleSignal && !wantsPdf && !wantsInteractiveStudyArtifact) {
     return decision("schedule_answer", "The prompt asks for schedule/date/room facts without a document request.", {
       wantsQuickAnswer: true,
       needsMoodle: courseMaterial || explicitMoodleSource,
@@ -120,7 +124,7 @@ export function classifyStudyBuddyIntent(input: {
     });
   }
 
-  if (wantsDocument && !onlyShortAnswer) {
+  if (wantsDocument && (!onlyShortAnswer || wantsInteractiveStudyArtifact)) {
     return decision("document", "The prompt asks for a course/material overview suited to a study artifact.", {
       wantsTypstDocument: true,
       needsMoodle: true,

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,6 +93,168 @@ describe("Moodle scraper timeout recovery", () => {
       failureKind: undefined,
     });
     expect(mocks.launch).not.toHaveBeenCalled();
+  });
+
+  it("routes an already-discovered completed review through the read-only Study Builder adapter", async () => {
+    const reviewUrl =
+      "https://moodle.example/mod/quiz/review.php?attempt=42&cmid=7";
+    mocks.client.open.mockResolvedValue({ stdout: "", stderr: "" });
+    mocks.client.getUrl.mockResolvedValue(reviewUrl);
+    mocks.client.evalText.mockResolvedValue("Status: Beendet");
+    mocks.client.snapshot.mockResolvedValue({
+      origin: reviewUrl,
+      refs: {},
+      snapshot:
+        '- heading "Review attempt" [ref=e1]\n- text "Question 1: Course-faithful evidence"',
+    });
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+
+    const result = await createScraperNode(
+      moodleTestConfig({
+        browserBackend: "agent-browser",
+        diagnostics,
+        moodleUrl: reviewUrl,
+        dashboardUrl: "https://moodle.example/my",
+        runDir,
+        evidenceHandoffOnly: true,
+        quizSafetyPolicy: {
+          ...moodleTestConfig().quizSafetyPolicy,
+          accessMode: "quiz-assist",
+          allowStartingOrContinuingAttempts: true,
+          allowSuggestingAnswers: true,
+          allowFillingAnswers: true,
+          allowChangingExistingAnswers: true,
+          allowSavingMovingNext: true,
+        },
+      }),
+    )(moodleTestState());
+
+    expect(result.moodle_raw_text).toContain("Course-faithful evidence");
+    expect(mocks.client.open).toHaveBeenCalledExactlyOnceWith(reviewUrl);
+    expect(mocks.client.fill).not.toHaveBeenCalled();
+    expect(mocks.client.click).not.toHaveBeenCalled();
+    expect(mocks.client.press).not.toHaveBeenCalled();
+
+    const audit = await readFile(
+      path.join(runDir, "quiz-evidence-audit.json"),
+      "utf8",
+    );
+    expect(audit).toContain('"open_completed_attempt_review"');
+    expect(audit).toContain('"read_completed_attempt_review"');
+    expect(audit).not.toContain(reviewUrl);
+    expect(audit).not.toContain("Course-faithful evidence");
+  });
+
+  it("consumes a completed review discovered by the existing course crawl without a second crawl", async () => {
+    const reviewUrl =
+      "https://moodle.example/mod/quiz/review.php?attempt=42&cmid=7";
+    mocks.client.open.mockResolvedValue({ stdout: "", stderr: "" });
+    mocks.client.getUrl.mockResolvedValue(reviewUrl);
+    mocks.client.evalText.mockResolvedValue("State: Finished");
+    mocks.client.snapshot
+      .mockResolvedValueOnce({
+        origin: courseUrl,
+        refs: {
+          "e-review": { role: "link", name: "Review attempt" },
+        },
+        snapshot: [
+          '- heading "Maschinenelemente 1" [ref=e-course]',
+          `- link "Review attempt" [ref=e-review, url=${reviewUrl}]`,
+        ].join("\n"),
+      })
+      .mockResolvedValueOnce({
+        origin: reviewUrl,
+        refs: {},
+        snapshot:
+          '- heading "Review attempt" [ref=e1]\n- text "Completed question pattern"',
+      });
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+
+    const result = await createScraperNode(
+      moodleTestConfig({
+        browserBackend: "agent-browser",
+        diagnostics,
+        prompt: "Create an interactive Study Guide",
+        moodleUrl: courseUrl,
+        dashboardUrl: "https://moodle.example/my",
+        runDir,
+        maxDepth: 1,
+        maxPages: 2,
+        evidenceHandoffOnly: true,
+      }),
+    )(moodleTestState());
+
+    expect(mocks.client.open.mock.calls.map(([url]) => url)).toEqual([
+      courseUrl,
+      reviewUrl,
+    ]);
+    expect(result.moodle_raw_text).toContain("Completed question pattern");
+    expect(mocks.client.fill).not.toHaveBeenCalled();
+    expect(mocks.client.click).not.toHaveBeenCalled();
+    expect(mocks.client.press).not.toHaveBeenCalled();
+  });
+
+  it("does not read review contents when the opened attempt is still active", async () => {
+    const reviewUrl =
+      "https://moodle.example/mod/quiz/review.php?attempt=42&cmid=7";
+    mocks.client.open.mockResolvedValue({ stdout: "", stderr: "" });
+    mocks.client.getUrl.mockResolvedValue(reviewUrl);
+    mocks.client.evalText.mockResolvedValue("State: In progress");
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+
+    const result = await createScraperNode(
+      moodleTestConfig({
+        browserBackend: "agent-browser",
+        diagnostics,
+        moodleUrl: reviewUrl,
+        dashboardUrl: "https://moodle.example/my",
+        runDir,
+        evidenceHandoffOnly: true,
+      }),
+    )(moodleTestState());
+
+    expect(result.moodle_raw_text).toContain("opened-review-is-not-completed");
+    expect(mocks.client.snapshot).not.toHaveBeenCalled();
+    expect(mocks.client.fill).not.toHaveBeenCalled();
+    expect(mocks.client.click).not.toHaveBeenCalled();
+    expect(mocks.client.press).not.toHaveBeenCalled();
+  });
+
+  it("blocks direct attempt navigation even when the legacy global policy permits it", async () => {
+    const attemptUrl =
+      "https://moodle.example/mod/quiz/attempt.php?attempt=42&cmid=7";
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+
+    const result = await createScraperNode(
+      moodleTestConfig({
+        browserBackend: "agent-browser",
+        diagnostics,
+        moodleUrl: attemptUrl,
+        dashboardUrl: "https://moodle.example/my",
+        runDir,
+        evidenceHandoffOnly: true,
+        quizPolicy: {
+          ...moodleTestConfig().quizPolicy,
+          allowAttemptOpen: true,
+          allowQuestionRead: true,
+          allowAnswerFill: true,
+          allowAnswerChange: true,
+          allowSaveOrMovePage: true,
+        },
+      }),
+    )(moodleTestState());
+
+    expect(result.moodle_raw_text).toContain(
+      "completed-attempt reviews are read-only",
+    );
+    expect(mocks.client.open).not.toHaveBeenCalled();
+    expect(mocks.client.fill).not.toHaveBeenCalled();
+    expect(mocks.client.click).not.toHaveBeenCalled();
+    expect(mocks.client.press).not.toHaveBeenCalled();
   });
 
   it("counts a successful Playwright fallback as a recovered Moodle page", async () => {

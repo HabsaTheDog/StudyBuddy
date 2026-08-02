@@ -5,6 +5,8 @@ import { studyGuideContentSchema, validateStudyGuideContentQuality } from "../st
 import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { validateSingleFileHtml } from "../validation.js";
 import type { InteractiveEvalCase } from "./corpus.js";
+import { evaluateVNextArtifacts, type VNextEvalResult } from "./vnextEvaluate.js";
+import type { VNextBenchmarkManifest } from "./vnextBenchmark.js";
 
 export interface InteractiveEvalCheck {
   id: string;
@@ -45,11 +47,13 @@ export interface InteractiveEvalResult {
     leafToolPolicyViolations: number;
     artifactBytes: number;
   };
+  vNext?: VNextEvalResult;
 }
 
 export async function evaluateInteractiveRun(
   requestedRunDir: string,
   evalCase?: InteractiveEvalCase,
+  vNextManifest?: VNextBenchmarkManifest,
 ): Promise<InteractiveEvalResult> {
   const runDir = path.resolve(requestedRunDir);
   const webLayoutRunDir = await resolveWebLayoutRunDir(runDir);
@@ -101,7 +105,15 @@ export async function evaluateInteractiveRun(
   add(checks, "content-contract", "reliability", parsedContent.success, parsedContent.success, true);
   const staticValidation = html ? validateSingleFileHtml(html, "study-guide") : { ok: false, issues: [] };
   add(checks, "offline-single-file", "reliability", staticValidation.ok, staticValidation.issues.length, 0);
-  add(checks, "standard-renderer", "quality", /name=["']study-buddy-renderer["'][^>]*content=["']standard-study-guide-v1/i.test(html), /standard-study-guide-v1/i.test(html), true);
+  const renderer = html.match(/name=["']study-buddy-renderer["'][^>]*content=["']([^"']+)/i)?.[1] ?? "";
+  add(
+    checks,
+    "supported-renderer",
+    "quality",
+    renderer === "standard-study-guide-v1" || renderer === "adaptive-study-guide-v2",
+    renderer,
+    "standard-study-guide-v1 | adaptive-study-guide-v2",
+  );
   add(checks, "course-navigation", "quality", /data-sb-course-tabs/i.test(html) && /role=["']tablist["']/i.test(html), /data-sb-course-tabs/i.test(html), true);
   if (content) {
     const contentIssues = validateStudyGuideContentQuality(
@@ -134,6 +146,12 @@ export async function evaluateInteractiveRun(
   addMaximum(checks, "leaf-tool-policy-violations", "efficiency", efficiency.leafToolPolicyViolations, expected?.maxLeafToolPolicyViolations);
   addMinimum(checks, "cache-hit-rate", "efficiency", efficiency.cacheHitRate, expected?.minCacheHitRate);
   addMaximum(checks, "artifact-bytes", "efficiency", efficiency.artifactBytes, expected?.maxArtifactBytes);
+  const vNextEvaluation = await evaluateVNextArtifacts(webLayoutRunDir, {
+    html,
+    summary,
+    qualityReview: quality,
+  }, vNextManifest);
+  checks.push(...vNextEvaluation.checks);
 
   const reliabilityPassed = categoryPassed(checks, "reliability");
   const qualityPassed = categoryPassed(checks, "quality");
@@ -148,6 +166,7 @@ export async function evaluateInteractiveRun(
     checks,
     structure,
     efficiency,
+    ...(vNextEvaluation.result ? { vNext: vNextEvaluation.result } : {}),
   };
 }
 

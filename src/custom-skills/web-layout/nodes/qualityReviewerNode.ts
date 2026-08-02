@@ -28,7 +28,10 @@ export function createQualityReviewerNode(config: WebLayoutRuntimeConfig, codex:
         path.join(config.runDir, ".build", "document.html"),
         "utf8",
       ).catch(() => state.html_document);
-      if (config.kind === "study-guide" && /name="study-buddy-renderer"\s+content="standard-study-guide-v1"/i.test(bundledHtml)) {
+      if (
+        config.kind === "study-guide" &&
+        /name="study-buddy-renderer"\s+content="(?:standard-study-guide-v1|adaptive-study-guide-v2)"/i.test(bundledHtml)
+      ) {
         const findings = deterministicStandardGuideFindings(state, bundledHtml);
         const review = { ok: findings.length === 0, summary: findings.length === 0 ? "Standardisierter Study Guide erfüllt die deterministischen Qualitätskriterien." : "Standardisierter Study Guide benötigt Reparaturen.", findings };
         await writeFile(path.join(config.runDir, "quality-review.json"), `${JSON.stringify(review, null, 2)}\n`, "utf8");
@@ -81,7 +84,13 @@ function deterministicStandardGuideFindings(state: LangGraphWebLayoutState, html
   if (exercises.length < requirements.exerciseTarget) findings.push(`Nur ${exercises.length} statt mindestens ${requirements.exerciseTarget} Aufgaben für das Profil ${requirements.archetype} gerendert.`);
   if (!/data-sb-hotbar/i.test(html) || /class="[^"]*(?:sidebar|side-nav|navigation-rail)/i.test(html)) findings.push("Hotbar-/Sidebar-Vertrag verletzt.");
   if (!/data-sb-course-tabs/i.test(html) || !/role="tab"/i.test(html) || !/role="tabpanel"/i.test(html)) findings.push("Standardisierte Kapitel-Tabs mit Tab-Semantik fehlen.");
-  if (!/localStorage/i.test(html) || !/drafts/i.test(html) || !/completed/i.test(html)) findings.push("Persistenz von Entwürfen und Fortschritt fehlt.");
+  const adaptive = /adaptive-study-guide-v2/i.test(html);
+  if (
+    !/localStorage/i.test(html) ||
+    (adaptive
+      ? !/questions/i.test(html) || !/learned/i.test(html) || !/review/i.test(html)
+      : !/drafts/i.test(html) || !/completed/i.test(html))
+  ) findings.push("Persistenz von Entwürfen und Lernzustand fehlt.");
   if (formulas.length > 0 && (!/<math\b/i.test(html) || !/<(?:msup|msub|mi|mn|mo)\b/i.test(html))) findings.push("Strukturiertes MathML für vorhandene Formeln fehlt.");
   if (requirements.selectionTarget > 0 && !/data-sb-cross-exercise/i.test(html)) findings.push("Der für dieses Kursprofil erforderliche Auswahl-/Retrievalblock fehlt.");
   if (requirements.calculationTarget > 0 && !/data-sb-calculation-exercise/i.test(html)) findings.push("Der für dieses quantitative Kursprofil erforderliche Rechenblock fehlt.");

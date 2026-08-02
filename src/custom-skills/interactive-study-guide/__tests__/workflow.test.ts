@@ -72,6 +72,41 @@ describe("interactive Study Guide workflow", () => {
     ]);
   });
 
+  it("keeps the exact user request separate from a specific operational prompt", async () => {
+    const root = path.join(
+      process.cwd(),
+      "study-buddy-data",
+      "test-interactive-original-prompt",
+      `${Date.now()}`,
+    );
+    const originalUserPrompt = "Okay, und jetzt dasselbe für Englisch.";
+    const operationalPrompt = "Erstelle einen vollständigen Study Buddy für den Moodle-Kurs Business English.";
+    const result = await runInteractiveStudyGuideWorkflow({
+      prompt: operationalPrompt,
+      originalUserPrompt,
+      runDir: root,
+      language: "de",
+    }, {
+      runExtraction: async (input) => {
+        expect(input.prompt).toBe(operationalPrompt);
+        expect(input.originalUserPrompt).toBe(originalUserPrompt);
+        await validHandoff(input.runDir!);
+        return { ok: true, runDir: input.runDir! } as never;
+      },
+      runWebLayout: async (input) => {
+        expect(input.prompt).toBe(operationalPrompt);
+        expect(input.originalUserPrompt).toBe(originalUserPrompt);
+        const outputPath = path.join(input.runDir!, "document.html");
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(outputPath, "<!doctype html><title>Business English</title>", "utf8");
+        return { ok: true, runDir: input.runDir!, outputPath } as never;
+      },
+      publish: async () => [],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("forwards the quality profile through extraction and web rendering", async () => {
     const root = path.join(process.cwd(), "study-buddy-data", "test-interactive-quality-profile", `${Date.now()}`);
     const profiles: string[] = [];

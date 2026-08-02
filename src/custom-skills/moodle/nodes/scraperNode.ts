@@ -50,12 +50,24 @@ import {
   QuizPolicyViolation,
   type QuizContext,
 } from "../quizPolicy.js";
+import {
+  createStudyBuilderQuizEvidenceCapability,
+  type StudyBuilderQuizEvidenceAuditEntry,
+  type StudyBuilderQuizEvidenceCapability,
+} from "../interactive/quizEvidencePolicy.js";
 
 interface CrawlPage {
   url: string;
   depth: number;
 }
 
+interface CompletedQuizReviewEvidence {
+  title: string;
+  url: string;
+  text: string;
+}
+
+const STUDY_BUILDER_QUIZ_EVIDENCE_AUDIT_FILE = "quiz-evidence-audit.json";
 const MAX_RESOURCE_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
 interface PageFetchSuccess {
@@ -100,8 +112,9 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
       const context = await browser.newContext(
         config.storageState ? { storageState: config.storageState } : undefined,
       );
-      page = await context.newPage();
-      await ensureLoggedIn(page, {
+      const activePage = await context.newPage();
+      page = activePage;
+      await ensureLoggedIn(activePage, {
         serviceName: "Moodle",
         targetUrl: config.dashboardUrl || config.moodleUrl,
         username: config.username,
@@ -109,6 +122,8 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         allowedOrigins: config.moodleLoginAllowedOrigins,
       });
       await diagnostics?.log("info", "moodle_login", "Moodle login ok.");
+      const quizEvidenceCapability =
+        createPlaywrightStudyBuilderQuizEvidenceCapability(config, activePage);
 
       const queue: CrawlPage[] = [{ url: config.moodleUrl, depth: 0 }];
       const sourcesDir = path.join(config.runDir, "sources");
@@ -126,6 +141,58 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
             "moodle_crawl",
             `Skipped cross-course Moodle URL outside the resolved course scope: ${next.url}`,
           );
+          continue;
+        }
+        if (
+          config.evidenceHandoffOnly &&
+          isMoodleCompletedAttemptReviewUrl(next.url)
+        ) {
+          visited.add(next.url);
+          await diagnostics?.markAttempt(
+            "moodle",
+            next.url,
+            "Opening an already-discovered completed quiz review through the read-only Study Builder adapter.",
+          );
+          try {
+            const reviewResult =
+              await quizEvidenceCapability.readCompletedAttemptReview({
+                completionState: "completed",
+                reviewUrl: next.url,
+              });
+            if (reviewResult.status === "read") {
+              const evidence = reviewResult.evidence;
+              successfulUrls.add(evidence.url);
+              chunks.push(formatSourceChunk(evidence));
+              await capturePlaywrightResourceSnapshot(
+                activePage,
+                sourcesDir,
+                visited.size,
+                evidence.title,
+                evidence.url,
+              );
+            } else {
+              chunks.push(
+                formatWarning(
+                  "Moodle quiz safety",
+                  `Completed-attempt review was not read: ${reviewResult.decision.reason}.`,
+                ),
+              );
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            chunks.push(
+              formatWarning(
+                "Moodle quiz safety",
+                `Completed-attempt review could not be read safely: ${message}`,
+              ),
+            );
+          } finally {
+            await persistStudyBuilderQuizEvidenceAudit(
+              config,
+              quizEvidenceCapability.getAuditEntries(),
+            );
+          }
+          // Review pages are evidence leaves. Never follow their controls or links.
           continue;
         }
         const openViolation = quizUrlPolicyViolation(config, next.url);
@@ -272,6 +339,8 @@ async function scrapeWithAgentBrowser(
       allowedOrigins: config.moodleLoginAllowedOrigins,
     });
     await diagnostics?.log("info", "moodle_login", "Moodle login ok with agent-browser.");
+    const quizEvidenceCapability =
+      createAgentBrowserStudyBuilderQuizEvidenceCapability(config, client);
 
     const queue: CrawlPage[] = [{ url: config.moodleUrl, depth: 0 }];
     const sourcesDir = path.join(config.runDir, "sources");
@@ -289,6 +358,67 @@ async function scrapeWithAgentBrowser(
           "moodle_crawl",
           `Skipped cross-course Moodle URL outside the resolved course scope: ${next.url}`,
         );
+        continue;
+      }
+      if (
+        config.evidenceHandoffOnly &&
+        isMoodleCompletedAttemptReviewUrl(next.url)
+      ) {
+        visited.add(next.url);
+        await diagnostics?.markAttempt(
+          "moodle",
+          next.url,
+          "Opening an already-discovered completed quiz review through the read-only Study Builder adapter.",
+        );
+        try {
+          const reviewResult =
+            await quizEvidenceCapability.readCompletedAttemptReview({
+              completionState: "completed",
+              reviewUrl: next.url,
+            });
+          if (reviewResult.status === "read") {
+            const evidence = reviewResult.evidence;
+            successfulUrls.add(evidence.url);
+            chunks.push(formatSourceChunk(evidence));
+            await writeFile(
+              path.join(
+                sourcesDir,
+                safeFileName(`${visited.size}-${evidence.title || "quiz-review"}.json`),
+              ),
+              `${JSON.stringify(
+                {
+                  origin: evidence.url,
+                  kind: "completed-quiz-review",
+                  text: evidence.text,
+                },
+                null,
+                2,
+              )}\n`,
+              "utf8",
+            );
+          } else {
+            chunks.push(
+              formatWarning(
+                "Moodle quiz safety",
+                `Completed-attempt review was not read: ${reviewResult.decision.reason}.`,
+              ),
+            );
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          chunks.push(
+            formatWarning(
+              "Moodle quiz safety",
+              `Completed-attempt review could not be read safely: ${message}`,
+            ),
+          );
+        } finally {
+          await persistStudyBuilderQuizEvidenceAudit(
+            config,
+            quizEvidenceCapability.getAuditEntries(),
+          );
+        }
+        // Review pages are evidence leaves. Never follow their controls or links.
         continue;
       }
       const openViolation = quizUrlPolicyViolation(config, next.url);
@@ -882,9 +1012,9 @@ async function extractMoodleLinks(page: Page, config: MoodleRuntimeConfig): Prom
       courseScope = configuredCourseScope(config);
     }
   }
-  return selectRelevantMoodleLinks(
+  return selectMoodleCrawlLinks(
     filterMoodleLinksToCourseScope(relevantLinks, courseScope),
-    config.prompt,
+    config,
   );
 }
 
@@ -1060,6 +1190,176 @@ async function capturePlaywrightResourceSnapshot(
   );
 }
 
+function createPlaywrightStudyBuilderQuizEvidenceCapability(
+  config: MoodleRuntimeConfig,
+  page: Page,
+): StudyBuilderQuizEvidenceCapability<CompletedQuizReviewEvidence> {
+  return createStudyBuilderQuizEvidenceCapability({
+    policy: config.quizSafetyPolicy,
+    reader: {
+      async openCompletedAttemptReview(reference) {
+        const opened = await gotoWithDiagnostics(page, config, reference.reviewUrl, 1);
+        if (!opened.ok) {
+          throw new Error(opened.message);
+        }
+        await dismissCommonOverlays(page);
+        const resolvedUrl = page.url() || reference.reviewUrl;
+        const statusText = await page
+          .locator(
+            ".quizreviewsummary, .quizattemptsummary, table.quizattemptsummary, .quizinfo",
+          )
+          .innerText({ timeout: 3_000 })
+          .catch(() => "");
+        return {
+          completionState: completedAttemptReviewState(
+            reference.reviewUrl,
+            resolvedUrl,
+            statusText,
+          ),
+          handle: page,
+        };
+      },
+      async readVisibleCompletedAttemptReview(openedPage) {
+        const title = await openedPage.title().catch(() => "Completed Moodle quiz review");
+        const url = openedPage.url();
+        const text = await openedPage
+          .locator("body")
+          .innerText({ timeout: 15_000 })
+          .catch(() => "");
+        return { title, url, text };
+      },
+    },
+  });
+}
+
+function createAgentBrowserStudyBuilderQuizEvidenceCapability(
+  config: MoodleRuntimeConfig,
+  client: AgentBrowserClient,
+): StudyBuilderQuizEvidenceCapability<CompletedQuizReviewEvidence> {
+  return createStudyBuilderQuizEvidenceCapability({
+    policy: config.quizSafetyPolicy,
+    reader: {
+      async openCompletedAttemptReview(reference) {
+        await client.open(reference.reviewUrl);
+        const resolvedUrl = await client.getUrl();
+        const statusText = await client.evalText(String.raw`
+(() => {
+  const root = document.querySelector(
+    ".quizreviewsummary, .quizattemptsummary, table.quizattemptsummary, .quizinfo"
+  );
+  return String(root?.innerText || root?.textContent || "").replace(/\s+/g, " ").trim();
+})()
+        `);
+        return {
+          completionState: completedAttemptReviewState(
+            reference.reviewUrl,
+            resolvedUrl,
+            statusText,
+          ),
+          handle: { requestedUrl: reference.reviewUrl, resolvedUrl },
+        };
+      },
+      async readVisibleCompletedAttemptReview(handle) {
+        const snapshot = await client.snapshot({
+          interactive: true,
+          urls: true,
+          compact: true,
+        });
+        if (
+          !sameCompletedAttemptReview(
+            handle.requestedUrl,
+            snapshot.origin || handle.resolvedUrl,
+          )
+        ) {
+          throw new Error("Completed quiz review changed location before evidence read.");
+        }
+        return {
+          title: snapshot.origin || "Completed Moodle quiz review",
+          url: snapshot.origin || handle.resolvedUrl,
+          text: snapshotToText(snapshot.snapshot),
+        };
+      },
+    },
+  });
+}
+
+export function isMoodleCompletedAttemptReviewUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.pathname.endsWith("/mod/quiz/review.php") &&
+      Boolean(parsed.searchParams.get("attempt"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function completedAttemptReviewState(
+  requestedUrl: string,
+  resolvedUrl: string,
+  statusText: string,
+): "completed" | "active" | "unknown" {
+  if (!sameCompletedAttemptReview(requestedUrl, resolvedUrl)) {
+    return "unknown";
+  }
+  const normalized = statusText.replace(/\s+/g, " ").trim();
+  if (
+    /\b(?:in progress|laufend(?:er|en)? versuch|versuch läuft|versuch laeuft|nicht beendet|not finished)\b/i.test(
+      normalized,
+    )
+  ) {
+    return "active";
+  }
+  if (
+    /\b(?:state|status)\s*:?\s*(?:finished|completed|beendet|abgeschlossen)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:completed on|finished on|beendet am|abgeschlossen am)\b/i.test(normalized)
+  ) {
+    return "completed";
+  }
+  return "unknown";
+}
+
+function sameCompletedAttemptReview(requestedUrl: string, resolvedUrl: string): boolean {
+  try {
+    const requested = new URL(requestedUrl);
+    const resolved = new URL(resolvedUrl);
+    return (
+      requested.origin === resolved.origin &&
+      requested.pathname.endsWith("/mod/quiz/review.php") &&
+      resolved.pathname.endsWith("/mod/quiz/review.php") &&
+      Boolean(requested.searchParams.get("attempt")) &&
+      requested.searchParams.get("attempt") === resolved.searchParams.get("attempt")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function persistStudyBuilderQuizEvidenceAudit(
+  config: MoodleRuntimeConfig,
+  entries: readonly StudyBuilderQuizEvidenceAuditEntry[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const filePath = path.join(config.runDir, STUDY_BUILDER_QUIZ_EVIDENCE_AUDIT_FILE);
+  await writeFile(
+    filePath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        lane: "study-builder-quiz-evidence",
+        entries,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await config.diagnostics?.updateCoverage("moodle", { artifacts: [filePath] });
+}
+
 function formatSourceChunk(input: { title: string; url: string; text: string }): string {
   return [
     "[Moodle page]",
@@ -1079,6 +1379,17 @@ function quizUrlPolicyViolation(
   url: string,
   context: QuizContext = {},
 ): QuizPolicyViolation | null {
+  if (config.evidenceHandoffOnly) {
+    if (isMoodleQuizFinalSubmitUrl(url)) {
+      return studyBuilderEvidenceLaneViolation("final_submit");
+    }
+    if (isMoodleQuizSaveOrMoveUrl(url)) {
+      return studyBuilderEvidenceLaneViolation("save_or_move_page");
+    }
+    if (isMoodleQuizAttemptUrl(url)) {
+      return studyBuilderEvidenceLaneViolation("open_attempt");
+    }
+  }
   if (isMoodleQuizFinalSubmitUrl(url)) {
     return quizViolation(config, "final_submit", { ...context, url });
   }
@@ -1101,6 +1412,16 @@ function quizUrlPolicyViolation(
     return quizViolation(config, "open_attempt", { ...context, url });
   }
   return null;
+}
+
+function studyBuilderEvidenceLaneViolation(
+  action: "open_attempt" | "save_or_move_page" | "final_submit",
+): QuizPolicyViolation {
+  return new QuizPolicyViolation(
+    action,
+    `Study Builder quiz evidence blocked ${action}: completed-attempt reviews are read-only.`,
+    { reason: "study-builder-quiz-evidence-read-only" },
+  );
 }
 
 function quizReadPolicyViolation(
@@ -1242,10 +1563,27 @@ function extractMoodleLinksFromSnapshot(
       courseScope = configuredCourseScope(config);
     }
   }
-  return selectRelevantMoodleLinks(
+  return selectMoodleCrawlLinks(
     filterMoodleLinksToCourseScope(links, courseScope),
-    config.prompt,
+    config,
   );
+}
+
+function selectMoodleCrawlLinks(
+  links: Array<{ href: string; label: string }>,
+  config: MoodleRuntimeConfig,
+): string[] {
+  const selected = selectRelevantMoodleLinks(links, config.prompt);
+  if (!config.evidenceHandoffOnly) {
+    return selected;
+  }
+  // Consume only review URLs that the existing course crawl already exposed.
+  // This does not discover quiz activities or start a second crawl.
+  const completedReviewLinks = links
+    .map(({ href }) => normalizeMoodleUrl(href))
+    .filter(isMoodleCompletedAttemptReviewUrl)
+    .slice(0, 4);
+  return [...new Set([...selected, ...completedReviewLinks])];
 }
 
 function configuredCourseScope(config: MoodleRuntimeConfig): string[] {

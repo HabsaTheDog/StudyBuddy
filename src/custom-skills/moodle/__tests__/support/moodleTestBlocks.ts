@@ -11,6 +11,7 @@ import {
 } from "../../examNavigatorContracts.js";
 import { emptySourceArchitectDecision } from "../../sourceArchitect.js";
 import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
+import { DEFAULT_QUIZ_SAFETY_POLICY } from "../../interactive/quizSafetyPolicy.js";
 
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
   return {
@@ -49,6 +50,7 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
       allowSaveOrMovePage: false,
       allowFinalSubmit: false,
     },
+    quizSafetyPolicy: DEFAULT_QUIZ_SAFETY_POLICY,
     maxRuntimeMs: 60_000,
     idleTimeoutMs: 30_000,
     stage: "all",

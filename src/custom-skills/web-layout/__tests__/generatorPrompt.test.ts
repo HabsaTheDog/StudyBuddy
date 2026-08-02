@@ -78,13 +78,16 @@ describe("generator prompt", () => {
     expect(modelCalls).toBe(0);
     expect(result.error_log).toBeNull();
     expect(result.html_document).toContain('<html lang="en">');
-    expect(result.html_document).toContain('name="study-buddy-renderer" content="standard-study-guide-v1"');
+    expect(result.html_document).toContain('name="study-buddy-renderer" content="adaptive-study-guide-v2"');
     expect(result.html_document).toContain("Engineering Mechanics");
-    expect(result.html_document).toContain("Overall progress");
+    expect(result.html_document).toContain("Question catalogue");
+    expect(result.html_document).toContain("Theory and topic practice");
+    expect(result.html_document).toContain("Start exam mode");
     expect(result.html_document).toContain("Continue learning");
+    expect(result.html_document).not.toContain("Start with unseen questions");
     expect(result.html_document).toContain("Check answer");
-    expect(result.html_document).toContain("Source · Chapter 1");
-    expect(result.html_document).not.toContain("Gesamtfortschritt");
+    expect(result.html_document).toContain("Course original");
+    expect(result.html_document).not.toContain("Dein Kurs als Lernsystem");
     expect(result.html_document).not.toContain("Antwort auswerten");
   });
 

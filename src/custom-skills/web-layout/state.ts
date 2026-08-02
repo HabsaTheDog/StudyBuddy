@@ -11,6 +11,9 @@ export interface WebLayoutState {
   source_text: string;
   layout_spec: JsonObject;
   study_guide_content: JsonObject;
+  course_blueprint: JsonObject;
+  assessment_blueprint: JsonObject;
+  question_bank: JsonObject;
   html_document: string;
   validation_report: JsonObject;
   error_log: string | null;
@@ -26,6 +29,9 @@ export const initialWebLayoutState: WebLayoutState = {
   source_text: "",
   layout_spec: {},
   study_guide_content: {},
+  course_blueprint: {},
+  assessment_blueprint: {},
+  question_bank: {},
   html_document: "",
   validation_report: {},
   error_log: null,
@@ -47,6 +53,18 @@ export const WebLayoutStateAnnotation = Annotation.Root({
     default: () => ({}),
   }),
   study_guide_content: Annotation<JsonObject>({
+    reducer: (_current, update) => update,
+    default: () => ({}),
+  }),
+  course_blueprint: Annotation<JsonObject>({
+    reducer: (_current, update) => update,
+    default: () => ({}),
+  }),
+  assessment_blueprint: Annotation<JsonObject>({
+    reducer: (_current, update) => update,
+    default: () => ({}),
+  }),
+  question_bank: Annotation<JsonObject>({
     reducer: (_current, update) => update,
     default: () => ({}),
   }),

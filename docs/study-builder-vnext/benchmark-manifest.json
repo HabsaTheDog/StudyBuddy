@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "adaptive-study-builder-vnext",
   "revision": 1,
-  "status": "specification",
+  "status": "active",
   "description": "Cross-course, permission-safe benchmark contract for the adaptive single-file Study Builder.",
   "references": {
     "charter": "implementation-charter.md",
@@ -58,7 +58,7 @@
     "requiredLearnerStateScenariosPassed": true
   },
   "learnerStateScenarios": [
-    "unseen-to-seen",
+    "question-open-recorded",
     "incorrect-to-review",
     "correct-clears-review-without-auto-learning",
     "manual-learned-clears-review",
@@ -69,29 +69,37 @@
     "reset-one-question",
     "reset-all-questions",
     "reload-restores-compact-state",
-    "minimum-route-filter",
-    "depth-route-filter",
-    "review-pool-filter",
-    "starred-pool-filter",
-    "assessment-pool-filter"
+    "combined-topic-stage-filter",
+    "continue-status-filter",
+    "review-status-filter",
+    "starred-status-filter",
+    "learned-status-filter",
+    "three-main-tabs",
+    "topic-question-navigation",
+    "catalog-links-scroll-to-top",
+    "exam-tasks-are-authentic",
+    "exam-finish-only-on-last-question",
+    "exam-solutions-visible",
+    "exam-self-assessment-collapsed",
+    "exam-detailed-criteria-collapsed",
+    "exam-self-assessment-scoring",
+    "assessment-visuals-cropped-without-scroll",
+    "learning-visuals-evidence-bound",
+    "learning-visuals-responsive-without-scroll",
+    "inline-equations-readable-without-overflow",
+    "answer-option-math-readable",
+    "course-hierarchy-traceable",
+    "assessment-session-bounded",
+    "separate-exam-surface"
   ],
   "permissionScenarios": [
     {
-      "id": "quiz-access-disabled",
-      "permissionSource": "existing-effective-permission",
-      "setup": "Select the existing setting that disallows quiz access.",
-      "expected": {
-        "quizOpenCalls": 0,
-        "quizStartCalls": 0,
-        "quizSubmitCalls": 0,
-        "fallbackContinuesWithoutQuizEvidence": true
-      }
-    },
-    {
       "id": "quiz-read-only",
       "permissionSource": "existing-effective-permission",
-      "setup": "Select the existing read-only quiz inspection permission when available.",
+      "setup": "Select the existing review-only permission, which is the minimum quiz access mode.",
       "expected": {
+        "completedAttemptsMayBeOpened": true,
+        "newAttemptsStarted": 0,
         "onlyAuthorizedVisibleEvidenceRead": true,
         "answersChanged": 0,
         "quizSubmitCalls": 0
@@ -100,9 +108,11 @@
     {
       "id": "quiz-assist",
       "permissionSource": "existing-effective-permission",
-      "setup": "Select the existing Quiz Assist permission.",
+      "setup": "Select the existing Quiz Assist permission while running automatic Study Builder evidence acquisition.",
       "expected": {
-        "actionsDoNotExceedExistingQuizAssistSemantics": true,
+        "completedAttemptsMayBeOpened": true,
+        "newAttemptsStarted": 0,
+        "answersChanged": 0,
         "quizSubmitCalls": 0
       }
     },
@@ -257,4 +267,3 @@
     "singleAnecdotalRunSufficient": false
   }
 }
-

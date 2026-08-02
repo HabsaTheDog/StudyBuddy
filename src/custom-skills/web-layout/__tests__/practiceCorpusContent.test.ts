@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildContentFromPracticeCorpus } from "../practiceCorpusContent.js";
-import { matchesCalculationAnswer, renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
+import {
+  mathml,
+  matchesCalculationAnswer,
+  renderStandardStudyGuide,
+  richMathText,
+} from "../standardStudyGuideRenderer.js";
 
 describe("practice-corpus source links", () => {
   it("preserves direct Moodle activity URLs and renders safe new-tab links", () => {
@@ -99,5 +104,91 @@ describe("practice-corpus source links", () => {
       ["Po = 0,055 mm; Pu = 0,010 mm; PT = 0,045 mm"],
       "PT = 0,045 mm",
     )).toBe(false);
+  });
+
+  it("renders stacked tolerance notation without exposing raw caret syntax", () => {
+    const rendered = richMathText("Maßeintragung: a = 29,00^(+0,03)_0 mm.");
+
+    expect(rendered).toContain("<msub><msup><mn>29,00</mn>");
+    expect(rendered).toContain("<mo>+</mo><mn>0,03</mn>");
+    expect(rendered).toContain("<mn>0</mn>");
+    expect(rendered).not.toContain(">^(+0,03)_0<");
+  });
+
+  it("separates engineering equations from prose and renders readable subscripts", () => {
+    const rendered = richMathText(
+      "Wirksames Kraftverhältnis: Mit n = 0,7 wird Φn = n·ΦK = 0,7·0,301 = 0,211. " +
+      "Die Zusatzschraubenkraft beträgt ΔFS = Φn·FB; die Klemmkraft nimmt um ΔFK = (1−Φn)·FB ab.",
+    );
+
+    expect(rendered.match(/class="math-expression"/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(rendered).toContain("<msub><mi>Φ</mi><mi>n</mi></msub>");
+    expect(rendered).toContain("<msub><mi>Δ</mi><mi>FS</mi></msub>");
+    expect(rendered).toContain("<msub><mi>F</mi><mi>B</mi></msub>");
+    expect(rendered).toContain('class="math-expression__relation"');
+    expect(rendered).toContain("Die Zusatzschraubenkraft beträgt");
+    expect(rendered).toContain("die Klemmkraft nimmt um");
+  });
+
+  it("wraps long calculation chains at relation operators instead of one unbroken formula", () => {
+    const rendered = richMathText(
+      "Eingesetzt: FB,max = (56,5 kN − 4,82 kN − 5,00 kN)/(1−0,211) = 59,2 kN.",
+    );
+
+    expect(rendered).toContain('<span class="math-expression"');
+    expect(rendered.match(/class="math-expression__operand"/g)?.length).toBeGreaterThan(3);
+    expect(rendered).toContain('aria-hidden="true">−</span>');
+    expect(rendered).toContain("<msub><mi>F</mi>");
+    expect(rendered).toContain("<mi>B</mi><mo>,</mo><mi>max</mi>");
+    expect(rendered).not.toContain(">FB,max =");
+  });
+
+  it("keeps max/min variables in one equation but excludes trailing prose", () => {
+    const tolerance = richMathText(
+      "Es gilt amin = bmax + smax + Lmin = 29,00 mm.",
+    );
+    const force = richMathText(
+      "Die Klemmkraft nimmt um ΔFK = (1−Φn)·FB ab.",
+    );
+
+    expect(tolerance).toContain('aria-label="amin = bmax + smax + Lmin = 29,00 mm"');
+    expect(tolerance).not.toContain(">smax +<");
+    expect(force).toContain('aria-label="ΔFK = (1−Φn)·FB"');
+    expect(force).not.toContain('aria-label="ΔFK = (1−Φn)·FB ab"');
+    expect(force).toContain("</span> ab.");
+  });
+
+  it("recognizes function notation, primes, and typographic subscripts as equations", () => {
+    const rendered = richMathText(
+      "Eine Stammfunktion erfüllt F′(x)=f(x). Setze h₂ = ½(2 + 16/2) = 5. " +
+      "Die Tangente lautet y-f(x₀)=f′(x₀)(x-x₀).",
+    );
+
+    expect(rendered).toContain('aria-label="F′(x)=f(x)"');
+    expect(rendered).toContain('aria-label="h₂ = ½(2 + 16/2) = 5"');
+    expect(rendered).toContain('aria-label="y-f(x₀)=f′(x₀)(x-x₀)"');
+    expect(rendered.match(/class="math-expression"/g)).toHaveLength(3);
+  });
+
+  it("keeps typographic scripts attached before building fractions", () => {
+    const alternating = mathml("aₙ = (-1)ⁿ/n");
+    const recurrence = mathml("hₙ₋₁ = ½(hₙ₋₁ + x/hₙ₋₁)");
+
+    expect(alternating).toContain("<msub><mi>a</mi><mi>n</mi></msub>");
+    expect(alternating).toContain("<mfrac><msup>");
+    expect(alternating).toContain("</msup><mi>n</mi></mfrac>");
+    expect(alternating).not.toContain("<mfrac><mo>ⁿ</mo>");
+    expect(recurrence.match(/<msub><mi>h<\/mi><mrow><mi>n<\/mi><mo>−<\/mo><mn>1<\/mn><\/mrow><\/msub>/g)?.length ?? 0)
+      .toBeGreaterThanOrEqual(3);
+    expect(recurrence).not.toContain("<mo>ₙ</mo>");
+    expect(recurrence).not.toContain("<mo>₋</mo>");
+  });
+
+  it("keeps German 'ab' outside the following inline equation", () => {
+    const rendered = richMathText("Beispiel einer alternierenden Folge ab n = 1.");
+
+    expect(rendered).toContain("Folge ab ");
+    expect(rendered).toContain('aria-label="n = 1"');
+    expect(rendered).not.toContain('aria-label="ab n = 1"');
   });
 });

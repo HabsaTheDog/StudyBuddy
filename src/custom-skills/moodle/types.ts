@@ -3,6 +3,7 @@ import type { RunDiagnostics, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan } from "./sourcePlanner.js";
 import type { RenderStrategyDecision } from "./renderStrategy.js";
 import type { QuizPolicy } from "./quizPolicy.js";
+import type { QuizSafetyPolicy } from "./interactive/types.js";
 import type { StudyBuddyIntent, StudyBuddyIntentDecision } from "./taskIntent.js";
 import type { CalendarSelection } from "./calendarAdapter.js";
 import type {
@@ -52,6 +53,8 @@ export interface MoodleGraphInput {
   browserHeaded?: boolean;
   diagnosticOnly?: boolean;
   autoAnswer?: boolean;
+  /** Existing effective Moodle quiz permission consumed by the read-only Study Builder lane. */
+  quizSafetyPolicy?: Partial<QuizSafetyPolicy>;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   stage?: PipelineStage;
@@ -134,6 +137,7 @@ export interface MoodleRuntimeConfig {
   diagnosticOnly: boolean;
   autoAnswer: boolean;
   quizPolicy: QuizPolicy;
+  quizSafetyPolicy: QuizSafetyPolicy;
   maxRuntimeMs: number;
   idleTimeoutMs: number;
   stage: PipelineStage;

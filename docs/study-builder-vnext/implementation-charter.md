@@ -52,11 +52,20 @@ They may not weaken required fact checking or source integrity.
   duplication, difficulty, and rendering before publication.
 - Use the existing Moodle quiz permission layer. Do not create a shadow
   permission system.
+- Study Builder evidence acquisition may inspect authorized completed attempts,
+  but never starts or continues a quiz attempt; interactive Quiz Assist remains
+  a separate, explicitly requested workflow.
 - Never submit a final Moodle quiz attempt.
 - Keep the runtime artifact a single, fully offline HTML file.
 - Keep learner state intentionally small and local. Do not add accounts, a
   backend, cloud sync, or a detailed attempt-history database.
 - Keep the same interaction model usable on desktop, laptop, tablet, and phone.
+- Keep the visible interface functional: one useful progress summary may show
+  course counts and learned progress, but no passive status-card grid,
+  learner-facing unseen category, or duplicate route navigation.
+- Keep topic learning, the complete question catalogue, and assessment as
+  three explicit workspaces while reusing one validated Question Bank and one
+  compact learner state.
 
 ## Learner-state invariants
 
@@ -78,7 +87,33 @@ guide clears the complete local namespace. No attempt timeline is retained.
 
 - Search course evidence explicitly for assessment sections, order, weighting,
   timing, question types, aids, and instructions.
+- Run assessment practice in a surface separate from the normal question
+  catalogue; do not disguise a catalogue filter as an exam.
 - Reproduce a documented assessment structure when evidence is sufficient.
+- Treat assessment duration, aids, points, section names, and syllabus coverage
+  as composition evidence, never as simulated exam questions.
+- Prefer authentic tasks from authorized sample or past assessments. When only
+  structure is known, generate reviewed in-scope tasks that match the evidenced
+  response modes instead of asking learners to describe the exam itself.
+- Finishing a simulation enters a correction phase that keeps the learner's
+  draft visible beside a complete reviewed reference answer or solution for
+  every composed item. A scoring rubric may refine self-assessment, but never
+  substitutes for the reference solution.
+- During the simulation, the primary flow is sequential Back/Next navigation.
+  The finish action is available only on the final item.
+- When no official answer key exists, a Study Buddy comparison solution may
+  use stable in-scope disciplinary knowledge and explicitly disclosed
+  handbook values or assumptions. It must be labelled non-official, reviewed
+  independently, and rejected if any requested subtask remains unresolved.
+- Auto-grade only response contracts with an exact verified answer. Open work
+  requires an explicit learner rating; it must never be silently marked
+  correct from the presence of text.
+- Aggregate points and a pass result only from documented assessment scoring.
+  When official item points are unavailable, show a clearly non-official
+  percentage self-rating instead of inventing an official score.
+- Keep correction ratings ephemeral to the assessment session. They may update
+  the compact `review` state, but they do not create attempt history or
+  automatically claim `learned`.
 - Call an output an **exam simulation** only when its relevant structure is
   adequately supported.
 - Otherwise label it an **exercise simulation based on course structure** and
@@ -133,6 +168,9 @@ The vNext implementation is complete only when:
 - all quiz-permission scenarios pass with zero unauthorized actions;
 - every published question has a learning objective, answer or rubric, origin,
   scope basis, difficulty/depth placement, and passing review;
+- every published assessment item has a complete reviewed reference solution;
+  self-assessment is collapsed by default, with quick full/not-fulfilled
+  ratings above a separately collapsed partial-score and criteria aid;
 - assessment simulations distinguish explicit evidence from inference;
 - question reset, global reset, learned, review, star, filters, and repeated
   attempts work for every supported question type;
@@ -141,4 +179,3 @@ The vNext implementation is complete only when:
 - before/after runtime, fresh input, cached input, output, retry, and artifact
   size metrics are reported;
 - no quality or reliability gate was traded away to obtain an efficiency gain.
-

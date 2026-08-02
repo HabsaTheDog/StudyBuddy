@@ -14,6 +14,7 @@ import type { WebLayoutInput, WebLayoutResult } from "../web-layout/types.js";
 
 export interface InteractiveStudyGuideInput {
   prompt: string;
+  originalUserPrompt?: string;
   moodleUrl?: string;
   requestName?: string;
   runDir?: string;
@@ -63,6 +64,10 @@ export async function runInteractiveStudyGuideWorkflow(
 ): Promise<InteractiveStudyGuideResult> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Interactive Study Guide prompt must not be empty.");
+  const originalUserPrompt = input.originalUserPrompt?.trim() ?? prompt;
+  if (!originalUserPrompt) {
+    throw new Error("Interactive Study Guide original user prompt must not be empty.");
+  }
   const workspace = ensureStudyBuddyWorkspaceData(resolveStudyBuddyWorkspaceDataPaths());
   const now = dependencies.now ?? (() => new Date());
   const requestName = safePathSegment(input.requestName ?? prompt).slice(0, 80) || "interactive-study-guide";
@@ -125,7 +130,13 @@ export async function runInteractiveStudyGuideWorkflow(
       const ordinal = extractionRunDirs.length;
       const extractionRunDir = path.join(workflowDir, ordinal === 0 ? "extraction" : `extraction-recovery-${ordinal}`);
       extractionRunDirs.push(extractionRunDir);
-      const result = await runExtraction(extractionInput(input, prompt, extractionRunDir, previousRunDir));
+      const result = await runExtraction(extractionInput(
+        input,
+        prompt,
+        originalUserPrompt,
+        extractionRunDir,
+        previousRunDir,
+      ));
       await hydrateRecoveryHandoff(result.runDir, extractionRunDirs.slice(0, -1));
       const handoff = await validateExtractionHandoff(result.runDir);
       if (result.ok && handoff.ok) {
@@ -146,6 +157,7 @@ export async function runInteractiveStudyGuideWorkflow(
     webLayoutRunDir = path.join(workflowDir, "web-layout");
     const webResult = await runWebLayout({
       prompt,
+      originalUserPrompt,
       kind: "study-guide",
       sourceRunDir,
       runDir: webLayoutRunDir,
@@ -257,12 +269,13 @@ function extractionOrdinal(name: string): number {
 function extractionInput(
   input: InteractiveStudyGuideInput,
   prompt: string,
+  originalUserPrompt: string,
   runDir: string,
   resumeExtractionRunDir?: string,
 ): MoodleGraphInput {
   return {
     prompt,
-    originalUserPrompt: prompt,
+    originalUserPrompt,
     moodleUrl: input.moodleUrl ?? process.env.STUDY_BUDDY_MOODLE_URL ?? "https://moodle.technikum-wien.at/my/",
     runDir,
     maxDepth: resumeExtractionRunDir ? 0 : 2,
