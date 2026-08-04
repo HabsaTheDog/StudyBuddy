@@ -24,12 +24,13 @@ retries so a model-specific experiment stays reproducible.
 
 ## First document run
 
-Use the official wrapper so extraction and rendering use the same model policy:
+Use the canonical CLI so extraction and rendering use the same model policy:
 
 ```bash
-/home/alvaroschroll/.agents/skills/study-buddy/scripts/study_buddy_task.sh \
-  doc "Create a study guide for <exact topic>" \
+npm run moodle:agent -- \
+  "Create a study guide for <exact topic>" \
   --url "<direct Moodle course or resource URL>" \
+  --format pdf \
   --execution-profile balanced
 ```
 
@@ -71,9 +72,10 @@ again or continuing through more chapters on an unhealthy model lane.
 ## Override a model or thinking mode
 
 ```bash
-/home/alvaroschroll/.agents/skills/study-buddy/scripts/study_buddy_task.sh \
-  doc "Create a study guide for <exact topic>" \
+npm run moodle:agent -- \
+  "Create a study guide for <exact topic>" \
   --url "<direct Moodle URL>" \
+  --format pdf \
   --execution-profile custom \
   --codex-model gpt-5.6-terra \
   --codex-reasoning-effort medium

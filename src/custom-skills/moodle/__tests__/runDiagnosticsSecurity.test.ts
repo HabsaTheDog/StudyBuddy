@@ -93,4 +93,26 @@ describe("run diagnostic privacy", () => {
       calendar: { status: "success" },
     });
   });
+
+  it("redacts secrets and credential-like query values from run-summary prompts", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "diagnostic-summary-"));
+    tempDirs.push(runDir);
+    const diagnostics = new RunDiagnostics({ runDir, secrets: ["calendar-secret"] });
+    await diagnostics.init();
+
+    await diagnostics.writeSummary({
+      route: "quick_answer",
+      status: "success",
+      prompt: "Open https://moodle.example/course?token=url-secret and calendar-secret",
+      taskPrompt: "Use https://cis.example/?access_token=task-secret",
+      stateHasRawText: false,
+      stateHasDocument: false,
+    });
+
+    const summary = await readFile(path.join(runDir, "run-summary.md"), "utf8");
+    expect(summary).not.toContain("url-secret");
+    expect(summary).not.toContain("task-secret");
+    expect(summary).not.toContain("calendar-secret");
+    expect(summary).toContain("[redacted]");
+  });
 });

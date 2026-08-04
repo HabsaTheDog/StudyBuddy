@@ -116,8 +116,8 @@ describe("external resource acquisition", () => {
     const sourcesDir = path.join(runDir, "sources");
     await mkdir(sourcesDir, { recursive: true });
     const dashboardUrl = "https://moodle.technikum-wien.at/my/";
-    const wrongCourse = "https://moodle.technikum-wien.at/course/view.php?id=30986";
-    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const wrongCourse = "https://moodle.technikum-wien.at/course/view.php?id=101";
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
     const bookUrl = "https://example.han.technikum-wien.at/content/pdf/book.pdf";
     await writeFile(path.join(sourcesDir, "1-dashboard.json"), JSON.stringify({
       origin: dashboardUrl,
@@ -160,8 +160,8 @@ describe("external resource acquisition", () => {
   it("persists classified failures without turning diagnostics into study evidence", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-resource-failure-"));
     temporaryDirectories.push(runDir);
-    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=32280";
-    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=1953045";
+    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=102";
+    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=201";
     const rawText = [
       "[Moodle page]",
       "Title: Maschinenelemente 1",
@@ -190,7 +190,7 @@ describe("external resource acquisition", () => {
 
   it("reports a usable partial run with explicit resource reasons and ignores dashboard help", () => {
     const dashboardUrl = "https://moodle.technikum-wien.at/my/";
-    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
     const targetId = stableResourceId(targetCourse);
     const acquired = resource("slides", "resource", "acquired", targetId);
     const stale = resource("Angabe 7", "resource", "stale", targetId);
@@ -238,7 +238,7 @@ describe("external resource acquisition", () => {
   });
 
   it("assesses semantic coverage from the bounded plan instead of the raw 42-file catalog", () => {
-    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
     const targetId = stableResourceId(targetCourse);
     const topics = [
       "Punktkinematik",
@@ -283,7 +283,7 @@ describe("external resource acquisition", () => {
   });
 
   it("blocks only when a selected critical topic lacks usable evidence", () => {
-    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
     const targetId = stableResourceId(targetCourse);
     const usable = plannedResource("Punktkinematik", targetId, true, "acquired", 0);
     const missing = plannedResource("Drallsatz", targetId, true, "transient_failure", 1);

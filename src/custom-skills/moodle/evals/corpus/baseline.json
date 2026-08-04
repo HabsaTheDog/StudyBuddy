@@ -10,7 +10,7 @@
       "enabled": true,
       "prompt": "Create a compact but complete English PDF study guide for the MAES2 course. Cover the actual assessed Moodle scope, explain the central methods, and include representative worked examples with reproducible calculations. Use only evidence from this course and clearly mark any evidence boundary.",
       "language": "en",
-      "moodleUrl": "https://moodle.technikum-wien.at/course/view.php?id=32274",
+      "moodleUrl": "https://moodle.example.edu/course/view.php?id=1001",
       "tags": ["course", "mathematics", "comprehensive", "english"],
       "expected": {
         "requirePdf": true,
@@ -49,7 +49,7 @@
       "enabled": false,
       "prompt": "Erstelle eine kompakte, aber vollständige MAES2-Lernunterlage als PDF. Ordne den tatsächlichen Moodle-Stoff in wenige didaktisch sinnvolle Lernblöcke, erhalte darin die offiziellen Themen 1 bis 11 und alle erkennbaren Unterthemen, erkläre die zentralen Methoden verständlich und ergänze repräsentative vollständig nachvollziehbare Rechenbeispiele sowie einen Übungsweg pro Thema. Verwende ausschließlich belegte Kursinhalte und kennzeichne echte Evidenzgrenzen.",
       "language": "de",
-      "moodleUrl": "https://moodle.technikum-wien.at/course/view.php?id=32274",
+      "moodleUrl": "https://moodle.example.edu/course/view.php?id=1001",
       "tags": ["course", "mathematics", "comprehensive", "german", "structure"],
       "expected": {
         "requirePdf": true,
@@ -88,7 +88,7 @@
       "enabled": true,
       "prompt": "Erstelle einen kompakten, aber vollständigen deutschen PDF-Study-Guide für Maschinenelemente 1. Decke den tatsächlich prüfungsrelevanten Moodle-Umfang ab, erkläre die zentralen Verfahren und ergänze nachvollziehbare Anwendungsbeispiele. Verwende ausschließlich Belege aus diesem Kurs.",
       "language": "de",
-      "moodleUrl": "https://moodle.technikum-wien.at/course/view.php?id=32280",
+      "moodleUrl": "https://moodle.example.edu/course/view.php?id=1002",
       "tags": ["course", "mechanical-engineering", "comprehensive", "german"],
       "expected": {
         "requirePdf": true,
@@ -118,7 +118,7 @@
       "enabled": true,
       "prompt": "Erstelle einen detaillierten deutschen PDF-Study-Guide für Dynamik. Leite die wichtigsten Lösungswege aus den aktuellen Moodle-Unterlagen ab, zeige die Wahl von Koordinaten und Bilanzgleichungen und liefere mehrere vollständig nachvollziehbare Rechenbeispiele. Nimm nur Themen auf, die durch den angegebenen Kurs belegt sind.",
       "language": "de",
-      "moodleUrl": "https://moodle.technikum-wien.at/course/view.php?id=32844",
+      "moodleUrl": "https://moodle.example.edu/course/view.php?id=1003",
       "tags": ["course", "dynamics", "methods", "german"],
       "expected": {
         "requirePdf": true,

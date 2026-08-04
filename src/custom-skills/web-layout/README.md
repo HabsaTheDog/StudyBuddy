@@ -4,10 +4,13 @@ The web-layout graph produces one portable offline `document.html` while retaini
 
 ## Output contract
 
-Each successful run contains:
+Each successful run contains the following layout below the workspace-managed
+runs directory. Regular projects use
+`study-buddy-data/threads/<thread-id>/runs/`; Quick Chats use
+`study-buddy-data/runs/` directly.
 
 ```text
-study-buddy-data/runs/<request>/<timestamp>/
+<runs-directory>/<request>/<timestamp>/
 ├── document.html
 ├── source/
 │   ├── index.html

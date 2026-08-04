@@ -67,8 +67,7 @@ Compared with the conservative baseline, the hackathon version adds or substanti
 ## Supporting evidence
 
 - Dated Git history is visible in the repository.
-- [`CODEX_SESSIONS.md`](CODEX_SESSIONS.md) records top-level workspace session identifiers and timestamps without publishing conversation contents.
-- The root README explains how Codex and GPT-5.6 contributed.
+- The historical collaboration document explains how Codex and GPT-5.6 contributed.
 - The demo video should show the final commit and briefly show Codex in use.
 
 Only the work after the conservative baseline should be evaluated as the Build Week contribution.

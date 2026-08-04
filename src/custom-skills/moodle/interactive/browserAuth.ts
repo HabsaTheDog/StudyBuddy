@@ -21,6 +21,9 @@ export function createBrowserLoginConfig(input: {
   if (target.protocol !== "https:" && !(target.protocol === "http:" && loopback)) {
     throw new Error(`${input.serviceName} login requires HTTPS.`);
   }
+  if (target.username || target.password) {
+    throw new Error(`${input.serviceName} login URL must not contain credentials.`);
+  }
   return {
     ...input,
     allowedOrigins: new Set([target.origin, ...(input.allowedOrigins ?? [])]),

@@ -54,9 +54,10 @@ The runtime can produce content-free operational metrics such as model, effort, 
 
 ## Evidence
 
-The repository contains dated commits, explicit GPT-5.6 policy code and tests, runtime diagnostics, evaluation tools, and many timestamped Codex workspace sessions. [`CODEX_SESSIONS.md`](CODEX_SESSIONS.md) records the session metadata relevant to the submission.
-
-The Devpost form still requires exactly one `/feedback` Session ID from the primary build thread. The strongest candidate from local metadata is `019f7106-3623-75b1-8e0e-e4ec493c71d4`, a long-running core-development thread spanning July 17–18 with delegated architecture work. Alvaro must reopen that thread, run `/feedback`, and use the ID returned by the command. The metadata identifier alone should not be treated as a substitute for that step.
+The repository contains dated commits, explicit model-policy code and tests,
+runtime diagnostics, and evaluation tools. Editor-session identifiers and
+submission-only operational instructions are intentionally not part of the
+current public documentation set.
 
 ## T3 Code acknowledgement
 
