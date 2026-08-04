@@ -21,31 +21,31 @@ import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateSingleFileHtml, validateWebLayoutHtml } from "../../web-layout/validation.js";
 import { moodleExtractedData, moodleTestConfig } from "./support/moodleTestBlocks.js";
 
-const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=32280";
+const courseUrl = "https://moodle.example.edu/course/view.php?id=1002";
 const melSnapshot = {
   origin: courseUrl,
   refs: {},
   snapshot: [
     '- heading "Kurs: Maschinenelemente 1 | FHTW Moodle" [level=2, ref=e1]',
     '- button "D. Eigenstudium - Lötverbindungen" [expanded=true, ref=e2]',
-    '- link "Moodle Test 4: Theorie" [ref=e3, url=https://moodle.technikum-wien.at/mod/quiz/view.php?id=2186267]',
+    '- link "Moodle Test 4: Theorie" [ref=e3, url=https://moodle.example.edu/mod/quiz/view.php?id=101]',
     '- button "4. Präsenz - Lötverbindungen" [expanded=true, ref=e4]',
-    '- link "Foliensatz: Lötverbindung" [ref=e5, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186270]',
-    '- link "Angabe E" [ref=e6, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186271]',
-    '- link "Lösung E" [ref=e7, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186272]',
-    '- link "Angabe 11" [ref=e8, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186273]',
-    '- link "Lösung 11" [ref=e9, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186274]',
+    '- link "Foliensatz: Lötverbindung" [ref=e5, url=https://moodle.example.edu/mod/resource/view.php?id=102]',
+    '- link "Angabe E" [ref=e6, url=https://moodle.example.edu/mod/resource/view.php?id=103]',
+    '- link "Lösung E" [ref=e7, url=https://moodle.example.edu/mod/resource/view.php?id=104]',
+    '- link "Angabe 11" [ref=e8, url=https://moodle.example.edu/mod/resource/view.php?id=105]',
+    '- link "Lösung 11" [ref=e9, url=https://moodle.example.edu/mod/resource/view.php?id=106]',
     '- button "E. Eigenstudium - Tribologie" [expanded=true, ref=e10]',
-    '- link "Moodle Test 5: Theorie" [ref=e11, url=https://moodle.technikum-wien.at/mod/quiz/view.php?id=2186278]',
+    '- link "Moodle Test 5: Theorie" [ref=e11, url=https://moodle.example.edu/mod/quiz/view.php?id=107]',
     '- button "5. Präsenz - Tribologie" [expanded=true, ref=e12]',
-    '- link "Foliensatz: Tribologie" [ref=e13, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186281]',
-    '- link "Angabe F" [ref=e14, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186282]',
-    '- link "Lösung F" [ref=e15, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186283]',
-    '- link "Angabe G" [ref=e16, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186284]',
-    '- link "Lösung G" [ref=e17, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=2186285]',
+    '- link "Foliensatz: Tribologie" [ref=e13, url=https://moodle.example.edu/mod/resource/view.php?id=108]',
+    '- link "Angabe F" [ref=e14, url=https://moodle.example.edu/mod/resource/view.php?id=109]',
+    '- link "Lösung F" [ref=e15, url=https://moodle.example.edu/mod/resource/view.php?id=110]',
+    '- link "Angabe G" [ref=e16, url=https://moodle.example.edu/mod/resource/view.php?id=111]',
+    '- link "Lösung G" [ref=e17, url=https://moodle.example.edu/mod/resource/view.php?id=112]',
     ...[13, 14, 15, 16].flatMap((number, index) => [
-      `- link "Angabe ${number}" [ref=a${number}, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=${2186286 + index * 2}]`,
-      `- link "Lösung ${number}" [ref=l${number}, url=https://moodle.technikum-wien.at/mod/resource/view.php?id=${2186287 + index * 2}]`,
+      `- link "Angabe ${number}" [ref=a${number}, url=https://moodle.example.edu/mod/resource/view.php?id=${113 + index * 2}]`,
+      `- link "Lösung ${number}" [ref=l${number}, url=https://moodle.example.edu/mod/resource/view.php?id=${114 + index * 2}]`,
     ]),
   ].join("\n"),
 };

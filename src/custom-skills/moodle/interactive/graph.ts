@@ -17,7 +17,7 @@ import type {
   MoodleWorkflowStatus,
 } from "./types.js";
 import type { AgentBrowserClient } from "./agentBrowserClient.js";
-import { redactSensitiveValues } from "./browserSecurity.js";
+import { redactSensitiveValues, sanitizeModelVisibleUrl } from "./browserSecurity.js";
 import { createAssignmentWorkflowNode } from "./nodes/assignmentWorkflowNode.js";
 import {
   createQuizFillNode,
@@ -250,15 +250,22 @@ async function persistRunDiagnostics(
   await mkdir(config.runDir, { recursive: true, mode: 0o700 });
   const privateWrite = (filePath: string, value: string) =>
     writeFile(filePath, value, { encoding: "utf8", mode: 0o600 });
+  const secrets = [
+    config.username,
+    config.password,
+    config.cisUsername,
+    config.cisPassword,
+    config.calendarUrl,
+  ];
   await Promise.all([
     privateWrite(
       path.join(config.runDir, "interaction-config.json"),
       `${JSON.stringify({
-        prompt: config.prompt,
-        originalUserPrompt: config.originalUserPrompt,
+        prompt: redactSensitiveValues(config.prompt, secrets),
+        originalUserPrompt: redactSensitiveValues(config.originalUserPrompt, secrets),
         outputLanguage: config.outputLanguage,
         outputLanguageReason: config.outputLanguageReason,
-        moodleUrl: config.moodleUrl,
+        moodleUrl: sanitizeModelVisibleUrl(config.moodleUrl, secrets),
         runDir: config.runDir,
         maxPages: config.maxPages,
         browserBackend: config.browserBackend,

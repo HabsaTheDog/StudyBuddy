@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.16
+          cache: npm
+      - uses: typst-community/setup-typst@63ac138db421d586de61f7f5ac3bcef6a2e6c78c # v5
+        with:
+          typst-version: 0.15.0
+      - run: npm ci
+      - name: Install Linux document and browser tooling
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          npx playwright install --with-deps chromium
+      - name: Install macOS document and browser tooling
+        if: runner.os == 'macOS'
+        run: |
+          brew install poppler
+          npx playwright install chromium
+      - name: Install Windows document and browser tooling
+        if: runner.os == 'Windows'
+        run: |
+          choco install poppler -y --no-progress
+          npx playwright install chromium
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          WEB_LAYOUT_BROWSER_TESTS: "1"
+      - name: Verify SDK and bundled CLI pairing
+        run: npm run moodle:doctor -- --version-only --json
+
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.16
+          cache: npm
+      - run: npm ci
+      - run: npm run check:links
+      - run: npm run check:public-tree
+      - run: npm run check:licenses
+      - run: npm run audit:production
+      - name: Verify pinned submodule commit is public
+        run: |
+          commit="$(git ls-tree HEAD t3code-fork | awk '{print $3}')"
+          test -n "$commit"
+          git ls-remote https://github.com/HabsaTheDog/t3code.git | grep -F "$commit"
+
+  ui-submodule:
+    name: Pinned UI submodule
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: true
+      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          working-directory: t3code-fork
+          node-version-file: t3code-fork/package.json
+          cache: true
+          run-install: true
+      - name: Check UI formatting and lint
+        working-directory: t3code-fork
+        run: vp check
+      - name: Typecheck UI workspace
+        working-directory: t3code-fork
+        run: vp run -r --concurrency-limit 2 typecheck
+      - name: Test UI workspace
+        working-directory: t3code-fork
+        run: vp run -r --concurrency-limit 2 test

@@ -1,49 +1,58 @@
-# Security
+# Security Policy
 
-## Credentials
+## Supported versions
 
-Do not commit credentials, API keys, passwords, session storage, Moodle/CIS
-cookies, or local-only access tokens.
+Study Buddy has no stable release yet. Security fixes are applied to the current
+default branch and the newest prerelease when one exists. Older commits and
+untagged snapshots are not supported.
 
-Use local `.env` files for real values. The repository keeps `.env.example`
-files as placeholder templates only.
+## Report a vulnerability privately
 
-The root `.gitignore` ignores `.env*` and re-allows `.env.example`. The
-`t3code-fork/.gitignore` follows the same pattern.
+Do not open a public issue for a suspected vulnerability or include credentials,
+student data, private portal URLs, or exploit details in public discussions.
 
-## Moodle and CIS Access
+Use GitHub's **Report a vulnerability** form on the repository Security page.
+If the form is unavailable, open a minimal public issue asking the maintainer to
+enable a private channel, without disclosing technical details.
 
-Moodle and CIS credentials are personal account credentials. Keep them local,
-rotate them if they are exposed, and prefer browser storage state files only as
-local runtime artifacts.
+Include the affected commit/version, impact, reproduction steps using synthetic
+data, and a suggested remediation if known. Remove live secrets, cookies,
+authenticated screenshots, course content, and student records from evidence.
 
-Never commit downloaded private course material. Canonical local workflow data
-belongs below the ignored `study-buddy-data/` request directories; publish only
-explicitly reviewed deliverables that you are authorized to redistribute.
+The maintainer will acknowledge reports when practical, investigate privately,
+coordinate a fix and advisory, and credit reporters who want attribution. No
+fixed response SLA is promised during alpha. Please allow reasonable remediation
+time before public disclosure.
 
-Do not share a normal personal student account as a public demo account. Judge
-credentials, if institutionally authorized, must be purpose-limited, delivered
-through private testing instructions, and rotated after judging. Private
-calendar feed URLs are bearer secrets and must never be committed or included
-in a general submission archive.
+## Credential and data incidents
 
-## Local Quiz And Assignment Confirmations
+Treat portal passwords, storage state, cookies, API tokens, private calendar
+feeds, cloud-link URLs, and local key pairs as secrets. If one is exposed:
 
-Quiz and assignment confirmation cards are cooperative local UX guardrails.
-They make the exact target and requested action visible and reduce accidental
-execution. They are not a deterministic security boundary against an agent or
-process that already has unrestricted access to the same computer and files.
+1. revoke or rotate it at the source immediately;
+2. preserve only the minimum evidence needed for investigation;
+3. determine whether it entered Git history, checkpoint refs, logs, archives,
+   screenshots, releases, or third-party systems;
+4. remove or rewrite affected published history where appropriate, recognizing
+   that history rewriting does not undo prior disclosure;
+5. notify affected operators or users when required.
 
-Study Buddy must not describe these confirmations as cryptographically
-enforced, server-verified, or tamper-proof. Final Moodle quiz submission remains
-blocked by the workflow policy; users should still review Moodle state and any
-assignment files before allowing an action.
+Never distribute a ZIP of a working directory. Create releases from a clean
+clone or reviewed `git archive`; ignored local files are not safe merely because
+Git does not track them.
 
-## Authenticated Browser Diagnostics
+## Security boundaries
 
-Failure diagnostics redact configured secrets and credential-like URL
-parameters. Authenticated page text, HTML, snapshots, and screenshots are not
-persisted by default. They can be enabled temporarily with
-`STUDY_BUDDY_DIAGNOSTICS_INCLUDE_PAGE_CONTENT=true` or
-`STUDY_BUDDY_DIAGNOSTICS_INCLUDE_SCREENSHOTS=true`; those artifacts may contain
-personal course data and should be deleted after troubleshooting.
+- Real `.env` files, browser state, diagnostics, `study-buddy-data/`, downloads,
+  and generated artifacts are local-only.
+- Credential entry is restricted to the in-process browser broker; URL-embedded
+  credentials are rejected.
+- Authenticated page content and screenshots are not persisted by default.
+- Quiz confirmation cards are cooperative local safeguards, not cryptographic
+  isolation from a process that already controls the machine.
+- Final Moodle quiz submission is blocked by policy in every access mode.
+- Users must access only accounts and material they are authorized to use.
+
+See [PRIVACY.md](PRIVACY.md) for local data and analytics policy and
+[docs/security-and-data-handling.md](docs/security-and-data-handling.md) for
+operational guidance.

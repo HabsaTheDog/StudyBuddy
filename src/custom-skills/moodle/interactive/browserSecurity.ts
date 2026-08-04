@@ -64,7 +64,7 @@ export class BrowserAuthenticationGate {
 const SENSITIVE_FIELD_LINE =
   /^\s*((?:password|passwd|passcode|secret|token|authorization|credential|current-password)(?:\s+(?:value|text|name))?\s*[:=]\s*)(.*)$/gim;
 const CREDENTIAL_URL_PARAMETER =
-  /([?&](?:token|secret|password|passwd|passcode|api[_-]?key|auth|credential)[^=&#]*=)[^&#\s"'<>]*/gi;
+  /([?&](?:access[_-]?token|refresh[_-]?token|sesskey|token|secret|password|passwd|passcode|api[_-]?key|auth|authorization|credential|signature|code|key)[^=&#]*=)[^&#\s"'<>]*/gi;
 const CREDENTIAL_MASK = /(?:[•●▪◦]\s*){2,}|\*{3,}/g;
 
 function variants(value: string): string[] {
@@ -105,7 +105,7 @@ export function sanitizeModelVisibleUrl(
     url.password = "";
     url.hash = "";
     for (const key of url.searchParams.keys()) {
-      if (/(?:token|secret|password|passwd|passcode|api[_-]?key|auth|credential)/i.test(key)) {
+      if (/(?:access[_-]?token|refresh[_-]?token|sesskey|token|secret|password|passwd|passcode|api[_-]?key|auth|authorization|credential|signature|code|key)/i.test(key)) {
         url.searchParams.set(key, "[REDACTED]");
       }
     }

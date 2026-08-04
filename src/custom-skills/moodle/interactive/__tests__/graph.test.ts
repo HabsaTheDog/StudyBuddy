@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -96,6 +96,44 @@ describe("interactive Moodle graph", () => {
         },
       }),
     ).toBe("target_not_found");
+  });
+
+  it("redacts credential-like prompt and URL values in persisted configuration", async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-interactive-"));
+    const previousWorkspace = process.env.STUDY_BUDDY_WORKSPACE;
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+    try {
+      const result = await runInteractiveMoodleGraph(
+        {
+          prompt: "Review https://moodle.example/mod/quiz/view.php?id=7&token=prompt-secret",
+          originalUserPrompt: "Use https://moodle.example/?access_token=original-secret",
+          moodleUrl: "https://moodle.example/mod/quiz/view.php?id=7&token=url-secret#private",
+        },
+        {
+          browser: fakeBrowser(),
+          codex: { run: async () => "{}" },
+          quizTargetNode: async () => ({
+            extracted_data: {
+              quiz_workflow: {
+                kind: "quiz_workflow",
+                target_url: null,
+                done: true,
+                stop_reason: "no-quiz-target",
+              },
+            },
+          }),
+        },
+      );
+
+      const persisted = await readFile(path.join(result.runDir, "interaction-config.json"), "utf8");
+      expect(persisted).not.toContain("prompt-secret");
+      expect(persisted).not.toContain("original-secret");
+      expect(persisted).not.toContain("url-secret");
+      expect(persisted).not.toContain("#private");
+      expect(persisted).toContain("[REDACTED]");
+    } finally {
+      restoreWorkspace(previousWorkspace);
+    }
   });
 });
 

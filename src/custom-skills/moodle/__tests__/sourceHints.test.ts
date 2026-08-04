@@ -16,7 +16,7 @@ describe("verified Moodle source hints", () => {
   });
 
   it("preserves explicit activity and resource URLs", () => {
-    const resource = "https://moodle.technikum-wien.at/mod/resource/view.php?id=2189329";
+    const resource = "https://moodle.technikum-wien.at/mod/resource/view.php?id=301";
     expect(resolveVerifiedMoodleSource("DC-DC Lernzettel", resource)).toBe(resource);
   });
 

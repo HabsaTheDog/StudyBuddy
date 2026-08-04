@@ -182,7 +182,7 @@ function extractedSourceUrls(sourceText: string): Map<string, string> {
     };
     for (const source of handoff.sources ?? []) {
       if (typeof source.id !== "string" || typeof source.url !== "string") continue;
-      if (!/^https:\/\/moodle\.technikum-wien\.at\/(?:course|mod)\//i.test(source.url)) continue;
+      if (!/^https:\/\/[^/]+\/(?:course|mod)\//i.test(source.url)) continue;
       urls.set(source.id, source.url);
     }
   } catch {

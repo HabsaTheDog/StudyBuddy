@@ -1,0 +1,12 @@
+changelog:
+  categories:
+    - title: Security
+      labels: ["type:security"]
+    - title: Features
+      labels: ["type:feature"]
+    - title: Fixes
+      labels: ["type:bug"]
+    - title: Documentation
+      labels: ["type:docs"]
+    - title: Other changes
+      labels: ["*"]

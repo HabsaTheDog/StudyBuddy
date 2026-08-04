@@ -406,11 +406,11 @@ describe("createRuntimeConfig", () => {
     vi.stubEnv("MOODLE_DASHBOARD_URL", "");
 
     const config = createRuntimeConfig({
-      prompt: "bearbeite das Moodle Quiz https://moodle.technikum-wien.at/mod/quiz/view.php?id=2249517",
+      prompt: "bearbeite das Moodle Quiz https://moodle.technikum-wien.at/mod/quiz/view.php?id=201",
       moodleUrl: "https://moodle.technikum-wien.at/my/",
     });
 
-    expect(config.moodleUrl).toBe("https://moodle.technikum-wien.at/mod/quiz/view.php?id=2249517");
+    expect(config.moodleUrl).toBe("https://moodle.technikum-wien.at/mod/quiz/view.php?id=201");
     expect(config.dashboardUrl).toBe("https://moodle.technikum-wien.at/my/");
   });
 
@@ -419,11 +419,11 @@ describe("createRuntimeConfig", () => {
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
 
     const config = createRuntimeConfig({
-      prompt: "vergleiche mit https://moodle.technikum-wien.at/mod/quiz/view.php?id=2249517",
-      moodleUrl: "https://moodle.technikum-wien.at/course/view.php?id=32916",
+      prompt: "vergleiche mit https://moodle.example.edu/mod/quiz/view.php?id=201",
+      moodleUrl: "https://moodle.example.edu/course/view.php?id=101",
     });
 
-    expect(config.moodleUrl).toBe("https://moodle.technikum-wien.at/course/view.php?id=32916");
+    expect(config.moodleUrl).toBe("https://moodle.example.edu/course/view.php?id=101");
   });
 
   it("constrains direct quiz attempt pages to a single-page crawl by default", async () => {
@@ -431,12 +431,12 @@ describe("createRuntimeConfig", () => {
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
 
     const config = createRuntimeConfig({
-      prompt: "bearbeite diese Seite https://moodle.technikum-wien.at/mod/quiz/attempt.php?attempt=1974633&cmid=2185215&page=8",
-      moodleUrl: "https://moodle.technikum-wien.at/my/",
+      prompt: "bearbeite diese Seite https://moodle.example.edu/mod/quiz/attempt.php?attempt=301&cmid=201&page=8",
+      moodleUrl: "https://moodle.example.edu/my/",
     });
 
     expect(config.moodleUrl).toBe(
-      "https://moodle.technikum-wien.at/mod/quiz/attempt.php?attempt=1974633&cmid=2185215&page=8",
+      "https://moodle.example.edu/mod/quiz/attempt.php?attempt=301&cmid=201&page=8",
     );
     expect(config.maxDepth).toBe(0);
     expect(config.maxPages).toBe(1);

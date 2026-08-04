@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/HabsaTheDog/StudyBuddy/security/advisories/new
+    about: Report vulnerabilities privately. Do not disclose them in an issue.
+  - name: Support and redaction guidance
+    url: https://github.com/HabsaTheDog/StudyBuddy/blob/master/SUPPORT.md
+    about: Read this before sharing logs or diagnostics.

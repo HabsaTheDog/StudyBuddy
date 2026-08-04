@@ -331,9 +331,9 @@ export class RunDiagnostics {
     const lines = [
       "# Study Buddy Run Summary",
       "",
-      `Prompt: ${input.prompt}`,
+      `Prompt: ${this.redactDiagnosticContent(input.prompt)}`,
       ...(input.taskPrompt && input.taskPrompt !== input.prompt
-        ? [`Task prompt: ${input.taskPrompt}`]
+        ? [`Task prompt: ${this.redactDiagnosticContent(input.taskPrompt)}`]
         : []),
       "",
       `Route: ${input.route}`,
