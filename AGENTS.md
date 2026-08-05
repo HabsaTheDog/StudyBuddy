@@ -1,5 +1,7 @@
 # Study Buddy 2.0 Agent Rules
 
+- Study Buddy and upstream T3 Code are separate applications. `t3code-fork/` is Study Buddy-owned fork code; `~/Dokumente/Development/t3code-upstream`, `~/Applications/t3code`, `~/.local/bin/t3-code`, `~/.local/share/applications/t3code.desktop`, `~/.t3`, and `~/.config/t3code` belong to upstream T3 Code unless the user explicitly scopes work there.
+- Study Buddy fork builds must use Study Buddy-specific app identity, state, launcher, protocol, and artifact names. Do not install or copy Study Buddy artifacts into `~/Applications/t3code`, and do not name generated Study Buddy AppImages `T3-Code-*`.
 - Before changing the adaptive interactive Study Builder, read `docs/study-builder-vnext/implementation-charter.md` and the relevant sections of `docs/study-builder-vnext/product-spec.md`; track implementation status in `docs/study-builder-vnext/implementation-plan.md`.
 - Preserve the recognizable Moodle course hierarchy, keep generated practice inside established course scope, and select learning blocks from course and assessment evidence rather than fixed subject templates.
 - Treat every interactive question as a validated bank item with a stable ID, learning objective, answer or rubric, origin, scope basis, stage, and review result.
