@@ -23,6 +23,8 @@ export interface WebLayoutState {
   generator_retry_count: number;
   validator_retry_count: number;
   quality_retry_count: number;
+  artifact_repair_stage: number;
+  artifact_candidate_hashes: string[];
 }
 
 export const initialWebLayoutState: WebLayoutState = {
@@ -41,6 +43,8 @@ export const initialWebLayoutState: WebLayoutState = {
   generator_retry_count: 0,
   validator_retry_count: 0,
   quality_retry_count: 0,
+  artifact_repair_stage: 0,
+  artifact_candidate_hashes: [],
 };
 
 export const WebLayoutStateAnnotation = Annotation.Root({
@@ -103,6 +107,14 @@ export const WebLayoutStateAnnotation = Annotation.Root({
   quality_retry_count: Annotation<number>({
     reducer: (_current, update) => update,
     default: () => 0,
+  }),
+  artifact_repair_stage: Annotation<number>({
+    reducer: (_current, update) => update,
+    default: () => 0,
+  }),
+  artifact_candidate_hashes: Annotation<string[]>({
+    reducer: (_current, update) => update,
+    default: () => [],
   }),
 });
 

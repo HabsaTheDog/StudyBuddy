@@ -314,12 +314,20 @@ function routeAfterGenerator(state: LangGraphWebLayoutState): "generator" | "val
   if (!state.error_log) {
     return "validator";
   }
+  if (state.artifact_repair_stage >= 3) return "abort";
   return state.generator_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 
 function routeAfterValidator(state: LangGraphWebLayoutState): "generator" | "diskWriter" | "abort" {
   if (!state.error_log) {
     return "diskWriter";
+  }
+  // A standardized artifact receives three meaningfully different bounded
+  // repair strategies: deterministic targeted CSS, isolated Sol repair, then
+  // a conservative responsive fallback. The initial validation is not itself
+  // counted as one of those repair strategies.
+  if (state.artifact_repair_stage > 0 && state.artifact_repair_stage < 3) {
+    return "generator";
   }
   return state.validator_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
@@ -428,6 +436,8 @@ async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayou
     generator_retry_count: 0,
     validator_retry_count: 0,
     quality_retry_count: 0,
+    artifact_repair_stage: 0,
+    artifact_candidate_hashes: [],
   };
 }
 

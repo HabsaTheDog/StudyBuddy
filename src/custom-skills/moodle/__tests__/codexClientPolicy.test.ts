@@ -10,6 +10,7 @@ describe("Codex task access policy", () => {
   it.each([
     "artifact_planner",
     "content_analyzer",
+    "content_repair",
     "quality_reviewer",
   ] as const)("isolates %s as a read-only, offline leaf worker", (task) => {
     expect(resolveCodexTaskAccessPolicy(task)).toEqual({
@@ -26,6 +27,15 @@ describe("Codex task access policy", () => {
     expect(resolveCodexTaskAccessPolicy("artifact_builder")).toMatchObject({
       leafWorker: false,
       sandboxMode: "workspace-write",
+      isolatedWorkingDirectory: false,
+    });
+  });
+
+  it("gives the artifact repairer only the local workspace and no network", () => {
+    expect(resolveCodexTaskAccessPolicy("artifact_repair")).toMatchObject({
+      leafWorker: false,
+      sandboxMode: "workspace-write",
+      networkAccessEnabled: false,
       isolatedWorkingDirectory: false,
     });
   });

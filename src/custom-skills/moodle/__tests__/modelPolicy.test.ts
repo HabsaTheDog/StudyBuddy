@@ -11,18 +11,24 @@ describe("modelPolicy", () => {
     const cases = [
       ["fast", "artifact_planner", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
       ["fast", "content_analyzer", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "high"],
+      ["fast", "content_repair", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["fast", "quiz_solver", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
       ["fast", "artifact_builder", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],
+      ["fast", "artifact_repair", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["fast", "quality_reviewer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["balanced", "artifact_planner", "gpt-5.6-terra", "medium", "gpt-5.6-sol", "medium"],
       ["balanced", "content_analyzer", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "medium"],
+      ["balanced", "content_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["balanced", "quiz_solver", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["balanced", "artifact_builder", "gpt-5.6-sol", "medium", "gpt-5.6-sol", "high"],
+      ["balanced", "artifact_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["balanced", "quality_reviewer", "gpt-5.6-terra", "medium", "gpt-5.6-terra", "medium"],
       ["quality", "artifact_planner", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["quality", "content_analyzer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
+      ["quality", "content_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["quality", "quiz_solver", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["quality", "artifact_builder", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
+      ["quality", "artifact_repair", "gpt-5.6-sol", "xhigh", "gpt-5.6-sol", "xhigh"],
       ["quality", "quality_reviewer", "gpt-5.6-terra", "high", "gpt-5.6-terra", "high"],
     ] as const;
 
@@ -84,8 +90,10 @@ describe("modelPolicy", () => {
     for (const task of [
       "artifact_planner",
       "content_analyzer",
+      "content_repair",
       "quiz_solver",
       "artifact_builder",
+      "artifact_repair",
       "quality_reviewer",
     ] as const) {
       expect(resolveTaskModelPolicy({ profile: "auto", task })).toEqual(
