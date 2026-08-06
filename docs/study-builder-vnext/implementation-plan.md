@@ -761,3 +761,42 @@ Gate:
   calls, zero tokens, and zero retries. Reliability, quality, efficiency, and
   all configured vNext gates passed in:
   `study-buddy-data/benchmarks/adaptive-study-builder-vnext-adaptive-module-titles-2026-07-31/`.
+
+## Targeted repair workers and graceful partial publication
+
+- Normal synthesis and repair now use distinct model-policy tasks.
+  `content_repair` is a read-only, offline leaf worker that receives only the
+  failed chapter/item, compact evidence, and validator feedback;
+  `artifact_repair` is a network-disabled workspace worker restricted by its
+  prompt to the staged HTML/Typst artifact. Balanced and quality repairs use
+  GPT-5.6 Sol, while the normal-path model mix remains unchanged.
+- Standardized adaptive guides no longer bypass artifact repair after browser
+  failure. Their bounded strategy is now: one known deterministic responsive
+  correction, one isolated Sol repair, and one conservative responsive
+  fallback, with complete validation after every candidate.
+- Validator candidates receive SHA-256 identities and scores. Every candidate
+  and report is retained below `.repair/candidates/`; the best candidate is
+  preserved, an improved failed candidate becomes the next repair base, and an
+  unchanged failed hash terminates blind retries.
+- Browser overflow findings now include the viewport, measured page overflow,
+  leading DOM selectors, bounding boxes, element/client/scroll widths, and
+  relevant computed CSS. Adaptive matrix failures carry the same offender list
+  plus clipped controls and short targets.
+- PDF extraction still treats permission, course identity, citations,
+  contradictions, mathematics, units, and source access as hard gates. After
+  three targeted attempts, only a localized depth or representative-
+  application gap may be downgraded to transparent `partial` coverage. The
+  validated chapter material remains, the unresolved example is omitted, and
+  the exact chapter warning is persisted into the extraction handoff so render
+  recovery does not rediscover or hide the gap.
+- Regression coverage verifies role selection, deterministic-before-model
+  routing, in-place artifact repair, hard-versus-degradable extraction
+  failures, chapter-preserving partial finalization, and selector-level browser
+  overflow diagnostics.
+- Repository verification passed with 708 tests, 4 intentional skips, clean
+  TypeScript type checking, and clean diff whitespace checks. The persisted
+  Dynamics production candidate also passed reliability, quality, efficiency,
+  and every vNext hard gate with 5 modules, 20 objectives, 49 bank items, zero
+  permission violations, zero runtime network requests, and zero blocking
+  browser issues in
+  `study-buddy-data/benchmarks/targeted-repair-regression-2026-08-06/`.

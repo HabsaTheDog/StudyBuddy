@@ -16,7 +16,9 @@ const REPAIR_DOCUMENT_PATH = ".repair/document.html";
 export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function generatorNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
+      const repairMode = Boolean(state.error_log && state.html_document.trim());
       if (
+        !repairMode &&
         config.kind === "study-guide" &&
         Object.keys(state.study_guide_content).length > 0
       ) {
@@ -38,16 +40,55 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         );
         assertCompleteHtmlResponse(html);
         await config.diagnostics?.log("info", "generator", `Rendered standardized study-guide HTML deterministically (${html.length} chars).`);
-        return { html_document: html, error_log: null };
+        return {
+          html_document: html,
+          error_log: null,
+          artifact_repair_stage: 0,
+        };
       }
-      const repairMode = Boolean(state.error_log && state.html_document.trim());
+      if (
+        repairMode &&
+        state.artifact_repair_stage === 0 &&
+        hasResponsiveLayoutFailure(state.validation_report)
+      ) {
+        const html = applyResponsiveLayoutRepair(state.html_document, "targeted");
+        assertCompleteHtmlResponse(html);
+        await config.diagnostics?.log(
+          "info",
+          "generator",
+          "Applied the bounded deterministic responsive-layout repair before model escalation.",
+        );
+        return {
+          html_document: html,
+          error_log: null,
+          artifact_repair_stage: 1,
+        };
+      }
+      if (
+        repairMode &&
+        state.artifact_repair_stage === 2 &&
+        hasResponsiveLayoutFailure(state.validation_report)
+      ) {
+        const html = applyResponsiveLayoutRepair(state.html_document, "fallback");
+        assertCompleteHtmlResponse(html);
+        await config.diagnostics?.log(
+          "warn",
+          "generator",
+          "Applied the conservative responsive fallback after the targeted model repair remained invalid.",
+        );
+        return {
+          html_document: html,
+          error_log: null,
+          artifact_repair_stage: 3,
+        };
+      }
       const repairPath = path.join(config.runDir, REPAIR_DOCUMENT_PATH);
       if (repairMode) {
         await mkdir(path.dirname(repairPath), { recursive: true });
         await writeFile(repairPath, state.html_document, "utf8");
       }
       const response = await codex.run(buildGeneratorPrompt(config, state), {
-        task: "artifact_builder",
+        task: repairMode ? "artifact_repair" : "artifact_builder",
         attempt: state.retry_count + 1,
       });
       const responseHtml = stripHtmlFence(response);
@@ -70,6 +111,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
       return {
         html_document: html,
         error_log: null,
+        ...(repairMode ? { artifact_repair_stage: 2 } : {}),
       };
     } catch (error) {
       const message = `HTML generator failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -78,9 +120,51 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         error_log: message,
         retry_count: state.retry_count + 1,
         generator_retry_count: state.generator_retry_count + 1,
+        ...(message.includes("did not modify the staged repair artifact")
+          ? { artifact_repair_stage: 3 }
+          : {}),
       };
     }
   };
+}
+
+function hasResponsiveLayoutFailure(report: JsonObject): boolean {
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  return issues.some((entry) =>
+    Boolean(entry) &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    (
+      (entry as JsonObject).code === "horizontal-overflow" ||
+      (
+        (entry as JsonObject).code === "adaptive-study-guide-matrix" &&
+        /responsive layout|overflow|clipped/i.test(String((entry as JsonObject).message ?? ""))
+      )
+    )
+  );
+}
+
+function applyResponsiveLayoutRepair(html: string, mode: "targeted" | "fallback"): string {
+  const marker = `data-sb-repair="responsive-${mode}-v1"`;
+  if (html.includes(marker)) return html;
+  const css = mode === "targeted"
+    ? `
+<style ${marker}>
+:where(.app-shell,.hotbar-main,.workspace,.topic-workspace,.topic-layout,.catalog-workspace,.catalog-filters,.exam-result-summary,.exam-comparison,.section-heading,.question-card,.reading-card,.concept-card,.assessment-card,.exam-shell)>*{min-width:0}
+:where(img,svg,canvas,video){max-width:100%;height:auto}
+:where(.question-card,.reading-card,.concept-card,.assessment-card,.exam-shell,pre,code){overflow-wrap:anywhere;word-break:normal}
+</style>`
+    : `
+<style ${marker}>
+:where(main,header,footer,nav,section,article,aside,form,fieldset,div){min-width:0;max-width:100%}
+:where(img,svg,canvas,video){max-width:100%;height:auto}
+:where(pre,table,.math-scroll,.formula-grid,.answer-options){max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+:where(p,li,h1,h2,h3,h4,label,button,summary,.question-card,.reading-card,.concept-card,.assessment-card,.exam-shell){overflow-wrap:anywhere}
+</style>`;
+  if (!/<\/head>/i.test(html)) {
+    throw new Error("Cannot apply responsive repair because </head> is missing.");
+  }
+  return html.replace(/<\/head>/i, `${css}\n</head>`);
 }
 
 function assertCompleteHtmlResponse(html: string): void {
@@ -118,6 +202,8 @@ export function buildGeneratorPrompt(
           `The complete last-known-good artifact is staged at ${REPAIR_DOCUMENT_PATH}, relative to the working directory.`,
           `Use your file tools to inspect and edit only ${REPAIR_DOCUMENT_PATH}. Do not reproduce the complete HTML in your response.`,
           "Make the smallest coherent changes that resolve every supplied finding while preserving all unrelated working content and interactions.",
+          "Do not rewrite, summarize, add, or remove learning content, sources, question IDs, answers, or assessment rules. This role repairs presentation and runtime defects only.",
+          "Inspect the structured validator details first. Prefer a local CSS/DOM fix tied to the reported offending selector over broad restyling.",
           "After saving the repaired file, respond with exactly UPDATED_DOCUMENT_HTML.",
         ].join("\n")
       : "Generate one complete Study Buddy interactive learning webpage.\nOutput raw HTML only. Do not wrap it in Markdown fences. Do not include explanations outside the HTML.",

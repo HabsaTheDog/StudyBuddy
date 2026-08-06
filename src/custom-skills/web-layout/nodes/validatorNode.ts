@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { prepareWebLayoutArtifact } from "../assetPipeline.js";
 import { validateWebLayoutFile, validationReportToJson } from "../validation.js";
@@ -85,15 +86,43 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
       ...validationReportToJson(report),
       artifact: artifactSummary(prepared.report),
     };
+    const candidateHash = createHash("sha256").update(state.html_document).digest("hex");
+    const repeatedCandidate = state.artifact_candidate_hashes.includes(candidateHash);
+    const candidateHashes = repeatedCandidate
+      ? state.artifact_candidate_hashes
+      : [...state.artifact_candidate_hashes, candidateHash];
+    const currentScore = validationScore(validationReport);
+    const previousScore = validationScore(state.validation_report);
+    const retainCandidate = report.ok || currentScore < previousScore;
+    validationReport.candidate = {
+      hash: candidateHash,
+      repeated: repeatedCandidate,
+      score: currentScore,
+      previousScore: Number.isFinite(previousScore) ? previousScore : null,
+      retainedAsBest: retainCandidate,
+    };
+    await persistRepairCandidate(
+      config.runDir,
+      candidateHash,
+      state.html_document,
+      validationReport,
+      retainCandidate,
+    );
     if (!report.ok) {
-      const restoredHtml = await restorePreviousBuild(backupPath, config.runDir);
-      const message = `HTML validation failed:\n- ${report.issues.map((entry) => entry.message).join("\n- ")}`;
+      const restoredHtml = retainCandidate
+        ? null
+        : await restorePreviousBuild(backupPath, config.runDir);
+      const message = repeatedCandidate
+        ? `HTML validation rejected an unchanged repair candidate (${candidateHash.slice(0, 12)}); stopping blind retries.\n- ${report.issues.map((entry) => entry.message).join("\n- ")}`
+        : `HTML validation failed:\n- ${report.issues.map((entry) => entry.message).join("\n- ")}`;
       await config.diagnostics?.log("warn", "validator", message);
       return {
         validation_report: validationReport,
         error_log: message,
         retry_count: state.retry_count + 1,
         validator_retry_count: state.validator_retry_count + 1,
+        artifact_candidate_hashes: candidateHashes,
+        ...(repeatedCandidate ? { artifact_repair_stage: 3 } : {}),
         ...(restoredHtml ? { html_document: restoredHtml } : {}),
       };
     }
@@ -101,8 +130,40 @@ export function createValidatorNode(config: WebLayoutRuntimeConfig) {
     return {
       validation_report: validationReport,
       error_log: null,
+      artifact_candidate_hashes: candidateHashes,
     };
   };
+}
+
+function validationScore(report: JsonObject): number {
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  if (issues.length === 0) return Object.keys(report).length === 0 ? Number.POSITIVE_INFINITY : 0;
+  const overflow = issues.reduce<number>((total, entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return total;
+    const details = (entry as JsonObject).details;
+    if (!details || typeof details !== "object" || Array.isArray(details)) return total;
+    const pageOverflow = (details as JsonObject).pageOverflow;
+    return total + (typeof pageOverflow === "number" ? Math.max(0, pageOverflow) : 0);
+  }, 0);
+  return issues.length * 10_000 + overflow;
+}
+
+async function persistRepairCandidate(
+  runDir: string,
+  hash: string,
+  html: string,
+  report: JsonObject,
+  retainAsBest: boolean,
+): Promise<void> {
+  const candidateDir = path.join(runDir, ".repair", "candidates");
+  await mkdir(candidateDir, { recursive: true });
+  await Promise.all([
+    writeFile(path.join(candidateDir, `${hash}.html`), html, "utf8"),
+    writeFile(path.join(candidateDir, `${hash}.json`), `${JSON.stringify(report, null, 2)}\n`, "utf8"),
+    ...(retainAsBest
+      ? [writeFile(path.join(runDir, ".repair", "best-candidate.html"), html, "utf8")]
+      : []),
+  ]);
 }
 
 export function validateStudyGuideRenderCoverage(html: string, content: JsonObject): string[] {

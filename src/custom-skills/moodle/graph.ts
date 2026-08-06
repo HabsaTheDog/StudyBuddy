@@ -29,6 +29,10 @@ import { createCoverageNode } from "./nodes/coverageNode.js";
 import { createStudyModelNode } from "./nodes/studyModelNode.js";
 import { createReviewNode } from "./nodes/reviewNode.js";
 import { createQualityReviewerNode } from "./nodes/qualityReviewerNode.js";
+import {
+  canFinalizePartialExtraction,
+  createPartialExtractionFinalizerNode,
+} from "./nodes/partialExtractionFinalizerNode.js";
 import { createBundleWriterNode } from "./nodes/bundleWriterNode.js";
 import { createSourceOrchestratorNode, createSourcePlannerNode } from "./sourceOrchestrator.js";
 import {
@@ -377,21 +381,24 @@ export async function runMoodleGraph(
 
 function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
   const tasks: StudyBuddyModelTask[] = config.stage === "render"
-    ? ["artifact_builder"]
+    ? ["artifact_builder", "artifact_repair"]
     : config.stage === "extract"
       ? config.evidenceHandoffOnly
         ? []
         : [
           ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
           "content_analyzer",
+          "content_repair",
           "quality_reviewer",
         ]
       : config.intentDecision?.wantsQuickAnswer
-        ? ["content_analyzer"]
+        ? ["content_analyzer", "content_repair"]
         : [
             ...(config.visualsEnabled ? ["artifact_planner" as const] : []),
             "content_analyzer",
+            "content_repair",
             "artifact_builder",
+            "artifact_repair",
             "quality_reviewer",
           ];
   return [...new Set(tasks.flatMap((task) => {
@@ -479,6 +486,7 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addNode("visualPlanner", createVisualPlannerNode(config, codex))
     .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("partialFinalizer", createPartialExtractionFinalizerNode(config))
     .addNode("formatter", createFormatterNode(config, codex))
     .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
     .addNode("studyModel", createStudyModelNode(config))
@@ -513,6 +521,11 @@ export function buildMoodleGraph(config: MoodleRuntimeConfig, dependencies: Grap
     .addConditionalEdges("analyzer", routeAfterAnalyzer, {
       analyzer: "analyzer",
       formatter: "studyModel",
+      partialFinalizer: "partialFinalizer",
+      abort: END,
+    })
+    .addConditionalEdges("partialFinalizer", routeAfterPartialFinalizer, {
+      studyModel: "studyModel",
       abort: END,
     })
     .addConditionalEdges("studyModel", routeAfterStudyModel, {
@@ -564,7 +577,7 @@ export function buildAnswerGraph(config: MoodleRuntimeConfig, dependencies: Grap
       answerWriter: "answerWriter",
       abort: END,
     })
-    .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
+    .addConditionalEdges("analyzer", routeAfterAnswerAnalyzer, {
       analyzer: "analyzer",
       done: "answerWriter",
       abort: END,
@@ -591,6 +604,7 @@ export function buildExtractionGraph(
     .addNode("visualPlanner", createVisualPlannerNode(config, codex))
     .addNode("visualDiscovery", createVisualDiscoveryNode(config))
     .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("partialFinalizer", createPartialExtractionFinalizerNode(config))
     .addNode("studyModel", createStudyModelNode(config))
     .addNode("review", createReviewNode(config))
     .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
@@ -622,6 +636,11 @@ export function buildExtractionGraph(
     .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
       analyzer: "analyzer",
       done: "studyModel",
+      partialFinalizer: "partialFinalizer",
+      abort: END,
+    })
+    .addConditionalEdges("partialFinalizer", routeAfterPartialFinalizer, {
+      studyModel: "studyModel",
       abort: END,
     })
     .addConditionalEdges("studyModel", routeAfterStudyModel, {
@@ -700,6 +719,7 @@ export function buildExtractionReviewGraph(
   const codex = dependencies.codex ?? createCodexClient(config);
   return new StateGraph(AgentStateAnnotation)
     .addNode("analyzer", createAnalyzerNode(config, codex))
+    .addNode("partialFinalizer", createPartialExtractionFinalizerNode(config))
     .addNode("studyModel", createStudyModelNode(config))
     .addNode("review", createReviewNode(config))
     .addNode("qualityReviewer", createQualityReviewerNode(config, codex))
@@ -721,6 +741,11 @@ export function buildExtractionReviewGraph(
     .addConditionalEdges("analyzer", routeAfterExtractionAnalyzer, {
       analyzer: "analyzer",
       done: "studyModel",
+      partialFinalizer: "partialFinalizer",
+      abort: END,
+    })
+    .addConditionalEdges("partialFinalizer", routeAfterPartialFinalizer, {
+      studyModel: "studyModel",
       abort: END,
     })
     .addConditionalEdges("qualityReviewer", routeAfterExtractionRecoveryQualityReview, {
@@ -881,11 +906,14 @@ async function runDiagnosticOnly(config: MoodleRuntimeConfig): Promise<AgentStat
   };
 }
 
-function routeAfterAnalyzer(state: LangGraphAgentState): "analyzer" | "formatter" | "abort" {
+function routeAfterAnalyzer(
+  state: LangGraphAgentState,
+): "analyzer" | "formatter" | "partialFinalizer" | "abort" {
   if (!state.error_log) {
     return "formatter";
   }
-  return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
+  if (state.retry_count < MAX_RETRIES) return "analyzer";
+  return canFinalizePartialExtraction(state) ? "partialFinalizer" : "abort";
 }
 
 function routeAfterCourseResolver(
@@ -912,11 +940,27 @@ function routeAfterReview(
   return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
 }
 
-function routeAfterExtractionAnalyzer(state: LangGraphAgentState): "analyzer" | "done" | "abort" {
+function routeAfterExtractionAnalyzer(
+  state: LangGraphAgentState,
+): "analyzer" | "done" | "partialFinalizer" | "abort" {
   if (!state.error_log) {
     return "done";
   }
+  if (state.retry_count < MAX_RETRIES) return "analyzer";
+  return canFinalizePartialExtraction(state) ? "partialFinalizer" : "abort";
+}
+
+function routeAfterAnswerAnalyzer(
+  state: LangGraphAgentState,
+): "analyzer" | "done" | "abort" {
+  if (!state.error_log) return "done";
   return state.retry_count >= MAX_RETRIES ? "abort" : "analyzer";
+}
+
+function routeAfterPartialFinalizer(
+  state: LangGraphAgentState,
+): "studyModel" | "abort" {
+  return state.error_log ? "abort" : "studyModel";
 }
 
 function routeAfterFormatter(state: LangGraphAgentState): "formatter" | "diskWriter" | "abort" {

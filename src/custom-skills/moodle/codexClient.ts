@@ -47,14 +47,17 @@ export interface CodexToolUsage {
 const LEAF_MODEL_TASKS = new Set<StudyBuddyModelTask>([
   "artifact_planner",
   "content_analyzer",
+  "content_repair",
   "quality_reviewer",
 ]);
 const MODEL_PROMPT_CHARACTER_BUDGETS: Record<StudyBuddyModelTask, number> = {
   artifact_planner: 60_000,
   content_analyzer: 60_000,
+  content_repair: 60_000,
   quality_reviewer: 45_000,
   quiz_solver: 120_000,
   artifact_builder: 120_000,
+  artifact_repair: 120_000,
 };
 
 const LEAF_WORKER_BOUNDARY = [
@@ -406,7 +409,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             });
             if (
               config.stage === "extract" &&
-              (task === "content_analyzer" || task === "quality_reviewer")
+              (task === "content_analyzer" || task === "content_repair" || task === "quality_reviewer")
             ) {
               extractionCapacityFailure = timeoutError;
             }

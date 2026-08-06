@@ -10,6 +10,7 @@ import type { WebLayoutKind } from "./types.js";
 export interface HtmlValidationIssue {
   code: string;
   message: string;
+  details?: JsonObject;
 }
 
 export interface BrowserValidationCheck {
@@ -174,6 +175,7 @@ export function validationReportToJson(report: HtmlValidationReport): JsonObject
     issues: report.issues.map((entry) => ({
       code: entry.code,
       message: entry.message,
+      ...(entry.details ? { details: entry.details } : {}),
     })),
     screenshotPaths: report.screenshotPaths,
     browserChecks: report.browserChecks.map((entry) => ({
@@ -230,15 +232,63 @@ async function validateHtmlFileInBrowser(
         // Layout metrics below still inspect the complete document, so a viewport fallback is sufficient.
         await page.screenshot({ path: viewport.path, fullPage: false });
       });
-      const metrics = await page.evaluate(() => ({
-        bodyWidth: document.body.scrollWidth,
-        bodyHeight: document.body.scrollHeight,
-        viewportWidth: window.innerWidth,
-        textLength: document.body.innerText.trim().length,
-        centerTag: document.elementFromPoint(window.innerWidth / 2, Math.min(window.innerHeight / 2, document.body.scrollHeight - 1))?.tagName ?? null,
-      }));
-      if (metrics.bodyWidth > metrics.viewportWidth + 2) {
-        issues.push(issue("horizontal-overflow", `Horizontal overflow at ${viewport.width}px viewport.`));
+      const metrics = await page.evaluate(() => {
+        const selector = (element: Element) => {
+          if (element.id) return `${element.tagName.toLowerCase()}#${CSS.escape(element.id)}`;
+          const classes = Array.from(element.classList).slice(0, 3).map((name) => `.${CSS.escape(name)}`).join("");
+          return `${element.tagName.toLowerCase()}${classes}`;
+        };
+        const overflowingElements = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+          .flatMap((element) => {
+            const rect = element.getBoundingClientRect();
+            if (element.offsetParent === null || rect.width <= 0 || rect.height <= 0) return [];
+            const overflowLeft = Math.max(0, -rect.left);
+            const overflowRight = Math.max(0, rect.right - document.documentElement.clientWidth);
+            if (overflowLeft <= 2 && overflowRight <= 2) return [];
+            const style = getComputedStyle(element);
+            return [{
+              selector: selector(element),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              width: Math.round(rect.width),
+              clientWidth: element.clientWidth,
+              scrollWidth: element.scrollWidth,
+              overflowLeft: Math.round(overflowLeft),
+              overflowRight: Math.round(overflowRight),
+              cssWidth: style.width,
+              minWidth: style.minWidth,
+              maxWidth: style.maxWidth,
+              overflowX: style.overflowX,
+              whiteSpace: style.whiteSpace,
+              text: (element.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 120),
+            }];
+          })
+          .sort((left, right) =>
+            (right.overflowLeft + right.overflowRight) - (left.overflowLeft + left.overflowRight)
+          )
+          .slice(0, 8);
+        return {
+          bodyWidth: document.body.scrollWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          bodyHeight: document.body.scrollHeight,
+          viewportWidth: document.documentElement.clientWidth,
+          textLength: document.body.innerText.trim().length,
+          centerTag: document.elementFromPoint(window.innerWidth / 2, Math.min(window.innerHeight / 2, document.body.scrollHeight - 1))?.tagName ?? null,
+          overflowingElements,
+        };
+      });
+      const pageOverflow = Math.max(metrics.bodyWidth, metrics.documentWidth) - metrics.viewportWidth;
+      if (pageOverflow > 2) {
+        const culprit = metrics.overflowingElements[0]?.selector ?? "unknown element";
+        issues.push(issue(
+          "horizontal-overflow",
+          `Horizontal overflow of ${pageOverflow}px at ${viewport.width}px viewport; leading offender: ${culprit}.`,
+          {
+            viewportWidth: viewport.width,
+            pageOverflow,
+            offenders: metrics.overflowingElements,
+          },
+        ));
       }
       if (metrics.bodyHeight <= 0 || metrics.textLength <= 0 || !metrics.centerTag) {
         issues.push(issue("blank-page", `Page appears blank at ${viewport.width}px viewport.`));
@@ -1491,9 +1541,9 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
           ancestor = ancestor.parentElement;
         }
         return true;
-      }).slice(0, 10).map((element) => element.tagName + ":" + element.textContent?.trim().slice(0, 50));
+      }).slice(0, 10).map((element) => `${element.tagName}:${element.textContent?.trim().slice(0, 50) ?? ""}`);
       const shortTargets = visible.filter((element) => element.matches("button") && element.getBoundingClientRect().height < 43)
-        .slice(0, 10).map((element) => element.textContent?.trim().slice(0, 50));
+        .slice(0, 10).map((element) => element.textContent?.trim().slice(0, 50) ?? "");
       const activeCatalogCards = document.querySelectorAll(
         "[data-question-host] [data-sb-question-card]",
       ).length;
@@ -1502,6 +1552,30 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       ).length;
       const originVisible = Boolean(document.querySelector(".origin-chip")?.textContent?.trim());
       const scopeVisible = Boolean(document.querySelector(".scope-note")?.textContent?.trim());
+      const overflowingElements = visible.flatMap((element) => {
+        const rect = element.getBoundingClientRect();
+        const overflowLeft = Math.max(0, -rect.left);
+        const overflowRight = Math.max(0, rect.right - document.documentElement.clientWidth);
+        if (overflowLeft <= 2 && overflowRight <= 2) return [];
+        const style = getComputedStyle(element);
+        const classes = Array.from(element.classList).slice(0, 3).map((name) => `.${CSS.escape(name)}`).join("");
+        return [{
+          selector: element.id
+            ? `${element.tagName.toLowerCase()}#${CSS.escape(element.id)}`
+            : `${element.tagName.toLowerCase()}${classes}`,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          overflowLeft: Math.round(overflowLeft),
+          overflowRight: Math.round(overflowRight),
+          minWidth: style.minWidth,
+          maxWidth: style.maxWidth,
+          overflowX: style.overflowX,
+          whiteSpace: style.whiteSpace,
+        }];
+      }).sort((left, right) =>
+        (right.overflowLeft + right.overflowRight) - (left.overflowLeft + left.overflowRight)
+      ).slice(0, 8);
       return {
         pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
         clipped,
@@ -1510,6 +1584,7 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
         activeExamCards,
         originVisible,
         scopeVisible,
+        overflowingElements,
       };
     });
     const filterValues = Object.values(interaction.filterResults);
@@ -1617,6 +1692,13 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       issues.push(issue(
         "adaptive-study-guide-matrix",
         `${viewport.name}: learner controls, pools, persistence, reset, or responsive layout failed. See interaction audit.`,
+        {
+          viewport: viewport.name,
+          pageOverflow: layout.pageOverflow,
+          clippedControls: layout.clipped,
+          shortTargets: layout.shortTargets,
+          offenders: layout.overflowingElements,
+        },
       ));
     }
   }
@@ -1912,6 +1994,6 @@ function missingInteractionRequirements(html: string, kind: WebLayoutKind): Html
   return issues;
 }
 
-function issue(code: string, message: string): HtmlValidationIssue {
-  return { code, message };
+function issue(code: string, message: string, details?: JsonObject): HtmlValidationIssue {
+  return { code, message, ...(details ? { details } : {}) };
 }

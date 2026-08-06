@@ -118,7 +118,7 @@ describe("study-guide canonical content bank", () => {
     });
 
     expect(repaired.error_log).toBeNull();
-    expect(repairTasks).toEqual(["content_analyzer"]);
+    expect(repairTasks).toEqual(["content_repair"]);
     const repairedContent = JSON.parse(await readFile(path.join(runDir, "study-guide-content.json"), "utf8")) as StudyGuideContent;
     expect(repairedContent.topics.map((topic) => topic.title)).toEqual([
       "Unit 1",

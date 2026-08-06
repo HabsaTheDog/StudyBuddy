@@ -456,9 +456,11 @@ function isModelTask(value: string): value is StudyBuddyModelTask {
   return [
     "artifact_planner",
     "content_analyzer",
+    "content_repair",
     "quality_reviewer",
     "quiz_solver",
     "artifact_builder",
+    "artifact_repair",
   ].includes(value);
 }
 

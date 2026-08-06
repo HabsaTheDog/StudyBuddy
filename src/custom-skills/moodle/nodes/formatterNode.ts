@@ -92,7 +92,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
       }
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
       const typst = await codex.run(buildFormatterPrompt(config, state), {
-        task: "artifact_builder",
+        task: state.error_log ? "artifact_repair" : "artifact_builder",
         attempt: state.retry_count + 1,
       });
       const document = stripTypstFence(typst);

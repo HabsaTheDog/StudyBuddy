@@ -221,7 +221,7 @@ async function buildChunkedModelContent(
       buildStudyGuideBatchPrompt(config, state, requirements, batch, chunks.length),
       {
         outputSchema: studyGuideContentJsonSchema,
-        task: "content_analyzer",
+        task: state.error_log ? "content_repair" : "content_analyzer",
         attempt: state.content_retry_count + 1,
         timeoutMs: batch.length > 1 ? 180_000 : undefined,
       },

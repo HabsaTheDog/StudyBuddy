@@ -150,7 +150,7 @@ async function analyzeWholeRequest(
 ) {
   const response = await codex.run(await buildAnalyzerPrompt(config, state), {
     outputSchema: extractedDataJsonSchema,
-    task: "content_analyzer",
+    task: state.error_log ? "content_repair" : "content_analyzer",
     attempt: state.retry_count + 1,
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
@@ -304,7 +304,7 @@ async function analyzeCourseChapters(
               await buildAnalyzerPrompt(config, state, focus),
               {
                 outputSchema: extractedDataJsonSchema,
-                task: "content_analyzer",
+                task: invalidKeys.has(focus.key) ? "content_repair" : "content_analyzer",
                 attempt: state.retry_count + 1,
                 localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
@@ -609,7 +609,9 @@ async function analyzeDenseChapter(
       try {
         const response = await codex.run(prompt, {
           outputSchema: chapterFragmentJsonSchema,
-          task: "content_analyzer",
+          task: localRepairFeedback || localAttempt > 0
+            ? "content_repair"
+            : "content_analyzer",
           attempt: state.retry_count + localAttempt + 1,
           localImages,
         });
