@@ -17,8 +17,8 @@ describe("modelPolicy", () => {
       ["fast", "artifact_repair", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["fast", "quality_reviewer", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["balanced", "artifact_planner", "gpt-5.6-terra", "medium", "gpt-5.6-sol", "medium"],
-      ["balanced", "content_analyzer", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "medium"],
-      ["balanced", "content_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
+      ["balanced", "content_analyzer", "gpt-5.6-terra", "medium", "gpt-5.6-sol", "medium"],
+      ["balanced", "content_repair", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["balanced", "quiz_solver", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
       ["balanced", "artifact_builder", "gpt-5.6-sol", "medium", "gpt-5.6-sol", "high"],
       ["balanced", "artifact_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
@@ -50,7 +50,7 @@ describe("modelPolicy", () => {
       reasoningEffort: "medium",
     });
     expect(resolveTaskModelPolicy({ profile: "balanced", task: "content_analyzer" })).toMatchObject({
-      model: "gpt-5.6-luna",
+      model: "gpt-5.6-terra",
       reasoningEffort: "medium",
     });
     expect(resolveTaskModelPolicy({ profile: "balanced", task: "quiz_solver" })).toMatchObject({
@@ -82,8 +82,8 @@ describe("modelPolicy", () => {
       attempt: 2,
     });
 
-    expect(primary).toMatchObject({ model: "gpt-5.6-luna", timeoutMs: 90_000 });
-    expect(retry).toMatchObject({ model: "gpt-5.6-terra", timeoutMs: 90_000 });
+    expect(primary).toMatchObject({ model: "gpt-5.6-terra", timeoutMs: 120_000 });
+    expect(retry).toMatchObject({ model: "gpt-5.6-sol", timeoutMs: 180_000 });
   });
 
   it("uses the quality matrix when no explicit profile is selected", () => {

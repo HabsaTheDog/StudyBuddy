@@ -26,6 +26,248 @@ After each work package:
 The primary agent owns shared contracts, integration, end-to-end validation,
 benchmark comparison, and the final quality decision.
 
+## Ambiguous course-scope reliability guard
+
+Status: deterministic fixes verified; fresh live DYN2 retest pending
+
+- A natural artifact request for a generic subject compound such as
+  `Dynamikprüfung` may legitimately match more than one enrolled Moodle course.
+- When deterministic target extraction reports that ambiguity, a merely
+  medium-confidence model preference no longer starts a full extraction and
+  render workflow. The resolver fails closed with the concrete alternatives.
+- Generic learning goals such as fundamentals, formulas, derivations, and
+  calculation practice are explicitly treated as artifact intent rather than
+  course-identity evidence.
+- Regression coverage reproduces the observed DYN2/PHDYN mis-selection. The
+  live reliability gate is a new Study Buddy thread with one natural,
+  course-explicit DYN2 request and no follow-up repair prompt.
+- The Study Buddy skill and T3 coordinator instructions now require the exact
+  prompt as a non-empty quoted literal and explicitly prohibit unassigned
+  prompt-variable expansions. The wrapper rejects empty or whitespace-only
+  positional prompts before creating a run directory or acquiring a workflow
+  lock.
+- The render runtime no longer mistakes a transient 45-second compatibility
+  canary cancellation for an incompatible model. The canary now uses low
+  reasoning with a 90-second bound, while transient queue/network timeouts fall
+  through to the normal bounded model-call recovery policy; deterministic
+  compatibility failures remain blocking.
+- Parallel study-guide generation now settles every already-started batch before
+  returning a validation failure, preserving successful chapter chunks for the
+  next graph pass and preventing overlapping orphan calls. The first dedicated
+  repair pass starts at the repair policy's primary effort and regenerates only
+  the missing or explicitly invalid chapter chunks.
+- Balanced chapter repair now uses one Terra-high worker first and reserves
+  Sol-medium for a second escalation. This follows repeated live evidence that
+  isolated Sol-high/xhigh structured repairs exhausted the 180-second leaf
+  window, while retaining Sol as a bounded fallback instead of multiplying it
+  across concurrent chapter batches.
+- Artifact-builder retry numbering is local to artifact generation instead of
+  inheriting extraction/content retries. The first HTML repair therefore starts
+  at its bounded primary policy rather than escalating immediately to an
+  expensive xhigh worker because an unrelated chapter needed repair earlier.
+- The DYN2 tablet failure was reduced to two deterministic renderer defects:
+  unbroken underscore-heavy source labels widened the page by 28 px, and a
+  named-quantity relation such as `Weg = Geschwindigkeit × Zeit` remained plain
+  text. Source cards now break unspaced labels, and the inline-equation scanner
+  recognizes one title-cased named quantity immediately before a relation
+  without absorbing surrounding instructions. Regression tests cover both
+  cases as well as preserving existing function, subscript, and overline math.
+- A fresh standalone-app retest exposed a pre-source false negative in `codex
+  doctor`: provider HTTP reachability failed while the Responses WebSocket
+  handshake was healthy. This check is now advisory and proceeds to the
+  authenticated model canary plus the existing bounded model-call recovery.
+  Authentication, configuration, runtime provenance, search, sandbox, and
+  state-path failures remain terminal. A dedicated runtime regression verifies
+  that the transient HTTP failure produces a warning and a verified canary
+  instead of an empty workflow.
+
+## Open request-contract architecture
+
+Status: implementation and local regression verification complete on
+2026-08-09; fresh Balanced desktop acceptance for DYN2 and Business English
+pending
+
+- The exact original user request is evaluated once into a typed,
+  integrity-protected `RequestContract`. PDF and HTML extraction, recovery,
+  semantic caches, planners, reviewers, renderers, and deterministic rerender
+  preserve the prompt and contract hashes or fail closed.
+- Removed active fixed `wantsWorkedExamples`/`wantsCalculations` flags,
+  per-topic question/example recipes, named DYN/MEL formula and topic
+  injections, compact-to-cheat-sheet relabelling, and unconditional
+  calculation/application repair instructions.
+- PDF source architecture, analyzer repair, semantic review, partial
+  publication, formatting, and page review now use explicit owner and repair
+  assignments. Universal structural, permission, source, mathematics, Typst,
+  and compiled-page gates remain deterministic.
+- HTML assessment architecture and learning progression are separate
+  request/evidence-driven plans. `documented`, `none`, and
+  `inferred_practice` assessment modes remain distinct; task types are not
+  inferred from course names or list positions.
+- Every published Question Bank item requires an independent content-hash- and
+  contract-bound approval record. Assessment solutions and visuals are
+  reviewed after final semantic content, and stale/tampered records fail
+  closed. Repairs remain item- or chapter-local.
+- Presentation repair cannot change learning semantics. Missing assessment
+  evidence hides the assessment surface instead of inventing one, and compact
+  PDFs may omit examples unless the evaluated request contract requires them.
+- The detailed active-path audit and regression matrix are recorded in
+  [`open-adaptive-pipeline-audit.md`](./open-adaptive-pipeline-audit.md).
+- Final acceptance requires two fresh standalone Study Buddy desktop threads,
+  Balanced profile, one natural prompt each, no follow-up repair prompts, and
+  terminal validated PDF plus HTML outputs with token/retry/runtime accounting.
+- DYN2 desktop round `50f85500-ac33-445f-bbb0-e1b446198c53` exposed a
+  request-size failure in the learning-progression planner (98,221 request
+  characters). The planner now sends every item as a compact, legend-bound row,
+  preserves exact item/hash/objective/type/origin/assessment and answer-contract
+  bindings, bounds only verbose semantic prose, and fails explicitly only when
+  even the complete minimal bank representation cannot fit. A 48-item large-bank
+  regression remains below 50,000 prompt characters.
+- DYN2 desktop round `8723b5ae-40ff-42b6-97f9-02a11d6c38a9` then exposed the
+  same class of issue one stage earlier: layout planning totalled 61,266
+  prompt/schema characters against a 60,000 hard limit. Layout planning now
+  reserves budget for the exact original prompt, full RequestContract,
+  instructions, repair context, and structured-output schema before taking a
+  balanced course-evidence excerpt. Replaying the exact 372,245-character live
+  handoff produces 50,293 prompt plus 1,000 schema characters, with both the
+  exact prompt and contract intact.
+- DYN2 desktop round `fc7bf8cf-99c5-4115-af8a-d90b4f58319a` passed both input
+  budgets and persisted all 12 content chapters, then exposed that assessment
+  architecture validation shared the outer content retry counter. One chapter
+  repair therefore left only two architecture attempts, and the model returned
+  first `documented` with no sections and then a section with no question type.
+  Assessment planning now owns three local semantic attempts, feeds only its
+  exact validation finding back to the next attempt, declares non-empty
+  question types in the structured-output schema, ignores unrelated chapter
+  repair context, and persists only a fully bound valid plan. Direct regression
+  reproduces both malformed responses and succeeds on the third local attempt
+  without regenerating any chapter.
+- DYN2 desktop round `923f6bd5-c8ec-4432-9552-d130ce7a0527` passed layout,
+  12-chapter generation, assessment architecture, the formerly 98k learning
+  progression, and visual selection before a later Question Bank review batch
+  reached 47,478 characters against the 45,000 reviewer limit. Question review
+  now greedily groups at most four complete items by actual prompt size, keeps
+  every item's full response contract and reference solution, and allocates only
+  the remaining budget to compact topic context and localized source evidence.
+  Each distinct batch begins at attempt one; malformed/stale/contract-mismatched
+  review output receives up to three item-local attempts, while a substantive
+  rejected verdict still routes only the named item to content repair. A large
+  eight-item regression proves all items are reviewed, calls remain below the
+  model budget, and batch ordinal no longer inflates retry accounting.
+- DYN2 desktop round `89ea6a72-c89c-4717-9114-d62c3e7fa1f0` reached the
+  independent Question Bank review with the bounded payloads, then exposed two
+  fail-closed defects: the reviewer was asked to reproduce trusted contract
+  hashes and requirement IDs, and an invalid third response was assigned before
+  exact item/hash coverage validation. The app agent and exact official worker
+  were stopped before publication. Review models now return only item ID,
+  content hash, verdict, checks, and item-local findings; the trusted pipeline
+  binds and seals the already verified request/prompt hashes and requirement
+  ownership. A candidate becomes publishable only after exact batch coverage
+  validation, and three stale responses leave no persisted review-set artifact.
+- DYN2 desktop round `69fd5789-6bd0-4d4f-addf-802bde801eba` live-verified the
+  bounded reviewer payloads and system-bound review seals across the complete
+  bank. Independent review rejected eight concrete items and correctly reused
+  seven unaffected chapters while repairing five affected chapters, but the
+  rebuilt structural course changed `courseHash`; the previous valid run-local
+  assessment plan was then mistaken for foreign-request corruption. Resolution
+  now distinguishes bindings: a different contract/prompt or corrupt content/
+  semantic-key seal remains a hard failure, while the same contract/prompt with
+  changed repaired course/evidence semantics invalidates only the local plan,
+  checks the correctly keyed shared cache, and otherwise performs one bounded
+  replan before overwriting it. A regression reproduces this exact repair drift.
+- The same round exposed telemetry-only retry inflation in learning-visual
+  review: independent parallel batch 2 used `attempt=2`. Batch ordinal and
+  batch-local retry attempt are now separate; every distinct visual batch starts
+  at attempt 1 and only an actual retry of that batch increments the metric.
+- DYN2 desktop round `69f34702-8a7e-49a0-b260-f31688d4c904` verified the
+  repaired assessment-plan binding, but the interactive workflow then reached
+  its 20-minute guard after 42 model calls and 788,762 input tokens. The first
+  independent pass reviewed 42 items in 12 fixed four-item calls; semantic
+  rejects subsequently regenerated complete chapters and repeated assessment,
+  progression, visual, and review work. No artifact was published and the PDF
+  branch was not started.
+- Question review now greedily packs the complete final prompt instead of using
+  a fixed item count, with at most three independent batches in flight and a
+  batch-local retry counter. The 46-item regression falls from 12 serial calls
+  and 377,037 request/schema characters to 3 calls and 99,504 characters while
+  preserving every complete item, reference answer, exact request contract,
+  and independent review gate.
+- Semantic item rejection no longer becomes a chapter error. A sealed
+  contract-/bank-/review-bound disposition removes a rejected item only when
+  approved survivors preserve its exact objective, response mode, documented
+  assessment slot, and explicit contract coverage. Otherwise exactly that item
+  receives a bounded `content_repair` call and only its new hash is reviewed.
+  Unchanged item and review hashes remain reusable; assessment-owned items that
+  cannot be safely rewritten fail closed. Global phrases and shared source
+  labels no longer select unrelated chapters for repair.
+- DYN2 desktop round `d89c1d08-0e73-4f5c-b4f5-ca895bfd5ed8` live-verified
+  reviewer packing on the real 44-item bank: four bounded review calls replaced
+  the previous twelve. The run was stopped before timeout after 19 total calls,
+  382,841 input tokens, zero retries, and one prematurely started repair when
+  the disposition classified 3 rejects as droppable but 9 as required repairs.
+  The root cause was not subject quality: ordinary `inferred_practice` items
+  incorrectly made every generated objective × renderer type mandatory, and
+  their review records included PDF-only requirements while omitting the
+  interactive assignment.
+- Question-review requirements are now scoped to the interactive deliverable
+  and its content/source/interaction owners while the complete RequestContract
+  hash remains the trust binding. Ordinary and inferred-practice items preserve
+  objectives without turning a technical renderer type into a user mandate;
+  exact response types remain binding for documented assessment slots. The
+  real 12-reject shape therefore retains 32 independently approved questions,
+  drops all 12 unsupported/meta/unanswerable items, and starts no repair or
+  downstream replan.
+- Genuine required item repairs are still supported without serial
+  amplification: all repairs in one semantic round are greedily packed by the
+  complete prompt plus strict schema, at most three batches run concurrently,
+  exact item/hash coverage is required before any cache commit, and downstream
+  planning runs once after the complete set. A nine-item regression uses two
+  calls and 62,157 prompt/schema characters instead of nine calls and 100,384
+  characters. Three semantic rounds remain the hard bound.
+- Read-only reconstruction of the same live review showed that seven of the
+  twelve apparent provenance failures were reviewer false negatives: the
+  claims were present in the authorized extraction, but the four packed review
+  prompts carried only 683, 761, 623, and 9,832 evidence characters and often
+  anchored on the generic resource label `Blöcke`. One further item was
+  evidence-backed but bound to only one of several affected objectives; four
+  were genuine self-containment or response-contract defects.
+- Every generated topic, exercise, retrieval item, and assessment source item
+  now carries normalized section/source evidence references and a stable
+  evidence hash. Multi-objective items retain all evidenced objectives;
+  retrieval items no longer invent generic fallback provenance. Documented
+  assessment references resolve only against exact extraction sections and are
+  plan-hash sealed; no source item is materialized from a synthetic assessment
+  title or array position.
+- Question review now builds complete item-local Evidence Capsules by exact
+  section index, heading, source IDs, and optional span hash. Batching splits
+  before a capsule is truncated, caches and publication records bind the
+  capsule/evidence/source-handoff hashes, and missing evidence has the distinct
+  `evidence_unavailable` verdict. That verdict triggers one same-ID/hash capsule
+  rebuild and re-review, never a content rewrite or deletion; repeated absence
+  fails closed with a persisted diagnostic. Meta/extraction-gap and unembedded
+  external tasks are excluded through independent reviewer semantics rather
+  than subject keywords.
+- The full serial Web Layout suite passes with 184 tests and 3 intentional
+  skips before disposition scoping and 187 tests with 3 intentional skips
+  after it. After Evidence Capsules and updated sealed fixtures, 196 tests pass
+  with 3 intentional skips; TypeScript typecheck and diff whitespace checks
+  pass. A fresh Balanced desktop acceptance round remains required before this
+  architecture can be promoted.
+- Fresh Balanced desktop round `d61059b7-6fa1-44a6-a5f0-393cdf6a35e3`
+  selected the exact DYN2 course, acquired 10 of 12 selected fach resources,
+  and generated all twelve evidence-bounded chapters in nine total model calls
+  with zero retries. It then failed closed before publication because chapter
+  1 declared three local learning goals but its topic Evidence Capsule used
+  aggregate indexes 0 through 5. The failed run is preserved and no PDF branch
+  or replacement artifact was started.
+- Evidence-reference indexes are now relationally validated while each chapter
+  is parsed, including topic, exercise, and retrieval references. Prompts define
+  them unambiguously as zero-based indexes into that same topic's local
+  `learningGoals` array and forbid aggregate, source, other-topic, and
+  other-chapter indexes. The real three-goal/0-through-5 shape now fails with an
+  exact field path early enough for bounded chapter-local repair. The complete
+  Web Layout suite now passes with 197 tests and 3 intentional skips; global
+  TypeScript typecheck and diff whitespace checks pass.
+
 ## Agent lanes
 
 After shared contracts are stable, bounded subagents may work in parallel:
@@ -800,3 +1042,231 @@ Gate:
   permission violations, zero runtime network requests, and zero blocking
   browser issues in
   `study-buddy-data/benchmarks/targeted-repair-regression-2026-08-06/`.
+
+## Course-resolution budgeting and stalled-run recovery
+
+Status: implemented and repository-verified on 2026-08-06
+
+- Course evidence selection now derives its usable prompt-body budget from the
+  analyzer's actual hard limit after subtracting the fixed leaf-worker boundary
+  and JSON schema. Four candidate pages can no longer contribute four
+  independent 16,000-character bodies to a 60,000-character request.
+- Live probes now collect compact course signatures from titles, section
+  headings, and Moodle activity/resource names. The remaining evidence is
+  distributed fairly across candidates, capped at 10,000 characters each, and
+  cleaned of repeated Moodle navigation chrome.
+- A locally rejected budget request receives one 24,000-character compact
+  retry with at most 4,000 evidence characters per candidate. Only after that
+  bounded retry fails does deterministic scoring run.
+- Deterministic fallback weights course identity above body text and requires a
+  meaningful winner margin. Tied or weak evidence is persisted as ambiguous
+  and fails closed instead of assigning `medium` confidence to any positive
+  generic-word overlap.
+- Known German course compounds such as `Dynamikprüfung` are recognized while
+  retaining ambiguity between DYN2 and PHDYN until course evidence actually
+  distinguishes them.
+- Moodle and CIS Playwright launches now have an explicit 30-second launch
+  timeout, participate in graph cancellation, and close a late browser that
+  appears after cancellation.
+- A separate OS-process watchdog now monitors run heartbeat and diagnostic file
+  modification times. The installed `study_buddy_task.sh` wrapper starts it for
+  Moodle, document, and interactive workflows. Six minutes without observable
+  progress produces terminal timeout summaries, an explicit retryable
+  `error.log`, and `watchdog-error.json` before terminating the complete child
+  process group. A 90-minute total-runtime ceiling remains a secondary
+  backstop and is configurable through environment variables.
+- Regression coverage includes the original four-long-course budget shape, a
+  compact budget retry, ambiguous Dynamics fail-closed behavior, German
+  compound targeting, browser launch timeout and late cleanup, terminal stale
+  status repair, and termination of a real detached process group.
+- Repository verification passed with 719 tests, 4 intentional skips, clean
+  TypeScript type checking, and clean diff whitespace checks. No live Moodle
+  crawl was required for this deterministic reliability change.
+
+## Resource-scope reconciliation and false-coverage recovery
+
+Status: implemented and replay-verified on 2026-08-07
+
+- Duplicate Moodle navigation links can no longer replace an established
+  course parent with a later book, feedback, or activity-page parent. Self-
+  parent links are removed, course parents outrank activity parents during
+  manifest merging, and the bounded post-resolution resource plan restores the
+  target-course parent deterministically.
+- Coverage treats explicitly selected plan entries as authoritative target-
+  course resources. This prevents successfully acquired PDFs from disappearing
+  at the publication gate solely because a later snapshot changed their
+  immediate page parent.
+- The coverage node reconciles persisted evidence IDs and acquired local files
+  before assessment, writes the corrected `source-map.json`, and records a
+  `coverage-recovery.json` audit containing repaired IDs and explicit zero-
+  network/zero-model flags. A remaining impossible `selected acquired > 0` /
+  `acquiredResources = 0` state is reported as an internal consistency failure
+  rather than the misleading claim that no downloads succeeded.
+- Extraction recovery now accepts a persisted false coverage block only when a
+  fresh deterministic assessment of the existing manifest and evidence is no
+  longer blocked. It resumes at analysis/review with `--max-pages 0`, downloads
+  disabled, and no CIS access; the original Moodle acquisition is not repeated.
+  Permission, course identity, source access, contradiction, mathematics,
+  units, and citation failures remain hard gates.
+- The installed `study_buddy_task.sh` wrapper recognizes this narrowly scoped
+  coverage failure as resumable. Other source failures still require the
+  existing explicit retry policy.
+- Regression coverage reproduces a course snapshot followed by a feedback
+  snapshot with repeated navigation links, authoritative-plan filtering,
+  deterministic coverage-node repair, and persisted extraction recovery
+  without a crawler.
+- German course compounds such as `Dynamikprüfung` are recognized by the
+  publication-coverage gate as exam-scope requests. Missing official exam
+  boundaries therefore produce a transparent `partial` warning without
+  discarding otherwise validated course material.
+- A filesystem-isolated replay of the failed Dynamics extraction
+  `2026-08-06T22-02-44-653Z/extraction` rebuilt the manifest and coverage with
+  zero Moodle/model calls: all 18 selected PDFs retained the target-course
+  parent, coverage changed from `0/52 blocked` to `18/18 partial` only because
+  no complete official exam boundary was confirmed, and all 462 evidence
+  records remained available.
+- Repository verification passed with 724 tests, 4 intentional skips, clean
+  TypeScript type checking, valid wrapper shell syntax, clean Markdown links,
+  and clean diff whitespace checks.
+
+## Upstream T3 thread isolation fallback
+
+Status: implemented and targeted-test verified on 2026-08-07
+
+- Regular projects now use the stable `CODEX_THREAD_ID` when an upstream T3
+  client does not provide the Study-Buddy-specific
+  `STUDY_BUDDY_THREAD_ID` alias. Explicit Study Buddy thread IDs retain
+  precedence.
+- Quick Chats continue to write runs directly below their workspace-local
+  `study-buddy-data/runs/` directory and do not inherit the provider thread ID.
+- The installed Study Buddy wrapper performs the compatibility mapping before
+  invoking the TypeScript pipeline, preventing shared run histories and
+  artifact locks between otherwise independent regular-project threads.
+- Wrapper shell validation and direct output-root checks pass for regular
+  projects and Quick Chat isolation. Keeping the fallback at the wrapper
+  boundary avoids reinterpreting unrelated direct Codex CLI/test processes as
+  Study Buddy threads.
+
+## Quality-review payload budgeting and recovery
+
+Status: implemented and live-failure regression-tested on 2026-08-07
+
+- The extraction quality reviewer now measures its complete prompt against the
+  task-specific body budget before the model call. Large multi-chapter handoffs
+  first use the normal review view, then a bounded view, and finally a minimal
+  structural view that preserves every chapter title and official topic while
+  keeping one representative formula and application per chapter.
+- The original live DYN2 handoff produced a 50,231-character reviewer request
+  against a 45,000-character hard limit. The new regression fixture is larger
+  still and verifies that compaction stays below the effective body budget
+  without dropping any of eight chapter titles or official topic labels.
+- A terminal `Quality reviewer failed:` extraction with persisted
+  `extracted-data.json` is now resumable. Recovery starts at study-model
+  normalization and review with zero Moodle pages/downloads rather than
+  rebuilding validated chapter handoffs.
+- Extraction review always receives the complete structured study-model view.
+  It no longer reviews a fixed prefix of a preliminary rendered document,
+  which had made trailing DYN2 chapters such as Drallsatz and Schwingungen
+  appear absent even though their validated handoffs were present.
+- Missing applications in procedural and case-based single-pack chapters now
+  trigger the same immediate local repair as quantitative chapters instead of
+  failing only after the full chapter pass.
+- The installed wrapper recognizes both reviewer execution failures and
+  localized semantic-review failures as recoverable and reuses the existing
+  extraction directory under its bounded zero-crawl recovery policy.
+- Typst formula normalization now preserves executable vector styling such as
+  `bold(r)` and Greek subscripts such as `_phi`; regression tests compile the
+  result instead of accepting visibly quoted math commands.
+- Explicit cheat-sheet, short-list, and compact-note requests use a dedicated
+  source-grounded two-column renderer. It keeps every confirmed course chapter,
+  topic, formula, assessment focus, and citation while omitting long worked
+  examples and duplicated global checklists from the PDF.
+- Repository verification passes with 730 tests, 4 intentional skips, clean
+  TypeScript type checking, valid wrapper shell syntax, and clean diff
+  whitespace checks.
+
+## Combined DYN2 semantic-review fallback
+
+Status: semantic fallback live-verified on 2026-08-08; cross-artifact coverage retry pending
+
+- The first clean Balanced app round used thread
+  `4be945a6-d921-4059-a3e1-e59b7cf58d67`. Its interactive DYN2 guide passed
+  all validation and browser-interaction checks, while the PDF extraction
+  exhausted local repairs for Schwingungen and Massengeometrie before the
+  formatter could run.
+- Exhausted localized learning-depth gaps now route to the existing transparent
+  partial finalizer. Course identity, permission, source integrity, citations,
+  contradictions, units, and invalid mathematics remain hard publication
+  gates.
+- The partial finalizer preserves the validated course hierarchy and
+  explanations but removes formulas, worked examples, and quiz questions tied
+  to each rejected chapter repair. Its audit records exactly which structured
+  items were withheld instead of silently publishing unvalidated mathematics.
+- Regression coverage reproduces the live German Schwingungen and
+  Massengeometrie findings and verifies that the same path still aborts for
+  contradictory mathematics or invalid citations.
+- A zero-crawl extraction replay reused the validated handoff, performed three
+  model calls with 66,241 input and 6,334 output tokens, and reached terminal
+  success without Moodle pages or downloads. The official deterministic render
+  then produced a 10-page A4 PDF containing all six DYN2 chapters with empty
+  error logs and no model calls.
+- Fresh Balanced thread `2345a855-8696-4187-81ec-e0c142f60f7b` produced a
+  fully validated interactive guide with ten topic blocks and 30 exercises.
+  Its PDF recovered an invalid Schwingungen formula without another Moodle
+  crawl and rendered successfully, but independent cross-artifact inspection
+  found that Massengeometrie had been omitted from the PDF architecture even
+  though Moodle names it as a course topic and the interactive guide includes
+  it. The app response therefore was not accepted as the final reliability
+  result.
+- Named Massengeometrie, mass-moment, and inertia-tensor course resources are
+  now classified as an explicit primary topic instead of generic supplementary
+  reading. Architecture reconciliation restores every classified primary topic
+  even when the bounded initial probe did not select that exact resource and a
+  planning model omitted it.
+- Regression coverage reproduces the live unselected 890-priority
+  `Wiederholung_Massengeometrie` catalog entry and verifies both resource-plan
+  classification and deterministic architecture restoration.
+
+## Sparse-source visual recovery and chapter-context validation
+
+Status: implemented and regression-tested on 2026-08-09; clean app round in progress
+
+- PDF extraction now evaluates native text density per page. A multi-page PDF
+  with only titles or a few isolated labels is marked partial and
+  `visual-required` instead of being accepted because its combined character
+  count crosses a small global threshold.
+- Rendered page candidates from selected sparse PDFs receive the normal visual
+  confidence floor and remain available to chapter analysis. This ensures that
+  handwritten derivations and image-based lecture slides are actually attached
+  to the model call instead of being discarded before analysis.
+- Quantitative application fragments are validated in their accumulated
+  chapter context. A central formula in the immediately preceding theory
+  fragment satisfies the application gate, avoiding futile retries that asked
+  a practice-only fragment to duplicate already validated theory.
+- Generated time-polynomial examples must carry dimensionally consistent
+  coefficients, and oscillator equations must retain the required second time
+  derivative. These checks prevent plausible-looking invented examples and
+  first-derivative substitutions from surviving the chapter cache.
+- Balanced and Quality acquisition now include every still-available resource
+  that the architecture assigns to an essential learning module. The previous
+  nine-resource Balanced cap could retain all lecture chapters while dropping
+  the final named assessment examples, as happened for Bandbremse and
+  physikalisches Pendel; the bounded cap is now 12 for Balanced and 16 for
+  Quality.
+- Essential modules with cataloged worked examples now receive one
+  deterministic representative archetype even when a planning-model response
+  lists only lecture sources. The compact-archetype ranking avoids composite
+  duplicates and, in the live DYN2 catalog, selects Bandbremse for Drallsatz
+  and the physical pendulum for Schwingungen within the existing Balanced
+  12-resource expansion cap.
+- The interactive content merger normalizes chapter-title source shorthand to
+  a concrete source from that chapter before provenance validation. This
+  removes a false repair cycle where headings such as `Eigenstudium 1A:
+  Punktkinematik` were treated as missing source-register entries, while truly
+  unknown source labels still fail validation.
+- Visible prose normalization converts un-delimited derivative, vector, Greek,
+  summation, and subscript notation into readable Unicode. Explanatory text can
+  no longer expose raw strings such as `ddot(x)`, `omega_0`, or
+  `dot(bold(L)_O)` even when the structured formula block itself is valid.
+- Targeted extraction, visual-selection, analyzer, source-architecture, and
+  Typst-inline regression suites pass, and TypeScript type checking is clean.

@@ -6,7 +6,19 @@ import {
   renderTypstInlineText,
 } from "./typstInlineMath.js";
 
-export function renderStudentFirstTypst(model: StudyModel): string {
+export interface StudentFirstTypstRenderOptions {
+  compact?: boolean;
+}
+
+export function isCompactStudyDocumentPrompt(prompt: string): boolean {
+  return /(?:cheat[\s-]?sheet|spickzettel|kurz(?:e[rsnm]?\s+liste|übersicht|uebersicht)|kompakt(?:e[rsnm]?|es)?|compact\s+(?:notes?|guide)|formelsammlung)/i
+    .test(prompt);
+}
+
+export function renderStudentFirstTypst(
+  model: StudyModel,
+  _options: StudentFirstTypstRenderOptions = {},
+): string {
   const body: string[] = [];
   const labels = documentLabels(model.language);
 
@@ -382,13 +394,11 @@ function visualSpecificity(
   const exampleValue = example
     ? `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")}`.toLocaleLowerCase("de")
     : "";
-  const mandatoryMatch =
-    (/(?:tb\s*2-|h7\s*\/\s*k6|toleranzgrad|grundabmaß)/i.test(exampleValue) &&
-      /(?:tb\s*2-|h7\s*\/\s*k6|lernausschnitt)/i.test(value)) ||
-    (/(?:roloff|matek|viskositäts?-temperatur|diagrammables)/i.test(exampleValue) &&
-      /(?:roloff|matek|viskositäts?-temperatur|diagrammabbildung)/i.test(value));
+  const figureTerms = new Set(value.match(/[a-z0-9äöüß]{5,}/g) ?? []);
+  const semanticOverlap = [...new Set(exampleValue.match(/[a-z0-9äöüß]{5,}/g) ?? [])]
+    .filter((term) => figureTerms.has(term)).length;
   return (
-    (mandatoryMatch ? 20 : 0) +
+    Math.min(semanticOverlap, 5) * 2 +
     (/\b(?:tabelle|table|diagramm|skizze|beispiel|rechnung|plot|kennlinie|schema|passung|toleranz)\b/.test(value) ? 2 : 0) +
     (figure.kind === "typst_diagram" ? 2 : 0) +
     (figure.kind === "moodle_pdf_image" ? 1 : 0)
@@ -640,6 +650,7 @@ function documentLabels(language: StudyModel["language"]) {
       moreSupportedFormulas: "More supported formulas",
       apply: "Apply",
       moreWorkedExamples: "More worked examples",
+      representativeWorkedExamples: "Representative worked examples",
       learningCheck: "Learning check",
       examChecklist: "Exam checklist",
       checklistIntro: "Use this checklist as a final self-check.",
@@ -682,6 +693,7 @@ function documentLabels(language: StudyModel["language"]) {
     moreSupportedFormulas: "Weitere belegte Formeln",
     apply: "Anwenden",
     moreWorkedExamples: "Weitere Rechenbeispiele",
+    representativeWorkedExamples: "Repräsentative Rechenbeispiele",
     learningCheck: "Lerncheck",
     examChecklist: "Prüfungs-Checkliste",
     checklistIntro: "Nutze diese Checkliste als Abschlusskontrolle.",

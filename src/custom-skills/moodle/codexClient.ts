@@ -92,6 +92,28 @@ export function resolveModelPromptCharacterBudget(task: StudyBuddyModelTask): nu
   return MODEL_PROMPT_CHARACTER_BUDGETS[task];
 }
 
+/**
+ * Return the characters available to the caller-provided prompt after the
+ * Codex client has added its fixed leaf-worker boundary and output schema.
+ * Producers use this to compact evidence before calling `run`, instead of
+ * discovering the hard request limit only after assembling an oversized
+ * payload.
+ */
+export function resolveModelPromptBodyCharacterBudget(
+  task: StudyBuddyModelTask,
+  outputSchema?: unknown,
+): number {
+  const accessPolicy = resolveCodexTaskAccessPolicy(task);
+  const boundaryCharacters = accessPolicy.leafWorker
+    ? sanitizeUnicode(`${LEAF_WORKER_BOUNDARY}\n\n`).length
+    : 0;
+  const schemaCharacters = outputSchema ? JSON.stringify(outputSchema).length : 0;
+  return Math.max(
+    0,
+    resolveModelPromptCharacterBudget(task) - boundaryCharacters - schemaCharacters,
+  );
+}
+
 export function summarizeCodexToolUsage(items: ThreadItem[]): CodexToolUsage {
   const usage: CodexToolUsage = {
     toolCalls: 0,

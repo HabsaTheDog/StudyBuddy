@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  buildDeterministicVisualPlan,
+  buildVisualPlannerPrompt,
   createVisualPlannerNode,
+  validateVisualPlan,
 } from "../nodes/visualPlannerNode.js";
 import { RunDiagnostics } from "../runDiagnostics.js";
 import { ResourceManifestSchema } from "../examNavigatorContracts.js";
@@ -82,8 +83,11 @@ describe("visual planner node", () => {
     expect(index.warnings.join("\n")).toContain("Moodle returned an HTML page");
   });
 
-  it("selects a bounded and repeatable visual plan without invoking Codex", () => {
-    const config = moodleTestConfig({ executionProfile: "balanced" });
+  it("lets the evaluated request decide visual relevance while enforcing only page ceilings and known IDs", () => {
+    const config = moodleTestConfig({
+      executionProfile: "balanced",
+      originalUserPrompt: "Create a concise overview; images are optional.",
+    });
     const state = moodleTestState({
       source_architect_decision: {
         ...moodleTestState().source_architect_decision,
@@ -145,16 +149,28 @@ describe("visual planner node", () => {
       }],
     };
 
-    const first = buildDeterministicVisualPlan(config, state, pageIndex);
-    const second = buildDeterministicVisualPlan(config, state, pageIndex);
+    const prompt = buildVisualPlannerPrompt(config, state, pageIndex);
+    expect(prompt).toContain(config.originalUserPrompt);
+    expect(prompt).toContain("evaluated request contract");
+    expect(prompt).toContain("The empty requests array is valid");
+    expect(prompt).not.toContain("formula_reference pages are mandatory");
 
-    expect(second).toEqual(first);
-    expect(first.requests).toHaveLength(1);
-    expect(first.requests[0]).toMatchObject({
-      resourceId: "res-direct",
-      priority: "high",
-      purpose: "worked_example",
-    });
-    expect(first.requests[0].pages).toHaveLength(2);
+    expect(validateVisualPlan(config, pageIndex, {
+      schemaVersion: "1.0",
+      strategy: "The request does not need visual support.",
+      requests: [],
+    })).toMatchObject({ requests: [] });
+    expect(() => validateVisualPlan(config, pageIndex, {
+      schemaVersion: "1.0",
+      strategy: "Invalid page.",
+      requests: [{
+        resourceId: "res-direct",
+        pages: [21],
+        purpose: "diagram",
+        priority: "medium",
+        placementHint: "Only if requested.",
+        reason: "A model decision.",
+      }],
+    })).toThrow("unknown page");
   });
 });

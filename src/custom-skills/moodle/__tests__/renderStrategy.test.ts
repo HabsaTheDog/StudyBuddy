@@ -4,11 +4,26 @@ import { classifyArtifactIntent } from "../studentFirstPolicy.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 describe("renderStrategy", () => {
-  it("chooses deterministic rendering for simple summaries", () => {
+  it("keeps semantic content choices out of the routing intent", () => {
+    const overview = classifyArtifactIntent(
+      "Erstelle ein kompaktes PDF mit wichtigen Rechenarten und notwendigen Formelherleitungen.",
+      { profile: "study_guide", formats: ["pdf"] },
+    );
+    const examples = classifyArtifactIntent(
+      "Erstelle ein PDF mit vollständig nachvollziehbaren Rechenbeispielen.",
+      { profile: "study_guide", formats: ["pdf"] },
+    );
+
+    expect(overview).toEqual(examples);
+    expect(Object.keys(overview)).not.toContain("wantsCalculations");
+    expect(Object.keys(overview)).not.toContain("wantsWorkedExamples");
+  });
+
+  it("does not infer renderer semantics from simple-summary wording", () => {
     const decision = decideRenderStrategy(moodleTestConfig({
       prompt: "Erstelle eine einfache Zusammenfassung als kurzer Lernzettel",
     }));
-    expect(decision.strategy).toBe("deterministic");
+    expect(decision.strategy).toBe("llm_formatter");
   });
 
   it("chooses the LLM formatter for complex lab documents", () => {
@@ -18,12 +33,19 @@ describe("renderStrategy", () => {
     expect(decision.strategy).toBe("llm_formatter");
   });
 
-  it("uses deterministic rendering for validated study-guide render stages", () => {
+  it("keeps validated study-guide render stages contract-adaptive by default", () => {
     const prompt = "Erstelle einen ausführlichen Study Guide mit Tabellen";
     const decision = decideRenderStrategy(moodleTestConfig({
       prompt,
       stage: "render",
       artifactIntent: classifyArtifactIntent(prompt, { profile: "study_guide" }),
+    }));
+    expect(decision.strategy).toBe("llm_formatter");
+  });
+
+  it("honors an explicit deterministic renderer override", () => {
+    const decision = decideRenderStrategy(moodleTestConfig({
+      renderStrategy: "deterministic",
     }));
     expect(decision.strategy).toBe("deterministic");
   });

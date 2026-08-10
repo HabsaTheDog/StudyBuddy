@@ -74,7 +74,135 @@ describe("source architect", () => {
       .toContain(overviewUrl);
   });
 
-  it("preserves an explicit numbered Moodle syllabus without a planning model call", async () => {
+  it("restores an unselected but explicitly classified primary course topic", () => {
+    const pointUrl = "https://moodle.example/point.pdf";
+    const massGeometryUrl = "https://moodle.example/mass-geometry.pdf";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "point",
+        title: "Punktkinematik",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Punktbewegungen berechnen."],
+        assessmentSignals: [],
+        resourceUrls: [pointUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const catalog = [
+      { ...entry(pointUrl, "Punktkinematik", true, 890), role: "primary_lecture" as const, topic: "Punktkinematik" },
+      {
+        ...entry(massGeometryUrl, "Wiederholung_Massengeometrie", false, 890),
+        role: "primary_lecture" as const,
+        topic: "Massengeometrie",
+      },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog, "de");
+
+    expect(reconciled.modules.map((module) => module.title)).toEqual([
+      "Punktkinematik",
+      "Massengeometrie",
+    ]);
+    expect(reconciled.modules.flatMap((module) => module.resourceUrls)).toContain(massGeometryUrl);
+    expect(reconciled.modules[1].learningObjectives.join(" ")).not.toMatch(/\b(?:Explain|Apply)\b/);
+  });
+
+  it("orders modules by their primary lecture instead of a shared overview", () => {
+    const overviewUrl = "https://moodle.example/overview.pdf";
+    const pointUrl = "https://moodle.example/point.pdf";
+    const massUrl = "https://moodle.example/mass.pdf";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "mass",
+        title: "Schwerpunktberechnung",
+        priority: "essential" as const,
+        contentMode: "mixed" as const,
+        learningObjectives: ["Schwerpunkte bestimmen."],
+        assessmentSignals: [],
+        resourceUrls: [overviewUrl, massUrl],
+      }, {
+        id: "point",
+        title: "Punktkinematik",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Punktbewegungen berechnen."],
+        assessmentSignals: [],
+        resourceUrls: [pointUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const catalog = [
+      { ...entry(overviewUrl, "DYN2 Überblick", true, 1000), role: "overview" as const },
+      { ...entry(pointUrl, "Punktkinematik", true, 900), role: "primary_lecture" as const, topic: "Punktkinematik" },
+      { ...entry(massUrl, "Massengeometrie", true, 900), role: "primary_lecture" as const, topic: "Massengeometrie" },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog, "de");
+
+    expect(reconciled.modules.map((module) => module.title)).toEqual([
+      "Punktkinematik",
+      "Schwerpunktberechnung",
+    ]);
+  });
+
+  it("attaches one shared primary lecture to every matching submodule", () => {
+    const overviewUrl = "https://moodle.example/overview.pdf";
+    const pointUrl = "https://moodle.example/point.pdf";
+    const massUrl = "https://moodle.example/mass.pdf";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "massenschwerpunkte",
+        title: "Massenmittelpunkte bestimmen",
+        priority: "essential" as const,
+        contentMode: "mixed" as const,
+        learningObjectives: ["Massenschwerpunkte berechnen."],
+        assessmentSignals: [],
+        resourceUrls: [overviewUrl],
+      }, {
+        id: "massentraegheit",
+        title: "Massenträgheitsmomente aufbauen",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Massenträgheitsmomente bestimmen."],
+        assessmentSignals: [],
+        resourceUrls: [overviewUrl],
+      }, {
+        id: "punktkinematik",
+        title: "Punktkinematik",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Punktbewegungen berechnen."],
+        assessmentSignals: [],
+        resourceUrls: [pointUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const catalog = [
+      { ...entry(overviewUrl, "DYN2 Überblick", true, 1000), role: "overview" as const },
+      { ...entry(pointUrl, "Punktkinematik", true, 900), role: "primary_lecture" as const, topic: "Punktkinematik" },
+      { ...entry(massUrl, "Wiederholung Massengeometrie", true, 900), role: "primary_lecture" as const, topic: "Massengeometrie" },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog, "de");
+    const massModules = reconciled.modules.filter((module) => module.id.startsWith("massen"));
+
+    expect(massModules).toHaveLength(2);
+    expect(massModules.every((module) => module.resourceUrls.includes(massUrl))).toBe(true);
+    expect(reconciled.modules.map((module) => module.id)).toEqual([
+      "punktkinematik",
+      "massenschwerpunkte",
+      "massentraegheit",
+    ]);
+  });
+
+  it("lets the source architect interpret a numbered Moodle syllabus without fixed grouping", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-numbered-outline-"));
     directories.push(runDir);
     const sequenceUrl = "https://moodle.example/studienbrief-6.pdf";
@@ -110,7 +238,23 @@ describe("source architect", () => {
         "Übungsaufgaben zu Thema 4",
       ].join("\n"),
     });
-    const codex = { run: vi.fn() };
+    const codex = { run: vi.fn().mockResolvedValue(JSON.stringify({
+      status: "request_more",
+      coverage_summary: "Four course topics require their direct study letters.",
+      requested_urls: [sequenceUrl, derivativeUrl, integralUrl],
+      reasons: ["Preserve the visible course topics."],
+      learning_architecture: {
+        schemaVersion: 1,
+        modules: [
+          { id: "t1", title: "Thema 1: Folgen und Reihen", priority: "essential", contentMode: "mixed", learningObjectives: ["Folgen und Reihen"], assessmentSignals: [], resourceUrls: [sequenceUrl] },
+          { id: "t2", title: "Thema 2: Grundlagen der Differentialrechnung", priority: "essential", contentMode: "mixed", learningObjectives: ["Grenzwerte und Ableitungen"], assessmentSignals: ["Minitest 2"], resourceUrls: [derivativeUrl] },
+          { id: "t3", title: "Thema 3: Anwendungen der Differentialrechnung", priority: "important", contentMode: "mixed", learningObjectives: ["Ableitungen anwenden"], assessmentSignals: ["Übungsaufgaben zu Thema 3"], resourceUrls: [derivativeUrl] },
+          { id: "t4", title: "Thema 4: Integralrechnung", priority: "important", contentMode: "mixed", learningObjectives: ["Stammfunktionen"], assessmentSignals: [], resourceUrls: [integralUrl] },
+        ],
+        supportResources: [],
+        excludedResourceUrls: [],
+      },
+    })) };
     const prompt = "Create a complete course study guide";
     const result = await createSourceArchitectNode(moodleTestConfig({
       runDir,
@@ -127,19 +271,15 @@ describe("source architect", () => {
       }),
     }), codex)(state);
 
-    expect(codex.run).not.toHaveBeenCalled();
+    expect(codex.run).toHaveBeenCalledOnce();
     expect(result.source_architect_decision?.learningArchitecture?.modules.map((module) =>
       module.title
     )).toEqual([
       "Thema 1: Folgen und Reihen",
-      "Differentialrechnung (Themen 2–3)",
+      "Thema 2: Grundlagen der Differentialrechnung",
+      "Thema 3: Anwendungen der Differentialrechnung",
       "Thema 4: Integralrechnung",
     ]);
-    const differentialModule = result.source_architect_decision?.learningArchitecture?.modules[1];
-    expect(differentialModule?.assessmentSignals).toEqual(expect.arrayContaining([
-      "Thema 2: Minitest 2",
-      "Thema 3: Übungsaufgaben zu Thema 3",
-    ]));
     expect(result.source_architect_decision).toMatchObject({
       status: "request_more",
       requestedUrls: [sequenceUrl, derivativeUrl, integralUrl],
@@ -348,6 +488,160 @@ describe("source architect", () => {
     });
     expect(result.source_architect_decision?.learningArchitecture?.modules
       .map((module) => module.title)).toContain("Differential equations");
+  });
+
+  it("does not add representative examples when the planning model omits them", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-essential-module-sources-"));
+    directories.push(runDir);
+    const oscillationLectureUrl = "https://moodle.example/schwingungen.pdf";
+    const angularMomentumLectureUrl = "https://moodle.example/drallsatz.pdf";
+    const pendulumUrl = "https://moodle.example/physikalisches-pendel.pdf";
+    const brakeUrl = "https://moodle.example/bandbremse.pdf";
+    const compositeOscillatorUrl = "https://moodle.example/stab-mit-feder.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(oscillationLectureUrl, "Folien Schwingungen", true, 900), role: "primary_lecture", topic: "Schwingungen" },
+        { ...entry(angularMomentumLectureUrl, "Folien Drallsatz", true, 900), role: "primary_lecture", topic: "Drallsatz" },
+        { ...entry(compositeOscillatorUrl, "Stab mit Feder", false, 700), role: "worked_example", topic: "Schwingungen" },
+        { ...entry(pendulumUrl, "Physikalisches Pendel", false, 600), role: "worked_example", topic: "Schwingungen" },
+        { ...entry(brakeUrl, "Bandbremse", false, 600), role: "worked_example", topic: "Drallsatz" },
+      ],
+    }));
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          resource(
+            stableResourceId(oscillationLectureUrl),
+            oscillationLectureUrl,
+            "Folien Schwingungen",
+            "Schwingungen",
+            "/tmp/schwingungen.pdf",
+            "primary_lecture",
+          ),
+          resource(
+            stableResourceId(angularMomentumLectureUrl),
+            angularMomentumLectureUrl,
+            "Folien Drallsatz",
+            "Drallsatz",
+            "/tmp/drallsatz.pdf",
+            "primary_lecture",
+          ),
+        ],
+      },
+    });
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "sufficient",
+        coverage_summary: "The lecture is present.",
+        requested_urls: [],
+        reasons: [],
+        learning_architecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "schwingungen",
+            title: "Schwingungen",
+            priority: "essential",
+            contentMode: "mixed",
+            learningObjectives: ["Lineare und rotatorische Schwinger auswerten."],
+            assessmentSignals: ["Eigenfrequenzen bestimmen."],
+            resourceUrls: [oscillationLectureUrl],
+          }, {
+            id: "drallsatz",
+            title: "Drallsatz",
+            priority: "essential",
+            contentMode: "mixed",
+            learningObjectives: ["Rotationsdynamische Aufgaben lösen."],
+            assessmentSignals: ["Momentenbilanzen aufstellen."],
+            resourceUrls: [angularMomentumLectureUrl],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      })),
+    };
+    const prompt = "Create a complete dynamics study guide";
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      runtimeCacheDir: runDir,
+      prompt,
+      executionProfile: "balanced",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    }), codex)(state);
+
+    expect(result.source_architect_decision).toMatchObject({ status: "sufficient", requestedUrls: [] });
+  });
+
+  it("does not turn unrequested worked examples into mandatory source acquisition", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-prompt-scoped-examples-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.example/drallsatz.pdf";
+    const exampleUrl = "https://moodle.example/beispiel-rolle.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "4_Folien_Drallsatz", false, 900), role: "primary_lecture", topic: "Drallsatz" },
+        { ...entry(exampleUrl, "4_Beispiel_Rolle_mit_Antrieb", false, 800), role: "worked_example", topic: "Drallsatz" },
+      ],
+    }));
+    const codex = {
+      run: vi.fn().mockResolvedValue(JSON.stringify({
+        status: "request_more",
+        coverage_summary: "Drallsatz evidence is needed.",
+        requested_urls: [lectureUrl, exampleUrl],
+        reasons: ["Acquire the lecture and a representative example."],
+        learning_architecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "drallsatz",
+            title: "Drallsatz",
+            priority: "essential",
+            contentMode: "quantitative",
+            learningObjectives: ["Momentenbilanzen und Rechenwege erklären."],
+            assessmentSignals: ["Drallsatz anwenden."],
+            resourceUrls: [lectureUrl, exampleUrl],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      })),
+    };
+    const prompt = "Erstelle ein kompaktes PDF mit Rechenarten und Formelherleitungen.";
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      runtimeCacheDir: runDir,
+      prompt,
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    }), codex)(moodleTestState());
+
+    expect(result.source_architect_decision).toMatchObject({
+      status: "request_more",
+      requestedUrls: [lectureUrl, exampleUrl],
+    });
   });
 
   it("preserves first-round module boundaries while deterministically acquiring remaining assignments", async () => {
@@ -721,7 +1015,7 @@ describe("source architect", () => {
     expect(JSON.stringify(persisted)).not.toContain("invented.example");
   });
 
-  it("does not accept lecture-only coverage when a matching task and solution are cataloged", async () => {
+  it("does not force a task and solution when the evaluated plan accepts lecture-only coverage", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-learning-ready-"));
     directories.push(runDir);
     const lectureUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=10";
@@ -782,7 +1076,7 @@ describe("source architect", () => {
 
     expect(result.source_architect_decision).toMatchObject({
       round: 3,
-      status: "blocked",
+      status: "sufficient",
       requestedUrls: [],
     });
   });
@@ -1021,6 +1315,155 @@ describe("source architect", () => {
     expect(result.error_log).toBeNull();
     expect(result.source_architect_decision).toMatchObject({ round: 4, status: "sufficient", requestedUrls: [] });
     expect(result.source_architect_decision?.coverageSummary).toContain("explicit limitations");
+  });
+
+  it("fails closed when the 24-module limit omits essential course evidence", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-essential-module-limit-"));
+    directories.push(runDir);
+    const items = Array.from({ length: 26 }, (_, index) => {
+      const number = index + 1;
+      const url = `https://moodle.example/essential-topic-${number}.pdf`;
+      return { number, url, id: stableResourceId(url) };
+    });
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: items.map(({ number, url }) => ({
+        ...entry(url, `Essential Topic ${number}`, true, 950),
+        role: "primary_lecture",
+        topic: `Essential Topic ${number}`,
+      })),
+    }));
+    const baseContract = moodleTestState().request_contract;
+    const state = moodleTestState({
+      request_contract: {
+        ...baseContract,
+        originalPrompt: "Create a complete course study guide",
+        userGoal: "Cover the complete evidenced course.",
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: items.map(({ number, url, id }) => ({
+          ...resource(id, url, `Essential Topic ${number}`, `Topic ${number}`, `/tmp/topic-${number}.pdf`, "primary_lecture"),
+          selection: {
+            selected: true,
+            role: "primary_lecture" as const,
+            topic: `Essential Topic ${number}`,
+            priority: 950,
+            reason: "Explicit course topic",
+          },
+        })),
+      },
+    });
+    const codex = { run: vi.fn() };
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      runtimeCacheDir: path.join(runDir, "cache"),
+      prompt: "Create a complete course study guide",
+    }), codex)(state);
+
+    expect(codex.run).not.toHaveBeenCalled();
+    expect(result.source_architect_decision).toMatchObject({ status: "blocked" });
+    expect(result.error_log).toContain("omitted essential evidence");
+    expect(result.source_architect_decision?.learningArchitecture?.modules).toHaveLength(24);
+    expect(result.source_architect_decision?.learningArchitecture?.moduleLimit)
+      .toMatchObject({ maxModules: 24, originalModuleCount: 26 });
+    expect(result.source_architect_decision?.coverageSummary).toContain("Technical module limit 24");
+    expect(result.source_architect_decision?.reasons.join(" ")).toContain(
+      "explicit must requirement(s)",
+    );
+    const audit = JSON.parse(
+      await readFile(path.join(runDir, "source-architecture-limit-audit.json"), "utf8"),
+    );
+    expect(audit.moduleLimit.omittedModules).toHaveLength(2);
+    expect(audit.moduleLimit.omittedModules).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Essential Topic \d+$/),
+        resourceUrls: [expect.stringMatching(/^https:\/\/moodle\.example\/essential-topic-\d+\.pdf$/)],
+      }),
+    ]));
+  });
+
+  it("preserves a noncritical module-limit audit through the cached recovery path", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-module-limit-cache-"));
+    directories.push(rootDir);
+    const firstRunDir = path.join(rootDir, "first");
+    const secondRunDir = path.join(rootDir, "second");
+    const cacheDir = path.join(rootDir, "cache");
+    await Promise.all([mkdir(firstRunDir), mkdir(secondRunDir)]);
+    const acquired = Array.from({ length: 25 }, (_, index) => {
+      const number = index + 1;
+      const url = `https://moodle.example/supplement-${number}.pdf`;
+      return { number, url, id: stableResourceId(url) };
+    });
+    const availableUrl = "https://moodle.example/optional-extra.pdf";
+    const entries = [
+      ...acquired.map(({ number, url }) => ({
+        ...entry(url, `Supplement ${number}`, false, 100),
+        role: "supplementary" as const,
+      })),
+      { ...entry(availableUrl, "Optional extra", false, 100), role: "supplementary" as const },
+    ];
+    await Promise.all([firstRunDir, secondRunDir].map((directory) =>
+      writeFile(path.join(directory, "resource-catalog.json"), JSON.stringify({
+        schemaVersion: 1,
+        entries,
+      }))
+    ));
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          ...acquired.map(({ number, url, id }) =>
+            resource(id, url, `Supplement ${number}`, `Supplement ${number}`, `/tmp/supplement-${number}.pdf`, "supplementary")
+          ),
+          resource(stableResourceId(availableUrl), availableUrl, "Optional extra", "Optional", null, "supplementary"),
+        ],
+      },
+    });
+    const prompt = "Create a study guide from the available selected material";
+    const configBase = {
+      runtimeCacheDir: cacheDir,
+      prompt,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "extract" as const,
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    };
+    const coldCodex = { run: vi.fn().mockRejectedValue(new Error("planner unavailable")) };
+    const cold = await createSourceArchitectNode(moodleTestConfig({
+      ...configBase,
+      runDir: firstRunDir,
+    }), coldCodex)(state);
+    expect(cold.source_architect_decision?.learningArchitecture?.moduleLimit)
+      .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
+    expect(cold.source_architect_decision?.coverageSummary).toContain("Technical module limit 24");
+
+    const warmCodex = { run: vi.fn() };
+    const warm = await createSourceArchitectNode(moodleTestConfig({
+      ...configBase,
+      runDir: secondRunDir,
+    }), warmCodex)(state);
+
+    expect(warmCodex.run).not.toHaveBeenCalled();
+    expect(warm.source_architect_decision?.reasons).toEqual(expect.arrayContaining([
+      "Reused the course-and-prompt keyed source architecture cache.",
+      expect.stringContaining("explicitly partial"),
+    ]));
+    expect(warm.source_architect_decision?.learningArchitecture?.moduleLimit)
+      .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
+    await expect(readFile(
+      path.join(secondRunDir, "source-architecture-limit-audit.json"),
+      "utf8",
+    )).resolves.toContain('"originalModuleCount": 25');
   });
 });
 

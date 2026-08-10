@@ -36,6 +36,28 @@ describe("authenticated resource download security", () => {
     expect((await stat(result.localPath)).size).toBe(21);
   });
 
+  it("retries one transient fetch failure before failing the whole artifact pipeline", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "resource-download-retry-"));
+    tempDirs.push(runDir);
+    const target = path.join(runDir, "resource.txt");
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response("recovered resource text", {
+        headers: { "content-type": "text/plain", "content-length": "23" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const context = { cookies: vi.fn(async () => []) } as unknown as BrowserContext;
+
+    const result = await downloadResourceWithRequest(
+      context,
+      "https://1.1.1.1/resource.txt",
+      target,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await readFile(result.localPath, "utf8")).toBe("recovered resource text");
+  });
+
   it("rejects private destinations and oversized declared bodies before writing", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "resource-download-"));
     tempDirs.push(runDir);

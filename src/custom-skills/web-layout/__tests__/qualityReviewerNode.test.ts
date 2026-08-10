@@ -52,7 +52,8 @@ describe("web layout semantic quality input", () => {
     expect(receivedPrompt).toContain("necessarily still marked running");
     expect(receivedPrompt).toContain("Do not inspect or reject run-summary.md");
     expect(receivedPrompt).toContain("Reject a study guide that uses a persistent left sidebar");
-    expect(receivedPrompt).toContain("source-authentic selection types");
+    expect(receivedPrompt).toContain("source-authentic interaction types");
+    expect(receivedPrompt).toContain("repair owner (source, content, interaction, visual, or technical)");
   });
 
   it("ignores self-referential run-status findings while preserving real HTML findings", async () => {
@@ -75,8 +76,26 @@ describe("web layout semantic quality input", () => {
         ok: false,
         summary: "Two findings",
         findings: [
-          "run-summary.md still says Run status: running and error.log is missing.",
-          "The answer feedback reveals the solution before submission.",
+          {
+            requirementId: null,
+            deliverableId: null,
+            owner: "technical",
+            severity: "blocking",
+            verdict: "fail",
+            targetId: null,
+            message: "run-summary.md still says Run status: running and error.log is missing.",
+            repairInstruction: "Wait for terminal orchestration.",
+          },
+          {
+            requirementId: "interactive-practice",
+            deliverableId: "html-guide",
+            owner: "interaction",
+            severity: "blocking",
+            verdict: "fail",
+            targetId: "question-1",
+            message: "The answer feedback reveals the solution before submission.",
+            repairInstruction: "Hide the feedback until submission for this question.",
+          },
         ],
       }),
     };

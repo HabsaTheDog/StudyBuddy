@@ -89,7 +89,9 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
       }
       const response = await codex.run(buildGeneratorPrompt(config, state), {
         task: repairMode ? "artifact_repair" : "artifact_builder",
-        attempt: state.retry_count + 1,
+        // Escalation is task-local: earlier content and validator retries must
+        // not turn the first HTML repair into a fourth repair attempt.
+        attempt: state.generator_retry_count + 1,
       });
       const responseHtml = stripHtmlFence(response);
       const stagedHtml = repairMode ? await readFile(repairPath, "utf8") : "";
@@ -151,8 +153,11 @@ function applyResponsiveLayoutRepair(html: string, mode: "targeted" | "fallback"
     ? `
 <style ${marker}>
 :where(.app-shell,.hotbar-main,.workspace,.topic-workspace,.topic-layout,.catalog-workspace,.catalog-filters,.exam-result-summary,.exam-comparison,.section-heading,.question-card,.reading-card,.concept-card,.assessment-card,.exam-shell)>*{min-width:0}
+:where(main,.module-tabs){min-width:0;max-width:100%}
+:where(.module-tab,.module-tab strong){min-width:0;max-width:100%;overflow-wrap:anywhere}
 :where(img,svg,canvas,video){max-width:100%;height:auto}
 :where(.question-card,.reading-card,.concept-card,.assessment-card,.exam-shell,pre,code){overflow-wrap:anywhere;word-break:normal}
+@media (min-width:761px) and (max-width:1230px){:where(.course-hero,.main-tabs,main){max-width:calc(100% - 36px)}}
 </style>`
     : `
 <style ${marker}>
@@ -193,10 +198,11 @@ function hasCompleteHtmlStructure(html: string): boolean {
 
 export function buildGeneratorPrompt(
   config: WebLayoutRuntimeConfig,
-  state: Pick<LangGraphWebLayoutState, "source_text" | "layout_spec" | "html_document" | "error_log" | "validation_report"> & { study_guide_content?: JsonObject },
+  state: Pick<LangGraphWebLayoutState, "source_text" | "request_contract" | "layout_spec" | "html_document" | "error_log" | "validation_report"> & { study_guide_content?: JsonObject },
 ): string {
+  const repairMode = Boolean(state.error_log && state.html_document.trim());
   return [
-    state.error_log && state.html_document.trim()
+    repairMode
       ? [
           "Repair the existing Study Buddy interactive learning webpage in place.",
           `The complete last-known-good artifact is staged at ${REPAIR_DOCUMENT_PATH}, relative to the working directory.`,
@@ -219,7 +225,7 @@ export function buildGeneratorPrompt(
     "- Large PDFs and videos must remain user-triggered HTTPS Moodle/source links; label that they require connectivity or login.",
     "Interaction requirements:",
     interactionGuidance(config.kind),
-    adaptiveLearningInteractionGuidance(),
+    config.kind === "study-guide" ? "" : adaptiveLearningInteractionGuidance(),
     config.kind === "study-guide" ? studyGuideBlockGuidance() : "",
     config.kind === "study-guide" ? [
       "Canonical study-guide content-bank rules:",
@@ -229,12 +235,12 @@ export function buildGeneratorPrompt(
       "- Calculation fields must accept every supplied acceptedAnswers value after trimming and decimal-comma normalization; never leak accepted answers into the initial DOM-visible prompt.",
       "- Open application fields must preserve drafts and reveal the supplied sample response plus self-check criteria only on request; let the learner mark the response complete or needing revision.",
       "- Convert formula strings and mathematical expressions into real structured MathML using elements such as mfrac, msup, msub, msqrt, mrow, mo, mi, and mn. Never wrap a whole formula in mtext.",
-      "- The UI architecture is fixed: one sticky top Hotbar, one centered responsive chapter dropdown containing the tablist, then repeated topic blocks in the order Orientierung → Theorie → worked example → evidence-appropriate practice → retrieval. Never create a left sidebar or separate previous/next navigation arrows.",
+      "- Preserve the validated topic order. Inside each topic, render only the optional blocks actually present in the content bank; do not add a conventional theory/example/practice/retrieval sequence.",
       "- Store answer drafts, evaluated state, completed items, topic progress, and last position in localStorage.",
     ].join("\n") : "",
     "Scope control:",
     config.kind === "study-guide"
-      ? "- Build one coherent learning journey with readable instruction and a primary practice workspace. Supporting retrieval practice, worked examples, progress, and a final mixed check are expected when the source supports them; they must share the same chapter model and must not feel like unrelated mini-apps."
+      ? "- Render the validated course journey and its supplied learning objects coherently. Absence of examples, retrieval, calculations, visuals, or a final mixed check is valid unless the evaluated request contract requires that component."
       : "- Implement one coherent primary learning interaction. Prefer a smaller complete experience over a broad dashboard of loosely related tools.",
     "- Do not add content editors, authoring workflows, import/export/download controls, source search/filtering, or modal source previews unless explicitly requested.",
     config.sourceMode === "prompt"
@@ -249,13 +255,17 @@ export function buildGeneratorPrompt(
     "- Never present layout specifications, UI metadata, generated examples, or the user prompt as fachliche Quellen.",
     `Requested kind: ${config.kind}`,
     `Language: ${config.language}`,
+    `Exact original user request:\n${config.originalUserPrompt}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
     `Validated layout spec:\n${JSON.stringify(state.layout_spec, null, 2)}`,
     state.error_log ? `Validator or generator error to repair:\n${state.error_log}` : "",
     Object.keys(state.validation_report).length
       ? `Previous validation report:\n${JSON.stringify(state.validation_report, null, 2)}`
       : "",
     config.kind === "study-guide"
-      ? `Canonical validated study-guide content bank:\n${JSON.stringify(state.study_guide_content ?? {}, null, 2)}`
+      ? repairMode
+        ? "The canonical learning bank and its reviewed IDs are already embedded in the staged artifact. Preserve them byte-for-byte unless a supplied validator finding identifies an exact presentation/runtime field; do not place the bank in this repair prompt or regenerate it."
+        : `Canonical validated study-guide content bank:\n${JSON.stringify(state.study_guide_content ?? {}, null, 2)}`
       : `Source text:\n${state.source_text}`,
   ].filter(Boolean).join("\n\n");
 }
@@ -264,10 +274,10 @@ function interactionGuidance(kind: string): string {
   const shared = "Use accessible controls, clear state, and mobile-safe responsive layout.";
   const byKind: Record<string, string> = {
     "study-guide": [
-      "Create a course-dependent study guide, not a quiz dashboard.",
-      "Include persistent topic navigation and progress, readable source-grounded theory, properly typeset formula/reference content, worked examples with collapsible reasoning, evidence-appropriate selection/calculation/open application practice, a small retrieval layer only where useful, and a mixed final check.",
-      "Use data-sb-learning-content for the reading workspace, data-sb-practice for applied practice, data-sb-progress for the persisted progress readout, and data-sb-retrieval for the retrieval-practice layer.",
-      "Each chapter must tell the learner what to read, what to notice, what to do next, and how to diagnose a mistake. Persist progress and practice state locally.",
+      "Render the supplied course-dependent learning bank, not a generic quiz dashboard.",
+      "Do not synthesize a block, interaction type, or learning-stage sequence from the course label or from a conventional study-guide recipe.",
+      "Use data-sb-learning-content for supplied reading, data-sb-practice for supplied practice, data-sb-progress for persisted progress, and data-sb-retrieval only when retrieval records exist.",
+      "Persist the state of the learning objects that are actually present.",
     ].join("\n"),
     flashcards: "Include deck progress, flip interaction, next/previous, known/needs-review marking, review summary, and keyboard support.",
     "concept-visualization": "Include inline SVG or canvas, controls that modify the visualization, explanatory state readout, and reset.",

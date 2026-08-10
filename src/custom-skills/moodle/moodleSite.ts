@@ -106,11 +106,47 @@ export function deriveMoodleBrowserDomains(
 }
 
 export function normalizeMoodleCourseTitle(value: string): string {
-  return value
+  return normalizeMoodleCourseIdentity(value).title;
+}
+
+export interface MoodleCourseIdentity {
+  title: string;
+  code?: string;
+}
+
+/**
+ * Separates the actual course identity from Moodle dashboard-card chrome.
+ *
+ * Moodle themes commonly expose one flattened link label containing the
+ * catalogue key, title, lecturers, and the learner's role. Persisting that
+ * string as a title leaks UI metadata into every downstream PDF/HTML and makes
+ * a generic first-token heuristic report programme codes such as `BMR` as the
+ * course code. Keep this parser theme-tolerant and deterministic; a clean page
+ * title remains the preferred source whenever it is available.
+ */
+export function normalizeMoodleCourseIdentity(value: string): MoodleCourseIdentity {
+  let normalized = value
     .replace(/^\s*(?:course|kurs)\s*:\s*/i, "")
     .replace(/\s+\|\s+.*$/u, "")
+    .replace(
+      /\s+(?:(?:lektor|lecturer)(?:in|innen|:in|:innen|s)?|lehrende|verantwortlich|responsible|instructor(?:s)?)\s*:\s*.*$/iu,
+      "",
+    )
+    .replace(/\s+(?:ihre\s+rolle|your\s+role)\s*:\s*.*$/iu, "")
     .replace(/\s+/g, " ")
     .trim();
+
+  const cataloguePrefix = /^([A-Z0-9ÄÖÜ]+(?:-[A-Z0-9ÄÖÜ]+){3,})(?:\/\d+)*\s+(.+)$/u.exec(normalized);
+  if (!cataloguePrefix) return { title: normalized };
+
+  const segments = cataloguePrefix[1]!.split("-");
+  const languageSuffix = /^(?:DE|EN|FR|ES|IT)$/i.test(segments.at(-1) ?? "");
+  const code = (languageSuffix ? segments.at(-2) : segments.at(-1))?.trim();
+  normalized = cataloguePrefix[2]!.trim();
+  return {
+    title: normalized,
+    ...(code ? { code } : {}),
+  };
 }
 
 /**

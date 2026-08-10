@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { minimalRequestContract } from "../../shared/requestContract.js";
 import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
+import { createWebLayoutRuntimeConfig } from "../config.js";
 import { applyOfflineSecurityPolicy } from "../htmlShell.js";
 import { InteractiveEvalCorpusSchema } from "../evals/corpus.js";
 import { evaluateInteractiveRun } from "../evals/evaluate.js";
@@ -11,6 +13,7 @@ import {
   VNextBenchmarkManifestSchema,
 } from "../evals/vnextBenchmark.js";
 import { renderStandardStudyGuide } from "../standardStudyGuideRenderer.js";
+import { resolveQuestionBankReviews } from "../questionBankReview.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 import { validateSingleFileHtml } from "../validation.js";
 
@@ -92,10 +95,11 @@ describe("interactive benchmark replay", () => {
 
   it("loads the vNext benchmark contract and reports persisted handoff ratios and hard gates", async () => {
     const webDir = await createCompleteRun();
-    const model = buildAdaptiveStudyModel(
+    const model = await reviewedModel(
       testContent(),
       "Assessment structure\nTask 1: Interpretation (20 points)",
       "en",
+      webDir,
     );
     const manifest = await loadVNextBenchmarkManifest(
       path.resolve("docs/study-builder-vnext/benchmark-manifest.json"),
@@ -132,7 +136,7 @@ describe("interactive benchmark replay", () => {
         courseModules: 4,
         learningObjectives: 4,
         questionBankItems: 16,
-        assessmentSections: 1,
+        assessmentSections: 0,
       },
       quality: {
         questionsWithStableIdRatio: 1,
@@ -150,14 +154,14 @@ describe("interactive benchmark replay", () => {
 
   it("fails vNext hard gates with explicit evidence while retaining raw question ratios", async () => {
     const webDir = await createCompleteRun();
-    const model = buildAdaptiveStudyModel(testContent(), "", "en");
+    const model = await reviewedModel(testContent(), "", "en", webDir);
     const invalidBank = structuredClone(model.questionBank) as unknown as {
       items: Array<Record<string, unknown>>;
     };
     invalidBank.items[0]!.learningObjectiveIds = [];
     invalidBank.items[1]!.id = invalidBank.items[0]!.id;
     invalidBank.items[1]!.review = {
-      status: "approved",
+      ...(invalidBank.items[1]!.review as Record<string, unknown>),
       checks: { schema: true, scope: false, answer: true, provenance: true, rendering: true },
       findings: ["outside scope"],
     };
@@ -223,6 +227,64 @@ async function createCompleteRun(): Promise<string> {
   return webDir;
 }
 
+async function reviewedModel(
+  content: StudyGuideContent,
+  sourceText: string,
+  language: "de" | "en",
+  runDir: string,
+) {
+  const prompt = "Build the benchmark study guide.";
+  const contract = minimalRequestContract(prompt, ["interactive-study-guide"]);
+  const evidenceSourceText = syntheticEvaluationHandoff(content, sourceText);
+  const draft = buildAdaptiveStudyModel(content, evidenceSourceText, language);
+  const reviews = await resolveQuestionBankReviews({
+    config: createWebLayoutRuntimeConfig({ prompt, originalUserPrompt: prompt, kind: "study-guide", language, runDir }),
+    codex: {
+      run: async (reviewPrompt) => {
+        const batch = draft.questionBank.items.filter((item) =>
+          reviewPrompt.includes(`\"itemId\":\"${item.id}\"`)
+        );
+        return JSON.stringify({
+          records: batch.map((item) => ({
+            itemId: item.id,
+            contentHash: item.contentHash,
+            verdict: "approved",
+            checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+            findings: [],
+          })),
+        });
+      },
+    },
+    content,
+    sourceText: evidenceSourceText,
+    questionBank: draft.questionBank,
+    requestContract: contract,
+    priorError: null,
+  });
+  return buildAdaptiveStudyModel(
+    content,
+    evidenceSourceText,
+    language,
+    undefined,
+    undefined,
+    reviews,
+    { originalUserPrompt: prompt, requestContract: contract },
+  );
+}
+
+function syntheticEvaluationHandoff(content: StudyGuideContent, extraEvidence: string): string {
+  const sourceIds = content.sources.map((source) => source.id);
+  return `## Extracted data\n\n${JSON.stringify({
+    course: { title: content.courseTitle },
+    sections: content.topics.map((topic) => ({
+      heading: topic.title,
+      summary: [topic.theory.summary, extraEvidence].filter(Boolean).join("\n"),
+      source_ids: sourceIds,
+    })),
+    sources: content.sources.map((source) => ({ id: source.id, title: source.label, url: source.url })),
+  })}`;
+}
+
 function testContent(): StudyGuideContent {
   const source = {
     label: "Course reader",
@@ -236,6 +298,12 @@ function testContent(): StudyGuideContent {
     topics: Array.from({ length: 4 }, (_, topicIndex) => ({
       id: `topic-${topicIndex + 1}`,
       title: `Course unit ${topicIndex + 1}`,
+      evidenceRefs: [{
+        sourceIds: ["reader"],
+        sectionIndex: topicIndex,
+        sectionHeading: `Course unit ${topicIndex + 1}`,
+        learningGoalIndexes: [0],
+      }],
       learningGoals: [`Apply the central idea from unit ${topicIndex + 1}.`],
       theory: {
         summary: `This unit develops a source-grounded interpretive concept and shows how precise observations support a defensible conclusion in a new context. ${"Evidence matters. ".repeat(3)}`,
@@ -260,6 +328,10 @@ function testContent(): StudyGuideContent {
             sampleAnswer: "The repeated contrast makes the narrator's judgment appear deliberately uncertain.",
             selfCheck: ["The response names an observation.", "The interpretation follows from that observation."],
             source,
+            evidenceRefs: [{
+              sourceIds: ["reader"], sectionIndex: topicIndex,
+              sectionHeading: `Course unit ${topicIndex + 1}`, learningGoalIndexes: [0],
+            }],
           };
         }
         return {
@@ -274,9 +346,20 @@ function testContent(): StudyGuideContent {
           ],
           explanation: "A defensible interpretation connects its claim to a concrete source observation.",
           source,
+          evidenceRefs: [{
+            sourceIds: ["reader"], sectionIndex: topicIndex,
+            sectionHeading: `Course unit ${topicIndex + 1}`, learningGoalIndexes: [0],
+          }],
         };
       }),
-      retrieval: [{ prompt: "What supports an interpretation?", answer: "A concrete observation from the source." }],
+      retrieval: [{
+        prompt: "What supports an interpretation?",
+        answer: "A concrete observation from the source.",
+        evidenceRefs: [{
+          sourceIds: ["reader"], sectionIndex: topicIndex,
+          sectionHeading: `Course unit ${topicIndex + 1}`, learningGoalIndexes: [0],
+        }],
+      }],
     })),
     sources: [{ id: "reader", label: "Course reader", url: "", coverage: "All four course units" }],
   };

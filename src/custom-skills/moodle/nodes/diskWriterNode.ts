@@ -13,8 +13,14 @@ import {
 } from "../typstAssets.js";
 import { typstPdfPath } from "../typstTemplate.js";
 import { writeRunProgress } from "../runProgress.js";
+import type { CodexClient } from "../codexClient.js";
+import {
+  pdfPostRenderRepairMessage,
+  persistPdfPostRenderReview,
+  reviewRenderedPdf,
+} from "../pdfPostRenderReview.js";
 
-export function createDiskWriterNode(config: MoodleRuntimeConfig) {
+export function createDiskWriterNode(config: MoodleRuntimeConfig, codex?: CodexClient) {
   return async function diskWriterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     if (!state.final_document.trim()) {
       return {
@@ -42,6 +48,29 @@ export function createDiskWriterNode(config: MoodleRuntimeConfig) {
       };
     }
     await config.diagnostics?.log("info", "typst", `Wrote PDF document: ${pdfPath}`);
+    const postRenderReview = await reviewRenderedPdf({
+      pdfPath,
+      runDir: config.runDir,
+      signal: config.abortSignal,
+      codex,
+    });
+    const reviewPath = await persistPdfPostRenderReview(config.runDir, postRenderReview);
+    await config.diagnostics?.log(
+      postRenderReview.ok ? "info" : "warn",
+      "typst",
+      postRenderReview.ok
+        ? `PDF post-render technical/visual review passed (${postRenderReview.pageCount} page(s)); report: ${reviewPath}`
+        : pdfPostRenderRepairMessage(postRenderReview),
+      {
+        pageCount: postRenderReview.pageCount,
+        modelReview: postRenderReview.modelReview,
+        modelReviewedPages: postRenderReview.modelReviewedPages,
+        findings: postRenderReview.findings.length,
+      },
+    );
+    if (!postRenderReview.ok) {
+      return { error_log: pdfPostRenderRepairMessage(postRenderReview) };
+    }
     await writeRunProgress(config, {
       phase: "finalizing",
       artifacts: { typstPath: outputPath, pdfPath },

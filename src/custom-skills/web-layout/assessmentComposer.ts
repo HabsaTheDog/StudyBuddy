@@ -45,7 +45,7 @@ export interface ExcludedAssessmentSection {
 
 export interface ComposedAssessment {
   title: string;
-  simulationKind: "exam_simulation" | "exercise_simulation";
+  simulationKind: "exam_simulation" | "exercise_simulation" | "none";
   support: "supported" | "partial" | "insufficient";
   confidence: AssessmentBlueprint["confidence"];
   documented: {
@@ -74,6 +74,26 @@ export function composeAssessment(
   blueprint: AssessmentBlueprint,
   questionBank: QuestionBank,
 ): ComposedAssessment {
+  if (blueprint.mode === "none") {
+    return {
+      title: blueprint.title,
+      simulationKind: "none",
+      support: "insufficient",
+      confidence: blueprint.confidence,
+      documented: {
+        durationMinutes: null,
+        maxPoints: null,
+        passingPoints: null,
+        allowedAids: [],
+        prohibitedAids: [],
+      },
+      sections: [],
+      excludedSections: [],
+      evidenceNotes: [blueprint.rationale ?? "No documented or contract-authorized inferred assessment architecture is available."],
+      insufficiency: [],
+      unassignedQuestionIds: questionBank.items.map((item) => item.id),
+    };
+  }
   const allSections = [...blueprint.sections]
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   const sections = allSections.filter((section) => section.deliveryMode !== "external-performance");
@@ -99,7 +119,7 @@ export function composeAssessment(
   ]));
   const selectionLimits = new Map(sections.map((section) => [
     section,
-    sectionSelectionLimit(blueprint, section, sections),
+    sectionSelectionLimit(section, items),
   ]));
   const usedIds = new Set<string>();
 
@@ -118,7 +138,7 @@ export function composeAssessment(
   // Cover each requested response type and objective where the bank permits it.
   for (const section of sections) {
     for (const type of unique(section.questionTypes)) {
-      if (selectedBySection.get(section)!.some((item) => responseType(item) === type)) {
+      if (selectedBySection.get(section)!.some((item) => supportsResponseType(item, type))) {
         continue;
       }
       selectFirst(
@@ -127,7 +147,7 @@ export function composeAssessment(
         selectedBySection,
         selectionLimits.get(section)!,
         usedIds,
-        (item) => responseType(item) === type,
+        (item) => supportsResponseType(item, type),
       );
     }
   }
@@ -156,6 +176,9 @@ export function composeAssessment(
     const eligible = sections
       .filter((section) =>
         isEligible(item, section) &&
+        (section.taskCount != null || !selectedBySection.get(section)!.some((selected) =>
+          coverageSignature(selected) === coverageSignature(item)
+        )) &&
         hasSelectionCapacity(
           selectedBySection.get(section)!.length,
           selectionLimits.get(section)!,
@@ -197,17 +220,23 @@ export function composeAssessment(
     : hasCoverageGap
       ? "partial"
       : "supported";
-  const simulationKind = blueprint.mode === "explicit" && blueprint.confidence !== "low"
-    ? "exam_simulation"
-    : "exercise_simulation";
+  const hasAnyComposedItem = composedSections.some((section) => section.items.length > 0);
+  const simulationKind = !hasAnyComposedItem
+    ? "none"
+    : blueprint.mode === "documented" && blueprint.confidence !== "low"
+      ? "exam_simulation"
+      : "exercise_simulation";
   const evidenceNotes = blueprint.evidence.map((evidence) =>
     `${evidence.level}: ${evidence.label}`
   );
   if (excludedSections.length > 0) {
     evidenceNotes.push(`Excluded from the offline simulation because external performance is required: ${excludedSections.map((section) => section.title).join(", ")}.`);
   }
-  if (blueprint.mode === "inferred") {
-    evidenceNotes.push("Substantial assessment structure is inferred from course evidence.");
+  if (!hasAnyComposedItem) {
+    evidenceNotes.push("No compatible approved item is available for a separate assessment surface; ordinary reviewed practice remains available in the course topics and question catalogue.");
+  }
+  if (blueprint.mode === "inferred_practice") {
+    evidenceNotes.push("This is contract-authorized Study Buddy practice derived from course objectives, not an official assessment structure.");
   } else if (blueprint.confidence === "low") {
     evidenceNotes.push("Explicit assessment evidence has low confidence; official exam status is not claimed.");
   }
@@ -242,16 +271,11 @@ function describeSection(
   const questionTypes = unique(section.questionTypes);
   const objectiveIds = unique(section.learningObjectiveIds);
   const uncoveredQuestionTypes = questionTypes.filter((type) =>
-    !items.some((item) => responseType(item) === type)
+    !items.some((item) => supportsResponseType(item, type))
   );
-  const representativeWeightedSection = section.evidenceLevel === "explicit" &&
-    section.weight != null &&
-    section.taskCount == null;
-  const uncoveredLearningObjectiveIds = representativeWeightedSection
-    ? []
-    : objectiveIds.filter((objectiveId) =>
-        !items.some((item) => item.learningObjectiveIds.includes(objectiveId))
-      );
+  const uncoveredLearningObjectiveIds = objectiveIds.filter((objectiveId) =>
+    !items.some((item) => item.learningObjectiveIds.includes(objectiveId))
+  );
   const insufficiency: string[] = [];
   if (items.length === 0) {
     insufficiency.push("No compatible approved question-bank item is available.");
@@ -308,7 +332,7 @@ function selectFirst(
 function isEligible(item: QuestionBankItem, section: AssessmentSection): boolean {
   if (isAssessmentMetaQuestion(item)) return false;
   if (item.assessmentSectionId && item.assessmentSectionId !== section.id) return false;
-  if (!section.questionTypes.includes(responseType(item))) return false;
+  if (!section.questionTypes.some((type) => supportsResponseType(item, type))) return false;
   if (section.learningObjectiveIds.length === 0) {
     return section.evidenceLevel === "derived";
   }
@@ -320,28 +344,30 @@ function hasSelectionCapacity(selectedCount: number, selectionLimit: number): bo
 }
 
 function sectionSelectionLimit(
-  blueprint: AssessmentBlueprint,
   section: AssessmentSection,
-  simulatableSections: AssessmentSection[],
+  items: QuestionBankItem[],
 ): number {
   if (section.taskCount != null) return section.taskCount;
-  const sectionCount = simulatableSections.length;
-  if (blueprint.mode === "explicit" && blueprint.confidence === "high" && section.weight != null) {
-    const simulatableWeight = simulatableSections.reduce(
-      (total, candidate) => total + (candidate.weight ?? 0),
-      0,
-    );
-    const normalizedWeight = simulatableWeight > 0
-      ? section.weight / simulatableWeight
-      : 1 / Math.max(1, sectionCount);
-    return Math.max(1, Math.min(12, Math.round(normalizedWeight * 10)));
-  }
-  const duration = section.durationMinutes ??
-    (blueprint.durationMinutes
-      ? blueprint.durationMinutes / Math.max(1, sectionCount)
-      : null);
-  if (duration) return Math.max(1, Math.min(6, Math.round(duration / 8)));
-  return sectionCount === 1 ? 4 : 2;
+  // Unknown official counts are not reverse-engineered from duration,
+  // weighting, or a conventional session size. The evaluator-authored response
+  // types and objective IDs define coverage. Vocabulary terms are individual
+  // recall targets; parameter or wording variants of the same non-vocabulary
+  // objective do not increase coverage. The validated finite bank and the
+  // one-use-per-item rule are the technical bounds.
+  const distinctCoverage = new Set(
+    items.filter((item) => isEligible(item, section)).map(coverageSignature),
+  ).size;
+  return distinctCoverage;
+}
+
+function coverageSignature(item: QuestionBankItem): string {
+  return [
+    [...(item.assessmentQuestionTypes ?? [responseType(item)])].sort().join(","),
+    [...item.learningObjectiveIds].sort().join(","),
+    item.exercise.type === "vocabulary"
+      ? `${item.exercise.direction}\u0000${item.exercise.term.toLocaleLowerCase().replace(/\s+/g, " ").trim()}`
+      : "objective-coverage",
+  ].join("\u0001");
 }
 
 function isAssessmentMetaQuestion(item: QuestionBankItem): boolean {
@@ -362,6 +388,10 @@ function responseType(item: QuestionBankItem): AssessmentQuestionType {
     case "vocabulary":
       return "flashcard";
   }
+}
+
+function supportsResponseType(item: QuestionBankItem, type: string): boolean {
+  return item.assessmentQuestionTypes?.includes(type) ?? responseType(item) === type;
 }
 
 function compareQuestionPriority(left: QuestionBankItem, right: QuestionBankItem): number {

@@ -10,32 +10,11 @@ import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
 import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
 import { decideRenderStrategy } from "../renderStrategy.js";
 import { writeRunProgress } from "../runProgress.js";
-import { renderStudentFirstTypst } from "../studentFirstTypstRenderer.js";
 
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
-      if (
-        !state.error_log &&
-        state.review_report.ok &&
-        state.study_model.publicationStatus !== "blocked"
-      ) {
-        const document = renderStudentFirstTypst(state.study_model);
-        const validation = await validateGeneratedDocument(document, config);
-        if (!validation.ok) {
-          return {
-            final_document: document,
-            error_log: `Student-first Typst renderer failed:\n${validation.error}`,
-            retry_count: state.retry_count + 1,
-          };
-        }
-        await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
-        return {
-          final_document: document,
-          error_log: null,
-        };
-      }
       config.renderStrategyDecision = decision;
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
@@ -63,32 +42,6 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
             error_log: null,
           };
         }
-      }
-      const semanticRepair = state.error_log?.startsWith("Semantic quality review failed:") ?? false;
-      if (state.error_log && state.retry_count > 0 && !semanticRepair) {
-        await config.diagnostics?.log(
-          "warn",
-          "formatter",
-          "Using deterministic Study Buddy renderer after a failed free-form Typst attempt.",
-        );
-        const fallback = renderDeterministicStudyDocument(
-          validateExtractedData(state.extracted_data),
-          config.diagnostics?.getCoverage() ?? emptyCoverage(),
-          { prompt: config.prompt, profile: config.artifactIntent.profile },
-        );
-        const fallbackValidation = await validateGeneratedDocument(fallback, config);
-        if (!fallbackValidation.ok) {
-          return {
-            final_document: fallback,
-            error_log: `Deterministic Typst fallback failed:\n${fallbackValidation.error}`,
-            retry_count: state.retry_count + 1,
-          };
-        }
-        await persistFormatterAttempt(config.runDir, state.retry_count + 1, fallback, null);
-        return {
-          final_document: fallback,
-          error_log: null,
-        };
       }
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
       const typst = await codex.run(buildFormatterPrompt(config, state), {
@@ -219,7 +172,8 @@ function buildFormatterPrompt(config: MoodleRuntimeConfig, state: LangGraphAgent
     "For Moodle+CIS runs, include a compact source coverage note that distinguishes Moodle facts from CIS facts.",
     "Do not hide missing Moodle or CIS coverage; include it as a short Quellenlage line.",
     state.error_log ? `Previous Typst validation error to repair:\n${state.error_log}` : "",
-    `User request:\n${config.prompt}`,
+    `Exact original user request:\n${config.originalUserPrompt}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
     `Source coverage JSON:\n${JSON.stringify(config.diagnostics?.getCoverage() ?? {}, null, 2)}`,
     `Extracted data JSON:\n${JSON.stringify(state.extracted_data, null, 2)}`,
   ]

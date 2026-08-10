@@ -1,7 +1,8 @@
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 import { createAgentBrowserClient, type AgentBrowserClient, type AgentBrowserSnapshot } from "../agentBrowserClient.js";
+import { launchMoodleBrowser } from "../browserLaunch.js";
 import {
   dismissCommonOverlays,
   ensureAgentBrowserLoggedIn,
@@ -30,6 +31,7 @@ import { resolveTaskBudget } from "../taskBudget.js";
 import { writeRunProgress } from "../runProgress.js";
 import { assertPublicHttpsUrl, hasExactOrigin } from "../urlSecurity.js";
 import {
+  classifyResourceFailure,
   formatResourceFailureBlock,
   inspectResourcePayload,
   isKnownPdfEndpoint,
@@ -104,7 +106,11 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
       }
 
       await diagnostics?.log("info", "moodle_login", "Opening Moodle dashboard...");
-      browser = await chromium.launch({ headless: config.headless });
+      browser = await launchMoodleBrowser({
+        headless: config.headless,
+        abortSignal: config.abortSignal,
+        purpose: "Moodle scraper",
+      });
       const closeOnAbort = () => {
         void browser?.close();
       };
@@ -830,7 +836,11 @@ async function fetchSinglePageWithPlaywright(
       };
     }
     await config.diagnostics?.log("info", "moodle_crawl", `Playwright diagnostic fallback: ${url}`);
-    browser = await chromium.launch({ headless: config.headless });
+    browser = await launchMoodleBrowser({
+      headless: config.headless,
+      abortSignal: config.abortSignal,
+      purpose: "Moodle diagnostic fallback",
+    });
     const context = await browser.newContext(
       config.storageState ? { storageState: config.storageState } : undefined,
     );
@@ -2093,7 +2103,11 @@ async function createResourceDownloadSession(
   config: MoodleRuntimeConfig,
 ): Promise<ResourceDownloadSession> {
   throwIfAborted(config.abortSignal);
-  const browser = await chromium.launch({ headless: config.headless });
+  const browser = await launchMoodleBrowser({
+    headless: config.headless,
+    abortSignal: config.abortSignal,
+    purpose: "Moodle resource download",
+  });
   const closeOnAbort = () => {
     void browser.close();
   };
@@ -2149,6 +2163,36 @@ class ResourceDownloadFailure extends Error {
 }
 
 export async function downloadResourceWithRequest(
+  context: BrowserContext,
+  url: string,
+  target: string,
+  signal?: AbortSignal,
+): Promise<ResourceDownloadMetadata> {
+  const maximumAttempts = 2;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await downloadResourceWithRequestAttempt(context, url, target, signal);
+    } catch (error) {
+      const failure = error instanceof ResourceDownloadFailure ? error : null;
+      const classification = classifyResourceFailure(errorMessage(error), {
+        requestedUrl: url,
+        htmlTitle: failure?.htmlTitle,
+        httpStatus: failure?.httpStatus,
+      });
+      if (
+        attempt >= maximumAttempts ||
+        classification.status !== "transient_failure" ||
+        signal?.aborted
+      ) {
+        throw error;
+      }
+      await waitForResourceRetry(300, signal);
+    }
+  }
+  throw new Error("Resource download retry loop exhausted unexpectedly.");
+}
+
+async function downloadResourceWithRequestAttempt(
   context: BrowserContext,
   url: string,
   target: string,
@@ -2282,6 +2326,21 @@ export async function downloadResourceWithRequest(
     bytes,
     durationMs: Date.now() - startedAt,
   };
+}
+
+async function waitForResourceRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Resource retry canceled."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function resourceFailureBlock(

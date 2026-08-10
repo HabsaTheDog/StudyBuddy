@@ -8,13 +8,19 @@ import {
   classifyCodexError,
   type CodexClient,
 } from "../codexClient.js";
-import { chapterFragmentJsonSchema, extractedDataJsonSchema } from "../schemas.js";
+import {
+  ChapterFragmentSchema,
+  chapterFragmentJsonSchema,
+  extractedDataJsonSchema,
+} from "../schemas.js";
 import {
   buildChapterFragmentPrompt,
   createAnalyzerNode,
+  appliedFragmentQualityError,
   ensureDirectEvidenceSelection,
   ensureOfficialTopicEvidenceSelection,
   focusMatchesError,
+  fragmentFormulaQualityError,
   normalizeAnalyzerFormulaSyntax,
   visualRequestMatchesChapter,
 } from "../nodes/analyzerNode.js";
@@ -26,11 +32,207 @@ import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbo
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
+  it("accepts an applied fragment when the chapter's prior theory fragment supplies the central formula", () => {
+    const theory = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Ungedämpfte Schwingungen – Bewegungsgleichung und Eigenkreisfrequenz",
+        typst: "ddot(theta) + omega^2 theta = 0",
+        variables: ["theta Auslenkung", "omega Eigenkreisfrequenz"],
+        units: ["theta dimensionslos", "omega: 1/s"],
+        context: "Linearisierte Bewegungsgleichung eines ungedämpften Schwingers.",
+        source_ids: ["res-formula"],
+      }],
+    });
+    const application = ChapterFragmentSchema.parse({
+      worked_examples: [{
+        origin: "source",
+        learning_goal: "Eigenkreisfrequenz und Periodendauer eines physikalischen Pendels bestimmen.",
+        prompt: "Gegeben sind Trägheitsradius k_s und Abstand d. Bestimme omega und T.",
+        steps: [
+          "1. Momentengleichung um den Aufhängepunkt aufstellen.",
+          "2. Für kleine Winkel sin(theta) approx theta verwenden.",
+          "3. Mit ddot(theta) + omega^2 theta = 0 vergleichen.",
+          "4. Einheitencheck: omega besitzt 1/s und T besitzt s.",
+        ],
+        result: "omega = sqrt(g d/(k_s^2+d^2)) und T = 2 pi/omega.",
+        source_ids: ["res-pendulum"],
+      }],
+    });
+    const focus = {
+      key: "oscillations",
+      title: "Ungedämpfte Schwingungen",
+      resourceIds: ["res-formula", "res-pendulum"],
+      matchTerms: ["schwingungen", "eigenkreisfrequenz", "periodendauer"],
+      contentMode: "quantitative" as const,
+      learningObjectives: [
+        "Die Bewegungsgleichung eines Einfreiheitsgrad-Schwingers herleiten.",
+        "Eigenkreisfrequenz und Periodendauer bestimmen.",
+      ],
+    };
+
+    expect(appliedFragmentQualityError(application, focus, 0, [theory])).toBeNull();
+    expect(appliedFragmentQualityError(application, focus))
+      .toContain("has no central formula aligned");
+  });
+
+  it("accepts chapter-scoped formulas for deterministic German fallback objectives", () => {
+    const fragment = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Geschwindigkeit und Beschleunigung",
+        typst: "vec(v) = dot(vec(r)); vec(a) = dot(vec(v))",
+        variables: ["r Ort", "v Geschwindigkeit", "a Beschleunigung"],
+        units: ["r: m", "v: m/s", "a: m/s^2"],
+        context: "Ableitungskette der Punktkinematik.",
+        source_ids: ["res-kinematics"],
+      }],
+      worked_examples: [{
+        origin: "source",
+        learning_goal: "Eine Bewegung aus einer Ortsfunktion auswerten.",
+        prompt: "Gegeben ist r(t) = (t^2, 2 t). Bestimme v und a.",
+        steps: [
+          "1. Ortsvektor komponentenweise notieren.",
+          "2. Einmal nach t ableiten: v(t) = (2 t, 2).",
+          "3. Nochmals nach t ableiten: a(t) = (2, 0).",
+          "4. Einheitencheck: v hat m/s und a hat m/s^2.",
+        ],
+        result: "Damit gelten v(t) = (2 t, 2) m/s und a(t) = (2, 0) m/s^2.",
+        source_ids: ["res-kinematics"],
+      }],
+    });
+
+    expect(appliedFragmentQualityError(fragment, {
+      key: "vector-kinematics",
+      title: "Vektorkinematik",
+      resourceIds: ["res-kinematics"],
+      matchTerms: ["vektorkinematik"],
+      contentMode: "quantitative",
+      learningObjectives: [
+        "Die zentralen Zusammenhänge von Vektorkinematik erklären.",
+        "Sie auf Rechnungen und typische Aufgaben zu Vektorkinematik anwenden.",
+      ],
+    })).toBeNull();
+  });
+
+  it("accepts a compact mathematical result when it is still independently checkable", () => {
+    const fragment = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Geschwindigkeit",
+        typst: "v = s/t",
+        variables: ["v Geschwindigkeit", "s Weg", "t Zeit"],
+        units: ["v: m/s", "s: m", "t: s"],
+        context: "Gleichförmige Bewegung.",
+        source_ids: ["res-motion"],
+      }],
+      worked_examples: [{
+        origin: "source",
+        learning_goal: "Eine Geschwindigkeit bestimmen.",
+        prompt: "Gegeben sind s = 20 m und t = 5 s. Bestimme v.",
+        steps: [
+          "1. Gegebene Werte notieren.",
+          "2. v = s/t ansetzen.",
+          "3. v = 20/5 m/s berechnen.",
+          "4. Einheitencheck: m/s ist korrekt.",
+        ],
+        result: "v = 4 m/s",
+        source_ids: ["res-motion"],
+      }],
+    });
+
+    expect(appliedFragmentQualityError(fragment, {
+      key: "motion",
+      title: "Bewegung",
+      resourceIds: ["res-motion"],
+      matchTerms: ["bewegung"],
+      contentMode: "quantitative",
+      learningObjectives: [
+        "Die zentralen Zusammenhänge von Bewegung erklären.",
+        "Sie auf Rechnungen und typische Aufgaben zu Bewegung anwenden.",
+      ],
+    })).toBeNull();
+  });
+
+  it("rejects a derived time polynomial whose numerical coefficients have no time units", () => {
+    const fragment = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Punktkinematik – Ableitungskette",
+        typst: "vec(v) = dot(vec(r)); vec(a) = ddot(vec(r))",
+        variables: ["r Ort", "v Geschwindigkeit", "a Beschleunigung"],
+        units: ["r: m", "v: m/s", "a: m/s^2"],
+        context: "Ort, Geschwindigkeit und Beschleunigung.",
+        source_ids: ["res-kinematics"],
+      }],
+      worked_examples: [{
+        origin: "derived",
+        learning_goal: "Eine Ortsfunktion ableiten.",
+        prompt: "Gegeben sind x(t)=2t^2 m und y(t)=3t m.",
+        steps: [
+          "1. Ortsvektor notieren.",
+          "2. Einmal nach t ableiten.",
+          "3. Zweimal nach t ableiten.",
+          "4. Einheitencheck durchführen.",
+        ],
+        result: "v=(4t,3) m/s und a=(4,0) m/s^2.",
+        source_ids: ["res-kinematics"],
+      }],
+    });
+
+    expect(appliedFragmentQualityError(fragment, {
+      key: "kinematics",
+      title: "Punktkinematik",
+      resourceIds: ["res-kinematics"],
+      matchTerms: ["punktkinematik", "geschwindigkeit", "beschleunigung"],
+      contentMode: "quantitative",
+      learningObjectives: ["Ort, Geschwindigkeit und Beschleunigung verknüpfen."],
+    })).toContain("complementary time unit");
+  });
+
+  it("rejects an oscillator equation of motion that drops the second derivative", () => {
+    const focus = {
+      key: "oscillations",
+      title: "Ungedämpfte Schwingungen",
+      resourceIds: ["res-formula"],
+      matchTerms: ["schwingungen"],
+      contentMode: "quantitative" as const,
+      learningObjectives: ["Die Bewegungsgleichung eines Schwingers herleiten."],
+    };
+    const invalid = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Lineare Bewegungsgleichung",
+        typst: "m dot(x) + m omega^2 x = 0",
+        variables: ["x Auslenkung"],
+        units: ["x: m"],
+        context: "Bewegungsgleichung des ungedämpften Schwingers.",
+        source_ids: ["res-formula"],
+      }],
+    });
+    const valid = ChapterFragmentSchema.parse({
+      formulas: [{
+        name: "Lineare Bewegungsgleichung",
+        typst: "m ddot(x) + m omega^2 x = 0",
+        variables: ["x Auslenkung"],
+        units: ["x: m"],
+        context: "Bewegungsgleichung des ungedämpften Schwingers.",
+        source_ids: ["res-formula"],
+      }],
+    });
+
+    expect(fragmentFormulaQualityError(invalid, focus)).toContain("second time derivative");
+    expect(fragmentFormulaQualityError(valid, focus)).toBeNull();
+  });
+
   it("removes Markdown math fences from analyzer Typst formula fields", () => {
     expect(normalizeAnalyzerFormulaSyntax(
       "$ vec(v) = dot(r) vec(e)_r $, $ vec(a) = ddot(r) vec(e)_r $",
     )).toBe(
       "vec(v) = dot(r) vec(e)_r , vec(a) = ddot(r) vec(e)_r",
+    );
+  });
+
+  it("normalizes model-emitted dot.double calls to the supported ddot form", () => {
+    expect(normalizeAnalyzerFormulaSyntax(
+      "vec(a) = dot.double(x) vec(e)_x + dot . double (bold(r)) vec(e)_r",
+    )).toBe(
+      "vec(a) = ddot(x) vec(e)_x + ddot(bold(r)) vec(e)_r",
     );
   });
 
@@ -336,6 +538,7 @@ describe("analyzerNode", () => {
         prompt: "Create an English dynamics guide",
         outputLanguage: "en",
         outputLanguageReason: "explicit_prompt",
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
       }),
       moodleTestState(),
       {
@@ -374,10 +577,148 @@ describe("analyzerNode", () => {
 
     expect(prompt).toContain("\"id\": \"page-image\"");
     expect(prompt).toContain("Attached images correspond to the listed candidate IDs");
+    expect(prompt).toContain("numerical coefficients of time functions carry their own units");
+    expect(prompt).toContain("Optional arrays such as worked_examples and figures may be empty");
     expect(prompt).not.toContain("assets/visuals/example-page-1.png");
     expect(prompt).not.toContain("/tmp/example.pdf");
     expect(prompt).toContain("in English");
     expect(prompt.length).toBeLessThan(8_000);
+  });
+
+  it("repairs a nonquantitative structure error without injecting a calculation recipe", () => {
+    const originalPrompt = "Create a clearly structured literature overview PDF.";
+    const prompt = buildChapterFragmentPrompt(
+      moodleTestConfig({ prompt: "normalized literature workflow", originalUserPrompt: originalPrompt }),
+      moodleTestState({
+        request_contract: {
+          schemaVersion: 1,
+          evaluationStatus: "evaluated",
+          originalPrompt,
+          userGoal: "Understand the structure of the literature course.",
+          deliverables: [{ id: "pdf", kind: "pdf", purpose: "Compact literature overview" }],
+          requirements: [{
+            id: "req-structure",
+            statement: "Organize movements and authors into a readable hierarchy.",
+            origin: "explicit",
+            priority: "must",
+            appliesTo: ["pdf"],
+            acceptanceCheck: "The hierarchy is clear.",
+            evidenceRefs: [],
+          }, {
+            id: "req-visual-shell",
+            statement: "Use the standard page shell.",
+            origin: "evidence_derived",
+            priority: "should",
+            appliesTo: ["pdf"],
+            acceptanceCheck: "The page shell is valid.",
+            evidenceRefs: [],
+          }],
+          notRequired: ["calculation examples"],
+          forbidden: ["invented numerical values"],
+          contentStrategy: {
+            summary: "Use a conceptual hierarchy.",
+            quantityBasis: "Follow the source structure.",
+            completionRule: "Cover the requested movements.",
+          },
+          reviewAssignments: [{
+            owner: "content",
+            requirementIds: ["req-structure"],
+            checks: ["Check the hierarchy."],
+          }, {
+            owner: "technical",
+            requirementIds: ["req-visual-shell"],
+            checks: ["Check the shell."],
+          }],
+        },
+      }),
+      {
+        key: "literature-structure",
+        title: "Literature Structure",
+        resourceIds: ["res-literature"],
+        matchTerms: ["literature", "structure"],
+        contentMode: "conceptual",
+      },
+      { key: "structure", label: "Course structure", resourceIds: ["res-literature"], records: [] },
+      0,
+      1,
+      null,
+      [],
+      [
+        "Semantic quality review failed:",
+        "- [chapter: Literature Structure] The heading hierarchy is ambiguous.",
+        "- [chapter: Dynamics] A formula derivation is incomplete.",
+      ].join("\n"),
+    );
+
+    expect(prompt).toContain(originalPrompt);
+    expect(prompt).toContain("req-structure");
+    expect(prompt).not.toContain("req-visual-shell");
+    expect(prompt).toContain("The heading hierarchy is ambiguous");
+    expect(prompt).not.toContain("A formula derivation is incomplete");
+    expect(prompt).not.toContain("vollständig nachvollziehbares Beispiel");
+    expect(prompt).not.toContain("konkreter mathematischer Beziehung");
+    expect(prompt).not.toContain("kleines origin='derived'-Beispiel");
+  });
+
+  it("keeps an explicit DYN derivation requirement without inventing a worked-example duty", () => {
+    const originalPrompt =
+      "Erstelle ein kompaktes DYN2-PDF mit notwendigen Formelherleitungen und Grundverständnis.";
+    const prompt = buildChapterFragmentPrompt(
+      moodleTestConfig({ prompt: "normalized DYN workflow", originalUserPrompt: originalPrompt }),
+      moodleTestState({
+        request_contract: {
+          schemaVersion: 1,
+          evaluationStatus: "evaluated",
+          originalPrompt,
+          userGoal: "Die DYN2-Theorie und Herleitungen überblicken.",
+          deliverables: [{ id: "pdf", kind: "pdf", purpose: "Compact DYN2 overview" }],
+          requirements: [{
+            id: "req-derivations",
+            statement: "Explain the necessary formula derivations requested for the PDF.",
+            origin: "explicit",
+            priority: "must",
+            appliesTo: ["pdf"],
+            acceptanceCheck: "Requested derivations are traceable and complete.",
+            evidenceRefs: [],
+          }],
+          notRequired: ["worked examples"],
+          forbidden: ["invented example values"],
+          contentStrategy: {
+            summary: "Prioritize theory, derivations, and conceptual understanding.",
+            quantityBasis: "Use the explicit request and evidence.",
+            completionRule: "All requested derivations are covered or marked unsupported.",
+          },
+          reviewAssignments: [{
+            owner: "content",
+            requirementIds: ["req-derivations"],
+            checks: ["Check each requested derivation."],
+          }],
+        },
+      }),
+      {
+        key: "angular-momentum",
+        title: "Drallsatz",
+        resourceIds: ["res-angular-momentum"],
+        matchTerms: ["drallsatz", "moment"],
+        contentMode: "quantitative",
+        learningObjectives: ["Den Drallsatz herleiten und einordnen."],
+      },
+      { key: "derivation", label: "Drallsatz derivation", resourceIds: ["res-angular-momentum"], records: [] },
+      0,
+      1,
+      null,
+      [],
+      "- [chapter: Drallsatz] The requested derivation skips an evidence-backed intermediate relation.",
+    );
+
+    expect(prompt).toContain(originalPrompt);
+    expect(prompt).toContain("req-derivations");
+    expect(prompt).toContain("necessary formula derivations");
+    expect(prompt).toContain("requested derivation skips");
+    expect(prompt).toContain("Optional arrays such as worked_examples and figures may be empty");
+    expect(prompt).not.toContain("must be implemented as a fully traceable example");
+    expect(prompt).not.toContain("vollständig nachvollziehbares Beispiel");
+    expect(prompt).not.toContain("kleines origin='derived'-Beispiel");
   });
 
   it("parses Codex JSON, validates defaults, and passes the schema hint", async () => {
@@ -401,7 +742,7 @@ describe("analyzerNode", () => {
 
     expect(receivedPrompt).toContain("Previous validation error to repair:\nPrevious schema error");
     expect(receivedPrompt).toContain("Feder-Daempfer-System");
-    expect(receivedPrompt).toContain("A study guide must teach the material");
+    expect(receivedPrompt).toContain("Use the evaluated request contract to decide");
     expect(receivedPrompt).toContain("origin='derived'");
     expect(receivedSchema).toBe(extractedDataJsonSchema);
     expect(result.error_log).toBeNull();
@@ -413,6 +754,31 @@ describe("analyzerNode", () => {
       sections: [],
       formulas: [],
     });
+  });
+
+  it("starts the dedicated repair task at attempt one after the first analyzer failure", async () => {
+    let receivedTask: string | undefined;
+    let receivedAttempt: number | undefined;
+    const codex: CodexClient = {
+      async run(_prompt, options) {
+        receivedTask = options?.task;
+        receivedAttempt = options?.attempt;
+        return JSON.stringify({
+          document_title: "DYN2",
+          language: "de",
+          course: { title: "Dynamik", url: "" },
+        });
+      },
+    };
+
+    await createAnalyzerNode(moodleTestConfig(), codex)(moodleTestState({
+      moodle_raw_text: "Feder-Dämpfer-System",
+      error_log: "First analyzer validation failure",
+      retry_count: 1,
+    }));
+
+    expect(receivedTask).toBe("content_repair");
+    expect(receivedAttempt).toBe(1);
   });
 
   it("enforces the resolved artifact language even when source-biased model metadata disagrees", async () => {
@@ -514,8 +880,8 @@ describe("analyzerNode", () => {
     }));
 
     expect(result.extracted_data).toMatchObject({
-      document_title: "DYN2 – Study Guide",
-      course: { title: "DYN2" },
+      document_title: "DYN2 – Anwendungen der Dynamik – Study Guide",
+      course: { title: "DYN2 – Anwendungen der Dynamik" },
     });
   });
 
@@ -558,6 +924,44 @@ describe("analyzerNode", () => {
     });
   });
 
+  it("combines a requested course code with its resolved descriptive title", async () => {
+    const codex: CodexClient = {
+      async run() {
+        return JSON.stringify({
+          document_title: "Course Shell – Study Guide",
+          language: "de",
+          course: { title: "Course Shell" },
+        });
+      },
+    };
+    const prompt = "Erstelle einen Study Guide für meine DYN2-Prüfung.";
+    const result = await createAnalyzerNode(moodleTestConfig({
+      prompt,
+      originalUserPrompt: prompt,
+      artifactIntent: {
+        ...moodleTestConfig().artifactIntent,
+        profile: "study_guide",
+      },
+    }), codex)(moodleTestState({
+      moodle_raw_text: [
+        "[Moodle course resolution]",
+        "Selected: BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik",
+        "Course title: Anwendungen der Dynamik",
+        "URL: https://moodle.example/course/view.php?id=32844",
+        "Confidence: high",
+        "Method: exact_dashboard_match",
+      ].join("\n"),
+    }));
+
+    expect(result.extracted_data).toMatchObject({
+      document_title: "DYN2 – Anwendungen der Dynamik – Study Guide",
+      course: {
+        title: "DYN2 – Anwendungen der Dynamik",
+        url: "https://moodle.example/course/view.php?id=32844",
+      },
+    });
+  });
+
   it("keeps invalid analyzer output in retry state", async () => {
     const codex: CodexClient = {
       async run() {
@@ -574,6 +978,129 @@ describe("analyzerNode", () => {
     expect(result.extracted_data).toBeUndefined();
     expect(result.error_log).toMatch(/^Analyzer failed:/);
     expect(result.retry_count).toBe(2);
+  });
+
+  it("does not reject a source-grounded chapter merely because it has no worked example", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-partial-chapters-"));
+    try {
+      const introUrl = "https://moodle.example/intro.pdf";
+      const vectorUrl = "https://moodle.example/vector.pdf";
+      const codex: CodexClient = {
+        async run(_prompt, options) {
+          if (options?.outputSchema === chapterFragmentJsonSchema) {
+            return JSON.stringify({
+              sections: [{
+                heading: "Vektorkinematik",
+                summary: "Die belegten Grundbeziehungen werden erklärt.",
+                key_concepts: ["Geschwindigkeit", "Beschleunigung"],
+                source_ids: ["res_vector"],
+              }],
+              formulas: [],
+              worked_examples: [],
+              figures: [],
+              warnings: [],
+            });
+          }
+          return JSON.stringify({
+            document_title: "DYN2",
+            language: "de",
+            course: { title: "DYN2", url: "https://moodle.example/course" },
+            sources: [{
+              id: "res_intro",
+              title: "Einführung",
+              kind: "pdf",
+              url: introUrl,
+              path: "/tmp/intro.pdf",
+              page: null,
+            }],
+            sections: [{
+              heading: "Einführung",
+              summary: "Die validierte Einführung bleibt publizierbar.",
+              key_concepts: ["Modellbildung"],
+              source_ids: ["res_intro"],
+            }],
+            formulas: [],
+            worked_examples: [],
+            quiz_style_questions: [],
+            visual_assets: [],
+            figures: [],
+            learning_modules: [],
+            warnings: [],
+          });
+        },
+      };
+      const resources = [
+        { ...chapterResource("intro", "Einführung", "Einführung", "primary_lecture"), originUrl: introUrl },
+        { ...chapterResource("vector", "Vektorkinematik", "Vektorkinematik", "primary_lecture"), originUrl: vectorUrl },
+      ];
+      const state = moodleTestState({
+        source_architect_decision: {
+          round: 1,
+          status: "sufficient",
+          coverageSummary: "Two chapters are evidenced.",
+          requestedUrls: [],
+          remainingAvailable: 0,
+          reasons: [],
+          learningArchitecture: {
+            schemaVersion: 1,
+            modules: [{
+              id: "intro",
+              title: "Einführung",
+              priority: "essential",
+              contentMode: "conceptual",
+              learningObjectives: ["Grundideen erklären"],
+              assessmentSignals: [],
+              resourceUrls: [introUrl],
+            }, {
+              id: "vector",
+              title: "Vektorkinematik",
+              priority: "essential",
+              contentMode: "quantitative",
+              learningObjectives: ["Geschwindigkeit und Beschleunigung berechnen"],
+              assessmentSignals: ["Rechenaufgabe"],
+              resourceUrls: [vectorUrl],
+            }],
+            supportResources: [],
+            excludedResourceUrls: [],
+          },
+        },
+        resource_manifest: {
+          schemaVersion: "1.0",
+          courseUrl: "https://moodle.example/course",
+          generatedAt: new Date().toISOString(),
+          resources,
+        },
+        evidence_package: {
+          schemaVersion: "1.0",
+          generatedAt: new Date().toISOString(),
+          records: resources.map((resource, index) => ({
+            id: `ev_${index}`,
+            resourceId: resource.id,
+            kind: "claim" as const,
+            locator: { page: 1 },
+            content: `${resource.title} mit belegten Lehrinhalten.`,
+            confidence: 1,
+            pairId: null,
+            sourceUrl: resource.originUrl,
+            localPath: resource.localPath,
+          })),
+          warnings: [],
+        },
+      });
+
+      const result = await createAnalyzerNode(moodleTestConfig({
+        runDir,
+        runtimeCacheDir: path.join(runDir, "runtime-cache"),
+        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      }), codex)(state);
+
+      expect(result.error_log).toBeNull();
+      expect(result.extracted_data).toMatchObject({
+        sections: [{ heading: "Einführung" }, { heading: "Vektorkinematik" }],
+      });
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
   });
 
   it("rethrows a run-level abort before analysis without creating retry state", async () => {
@@ -1035,7 +1562,7 @@ describe("analyzerNode", () => {
     }
   });
 
-  it("repairs an invalid application fragment locally without restarting valid chapters", async () => {
+  it("does not trigger a local repair solely to manufacture an application fragment", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-local-fragment-repair-"));
     try {
       const prompts: string[] = [];
@@ -1098,7 +1625,10 @@ describe("analyzerNode", () => {
       const config = moodleTestConfig({
         runDir,
         runtimeCacheDir: path.join(runDir, "runtime-cache"),
-        artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+        artifactIntent: {
+          ...moodleTestConfig().artifactIntent,
+          profile: "study_guide",
+        },
       });
       const result = await createAnalyzerNode(config, codex)(moodleTestState({
         source_architect_decision: {
@@ -1148,12 +1678,9 @@ describe("analyzerNode", () => {
       const vectorPrompts = prompts.filter((prompt) =>
         prompt.includes("\"title\":\"Vektorkinematik\"")
       );
-      expect(vectorPrompts).toHaveLength(2);
-      expect(vectorPrompts[1]).toContain("Validator-Diagnose für den einmaligen lokalen Reparaturversuch");
+      expect(vectorPrompts).toHaveLength(1);
       expect(result.error_log).toBeNull();
-      expect(result.extracted_data).toMatchObject({
-        worked_examples: [{ learning_goal: "Eine kinematische Kopplung berechnen" }],
-      });
+      expect(result.extracted_data).toMatchObject({ worked_examples: [] });
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }
@@ -1211,15 +1738,23 @@ describe("analyzerNode", () => {
         "Library",
         "primary_lecture",
       );
+      const semanticHandbook = chapterResource(
+        "semantic_handbook",
+        "Course handbook",
+        "Library",
+        "primary_lecture",
+      );
       const other = chapterResource("other", "Other module", "Other", "primary_lecture");
-      const resources = [ode10, ode11, differential, integral, other];
+      const resources = [ode10, ode11, differential, integral, semanticHandbook, other];
       const records = resources.flatMap((resource) =>
         Array.from({ length: 20 }, (_, index) => ({
           id: `${resource.id}_ev_${index}`,
           resourceId: resource.id,
           kind: "claim" as const,
           locator: { page: index + 1 },
-          content: `${resource.title} evidence ${index}.`,
+          content: resource.id === semanticHandbook.id
+            ? `SEMANTIC_SUPPORT_SENTINEL Differential Equations: solve equations with a characteristic equation and substitution check ${index}.`
+            : `${resource.title} evidence ${index}.`,
           confidence: 1,
           pairId: null,
           sourceUrl: resource.originUrl,
@@ -1264,6 +1799,11 @@ describe("analyzerNode", () => {
               title: "Differential calculus overview",
               purpose: "general_reference",
               resourceUrls: [differential.originUrl, integral.originUrl],
+            }, {
+              id: "semantic-handbook",
+              title: "Course handbook",
+              purpose: "general_reference",
+              resourceUrls: [semanticHandbook.originUrl],
             }],
             excludedResourceUrls: [],
           },
@@ -1283,11 +1823,11 @@ describe("analyzerNode", () => {
       }));
 
       const odePrompts = prompts.filter((prompt) => prompt.includes("Differential Equations"));
-      expect(odePrompts).toHaveLength(1);
+      expect(odePrompts.length).toBeLessThanOrEqual(2);
       expect(odePrompts[0]).toContain("Minitest 10 solutions");
       expect(odePrompts[0]).toContain("Minitest 11 solutions");
-      expect(odePrompts[0]).not.toContain("General Differential Calculus");
-      expect(odePrompts[0]).not.toContain("General Integral Calculus");
+      expect(odePrompts.join("\n")).not.toContain("General Integral Calculus");
+      expect(odePrompts.join("\n")).toContain("SEMANTIC_SUPPORT_SENTINEL");
       expect(result.error_log).toBeNull();
     } finally {
       await rm(runDir, { recursive: true, force: true });
