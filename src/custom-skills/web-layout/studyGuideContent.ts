@@ -1,12 +1,49 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { MODULE_DISPLAY_TITLE_MAX } from "./moduleTitles.js";
-import { fallbackStudyGuideRequirements, type StudyGuideRequirements } from "./studyGuideProfile.js";
+import type { StudyGuideRequirements } from "./studyGuideProfile.js";
 
 export const studyGuideSourceRefSchema = z.object({
   label: z.string().min(1),
   sourceTask: z.string().min(1),
   provenance: z.enum(["source", "adapted", "derived"]),
 });
+
+const studyGuideEvidenceSpanSchema = z.object({
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).refine((span) => span.end > span.start, {
+  message: "Evidence span end must be greater than start.",
+});
+
+export const studyGuideEvidenceRefSchema = z.object({
+  sourceIds: z.array(z.string().min(1)).min(1),
+  sectionIndex: z.number().int().nonnegative(),
+  sectionHeading: z.string().min(1),
+  learningGoalIndexes: z.array(z.number().int().nonnegative()).min(1),
+  exactSpan: studyGuideEvidenceSpanSchema.nullable().optional(),
+});
+
+export type StudyGuideEvidenceRef = z.infer<typeof studyGuideEvidenceRefSchema>;
+
+export function normalizeStudyGuideEvidenceRefs(refs: StudyGuideEvidenceRef[]): StudyGuideEvidenceRef[] {
+  return [...new Map(refs.map((value) => {
+    const parsed = studyGuideEvidenceRefSchema.parse(value);
+    const normalized = {
+      ...parsed,
+      sourceIds: [...new Set(parsed.sourceIds)].sort(),
+      learningGoalIndexes: [...new Set(parsed.learningGoalIndexes)].sort((left, right) => left - right),
+    };
+    return [JSON.stringify(normalized), normalized] as const;
+  })).values()].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+export function studyGuideEvidenceRefsHash(refs: StudyGuideEvidenceRef[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(normalizeStudyGuideEvidenceRefs(refs)))
+    .digest("hex");
+}
 
 const optionSchema = z.object({
   text: z.string().min(1),
@@ -22,6 +59,7 @@ const crossExerciseSchema = z.object({
   options: z.array(optionSchema).min(2),
   explanation: z.string().min(12),
   source: studyGuideSourceRefSchema,
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
 
 const calculationExerciseSchema = z.object({
@@ -34,6 +72,7 @@ const calculationExerciseSchema = z.object({
   steps: z.array(z.string().min(1)).min(2),
   commonMistake: z.string().min(8),
   source: studyGuideSourceRefSchema,
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
 
 const applicationExerciseSchema = z.object({
@@ -44,6 +83,7 @@ const applicationExerciseSchema = z.object({
   sampleAnswer: z.string().min(12),
   selfCheck: z.array(z.string().min(1)).min(2),
   source: studyGuideSourceRefSchema,
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
 
 const vocabularyExerciseSchema = z.object({
@@ -56,6 +96,7 @@ const vocabularyExerciseSchema = z.object({
   context: z.string().min(1),
   explanation: z.string().min(8),
   source: studyGuideSourceRefSchema,
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
 
 export const studyGuideExerciseSchema = z.discriminatedUnion("type", [
@@ -69,10 +110,11 @@ const topicSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   navigationTitle: z.string().min(1).max(MODULE_DISPLAY_TITLE_MAX).optional(),
-  learningGoals: z.array(z.string().min(1)).min(1),
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
+  learningGoals: z.array(z.string().min(1)),
   theory: z.object({
-    summary: z.string().min(80),
-    keyIdeas: z.array(z.string().min(1)).min(2),
+    summary: z.string(),
+    keyIdeas: z.array(z.string().min(1)),
     formulas: z.array(z.object({
       expression: z.string().min(1),
       meaning: z.string().min(1),
@@ -84,12 +126,37 @@ const topicSchema = z.object({
     steps: z.array(z.string().min(1)).min(2),
     answer: z.string().min(1),
     source: studyGuideSourceRefSchema,
-  })).min(1),
-  exercises: z.array(studyGuideExerciseSchema).min(3),
+  })),
+  exercises: z.array(studyGuideExerciseSchema),
   retrieval: z.array(z.object({
     prompt: z.string().min(1),
     answer: z.string().min(1),
-  })).min(1),
+    evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
+  })),
+}).superRefine((topic, context) => {
+  const collections: Array<{ path: (string | number)[]; refs: StudyGuideEvidenceRef[] | undefined }> = [
+    { path: ["evidenceRefs"], refs: topic.evidenceRefs },
+    ...topic.exercises.map((exercise, index) => ({
+      path: ["exercises", index, "evidenceRefs"],
+      refs: exercise.evidenceRefs,
+    })),
+    ...topic.retrieval.map((retrieval, index) => ({
+      path: ["retrieval", index, "evidenceRefs"],
+      refs: retrieval.evidenceRefs,
+    })),
+  ];
+  for (const collection of collections) {
+    for (const [refIndex, ref] of (collection.refs ?? []).entries()) {
+      for (const [goalIndexPosition, goalIndex] of ref.learningGoalIndexes.entries()) {
+        if (goalIndex < topic.learningGoals.length) continue;
+        context.addIssue({
+          code: "custom",
+          path: [...collection.path, refIndex, "learningGoalIndexes", goalIndexPosition],
+          message: `learningGoalIndexes are zero-based indexes into this topic's learningGoals array (length ${topic.learningGoals.length}); got ${goalIndex}.`,
+        });
+      }
+    }
+  }
 });
 
 export const studyGuideContentSchema = z.object({
@@ -120,11 +187,12 @@ export const studyGuideContentJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "navigationTitle", "learningGoals", "theory", "workedExamples", "exercises", "retrieval"],
+        required: ["id", "title", "navigationTitle", "evidenceRefs", "learningGoals", "theory", "workedExamples", "exercises", "retrieval"],
         properties: {
           id: { type: "string" },
           title: { type: "string" },
           navigationTitle: { type: "string", maxLength: MODULE_DISPLAY_TITLE_MAX },
+          evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } },
           learningGoals: { type: "array", items: { type: "string" } },
           theory: {
             type: "object", additionalProperties: false,
@@ -141,7 +209,7 @@ export const studyGuideContentJsonSchema = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "instructions", "sampleAnswer", "selfCheck", "direction", "term", "context", "source"],
+              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "instructions", "sampleAnswer", "selfCheck", "direction", "term", "context", "source", "evidenceRefs"],
               properties: {
                 id: { type: "string" },
                 type: { enum: ["cross", "calculation", "application", "vocabulary"] },
@@ -161,55 +229,45 @@ export const studyGuideContentJsonSchema = {
                 term: { type: "string" },
                 context: { type: "string" },
                 source: { $ref: "#/$defs/sourceRef" },
+                evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } },
               },
             },
           },
-          retrieval: { type: "array", items: { type: "object", additionalProperties: false, required: ["prompt", "answer"], properties: { prompt: { type: "string" }, answer: { type: "string" } } } },
+          retrieval: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["prompt", "answer", "evidenceRefs"],
+              properties: {
+                prompt: { type: "string" },
+                answer: { type: "string" },
+                evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } },
+              },
+            },
+          },
         },
       },
     },
     sources: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "label", "url", "coverage"], properties: { id: { type: "string" }, label: { type: "string" }, url: { type: "string" }, coverage: { type: "string" } } } },
   },
   $defs: {
+    evidenceRef: { type: "object", additionalProperties: false, required: ["sourceIds", "sectionIndex", "sectionHeading", "learningGoalIndexes", "exactSpan"], properties: { sourceIds: { type: "array", minItems: 1, items: { type: "string" } }, sectionIndex: { type: "integer", minimum: 0 }, sectionHeading: { type: "string" }, learningGoalIndexes: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } }, exactSpan: { anyOf: [{ type: "object", additionalProperties: false, required: ["start", "end", "sha256"], properties: { start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" } } }, { type: "null" }] } } },
     sourceRef: { type: "object", additionalProperties: false, required: ["label", "sourceTask", "provenance"], properties: { label: { type: "string" }, sourceTask: { type: "string" }, provenance: { enum: ["source", "adapted", "derived"] } } },
     option: { type: "object", additionalProperties: false, required: ["text", "correct", "feedback"], properties: { text: { type: "string" }, correct: { type: "boolean" }, feedback: { type: "string" } } },
-    crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
-    calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
-    applicationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "instructions", "sampleAnswer", "selfCheck", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "application" }, prompt: { type: "string" }, instructions: { type: "array", items: { type: "string" } }, sampleAnswer: { type: "string" }, selfCheck: { type: "array", items: { type: "string" } }, source: { $ref: "#/$defs/sourceRef" } } },
-    vocabularyExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "direction", "term", "acceptedAnswers", "context", "explanation", "source"], properties: { id: { type: "string" }, type: { type: "string", const: "vocabulary" }, prompt: { type: "string" }, direction: { enum: ["term-to-meaning", "meaning-to-term", "context-gap"] }, term: { type: "string" }, acceptedAnswers: { type: "array", items: { type: "string" } }, context: { type: "string" }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
+    crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    applicationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "instructions", "sampleAnswer", "selfCheck", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "application" }, prompt: { type: "string" }, instructions: { type: "array", items: { type: "string" } }, sampleAnswer: { type: "string" }, selfCheck: { type: "array", items: { type: "string" } }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    vocabularyExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "direction", "term", "acceptedAnswers", "context", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "vocabulary" }, prompt: { type: "string" }, direction: { enum: ["term-to-meaning", "meaning-to-term", "context-gap"] }, term: { type: "string" }, acceptedAnswers: { type: "array", items: { type: "string" } }, context: { type: "string" }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
     workedExample: { type: "object", additionalProperties: false, required: ["title", "prompt", "steps", "answer", "source"], properties: { title: { type: "string" }, prompt: { type: "string" }, steps: { type: "array", items: { type: "string" } }, answer: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
   },
 } as const;
 
-export const STUDY_GUIDE_QUALITY_TARGETS = Object.freeze({
-  topics: 11,
-  exercises: 40,
-  crossExercises: 20,
-  calculationExercises: 18,
-});
-
-export function validateStudyGuideContentQuality(content: StudyGuideContent, requirements: StudyGuideRequirements = fallbackStudyGuideRequirements(content)): string[] {
+export function validateStudyGuideChapterQuality(content: StudyGuideContent, _requirements?: StudyGuideRequirements): string[] {
   const exercises = content.topics.flatMap((topic) => topic.exercises);
   const crosses = exercises.filter((exercise) => exercise.type === "cross");
-  const calculations = exercises.filter((exercise) => exercise.type === "calculation");
-  const applications = exercises.filter((exercise) => exercise.type === "application");
   const vocabulary = exercises.filter((exercise) => exercise.type === "vocabulary");
   const issues: string[] = [];
-  if (content.topics.length < requirements.topicTarget) issues.push(`Expected evidence-adaptive course coverage of at least ${requirements.topicTarget} topics; received ${content.topics.length}.`);
-  if (exercises.length < requirements.exerciseTarget) issues.push(`Expected at least ${requirements.exerciseTarget} substantive exercises for the ${requirements.archetype} course profile; received ${exercises.length}.`);
-  if (crosses.length < requirements.selectionTarget) issues.push(`Expected at least ${requirements.selectionTarget} selection/retrieval exercises; received ${crosses.length}.`);
-  if (calculations.length < requirements.calculationTarget) issues.push(`Expected at least ${requirements.calculationTarget} calculation exercises for the ${requirements.archetype} course profile; received ${calculations.length}.`);
-  if (applications.length < requirements.applicationTarget) issues.push(`Expected at least ${requirements.applicationTarget} open application, case, writing, or procedural exercises for the ${requirements.archetype} course profile; received ${applications.length}.`);
-  if (vocabulary.length < requirements.vocabularyTarget) issues.push(`Expected at least ${requirements.vocabularyTarget} evidence-grounded vocabulary retrieval exercises; received ${vocabulary.length}.`);
-  if (requirements.vocabularyAssessmentRequired && requirements.vocabularyTarget > 0) {
-    const minimumPerTopic = Math.floor(requirements.vocabularyTarget / Math.max(1, content.topics.length));
-    for (const topic of content.topics) {
-      const topicVocabulary = topic.exercises.filter((exercise) => exercise.type === "vocabulary").length;
-      if (topicVocabulary < minimumPerTopic) {
-        issues.push(`${topic.id} needs at least ${minimumPerTopic} vocabulary items for the evidenced course-wide vocabulary assessment; received ${topicVocabulary}.`);
-      }
-    }
-  }
   const vocabularyTerms = vocabulary.map((exercise) => exercise.term.trim().toLocaleLowerCase());
   if (new Set(vocabularyTerms).size !== vocabularyTerms.length) {
     const duplicateGroups = [...new Set(vocabularyTerms)]
@@ -221,11 +279,7 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
       issues.push(`Vocabulary term '${group[0]!.term}' is duplicated in ${group.map((exercise) => exercise.id).join(", ")}; keep it only in the most relevant course topic and replace the other item.`);
     }
   }
-  const trivialVocabulary = /^(?:detail|show|thing|word|term|topic|question|answer|test|exam|course|class|notes?|presentation|pecha\s*kucha(?:\s+presentation)?|vocabulary(?:\s+test)?)$/i;
   for (const exercise of vocabulary) {
-    if (trivialVocabulary.test(exercise.term.trim())) {
-      issues.push(`${exercise.id} uses the generic or assessment-format label '${exercise.term}' instead of productive course vocabulary.`);
-    }
     if (exercise.acceptedAnswers.some((answer) =>
       answer.trim().length < 4 && !/^[A-Z][A-Z0-9&.-]{1,5}$/.test(answer.trim())
     )) {
@@ -238,12 +292,8 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
     }
   }
   const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
-  const uniquePrompts = new Set(prompts);
-  if (uniquePrompts.size !== prompts.length) issues.push("Exercise prompts must be unique; duplicated prompts were found.");
   const genericPrompt = /^(welche aussage trifft zu|wähle alle sinnvollen (?:schritte|prüfschritte)|berechne (?:den )?wert)\??$/i;
   if (prompts.some((prompt) => genericPrompt.test(prompt))) issues.push("Generic exercise-template prompts are not allowed.");
-  const ids = exercises.map((exercise) => exercise.id);
-  if (new Set(ids).size !== ids.length) issues.push("Exercise IDs must be globally unique.");
   for (const exercise of crosses) {
     const correctCount = exercise.options.filter((option) => option.correct).length;
     if (correctCount === 0) issues.push(`${exercise.id} has no correct option.`);
@@ -281,6 +331,18 @@ export function validateStudyGuideContentQuality(content: StudyGuideContent, req
       }
     }
   }
+  return issues;
+}
+
+export function validateStudyGuideContentQuality(content: StudyGuideContent, requirements?: StudyGuideRequirements): string[] {
+  const issues = validateStudyGuideChapterQuality(content, requirements);
+  const exercises = content.topics.flatMap((topic) => topic.exercises);
+  const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
+  if (new Set(prompts).size !== prompts.length) {
+    issues.push("Exercise prompts must be unique; duplicated prompts were found.");
+  }
+  const ids = exercises.map((exercise) => exercise.id);
+  if (new Set(ids).size !== ids.length) issues.push("Exercise IDs must be globally unique.");
   return issues;
 }
 

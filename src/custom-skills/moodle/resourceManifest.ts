@@ -40,12 +40,12 @@ export async function buildResourceManifest(
 
   const values = [...resources.values()].sort(compareResources);
   const courseUrl = selectCourseUrl(values, rawText, options.preferredCourseUrls ?? []);
-  const manifest = ResourceManifestSchema.parse({
+  const manifest = repairResourceManifestCourseScope(ResourceManifestSchema.parse({
     schemaVersion: "1.0",
     courseUrl,
     generatedAt: new Date().toISOString(),
     resources: values,
-  });
+  })).manifest;
   await writeFile(
     path.join(runDir, RESOURCE_MANIFEST_FILE),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -290,6 +290,44 @@ export function stableResourceId(url: string): string {
   return `res_${createHash("sha256").update(normalizeUrl(url) || url).digest("hex").slice(0, 16)}`;
 }
 
+/**
+ * Restores the target-course ownership that can be lost when the same Moodle
+ * resource is seen again in navigation chrome on a book, feedback, or activity
+ * page. The bounded resource plan and persisted evidence are target-course
+ * artifacts, so they are stronger ownership signals than the last snapshot in
+ * which a duplicate link happened to occur.
+ */
+export function repairResourceManifestCourseScope(
+  manifest: ResourceManifest,
+  evidenceResourceIds: Iterable<string> = [],
+): { manifest: ResourceManifest; repairedResourceIds: string[] } {
+  const evidenceIds = new Set(evidenceResourceIds);
+  const targetId = manifest.courseUrl ? stableResourceId(manifest.courseUrl) : null;
+  const repairedResourceIds: string[] = [];
+  const resources = manifest.resources.map((resource) => {
+    let parentId = resource.parentId === resource.id ? null : resource.parentId;
+    const plannedForTarget = resource.selection?.selected === true;
+    const evidencedAcquisition = evidenceIds.has(resource.id) &&
+      resource.status === "acquired" &&
+      Boolean(resource.localPath);
+    if (
+      targetId &&
+      resource.id !== targetId &&
+      (plannedForTarget || evidencedAcquisition) &&
+      parentId !== targetId
+    ) {
+      parentId = targetId;
+    }
+    if (parentId === resource.parentId) return resource;
+    repairedResourceIds.push(resource.id);
+    return { ...resource, parentId };
+  });
+  return {
+    manifest: ResourceManifestSchema.parse({ ...manifest, resources }),
+    repairedResourceIds,
+  };
+}
+
 function resourcesFromRawText(rawText: string): ResourceNode[] {
   const resources: ResourceNode[] = [];
   const blocks = rawText.split(/\n(?=\[(?:Moodle page|Linked file)\])/g);
@@ -438,10 +476,11 @@ function resourceNode(input: {
   parentId: string | null;
 }): ResourceNode {
   const originUrl = normalizeUrl(input.originUrl) || input.originUrl;
+  const id = stableResourceId(originUrl);
   const sectionText = input.sectionPath.join(" ");
   return {
-    id: stableResourceId(originUrl),
-    parentId: input.parentId,
+    id,
+    parentId: input.parentId === id ? null : input.parentId,
     sectionPath: [...input.sectionPath],
     activityType: input.activityType,
     title: cleanTitle(input.title),
@@ -474,7 +513,7 @@ function mergeResource(resources: Map<string, ResourceNode>, incoming: ResourceN
   resources.set(incoming.id, {
     ...current,
     ...incoming,
-    parentId: incoming.parentId ?? current.parentId,
+    parentId: preferredParentId(resources, incoming.id, current.parentId, incoming.parentId),
     title: isGenericResourceTitle(current.title) ? incoming.title : current.title,
     sectionPath: incoming.sectionPath.length > 0 ? incoming.sectionPath : current.sectionPath,
     localPath: incoming.localPath ?? current.localPath,
@@ -491,6 +530,23 @@ function mergeResource(resources: Map<string, ResourceNode>, incoming: ResourceN
     acquisition: incoming.acquisition ?? current.acquisition,
     extraction: incoming.extraction ?? current.extraction,
   });
+}
+
+function preferredParentId(
+  resources: Map<string, ResourceNode>,
+  resourceId: string,
+  currentParentId: string | null,
+  incomingParentId: string | null,
+): string | null {
+  const current = currentParentId === resourceId ? null : currentParentId;
+  const incoming = incomingParentId === resourceId ? null : incomingParentId;
+  if (!current) return incoming;
+  if (!incoming) return current;
+  const currentIsCourse = resources.get(current)?.activityType === "course";
+  const incomingIsCourse = resources.get(incoming)?.activityType === "course";
+  if (currentIsCourse !== incomingIsCourse) return currentIsCourse ? current : incoming;
+  // Duplicate navigation links must not make ownership depend on snapshot order.
+  return current;
 }
 
 function numberMetadata(block: string, label: string): number | null {

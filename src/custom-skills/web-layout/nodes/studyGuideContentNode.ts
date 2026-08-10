@@ -2,65 +2,46 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
-import { studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
+import { studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent, type StudyGuideEvidenceRef } from "../studyGuideContent.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
-import { buildContentFromPracticeCorpus } from "../practiceCorpusContent.js";
-import { deriveStudyGuideRequirements, handoffSourceRegistry, isMaes2PracticeCorpus, knownHandoffSourceUrls, readExtractionHandoff, type StudyGuideRequirements } from "../studyGuideProfile.js";
+import { deriveStudyGuideRequirements, handoffSourceRegistry, knownHandoffSourceUrls, readExtractionHandoff, type StudyGuideRequirements } from "../studyGuideProfile.js";
 import { balancedExcerpt } from "../modelText.js";
-import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
+import { buildAdaptiveStudyModel, buildCourseBlueprint } from "../adaptiveStudyModel.js";
+import { resolveAssessmentArchitecturePlan } from "../assessmentArchitecturePlan.js";
 import { resolveAssessmentSolutions } from "../assessmentSolutions.js";
 import { resolveLearningVisuals } from "../learningVisuals.js";
+import { buildQuestionEvidenceCapsule, rejectedQuestionBankItems, resolveQuestionBankReviews } from "../questionBankReview.js";
+import { hashRequestContract } from "../../shared/requestContract.js";
+import { resolveLearningProgressionPlan } from "../learningProgressionPlan.js";
+import { applyQuestionBankDrops, planQuestionBankDispositions } from "../questionBankDisposition.js";
+import { applyQuestionBankItemRepairs, resolveQuestionBankItemRepairBatch } from "../questionBankItemRepair.js";
 
 interface StudyGuideChunkPlan {
   chunk: { title: string; evidence: string };
   index: number;
-  exerciseTarget: number;
-  calculationTarget: number;
-  applicationTarget: number;
-  vocabularyTarget: number;
 }
+
+const MAX_REPAIR_CHUNKS_PER_PASS = 3;
+const MAX_ITEM_REPAIR_ROUNDS = 3;
 
 export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function studyGuideContentNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     if (config.kind !== "study-guide") return { study_guide_content: {}, error_log: null };
     try {
       const requirements = deriveStudyGuideRequirements(state.source_text);
-      // The reusable MAES corpus is authored in German. English artifacts use
-      // the model-backed content builder so course material is translated
-      // instead of being mislabeled as English metadata around German prose.
-      const deterministic = config.language === "de" && isMaes2PracticeCorpus(state.source_text)
-        ? buildContentFromPracticeCorpus(state.source_text, state.layout_spec)
-        : null;
-      if (deterministic) {
-        const parsed = studyGuideContentSchema.parse(deterministic);
-        normalizeFormulaNotation(parsed);
-        const issues = [...validateStudyGuideContentQuality(parsed, requirements), ...validateSourceRegistry(parsed, state.source_text)];
-        if (issues.length > 0) throw new Error(issues.join("\n- "));
-        await writeFile(path.join(config.runDir, "study-guide-content.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-        const adaptive = await persistAdaptiveStudyModel(
-          config,
-          codex,
-          parsed,
-          state.source_text,
-          state.error_log,
-        );
-        await config.diagnostics?.log("info", "planner", `Deterministically extracted and validated ${parsed.topics.flatMap((topic) => topic.exercises).length} concrete practice tasks from the Moodle corpus.`);
-        return {
-          study_guide_content: parsed as unknown as JsonObject,
-          ...adaptive,
-          error_log: null,
-        };
-      }
       const parsed = await buildChunkedModelContent(config, codex, state, requirements);
       const issues = [...validateStudyGuideContentQuality(parsed, requirements), ...validateSourceRegistry(parsed, state.source_text)];
-      if (issues.length > 0) throw new Error(issues.join("\n- "));
+      if (issues.length > 0) {
+        throw new Error(issues.join("\n- "));
+      }
       await writeFile(path.join(config.runDir, "study-guide-content.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
       const adaptive = await persistAdaptiveStudyModel(
         config,
         codex,
         parsed,
         state.source_text,
+        state.request_contract,
         state.error_log,
       );
       await config.diagnostics?.log("info", "planner", `Validated study-guide content bank with ${parsed.topics.length} topics and ${parsed.topics.flatMap((topic) => topic.exercises).length} exercises.`);
@@ -86,22 +67,78 @@ async function persistAdaptiveStudyModel(
   codex: CodexClient,
   content: StudyGuideContent,
   sourceText: string,
+  requestContract: LangGraphWebLayoutState["request_contract"],
   priorError: string | null,
 ): Promise<Pick<LangGraphWebLayoutState, "course_blueprint" | "assessment_blueprint" | "question_bank">> {
-  const draft = buildAdaptiveStudyModel(content, sourceText, config.language);
+  for (let localRepairAttempt = 0; localRepairAttempt < MAX_ITEM_REPAIR_ROUNDS; localRepairAttempt += 1) {
+  const requestContractHash = hashRequestContract(requestContract);
+  const structuralCourse = buildCourseBlueprint(content, sourceText, config.language);
+  const assessmentPlan = await resolveAssessmentArchitecturePlan({
+    config,
+    codex,
+    requestContract,
+    requestContractHash,
+    sourceText,
+    course: structuralCourse,
+    priorError,
+  });
+  const neutralDraft = buildAdaptiveStudyModel(
+    content,
+    sourceText,
+    config.language,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    assessmentPlan,
+  );
   const solutions = await resolveAssessmentSolutions({
     config,
     codex,
     content,
     sourceText,
-    model: draft,
+    model: neutralDraft,
     priorError,
+    originalUserPrompt: config.originalUserPrompt,
+    requestContract,
+    requestContractHash,
   });
+  const solvedNeutralDraft = buildAdaptiveStudyModel(
+    content,
+    sourceText,
+    config.language,
+    solutions,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    assessmentPlan,
+  );
+  const progressionPlan = await resolveLearningProgressionPlan({
+    config,
+    codex,
+    sourceText,
+    questionBank: solvedNeutralDraft.questionBank,
+    requestContract,
+  });
+  const progressionBinding = {
+    originalUserPrompt: config.originalUserPrompt,
+    requestContract,
+  };
   const solvedDraft = buildAdaptiveStudyModel(
     content,
     sourceText,
     config.language,
     solutions,
+    undefined,
+    undefined,
+    undefined,
+    progressionPlan,
+    progressionBinding,
+    assessmentPlan,
   );
   const learningVisuals = await resolveLearningVisuals({
     config,
@@ -109,6 +146,9 @@ async function persistAdaptiveStudyModel(
     content,
     sourceText,
     model: solvedDraft,
+    originalUserPrompt: config.originalUserPrompt,
+    requestContract,
+    requestContractHash,
   });
   const model = buildAdaptiveStudyModel(
     content,
@@ -116,17 +156,168 @@ async function persistAdaptiveStudyModel(
     config.language,
     solutions,
     learningVisuals,
+    undefined,
+    undefined,
+    progressionPlan,
+    progressionBinding,
+    assessmentPlan,
   );
+  let reviews = await resolveQuestionBankReviews({
+    config,
+    codex,
+    content,
+    sourceText,
+    questionBank: model.questionBank,
+    requestContract,
+    priorError,
+    allowRejected: true,
+  });
+  let dispositions = planQuestionBankDispositions({
+    questionBank: model.questionBank,
+    reviews,
+    assessmentBlueprint: model.assessmentBlueprint,
+    requestContract,
+  });
+  await writeFile(
+    path.join(config.runDir, "question-bank-dispositions.json"),
+    `${JSON.stringify(dispositions, null, 2)}\n`,
+    "utf8",
+  );
+  const evidenceRebuilds = dispositions.items.filter((item) => item.action === "rebuild_evidence");
+  if (evidenceRebuilds.length > 0) {
+    const itemIds = evidenceRebuilds.map((entry) => entry.itemId);
+    const before = evidenceRebuilds.map((entry) => {
+      const item = model.questionBank.items.find((candidate) =>
+        candidate.id === entry.itemId && candidate.contentHash === entry.contentHash
+      );
+      const record = reviews.records.find((candidate) => candidate.recordId === entry.reviewRecordId);
+      if (!item || !record) throw new Error(`Evidence-capsule rebuild lost exact item/review binding for ${entry.itemId}.`);
+      return {
+        itemId: item.id,
+        contentHash: item.contentHash,
+        previousVerdict: record.reviewer.verdict,
+        capsule: buildQuestionEvidenceCapsule(sourceText, item),
+      };
+    });
+    await config.diagnostics?.log(
+      "info",
+      "planner",
+      `Rebuilding evidence capsules and re-reviewing ${itemIds.length} unchanged question-bank item(s).`,
+    );
+    const refreshed = await resolveQuestionBankReviews({
+      config,
+      codex,
+      content,
+      sourceText,
+      questionBank: model.questionBank,
+      requestContract,
+      priorError: "Evidence capsule was unavailable. Re-evaluate only the unchanged item against its rebuilt local capsule.",
+      allowRejected: true,
+      forceEvidenceRebuildItemIds: itemIds,
+    });
+    const after = before.map((entry) => {
+      const record = refreshed.records.find((candidate) =>
+        candidate.itemId === entry.itemId && candidate.contentHash === entry.contentHash
+      );
+      if (!record) throw new Error(`Evidence-capsule re-review omitted unchanged item ${entry.itemId}.`);
+      return {
+        ...entry,
+        refreshedVerdict: record.reviewer.verdict,
+        refreshedRecordId: record.recordId,
+      };
+    });
+    await writeFile(
+      path.join(config.runDir, "question-bank-evidence-diagnostics.json"),
+      `${JSON.stringify({ schemaVersion: 1, status: after.some((entry) => entry.refreshedVerdict === "evidence_unavailable") ? "failed" : "resolved", items: after }, null, 2)}\n`,
+      "utf8",
+    );
+    const stillUnavailable = after.filter((entry) => entry.refreshedVerdict === "evidence_unavailable");
+    if (stillUnavailable.length > 0) {
+      const reasons = [...new Set(stillUnavailable.map((entry) =>
+        entry.capsule.status === "evidence_unavailable" ? entry.capsule.reason : "Reviewer could not verify the rebuilt capsule."
+      ))];
+      throw new Error(
+        `Evidence capsule remains unavailable after one exact same-item rebuild/review for: ${stillUnavailable.map((entry) => entry.itemId).join(", ")}. ` +
+        `Diagnostic: ${reasons.join(" | ")} The affected items remain unpublished; repair the extraction/evidence handoff instead of changing their content.`,
+      );
+    }
+    reviews = refreshed;
+    dispositions = planQuestionBankDispositions({
+      questionBank: model.questionBank,
+      reviews,
+      assessmentBlueprint: model.assessmentBlueprint,
+      requestContract,
+    });
+    await writeFile(
+      path.join(config.runDir, "question-bank-dispositions.json"),
+      `${JSON.stringify(dispositions, null, 2)}\n`,
+      "utf8",
+    );
+  }
+  const repairBatch = dispositions.items
+    .filter((item) => item.action === "repair");
+  if (repairBatch.length > 0) {
+    await config.diagnostics?.log(
+      "info",
+      "planner",
+      `Repairing ${repairBatch.length} rejected question-bank item(s) in bounded local batch ${localRepairAttempt + 1}/${MAX_ITEM_REPAIR_ROUNDS}.`,
+    );
+    const pending = repairBatch.map((repair) => {
+      const item = model.questionBank.items.find((candidate) =>
+        candidate.id === repair.itemId && candidate.contentHash === repair.contentHash
+      );
+      const review = reviews.records.find((candidate) => candidate.recordId === repair.reviewRecordId);
+      if (!item || !review) throw new Error(`Item-local question repair lost exact item/review binding for ${repair.itemId}.`);
+      return { item, review };
+    });
+    const repairs = await resolveQuestionBankItemRepairBatch({
+      config,
+      codex,
+      content,
+      sourceText,
+      requestContract,
+      targets: pending,
+    });
+    const repaired = applyQuestionBankItemRepairs(
+      content,
+      repairs,
+    );
+    Object.assign(content, repaired);
+    await writeFile(path.join(config.runDir, "study-guide-content.json"), `${JSON.stringify(content, null, 2)}\n`, "utf8");
+    priorError = `Item-local question repair batch produced new hashes for ${pending.map(({ item }) => item.id).join(", ")}; review only those replacements.`;
+    continue;
+  }
+  const reviewedModel = buildAdaptiveStudyModel(
+    content,
+    sourceText,
+    config.language,
+    solutions,
+    learningVisuals,
+    reviews,
+    { originalUserPrompt: config.originalUserPrompt, requestContract },
+    progressionPlan,
+    progressionBinding,
+    assessmentPlan,
+  );
+  const publishedQuestionBank = applyQuestionBankDrops(reviewedModel.questionBank, dispositions);
+  const stillRejected = rejectedQuestionBankItems(publishedQuestionBank, reviews);
+  if (stillRejected.length > 0) {
+    throw new Error(`Question-bank disposition left ${stillRejected.length} unapproved item(s) in the publication bank.`);
+  }
   await Promise.all([
-    writeFile(path.join(config.runDir, "course-blueprint.json"), `${JSON.stringify(model.courseBlueprint, null, 2)}\n`, "utf8"),
-    writeFile(path.join(config.runDir, "assessment-blueprint.json"), `${JSON.stringify(model.assessmentBlueprint, null, 2)}\n`, "utf8"),
-    writeFile(path.join(config.runDir, "question-bank.json"), `${JSON.stringify(model.questionBank, null, 2)}\n`, "utf8"),
+    writeFile(path.join(config.runDir, "course-blueprint.json"), `${JSON.stringify(reviewedModel.courseBlueprint, null, 2)}\n`, "utf8"),
+    writeFile(path.join(config.runDir, "assessment-blueprint.json"), `${JSON.stringify(reviewedModel.assessmentBlueprint, null, 2)}\n`, "utf8"),
+    writeFile(path.join(config.runDir, "question-bank.json"), `${JSON.stringify(publishedQuestionBank, null, 2)}\n`, "utf8"),
   ]);
   return {
-    course_blueprint: model.courseBlueprint as unknown as JsonObject,
-    assessment_blueprint: model.assessmentBlueprint as unknown as JsonObject,
-    question_bank: model.questionBank as unknown as JsonObject,
+    course_blueprint: reviewedModel.courseBlueprint as unknown as JsonObject,
+    assessment_blueprint: reviewedModel.assessmentBlueprint as unknown as JsonObject,
+    question_bank: publishedQuestionBank as unknown as JsonObject,
   };
+  }
+  throw new Error(
+    `Item-local question repair exhausted ${MAX_ITEM_REPAIR_ROUNDS} bounded semantic rounds without a publishable bank.`,
+  );
 }
 
 async function buildChunkedModelContent(
@@ -136,73 +327,48 @@ async function buildChunkedModelContent(
   requirements: StudyGuideRequirements,
 ): Promise<StudyGuideContent> {
   const chunks = buildEvidenceChunks(state.source_text, requirements);
-  const plans: StudyGuideChunkPlan[] = [];
-  let remainingExercises = requirements.exerciseTarget;
-  let remainingCalculations = requirements.calculationTarget;
-  let remainingApplications = requirements.applicationTarget;
-  let remainingVocabulary = requirements.vocabularyTarget;
-  const vocabularyChapterIndexes = new Set(chunks.flatMap((chunk, index) =>
-    requirements.vocabularyAssessmentRequired || /\b(?:vocabulary|vocab|wortschatz|terminology|expressions?|fachbegriffe?|glossar|glossary)\b/i.test(chunk.evidence)
-      ? [index]
-      : []
-  ));
-  for (let index = 0; index < chunks.length; index += 1) {
-    const topicsLeft = chunks.length - index;
-    const exerciseTarget = Math.max(3, Math.ceil(remainingExercises / topicsLeft));
-    const calculationTarget = Math.max(0, Math.min(exerciseTarget, Math.ceil(remainingCalculations / topicsLeft)));
-    const applicationTarget = Math.min(
-      exerciseTarget - calculationTarget,
-      Math.max(0, Math.ceil(remainingApplications / topicsLeft)),
-    );
-    const vocabularyChaptersLeft = [...vocabularyChapterIndexes].filter((candidate) => candidate >= index).length;
-    const vocabularyTarget = vocabularyChapterIndexes.has(index)
-      ? Math.min(
-          exerciseTarget - calculationTarget - applicationTarget,
-          Math.max(0, Math.ceil(remainingVocabulary / Math.max(1, vocabularyChaptersLeft))),
-        )
-      : 0;
-    plans.push({
-      chunk: chunks[index],
-      index,
-      exerciseTarget,
-      calculationTarget,
-      applicationTarget,
-      vocabularyTarget,
-    });
-    remainingExercises -= exerciseTarget;
-    remainingCalculations -= calculationTarget;
-    remainingApplications -= applicationTarget;
-    remainingVocabulary -= vocabularyTarget;
-  }
+  const plans: StudyGuideChunkPlan[] = chunks.map((chunk, index) => ({ chunk, index }));
   const batchSize = webContentBatchSize();
   const chapterContent: Array<StudyGuideContent | undefined> = new Array(plans.length);
   const pendingPlans: StudyGuideChunkPlan[] = [];
   for (const plan of plans) {
     const chunkPath = path.join(config.runDir, `study-guide-content-chunk-${plan.index + 1}.json`);
-    const sharedPath = sharedChunkCachePath(config, requirements, plan);
+    const sharedPath = sharedChunkCachePath(config, requirements, plan, state.request_contract);
     const local = await readCachedChunk(chunkPath);
     const value = local ?? await readCachedChunk(sharedPath);
-    if (local && process.env.VITEST !== "true") {
+    const reboundRefs = value ? bindStudyGuideEvidenceRefs(value, state.source_text) : 0;
+    const cachedQualityIssues = value
+      ? validateStudyGuideChapterQuality(value, requirements)
+      : [];
+    if (local && reboundRefs > 0 && cachedQualityIssues.length === 0) {
+      await writeFile(chunkPath, `${JSON.stringify(local, null, 2)}\n`, "utf8");
+    }
+    if (local && cachedQualityIssues.length === 0 && process.env.VITEST !== "true") {
       await persistSharedChunk(sharedPath, local);
     }
-    if (value && !chunkNeedsRepair(value, plan, state.error_log)) {
+    if (
+      value &&
+      cachedQualityIssues.length === 0 &&
+      !chunkNeedsRepair(value, plan, state.error_log, state.question_bank)
+    ) {
       chapterContent[plan.index] = value;
     } else {
       pendingPlans.push(plan);
     }
   }
-  const effectiveBatchSize = state.error_log && requirements.vocabularyAssessmentRequired
-    ? 1
-    : batchSize;
+  const selectedPendingPlans = state.error_log
+    ? pendingPlans.slice(0, MAX_REPAIR_CHUNKS_PER_PASS)
+    : pendingPlans;
+  const effectiveBatchSize = state.error_log ? 1 : batchSize;
   const batches = Array.from(
-    { length: Math.ceil(pendingPlans.length / effectiveBatchSize) },
-    (_, index) => pendingPlans.slice(index * effectiveBatchSize, (index + 1) * effectiveBatchSize),
+    { length: Math.ceil(selectedPendingPlans.length / effectiveBatchSize) },
+    (_, index) => selectedPendingPlans.slice(index * effectiveBatchSize, (index + 1) * effectiveBatchSize),
   );
   const concurrency = Math.min(webContentConcurrency(), batches.length);
   await config.diagnostics?.log(
     "info",
     "planner",
-    `Building ${plans.length} evidence-bounded chapter(s): reusing ${plans.length - pendingPlans.length}, generating ${pendingPlans.length} in ${batches.length} model batch(es) with concurrency ${concurrency}.`,
+    `Building ${plans.length} evidence-bounded chapter(s): reusing ${plans.length - pendingPlans.length}, generating ${selectedPendingPlans.length} in ${batches.length} model batch(es) with concurrency ${concurrency}.`,
   );
   if (pendingPlans.length < plans.length) {
     await config.diagnostics?.log(
@@ -217,31 +383,68 @@ async function buildChunkedModelContent(
       "planner",
       `Generating grounded content batch: ${batch.map((plan) => plan.chunk.title).join(" · ")}`,
     );
-    const response = await codex.run(
-      buildStudyGuideBatchPrompt(config, state, requirements, batch, chunks.length),
-      {
-        outputSchema: studyGuideContentJsonSchema,
-        task: state.error_log ? "content_repair" : "content_analyzer",
-        attempt: state.content_retry_count + 1,
-        timeoutMs: batch.length > 1 ? 180_000 : undefined,
-      },
-    );
+    let response: string;
+    try {
+      response = await codex.run(
+        buildStudyGuideBatchPrompt(config, state, requirements, batch, chunks.length),
+        {
+          outputSchema: studyGuideContentJsonSchema,
+          task: state.error_log ? "content_repair" : "content_analyzer",
+          // content_retry_count counts failed node passes. The first pass that
+          // switches from analysis to the dedicated repair task is therefore
+          // attempt 1 for that task, not its escalated attempt 2.
+          attempt: state.error_log ? Math.max(1, state.content_retry_count) : 1,
+          timeoutMs: batch.length > 1 ? 180_000 : undefined,
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Timeouts never change admission semantics. The previous chunk remains
+      // cached for a later item-local repair, but hard schema, source, answer,
+      // and correctness findings cannot become publishable through a marker.
+      throw error;
+    }
     const generated = normalizeDerivedSourceTasks(
       studyGuideContentSchema.parse(normalizeModelContent(JSON.parse(stripJsonFence(response)))),
     );
-    if (generated.topics.length !== batch.length) {
+    bindStudyGuideEvidenceRefs(generated, state.source_text);
+    normalizeSourceReferences(generated);
+    const alignedTopics = alignGeneratedBatchTopics(
+      generated.topics,
+      batch.map((plan) => plan.chunk.title),
+    );
+    if (!alignedTopics) {
       throw new Error(`Content batch returned ${generated.topics.length} topics instead of exactly ${batch.length}.`);
     }
-    const split = generated.topics.map((topic) => studyGuideContentSchema.parse({
+    if (alignedTopics.droppedTitles.length > 0) {
+      await config.diagnostics?.log(
+        "warn",
+        "planner",
+        `Ignored ${alignedTopics.droppedTitles.length} unsolicited topic(s) after preserving every exact planned chapter.`,
+        { droppedTitles: alignedTopics.droppedTitles },
+      );
+    }
+    const split = alignedTopics.topics.map((topic) => studyGuideContentSchema.parse({
       courseTitle: generated.courseTitle,
       courseCode: generated.courseCode,
       scopeNote: generated.scopeNote,
       topics: [topic],
       sources: generated.sources,
     }));
-    await Promise.all(split.flatMap((chunk, batchIndex) => {
+    const invalidChapters = split.flatMap((chunk, batchIndex) => {
+      const issues = validateStudyGuideChapterQuality(chunk, requirements);
+      return issues.length > 0
+        ? [{ title: batch[batchIndex]!.chunk.title, issues }]
+        : [];
+    });
+    const validChunks = split.flatMap((chunk, batchIndex) =>
+      invalidChapters.some((invalid) => invalid.title === batch[batchIndex]!.chunk.title)
+        ? []
+        : [{ chunk, batchIndex }]
+    );
+    await Promise.all(validChunks.flatMap(({ chunk, batchIndex }) => {
       const serialized = `${JSON.stringify(chunk, null, 2)}\n`;
-      const sharedPath = sharedChunkCachePath(config, requirements, batch[batchIndex]);
+      const sharedPath = sharedChunkCachePath(config, requirements, batch[batchIndex], state.request_contract);
       return [
         writeFile(
           path.join(config.runDir, `study-guide-content-chunk-${batch[batchIndex].index + 1}.json`),
@@ -253,14 +456,22 @@ async function buildChunkedModelContent(
           : [persistSharedChunk(sharedPath, chunk)]),
       ];
     }));
-    split.forEach((chunk, batchIndex) => {
+    validChunks.forEach(({ chunk, batchIndex }) => {
       chapterContent[batch[batchIndex]!.index] = chunk;
     });
+    if (invalidChapters.length > 0) {
+      throw new Error(invalidChapters.map(({ title, issues }) =>
+        `[chapter: ${title}] ${issues.join("\n- ")}`
+      ).join("\n"));
+    }
   });
   if (chapterContent.some((chunk) => !chunk)) {
     throw new Error("Content generation completed without a chapter result for every evidence chunk.");
   }
-  const resolvedChapterContent = chapterContent as StudyGuideContent[];
+  const resolvedChapterContent = (chapterContent as StudyGuideContent[]).map((chunk) => {
+    normalizeSourceReferences(chunk);
+    return chunk;
+  });
   const topics = resolvedChapterContent.map((chunk) => chunk.topics[0]);
   const sources = resolvedChapterContent.flatMap((chunk) => chunk.sources);
   const notes = resolvedChapterContent.map((chunk) => chunk.scopeNote);
@@ -273,8 +484,82 @@ async function buildChunkedModelContent(
   });
   normalizeAggregateIdentity(aggregate);
   normalizeFormulaNotation(aggregate);
+  bindStudyGuideEvidenceRefs(aggregate, state.source_text);
   normalizeSourceReferences(aggregate);
   return hydrateSourceUrls(normalizeDerivedSourceTasks(aggregate), state.source_text);
+}
+
+/**
+ * Models see one bounded chapter at a time, so a model-provided sectionIndex is
+ * necessarily chapter-local and is not a trusted global handoff coordinate.
+ * Bind it deterministically from the exact section heading and source IDs after
+ * generation. Learning-goal indexes remain topic-local by design.
+ */
+export function bindStudyGuideEvidenceRefs(content: StudyGuideContent, sourceText: string): number {
+  const sections = readExtractionHandoff(sourceText)?.sections ?? [];
+  if (sections.length === 0) return 0;
+  let rebound = 0;
+  const bind = (ref: StudyGuideEvidenceRef): void => {
+    const matches = sections.flatMap((section, sectionIndex) => {
+      const heading = typeof section.heading === "string" ? section.heading.trim() : "";
+      const sourceIds = Array.isArray(section.source_ids) ? section.source_ids.map(String) : [];
+      return heading === ref.sectionHeading.trim() && ref.sourceIds.every((id) => sourceIds.includes(id))
+        ? [sectionIndex]
+        : [];
+    });
+    if (matches.length === 1 && ref.sectionIndex !== matches[0]) {
+      ref.sectionIndex = matches[0]!;
+      rebound += 1;
+    }
+  };
+  for (const topic of content.topics) {
+    for (const ref of topic.evidenceRefs ?? []) bind(ref);
+    for (const exercise of topic.exercises) {
+      for (const ref of exercise.evidenceRefs ?? []) bind(ref);
+    }
+    for (const retrieval of topic.retrieval) {
+      for (const ref of retrieval.evidenceRefs ?? []) bind(ref);
+    }
+  }
+  return rebound;
+}
+
+/**
+ * A schema-conformant response can append an unsolicited topic to a batch.
+ * Retain the response without a repair call only when every planned chapter is
+ * present once by exact normalized title. Missing, renamed, or ambiguous
+ * chapters still use the selective repair path.
+ */
+export function alignGeneratedBatchTopics<T extends { title: string }>(
+  topics: T[],
+  expectedTitles: string[],
+): { topics: T[]; droppedTitles: string[] } | null {
+  if (topics.length < expectedTitles.length) return null;
+  const unused = new Set(topics.map((_, index) => index));
+  const aligned: T[] = [];
+  for (const expectedTitle of expectedTitles) {
+    const key = normalizedTopicTitle(expectedTitle);
+    const matches = [...unused].filter((index) =>
+      normalizedTopicTitle(topics[index]!.title) === key
+    );
+    if (matches.length !== 1) return null;
+    const index = matches[0]!;
+    unused.delete(index);
+    aligned.push(topics[index]!);
+  }
+  return {
+    topics: aligned,
+    droppedTitles: [...unused].map((index) => topics[index]!.title),
+  };
+}
+
+function normalizedTopicTitle(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("de")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function webContentConcurrency(): number {
@@ -294,18 +579,15 @@ function sharedChunkCachePath(
   config: WebLayoutRuntimeConfig,
   requirements: StudyGuideRequirements,
   plan: StudyGuideChunkPlan,
+  requestContract: LangGraphWebLayoutState["request_contract"],
 ): string {
   const fingerprint = createHash("sha256").update(JSON.stringify({
-    version: "study-guide-content-v5-dense-vocabulary",
+    version: "study-guide-content-v6-request-contract",
     language: config.language,
     courseCode: requirements.courseCode,
     title: plan.chunk.title,
     evidence: plan.chunk.evidence,
-    exerciseTarget: plan.exerciseTarget,
-    calculationTarget: plan.calculationTarget,
-    applicationTarget: plan.applicationTarget,
-    vocabularyTarget: plan.vocabularyTarget,
-    vocabularyAssessmentRequired: requirements.vocabularyAssessmentRequired,
+    requestContract,
   })).digest("hex");
   return path.join(
     process.cwd(),
@@ -336,9 +618,17 @@ async function mapWithConcurrency<T, R>(
       results[index] = await work(values[index]);
     }
   }
-  await Promise.all(
+  // Do not fail fast while sibling model calls are still active. Successful
+  // siblings persist validated chunks that the next graph retry can reuse;
+  // waiting for every worker also prevents overlapping orphan calls and the
+  // duplicate token spend they caused in the former Promise.all path.
+  const settled = await Promise.allSettled(
     Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
   );
+  const failure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) throw failure.reason;
   return results;
 }
 
@@ -350,32 +640,80 @@ async function readCachedChunk(chunkPath: string): Promise<StudyGuideContent | n
   }
 }
 
-function chunkNeedsRepair(
+export function chunkNeedsRepair(
   chunk: StudyGuideContent,
   plan: StudyGuideChunkPlan,
   errorLog: string | null,
+  questionBank: JsonObject = {},
 ): boolean {
-  const exercises = chunk.topics.flatMap((topic) => topic.exercises);
-  if (
-    chunk.topics.length !== 1 ||
-    exercises.length !== plan.exerciseTarget ||
-    exercises.filter((exercise) => exercise.type === "calculation").length !== plan.calculationTarget ||
-    exercises.filter((exercise) => exercise.type === "application").length !== plan.applicationTarget
-    || exercises.filter((exercise) => exercise.type === "vocabulary").length !== plan.vocabularyTarget
-  ) {
-    return true;
-  }
+  if (chunk.topics.length !== 1) return true;
   if (!errorLog) return false;
+  if (/question[- ]bank item review|item-local question repair|assessment-owned item|does not own generated item|question-bank disposition|evidence[- ]capsule|evidence capsule remains unavailable/i.test(errorLog)) return false;
+  if (new RegExp(`chunk\\s+${plan.index + 1}\\b`, "i").test(errorLog)) return true;
+  const taggedChapters = [...errorLog.matchAll(/\[chapter:\s*([^\]]+)\]/gi)]
+    .map((match) => normalizedTopicTitle(match[1] ?? ""));
+  if (taggedChapters.includes(normalizedTopicTitle(plan.chunk.title))) return true;
+  const localTargets = itemLocalRepairTargets(errorLog, questionBank);
+  if (localTargets.hasItemDiagnostics) {
+    return chunk.topics.some((topic) => {
+      const topicIds = [topic.id, normalizedTopicTitle(topic.title)];
+      if (topicIds.some((id) => localTargets.topicIds.has(id))) return true;
+      return topic.exercises.some((exercise) =>
+        localTargets.exerciseIds.has(exercise.id) ||
+        topicIds.some((topicId) => localTargets.exerciseIds.has(`${topicId}-${exercise.id}`)) ||
+        localTargets.exerciseIds.has(`${topic.id}-${exercise.id}`) ||
+        [...localTargets.exerciseIds].some((exerciseId) =>
+          exerciseId.startsWith(`${topic.id}-`)
+        )
+      );
+    });
+  }
   const globalFinding = /Expected (?:evidence-adaptive|at least)|dropped all of them|not present in the validated Moodle handoff/i;
   if (globalFinding.test(errorLog)) return true;
-  if (new RegExp(`chunk\\s+${plan.index + 1}\\b`, "i").test(errorLog)) return true;
   const identifiers = [plan.chunk.title, ...chunk.topics.flatMap((topic) => [
     topic.id,
     topic.title,
     ...topic.exercises.map((exercise) => exercise.id),
-    ...topic.exercises.map((exercise) => exercise.source.label),
   ])].filter((value) => value.length >= 3);
   return identifiers.some((identifier) => errorLog.toLocaleLowerCase().includes(identifier.toLocaleLowerCase()));
+}
+
+function itemLocalRepairTargets(
+  errorLog: string,
+  questionBank: JsonObject,
+): { hasItemDiagnostics: boolean; itemIds: Set<string>; exerciseIds: Set<string>; topicIds: Set<string> } {
+  const itemIds = new Set<string>();
+  const exerciseIds = new Set<string>();
+  for (const match of errorLog.matchAll(/\[item\s+([^;\]]+);\s*exercise\s+([^;\]]+)(?:;|\])/gi)) {
+    if (match[1]?.trim()) itemIds.add(match[1].trim());
+    if (match[2]?.trim()) exerciseIds.add(match[2].trim());
+  }
+  for (const match of errorLog.matchAll(/["']itemId["']\s*[:=]\s*["']([^"']+)["']/gi)) {
+    if (match[1]?.trim()) itemIds.add(match[1].trim());
+  }
+  for (const match of errorLog.matchAll(/["']legacyExerciseId["']\s*[:=]\s*["']([^"']+)["']/gi)) {
+    if (match[1]?.trim()) exerciseIds.add(match[1].trim());
+  }
+  const topicIds = new Set<string>();
+  const items = Array.isArray(questionBank.items) ? questionBank.items : [];
+  for (const value of items) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const item = value as Record<string, unknown>;
+    if (typeof item.id !== "string" || !itemIds.has(item.id)) continue;
+    if (typeof item.legacyExerciseId === "string") exerciseIds.add(item.legacyExerciseId);
+    if (typeof item.topicId === "string") topicIds.add(item.topicId);
+    const scopeBasis = item.scopeBasis;
+    if (scopeBasis && typeof scopeBasis === "object" && !Array.isArray(scopeBasis)) {
+      const title = (scopeBasis as Record<string, unknown>).topicTitle;
+      if (typeof title === "string") topicIds.add(normalizedTopicTitle(title));
+    }
+  }
+  return {
+    hasItemDiagnostics: itemIds.size > 0 || exerciseIds.size > 0,
+    itemIds,
+    exerciseIds,
+    topicIds,
+  };
 }
 
 function normalizeDerivedSourceTasks(content: StudyGuideContent): StudyGuideContent {
@@ -432,10 +770,13 @@ function uniqueIdentifier(value: string, fallback: string, used: Set<string>): s
   return candidate;
 }
 
-function normalizeSourceReferences(content: StudyGuideContent): void {
+export function normalizeSourceReferences(content: StudyGuideContent): void {
   const sourceLabels = content.sources.map((source) => source.label);
   const exactLabels = new Map(sourceLabels.map((label) => [label.toLocaleLowerCase(), label]));
-  const normalize = (reference: StudyGuideContent["topics"][number]["workedExamples"][number]["source"]) => {
+  const normalize = (
+    reference: StudyGuideContent["topics"][number]["workedExamples"][number]["source"],
+    topic: StudyGuideContent["topics"][number],
+  ) => {
     if (exactLabels.has(reference.label.toLocaleLowerCase())) {
       reference.label = exactLabels.get(reference.label.toLocaleLowerCase())!;
       return;
@@ -447,13 +788,46 @@ function normalizeSourceReferences(content: StudyGuideContent): void {
     const fuzzy = sourceLabels.find((label) =>
       labelsOverlap(normalizeSourceKey(reference.label), normalizeSourceKey(label))
     );
-    const replacement = exactSegment ?? fuzzy;
+    const candidates = content.sources.filter((source) => !isGenericCoursePageLabel(source.label));
+    const referenceCorpus = `${topic.title} ${topic.navigationTitle ?? ""} ${reference.sourceTask}`;
+    const ranked = candidates
+      .map((source, index) => ({
+        label: source.label,
+        index,
+        score: sourceReferenceMatchScore(referenceCorpus, source.label),
+      }))
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    const topicShorthand = normalizeSourceKey(reference.label) === normalizeSourceKey(topic.title);
+    const groundedFallback = ranked[0] && (ranked[0].score > 0 || topicShorthand)
+      ? ranked[0].label
+      : candidates.length === 1
+        ? candidates[0]!.label
+        : undefined;
+    const replacement = exactSegment ?? fuzzy ?? groundedFallback;
     if (replacement) reference.label = replacement;
   };
   for (const topic of content.topics) {
-    for (const example of topic.workedExamples) normalize(example.source);
-    for (const exercise of topic.exercises) normalize(exercise.source);
+    for (const example of topic.workedExamples) normalize(example.source, topic);
+    for (const exercise of topic.exercises) normalize(exercise.source, topic);
   }
+}
+
+function isGenericCoursePageLabel(label: string): boolean {
+  return /^(?:bl(?:ö|o)cke|blocks?|moodle\s+course\s+page|course\s+page)$/iu.test(label.trim());
+}
+
+function sourceReferenceMatchScore(referenceCorpus: string, sourceLabel: string): number {
+  const tokens = (value: string) => new Set(
+    value
+      .normalize("NFKD")
+      .toLocaleLowerCase()
+      .match(/[a-z0-9]{3,}/g) ?? [],
+  );
+  const referenceTokens = tokens(referenceCorpus);
+  return [...tokens(sourceLabel)].reduce(
+    (score, token) => score + (referenceTokens.has(token) ? token.length : 0),
+    0,
+  );
 }
 
 function normalizeFormulaNotation(content: StudyGuideContent): void {
@@ -469,7 +843,7 @@ function normalizeFormulaNotation(content: StudyGuideContent): void {
 
 function buildStudyGuideBatchPrompt(
   config: WebLayoutRuntimeConfig,
-  state: Pick<LangGraphWebLayoutState, "error_log">,
+  state: Pick<LangGraphWebLayoutState, "error_log" | "request_contract">,
   requirements: StudyGuideRequirements,
   batch: StudyGuideChunkPlan[],
   total: number,
@@ -477,24 +851,26 @@ function buildStudyGuideBatchPrompt(
   return [
     `Build ${batch.length} source-grounded chapter${batch.length === 1 ? "" : "s"} for the canonical Study Buddy content bank. Return JSON only.`,
     "This is a bounded content transformation. Do not use tools, inspect files, browse, or discuss UI implementation.",
-    "Match theory depth to the chapter evidence: cover every required concept and prerequisite needed for the exercises, but do not repeat source-limit boilerplate or pad a chapter to a fixed length. Include precise key ideas, an evidence-appropriate worked example, learning goals, and retrieval prompts.",
+    "Let the evaluated request contract and chapter evidence determine theory depth, learning activities, examples, retrieval, formulas, and quantity. Do not pad a chapter or satisfy a fixed component/type quota. Optional arrays may be empty.",
     "Keep title exactly course-faithful. Also provide navigationTitle as a concise learner-facing label of 2–7 meaningful words and at most 64 characters. Remove scheduling wrappers such as chapter numbers, Self-Study, Class, Week, or Part, but retain the concepts that distinguish this module from its neighbors. It must work as a standalone navigation label; never truncate a word or add generic labels such as Topic or Module.",
     "Use cross exercises for concrete misconception, comparison, classification, or sequencing checks. Use calculation exercises only when the evidence supplies a real quantitative method and necessary quantities.",
     "Use application exercises for open case analysis, source interpretation, writing, speaking, laboratory procedures, design decisions, or other work that cannot be assessed honestly as multiple choice. Each application needs executable instructions, a useful sample answer, and specific self-check criteria.",
-    "Use vocabulary exercises only when terminology, expressions, a glossary, language functions, or a vocabulary assessment is evidenced. Each item must test one useful in-scope term or phrase through term-to-meaning, meaning-to-term, or a context gap. Give accepted answers, a natural course-relevant context sentence, and an explanation. Select productive B2/C1 professional or disciplinary vocabulary and functional multi-word expressions that a learner could realistically need in the documented assessment. Never use a chapter heading, assessment format, presentation name, generic classroom word, or obvious everyday verb as the vocabulary term. For example, do not use 'presentation', 'test', 'detail', 'show', or 'question' in isolation. When the evidence establishes a topic but does not expose a word list, Study Buddy may generate stable domain vocabulary inside that exact topic scope and must use provenance=derived.",
+    "Use vocabulary exercises only when terminology, expressions, a glossary, language functions, or a vocabulary assessment is evidenced. Each item must test one useful in-scope term or phrase through term-to-meaning, meaning-to-term, or a context gap. Give accepted answers, a natural course-relevant context sentence, and an explanation. Select productive vocabulary or terminology at the level and in the disciplinary context supported by the course. Do not turn chapter headings or generic placeholders into vocabulary items. When the evidence establishes a topic but does not expose a word list, Study Buddy may generate stable domain vocabulary inside that exact topic scope and must use provenance=derived.",
     "Use provenance=source for directly evidenced tasks, provenance=adapted for an evidenced parameter variation, and provenance=derived only for new practice synthesized from the named source concept. Every sourceTask must identify the concrete task, slide, script section, table procedure, formula, or worked example.",
+    "For every topic, evidenceRefs.learningGoalIndexes are zero-based positions in that same topic's returned learningGoals array. This applies to topic, exercise, and retrieval refs; never use indexes from the source corpus, another chapter, or the aggregate course.",
     "Never invent course facts, constants, clinical/legal rules, exam scoring, or generic filler. A calculation prompt must contain complete givens, units, a derivable result, progressive solution steps, and a concrete common mistake.",
     "Formula expressions must be concise mathematical notation, never prose, HTML, MathML, TeX delimiters, or Typst markup. Leave formulas empty if this chapter has no meaningful formula.",
     "The flat Structured Output exercise object requires every field. Cross exercises fill selectionMode/options/explanation; calculation exercises fill givens/acceptedAnswers/unit/steps/commonMistake; application exercises fill instructions/sampleAnswer/selfCheck; vocabulary exercises fill direction/term/acceptedAnswers/context/explanation. Use direction=none, selectionMode=none, empty arrays, or empty strings for every field irrelevant to that type. Irrelevant fields are removed before internal validation.",
     "The sources array must include every source label cited by this chapter. Copy only HTTPS Moodle URLs present in the evidence; otherwise use an empty URL. Set courseCode and courseTitle exactly as stated above. scopeNote must be one concise, non-repetitive source-limit sentence for this chapter.",
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these prior validation findings where applicable:\n${state.error_log}` : "",
     `Return exactly ${batch.length} topics entries in the supplied chapter order. Do not merge or rename chapters.`,
-    `Course: ${requirements.courseCode} · ${requirements.courseTitle}. Course profile: ${requirements.archetype}.`,
+    `Course: ${requirements.courseCode} · ${requirements.courseTitle}.`,
     `Language: ${config.language}`,
+    `Exact original request:\n${config.originalUserPrompt}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
     ...batch.flatMap((plan) => {
-      const selectionTarget = plan.exerciseTarget - plan.calculationTarget - plan.applicationTarget - plan.vocabularyTarget;
       return [
-        `Chapter ${plan.index + 1}/${total}: ${plan.chunk.title}. Return exactly ${plan.exerciseTarget} substantive exercises for this chapter: ${selectionTarget} cross/selection, ${plan.calculationTarget} genuine calculation, ${plan.applicationTarget} open application, and ${plan.vocabularyTarget} vocabulary retrieval exercises.`,
+        `Chapter ${plan.index + 1}/${total}: ${plan.chunk.title}. Create only the nonredundant learning objects needed to cover the contract-relevant objectives supported by this chapter. If evidence is insufficient for a useful item, disclose the gap instead of manufacturing filler.`,
         `Validated evidence for chapter ${plan.index + 1} only:\n${balancedExcerpt(plan.chunk.evidence, 28_000)}`,
       ];
     }),
@@ -531,7 +907,7 @@ export function buildEvidenceChunks(sourceText: string, requirements: StudyGuide
     bucket.push(section);
     groups.set(key, bucket);
   }
-  const entries = [...groups.entries()].slice(0, requirements.topicTarget);
+  const entries = [...groups.entries()];
   if (!entries.length) return [{ title: requirements.sectionTitles[0] ?? requirements.courseTitle, evidence: JSON.stringify(handoff) }];
   return entries.map(([key, group], index) => {
     const sourceIds = new Set(group.flatMap((item) => stringArray(item.source_ids)));
@@ -575,7 +951,7 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
-export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, state: Pick<LangGraphWebLayoutState, "source_text" | "layout_spec" | "error_log">): string {
+export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, state: Pick<LangGraphWebLayoutState, "source_text" | "layout_spec" | "request_contract" | "error_log">): string {
   const requirements = deriveStudyGuideRequirements(state.source_text);
   return [
     "Build the canonical, source-grounded content bank for a Study Buddy study guide. Return JSON only.",
@@ -587,20 +963,22 @@ export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, sta
     "Treat sample exams, past papers, mock exams, and documented assessment formats as task evidence, not quiz trivia. Never create learner questions asking what topics an exam contains, how long it lasts, which aids are allowed, how its tasks are titled, or how many points it has. Use those facts only in the assessment blueprint and interface.",
     "When an authorized sample or past exam contains actual tasks, preserve those technical, conceptual, writing, language, case, or calculation tasks as assessment practice. When only an assessment format is documented, create realistic in-scope tasks that match the evidenced response modes and course objectives. Generated practice values are allowed when they are complete, internally consistent, safely solvable, and clearly part of a Study Buddy-generated variant rather than claimed as official course facts.",
     "Every derived sourceTask must name the concrete source concept, for example 'Abgeleitet aus Skript Kapitel 3: Lagerauswahl' or 'Abgeleitet aus Folie 18: Marktformen'. The source label must correspond to an entry in the source register.",
+    "For every topic, evidenceRefs.learningGoalIndexes are zero-based positions in that same topic's returned learningGoals array. This applies to topic, exercise, and retrieval refs; never use indexes from the source corpus, another chapter, or the aggregate course.",
     "Never manufacture generic prompts such as 'Welche Aussage trifft zu?', 'Wähle alle sinnvollen Schritte', or 'Berechne den Wert' without a complete mathematical statement.",
     "Kreuzerl distractors must encode plausible course-specific misconceptions and each option needs targeted feedback.",
     "Calculation exercises must be fully specified, include accepted exact/decimal answers as needed, and include a real derivation plus a concrete common mistake. Do not force calculation exercises into a non-quantitative topic.",
     "Open application exercises must support cases, source analysis, writing, speaking, procedures, or design work with a sample response and an explicit self-check rubric.",
-    "Vocabulary exercises are a separate learning object, not generic language decoration. Select them only from evidenced terminology, expressions, glossary needs, or assessment requirements. They must test productive B2/C1 professional or disciplinary vocabulary, useful functional phrases, direct recall, or context. Reject chapter titles, assessment names, and isolated generic words such as presentation, test, detail, show, or question. Study Buddy knowledge may fill the vocabulary set only inside an established course topic.",
+    "Vocabulary exercises are a separate learning object, not generic language decoration. Select them only from evidenced terminology, expressions, glossary needs, or assessment requirements. They must test productive course-appropriate terminology or functional phrases in context. Reject chapter labels and generic placeholders; do not apply a fixed language level or a subject-name vocabulary recipe. Study Buddy knowledge may fill the vocabulary set only inside an established course topic.",
     "Keep each title course-faithful and add navigationTitle as a concise learner-facing label of 2–7 meaningful words and at most 64 characters. Remove scheduling wrappers such as chapter numbers, Self-Study, Class, Week, or Part, but keep the concepts that distinguish the module from its neighbors. Never truncate a word or use generic labels such as Topic or Module.",
     "The response schema uses one flat exercise object for Structured Output compatibility. Fill only the fields relevant to cross, calculation, application, or vocabulary, and use empty arrays, strings, or the none enum for all other required fields. Irrelevant empty fields are removed before strict internal validation.",
-    `Evidence-adaptive course profile: ${requirements.archetype}. Cover at least ${requirements.topicTarget} evidenced topics and create at least ${requirements.exerciseTarget} substantive exercises total, including at least ${requirements.selectionTarget} selection/retrieval exercises, ${requirements.calculationTarget} genuine calculations, ${requirements.applicationTarget} open applications, and ${requirements.vocabularyTarget} evidence-grounded vocabulary retrieval items. The handoff exposes about ${requirements.sourceExerciseCount} direct source exercises, so at least ${requirements.derivedPracticeMinimum} tasks may need to be transparently derived from course content.`,
-    `Profile rationale: ${requirements.rationale}`,
-    "Match theory depth to the evidence and exercise prerequisites instead of a fixed paragraph length; cover required concepts without filler or repeated source-limit prose. Include a complete worked example for every topic. Formula strings must contain normal mathematical notation suitable for deterministic MathML rendering later; never output HTML or MathML here. Leave formulas empty for topics without meaningful mathematical notation.",
+    "Use the evaluated request contract as the semantic authority. Determine content forms and quantity by objective coverage, usefulness, evidence, and explicit user counts; never by a fixed subject archetype, per-topic quota, or conventional study-guide template.",
+    "Match theory depth to the evidence and contract instead of a fixed paragraph length. Worked examples, retrieval prompts, formulas, visuals, and every exercise type are optional unless required by the contract. Formula strings must contain normal mathematical notation suitable for deterministic MathML rendering later; never output HTML or MathML here.",
     "Set courseCode to the official short course identifier when present and courseTitle to the actual course title, never a generic 'Interaktiver Study Guide' label.",
     "Do not claim official exam scoring. Explain gaps such as inaccessible Minitests in scopeNote.",
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these content-bank validation findings:\n${state.error_log}` : "",
     `Language: ${config.language}`,
+    `Exact original request:\n${config.originalUserPrompt}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
     `Layout plan for scope only:\n${JSON.stringify(state.layout_spec, null, 2)}`,
     `Canonical source corpus:\n${balancedExcerpt(state.source_text, 55_000)}`,
   ].filter(Boolean).join("\n\n");
@@ -692,6 +1070,7 @@ function normalizeModelContent(value: unknown): unknown {
               options: item.options,
               explanation: item.explanation,
               source: item.source,
+              evidenceRefs: item.evidenceRefs,
             };
           }
           if (item.type === "calculation") {
@@ -705,6 +1084,7 @@ function normalizeModelContent(value: unknown): unknown {
               steps: item.steps,
               commonMistake: item.commonMistake,
               source: item.source,
+              evidenceRefs: item.evidenceRefs,
             };
           }
           if (item.type === "application") {
@@ -716,6 +1096,7 @@ function normalizeModelContent(value: unknown): unknown {
               sampleAnswer: item.sampleAnswer,
               selfCheck: item.selfCheck,
               source: item.source,
+              evidenceRefs: item.evidenceRefs,
             };
           }
           if (item.type === "vocabulary") {
@@ -729,6 +1110,7 @@ function normalizeModelContent(value: unknown): unknown {
               context: item.context,
               explanation: item.explanation,
               source: item.source,
+              evidenceRefs: item.evidenceRefs,
             };
           }
           return exercise;

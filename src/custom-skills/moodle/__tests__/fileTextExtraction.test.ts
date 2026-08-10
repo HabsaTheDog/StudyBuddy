@@ -145,16 +145,46 @@ describe("structured file extraction", () => {
       expect(result.warnings.join(" ")).toContain("Automatic OCR is intentionally disabled");
     },
   );
+
+  it(
+    "marks a multi-page PDF with only sparse repeated text as visual-required partial evidence",
+    async () => {
+      const pdftotext = await resolveExtractionExecutable("pdftotext");
+      expect(pdftotext, "pdftotext must be installed for the PDF smoke test").not.toBeNull();
+      const directory = await mkdtemp(path.join(os.tmpdir(), "study-buddy-sparse-pdf-"));
+      directories.push(directory);
+      const filePath = path.join(directory, "pendulum-slides.pdf");
+      await writeFile(filePath, createPdf([
+        "Physical pendulum exercise. Applications of dynamics.",
+        "Physical pendulum solution. Applications of dynamics.",
+      ]));
+
+      const result = await extractReadableFile(filePath);
+
+      expect(result.characterCount).toBeGreaterThan(80);
+      expect(result.pageCount).toBe(2);
+      expect(result.status).toBe("partial");
+      expect(result.warnings.join(" ")).toContain("visual-required");
+    },
+  );
 });
 
-function createPdf(text: string): Buffer {
-  const escapedText = text.replace(/([\\()])/g, "\\$1");
-  const stream = text ? `BT /F1 12 Tf 72 720 Td (${escapedText}) Tj ET` : "";
+function createPdf(input: string | string[]): Buffer {
+  const texts = Array.isArray(input) ? input : [input];
+  const fontObjectId = 3 + texts.length * 2;
+  const pageObjectIds = texts.map((_text, index) => 3 + index);
+  const contentObjectIds = texts.map((_text, index) => 3 + texts.length + index);
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${texts.length} >>`,
+    ...texts.map((_text, index) =>
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`
+    ),
+    ...texts.map((text) => {
+      const escapedText = text.replace(/([\\()])/g, "\\$1");
+      const stream = text ? `BT /F1 12 Tf 72 720 Td (${escapedText}) Tj ET` : "";
+      return `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`;
+    }),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
   let body = "%PDF-1.4\n";

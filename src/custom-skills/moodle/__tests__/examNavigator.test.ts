@@ -14,7 +14,11 @@ import { buildStudyModel } from "../studyModel.js";
 import { classifyArtifactIntent } from "../studentFirstPolicy.js";
 import { reviewStudyModel } from "../studentFirstReview.js";
 import { renderStudentFirstHtml } from "../studentFirstHtmlRenderer.js";
-import { formatFormulaMath, renderStudentFirstTypst } from "../studentFirstTypstRenderer.js";
+import {
+  formatFormulaMath,
+  isCompactStudyDocumentPrompt,
+  renderStudentFirstTypst,
+} from "../studentFirstTypstRenderer.js";
 import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
 import { validateTypst } from "../validation.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
@@ -51,6 +55,102 @@ const melSnapshot = {
 };
 
 describe("student-centric exam navigator contracts", () => {
+  it("selects the compact renderer only for explicit compact-document requests", () => {
+    expect(isCompactStudyDocumentPrompt("Erstelle eine kurze Liste im kompakten Cheatsheet-Stil."))
+      .toBe(true);
+    expect(isCompactStudyDocumentPrompt("Make compact notes for the exam."))
+      .toBe(true);
+    expect(isCompactStudyDocumentPrompt("Erstelle einen ausführlichen Study Guide."))
+      .toBe(false);
+  });
+
+  it("renders a compact study guide without relabelling it as a cheat sheet", async () => {
+    const model = StudyModelSchema.parse({
+      schemaVersion: "1.0",
+      profile: "study_guide",
+      language: "de",
+      title: "DYN2 – Study Guide",
+      courseTitle: "Anwendungen der Dynamik",
+      courseUrl,
+      publicationStatus: "complete",
+      scopeNote: "Die fünf bestätigten Kurskapitel sind abgedeckt.",
+      courseChapters: [{
+        id: "chapter_point",
+        title: "Punktkinematik",
+        subject: "Punktkinematik",
+        order: 0,
+        priority: "essential",
+        contentMode: "quantitative",
+        learningObjectives: ["Koordinaten passend wählen."],
+        assessmentSignals: ["Vor dem Rechnen Bezugssystem festlegen."],
+        status: "covered",
+        topicIds: ["topic_cartesian"],
+        resourceIds: ["src_dyn"],
+      }],
+      topics: [{
+        id: "topic_cartesian",
+        chapterId: "chapter_point",
+        title: "Kartesische Punktkinematik",
+        summary: "Ortsvektoren werden komponentenweise differenziert. Ein zweiter, hier nicht benötigter Satz bleibt im ausführlichen Guide.",
+        priority: "essential",
+        scopeStatus: "confirmed",
+        learningGoals: ["Ort, Geschwindigkeit und Beschleunigung verknüpfen."],
+        sourceIds: ["src_dyn"],
+      }],
+      formulas: [{
+        id: "formula_position",
+        chapterId: "chapter_point",
+        name: "Kartesischer Ortsvektor",
+        expression: "bold(r) = r_x bold(e)_x + r_y bold(e)_y",
+        variables: ["r: Ortsvektor"],
+        units: ["m"],
+        assumptions: "Feste kartesische Basis.",
+        sourceIds: ["src_dyn"],
+      }],
+      workedExamples: [{
+        id: "example_long",
+        chapterId: "chapter_point",
+        origin: "derived",
+        learningGoal: "Ableitungskette anwenden.",
+        prompt: "Berechne die Geschwindigkeit.",
+        steps: ["Leite den Ortsvektor ab."],
+        result: "Die Geschwindigkeit folgt komponentenweise.",
+        sourceIds: ["src_dyn"],
+      }],
+      figures: [],
+      checklist: ["Ich kann die Koordinatenwahl begründen."],
+      practiceItems: [],
+      sources: [{
+        id: "src_dyn",
+        title: "DYN2 Kursunterlage",
+        originUrl: "https://moodle.example.edu/mod/resource/view.php?id=1",
+        localPath: null,
+        previewPath: null,
+        kind: "pdf",
+      }],
+      warnings: [
+        "Ein langer Quellenhinweis bleibt transparent sichtbar, soll im kompakten Dokument aber nicht allein eine zusätzliche Seite erzeugen.",
+      ],
+    });
+
+    const typst = renderStudentFirstTypst(model, { compact: true });
+
+    expect(typst).toContain('kind: "Study Guide"');
+    expect(typst).not.toContain('kind: "Spickzettel"');
+    expect(typst).toContain('#heading(level: 1)[#text("Punktkinematik")]');
+    expect(typst).toContain("Kartesischer Ortsvektor");
+    expect(typst).toContain("bold(r)");
+    expect(typst).toContain("compact: true");
+    expect(typst).toContain("#sb-example");
+    expect(typst).toContain("Berechne die Geschwindigkeit");
+    expect(typst).toContain("#text(7.2pt");
+    expect(typst).toContain("#columns(2, gutter: 10pt)");
+    expect(typst.indexOf('#heading(level: 1)[#text("Punktkinematik")]'))
+      .toBeLessThan(typst.indexOf('#heading(level: 1)[#text("Quellen und Direktlinks")]'));
+    await expect(validateTypst(typst, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("separates adjacent Greek and Latin formula symbols for Typst", () => {
     expect(formatFormulaMath("A_(net) = A - ΔA")).toBe('A_"net" = A - Δ A');
   });
@@ -343,7 +443,7 @@ describe("student-centric exam navigator contracts", () => {
     expect(model.checklist).toEqual(["Ich kann obere und untere Abmaße unterscheiden."]);
   });
 
-  it("rejects a study guide chapter that is only a shallow overview without an example", async () => {
+  it("does not invent an example requirement for a source-grounded overview", async () => {
     const sourceUrl = "https://moodle.example/mod/resource/view.php?id=20";
     const source = {
       ...node("thin", sourceUrl, "resource", "acquired"),
@@ -379,8 +479,8 @@ describe("student-centric exam navigator contracts", () => {
     const model = buildStudyModel(moodleTestConfig(), extracted, manifest, coverage);
     const review = await reviewStudyModel(model, coverage, manifest);
 
-    expect(review.ok).toBe(false);
-    expect(review.findings.map((finding) => finding.code)).toEqual(
+    expect(review.ok).toBe(true);
+    expect(review.findings.map((finding) => finding.code)).not.toEqual(
       expect.arrayContaining(["chapter-too-shallow", "chapter-example-missing"]),
     );
   });

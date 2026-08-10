@@ -16,6 +16,10 @@ import {
 import { readExtractionHandoff } from "./studyGuideProfile.js";
 import type { StudyGuideContent } from "./studyGuideContent.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
+import {
+  hashRequestContract,
+  type RequestContract,
+} from "../shared/requestContract.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_VISUAL_TARGETS = 10;
@@ -110,13 +114,93 @@ interface Candidate extends Omit<VisualTarget, "source"> {
   imageHash: string;
 }
 
+export interface LearningVisualContractContext {
+  contractHash: string;
+  originalPrompt: string;
+  originalPromptHash: string;
+  evaluationStatus: RequestContract["evaluationStatus"];
+  userGoal: string;
+  deliverables: RequestContract["deliverables"];
+  requirements: RequestContract["requirements"];
+  reviewChecks: string[];
+  notRequired: string[];
+  forbidden: string[];
+  contentStrategy: RequestContract["contentStrategy"];
+}
+
+export function learningVisualSemanticCacheKey(
+  context: Pick<LearningVisualContractContext, "contractHash" | "originalPromptHash">,
+  payload: unknown,
+): string {
+  return createHash("sha256").update(JSON.stringify({
+    contractHash: context.contractHash,
+    originalPromptHash: context.originalPromptHash,
+    payload,
+  })).digest("hex");
+}
+
+export function learningVisualReviewBatchMetadata(
+  batchIndex: number,
+  retryCount = 0,
+): { batchOrdinal: number; attempt: number } {
+  if (!Number.isInteger(batchIndex) || batchIndex < 0) {
+    throw new RangeError(`Visual review batch index must be a non-negative integer, got ${batchIndex}.`);
+  }
+  if (!Number.isInteger(retryCount) || retryCount < 0) {
+    throw new RangeError(`Visual review retry count must be a non-negative integer, got ${retryCount}.`);
+  }
+  return {
+    batchOrdinal: batchIndex + 1,
+    attempt: retryCount + 1,
+  };
+}
+
+export function learningVisualContractContext(
+  originalUserPrompt: string,
+  requestContract: RequestContract,
+  requestContractHash: string,
+): LearningVisualContractContext {
+  const actualHash = hashRequestContract(requestContract);
+  if (actualHash !== requestContractHash) {
+    throw new Error(`Learning-visual request contract hash mismatch: expected ${requestContractHash}, computed ${actualHash}.`);
+  }
+  if (requestContract.originalPrompt !== originalUserPrompt) {
+    throw new Error("Learning-visual request contract does not match the exact original user prompt.");
+  }
+  const assignments = requestContract.reviewAssignments.filter((assignment) => assignment.owner === "visual");
+  const requirementIds = new Set(assignments.flatMap((assignment) => assignment.requirementIds));
+  const requirements = requestContract.requirements.filter((requirement) => requirementIds.has(requirement.id));
+  const deliverableIds = new Set(requirements.flatMap((requirement) => requirement.appliesTo));
+  return {
+    contractHash: actualHash,
+    originalPrompt: originalUserPrompt,
+    originalPromptHash: createHash("sha256").update(originalUserPrompt).digest("hex"),
+    evaluationStatus: requestContract.evaluationStatus,
+    userGoal: requestContract.userGoal,
+    deliverables: requestContract.deliverables.filter((deliverable) => deliverableIds.has(deliverable.id)),
+    requirements,
+    reviewChecks: [...new Set(assignments.flatMap((assignment) => assignment.checks))],
+    notRequired: requestContract.notRequired,
+    forbidden: requestContract.forbidden,
+    contentStrategy: requestContract.contentStrategy,
+  };
+}
+
 export async function resolveLearningVisuals(input: {
   config: WebLayoutRuntimeConfig;
   codex: CodexClient;
   content: StudyGuideContent;
   sourceText: string;
   model: AdaptiveStudyModel;
+  originalUserPrompt: string;
+  requestContract: RequestContract;
+  requestContractHash: string;
 }): Promise<LearningVisualSet> {
+  const contract = learningVisualContractContext(
+    input.originalUserPrompt,
+    input.requestContract,
+    input.requestContractHash,
+  );
   const empty = (): LearningVisualSet => learningVisualSetSchema.parse({
     schemaVersion: 1,
     modules: {},
@@ -173,8 +257,9 @@ export async function resolveLearningVisuals(input: {
     `Reviewing ${candidates.length} course-page candidate(s) in ${batches.length} parallel image-safe batch(es).`,
   );
   const batchPlans = await Promise.all(batches.map(async (batch, batchIndex) => {
-    const fingerprint = createHash("sha256").update(JSON.stringify({
-      version: "learning-visual-plan-v7-tight-diagram-only-crops",
+    const batchMetadata = learningVisualReviewBatchMetadata(batchIndex);
+    const fingerprint = learningVisualSemanticCacheKey(contract, {
+      version: "learning-visual-plan-v8-request-contract",
       language: input.config.language,
       candidates: batch.map((candidate) => ({
         targetId: candidate.targetId,
@@ -184,7 +269,7 @@ export async function resolveLearningVisuals(input: {
         page: candidate.page,
         imageHash: candidate.imageHash,
       })),
-    })).digest("hex");
+    });
     const cachePath = path.join(
       process.cwd(),
       "study-buddy-data",
@@ -198,15 +283,17 @@ export async function resolveLearningVisuals(input: {
       await input.config.diagnostics?.log(
         "info",
         "planner",
-        `Reusing visual review batch ${batchIndex + 1}/${batches.length}.`,
+        `Reusing visual review batch ${batchMetadata.batchOrdinal}/${batches.length}.`,
       );
       return cached;
     }
     const response = await input.codex.run(
-      buildPrompt(input.config.language, batch),
+      buildPrompt(input.config.language, batch, contract),
       {
         task: "content_analyzer",
-        attempt: batchIndex + 1,
+        // Batch ordinal describes independent parallel work. Attempt is local
+        // to this exact batch and increases only if that batch is retried.
+        attempt: batchMetadata.attempt,
         outputSchema: planJsonSchema,
         timeoutMs: 150_000,
         localImages: batch.map((candidate) => candidate.imagePath),
@@ -241,7 +328,7 @@ export async function resolveLearningVisuals(input: {
       !isUsableCrop(selection.crop)
     ) continue;
     const outputPath = path.join(outputDir, `${safeStem(candidate.targetId)}.png`);
-    const finalCrop = await finalLearningCrop(candidate, selection.crop);
+    const finalCrop = reviewedCropForRendering(selection.crop);
     if (!isUsableCrop(finalCrop)) continue;
     const dimensions = await cropDiagramImage(
       candidate.imagePath,
@@ -772,17 +859,23 @@ export function rankPage(text: string, query: string, zeroBasedPage: number): nu
     (zeroBasedPage === 0 ? 2 : 0);
 }
 
-function buildPrompt(language: "de" | "en", candidates: Candidate[]): string {
+function buildPrompt(
+  language: "de" | "en",
+  candidates: Candidate[],
+  contract: LearningVisualContractContext,
+): string {
   return [
     "LEARNING_VISUAL_CROP_PLANNER",
     "Return JSON only. Each attached image is one authorized course PDF page and corresponds to the target at the same array index.",
     "Decide independently for every target whether the page contains a diagram, graph, technical drawing, map, table, annotated illustration, or other visual that materially improves understanding of the theory or is useful for solving the question.",
+    "The exact original request and the visual review assignment below are authoritative. If visuals are forbidden or explicitly not required, return crop=null for every target. Do not invent visual requirements absent from the assigned contract context.",
     "Reject decorative images, logos, portraits, page chrome, screenshots of prose, ordinary formula-only text, and visuals unrelated to the exact target. A theory visual must clarify the named concept. A question visual must be relevant to that exact task; do not attach a merely topical image.",
     "If useful, return one crop in a normalized 1000 × 1000 coordinate system. Include every label, axis, legend, dimension arrow, callout, and table heading needed to interpret the visual.",
     "Exclude page headings, footers, page numbers, prose explanations, and the written task statement: those remain searchable HTML. Use tight padding and never crop more than 60% of the page. If a clean, self-contained crop is not possible or adds no learning value, set crop to null.",
     "Crop the cohesive diagram itself, not a rectangular page region around it. Before returning coordinates, inspect all four crop edges: no complete prose line, worked-solution equation, derivation, or neighboring exercise may remain outside the diagram's own labels. Tighten the edge until it is gone. Prefer one complete primary diagram over multiple diagram clusters when including the second cluster would also include surrounding prose or calculations.",
     "Alt text describes only the retained visual in the requested language and does not repeat the task.",
     `Language: ${language}`,
+    `Visual contract context (verified hashes and visual-owned requirements only):\n${JSON.stringify(contract)}`,
     `Targets:\n${JSON.stringify(candidates.map((candidate, imageIndex) => ({
       imageIndex,
       targetId: candidate.targetId,
@@ -836,42 +929,12 @@ function isUsableCrop(crop: z.infer<typeof cropSchema>): boolean {
     crop.width * crop.height <= 1_000_000;
 }
 
-async function finalLearningCrop(
-  candidate: Candidate,
+export function reviewedCropForRendering(
   crop: z.infer<typeof cropSchema>,
-): Promise<z.infer<typeof cropSchema>> {
-  const adjusted = { ...crop };
-  if (candidate.sourceKind === "validated_asset") {
-    const { stdout } = await execFileAsync(
-      "identify",
-      ["-format", "%w %h", candidate.imagePath],
-    );
-    const [width, height] = stdout.trim().split(/\s+/).map(Number);
-    if (width && height && width / height >= 3) {
-      // A very wide embedded figure is already a self-contained visual. Keep
-      // its full height so arrows and coordinate labels are not clipped by a
-      // page-oriented crop estimate.
-      adjusted.x = 0;
-      adjusted.y = 0;
-      adjusted.width = 1000;
-      adjusted.height = 1000;
-    } else {
-      // Scanned worked examples commonly place the derivation immediately
-      // below and the next calculation just to the right of the drawing. Keep
-      // small deterministic exclusion bands on those continuation edges.
-      adjusted.width = Math.max(50, adjusted.width - Math.round(adjusted.width * 0.06));
-      adjusted.height = Math.max(50, adjusted.height - Math.round(adjusted.height * 0.07));
-    }
-  } else {
-    // PDF-page figures often carry a legend just to the right, while the prose
-    // continuation can sit beside the diagram. Preserve the legend; the strict
-    // paired crop review already removes unrelated lower-page content.
-    adjusted.width = Math.min(
-      1000 - adjusted.x,
-      adjusted.width + Math.round(adjusted.width * 0.12),
-    );
-  }
-  return adjusted;
+): z.infer<typeof cropSchema> {
+  // This exact normalized rectangle was returned by the last successful visual
+  // review. Pixel conversion may not shrink, expand, or replace it afterward.
+  return { ...crop };
 }
 
 function tokens(value: string): string[] {

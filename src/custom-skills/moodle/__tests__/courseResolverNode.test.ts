@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CodexClient } from "../codexClient.js";
+import {
+  NonRetryableCodexError,
+  resolveModelPromptBodyCharacterBudget,
+  type CodexClient,
+} from "../codexClient.js";
 import {
   createCourseResolverNode,
   type CourseCandidate,
@@ -62,7 +66,7 @@ describe("courseResolverNode", () => {
     expect(reader.closed).toBe(true);
   });
 
-  it("uses an exact dashboard code match without probing or model guessing", async () => {
+  it("uses an exact dashboard code match with one token-free canonical-title probe and no model guessing", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
     const candidates = [
       candidate("C1", 10, "DYN2 Anwendungen der Dynamik"),
@@ -81,8 +85,30 @@ describe("courseResolverNode", () => {
     await createCourseResolverNode(config, codex, { reader })();
 
     expect(config.targetCourseUrls).toEqual([candidates[1].url]);
-    expect(reader.probedIds).toEqual([]);
+    expect(reader.probedIds).toEqual(["C2"]);
     expect(modelCalls).toBe(0);
+  });
+
+  it("keeps the real title and subject code while removing flattened Moodle card metadata", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [candidate(
+      "C1",
+      32844,
+      "BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik LektorInnen: Fröhlich, Hainzl Ihre Rolle: TeilnehmerIn",
+    )];
+    const reader = fakeReader(candidates, {});
+    reader.probeCourse = async (entry) => {
+      reader.probedIds.push(entry.id);
+      return { ...entry, title: "Kurs: Anwendungen der Dynamik | FHTW Moodle", text: "Punktkinematik" };
+    };
+    const config = resolverConfig("Erstelle einen Study Guide für DYN2.");
+
+    const result = await createCourseResolverNode(config, sequenceCodex([]), { reader })();
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+
+    expect(result.moodle_raw_text).toContain("Course title: DYN2 – Anwendungen der Dynamik");
+    expect(artifact.selected.title).toBe("DYN2 – Anwendungen der Dynamik");
+    expect(artifact.selected.title).not.toMatch(/Lektor|Ihre Rolle/);
   });
 
   it("rejects invented model IDs and falls back to the strongest probed evidence", async () => {
@@ -192,6 +218,197 @@ describe("courseResolverNode", () => {
     expect(config.targetCourseUrls).toBeUndefined();
     expect(result.error_log).toMatch(/^Course resolution ambiguous:/);
     expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
+  });
+
+  it("fits four long Moodle probes inside the analyzer budget before the model call", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 12, "DYN2 Anwendungen der Dynamik"),
+      candidate("C2", 19, "PHDYN Physikalische Grundlagen der Dynamik"),
+      candidate("C3", 17, "MAES2 Mathematik für Engineering Science 2"),
+      candidate("C4", 31, "STA2 Anwendungen der Statik und Festigkeitslehre"),
+    ];
+    const longEvidence = Object.fromEntries(candidates.map((entry) => [
+      entry.id,
+      `STARTSEITE\n${entry.label}\n${"course evidence ".repeat(2_000)}`,
+    ]));
+    const prompts: string[] = [];
+    const codex: CodexClient = {
+      async run(prompt) {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          return JSON.stringify({
+            candidate_ids: candidates.map((entry) => entry.id),
+            reasoning: "Four plausible courses.",
+          });
+        }
+        return JSON.stringify({
+          selected_id: "C1",
+          confidence: "high",
+          reasoning: "The course title and evidence match applications of dynamics.",
+          alternatives: [{ id: "C2", reason: "Related foundations course." }],
+        });
+      },
+    };
+    const config = resolverConfig(
+      "Ich muss mich für meine kommende Dynamikprüfung vorbereiten.",
+    );
+
+    await createCourseResolverNode(config, codex, {
+      reader: fakeReader(candidates, longEvidence),
+    })();
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]!.length).toBeLessThanOrEqual(
+      resolveModelPromptBodyCharacterBudget("content_analyzer", {
+        type: "object",
+        additionalProperties: false,
+        required: ["selected_id", "confidence", "reasoning", "alternatives"],
+        properties: {
+          selected_id: { type: "string" },
+          confidence: { type: "string", enum: ["high", "medium", "low"] },
+          reasoning: { type: "string" },
+          alternatives: {
+            type: "array",
+            maxItems: 3,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "reason"],
+              properties: { id: { type: "string" }, reason: { type: "string" } },
+            },
+          },
+        },
+      }) - 1_024,
+    );
+    expect(prompts[1]).not.toContain("STARTSEITE");
+    expect(config.targetCourseUrls).toEqual([candidates[0]!.url]);
+  });
+
+  it("retries one rejected evidence request with a smaller course signature", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 12, "DYN2 Anwendungen der Dynamik"),
+      candidate("C2", 19, "PHDYN Physikalische Grundlagen der Dynamik"),
+    ];
+    const prompts: string[] = [];
+    const codex: CodexClient = {
+      async run(prompt) {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          return JSON.stringify({ candidate_ids: ["C1", "C2"], reasoning: "Both are plausible." });
+        }
+        if (prompts.length === 2) {
+          throw new NonRetryableCodexError(
+            "content_analyzer request exceeds its character budget",
+            "invalid_request",
+          );
+        }
+        return JSON.stringify({
+          selected_id: "C1",
+          confidence: "high",
+          reasoning: "DYN2 is the requested applications course.",
+          alternatives: [{ id: "C2", reason: "Foundations rather than applications." }],
+        });
+      },
+    };
+    const evidence = {
+      C1: `Punktkinematik\n${"Dynamik resource ".repeat(2_000)}`,
+      C2: `Newtonsche Grundlagen\n${"physics resource ".repeat(2_000)}`,
+    };
+
+    await createCourseResolverNode(
+      resolverConfig("Study Guide für meine Dynamikprüfung"),
+      codex,
+      { reader: fakeReader(candidates, evidence) },
+    )();
+
+    expect(prompts).toHaveLength(3);
+    expect(prompts[2]!.length).toBeLessThan(prompts[1]!.length);
+    expect(prompts[2]!.length).toBeLessThanOrEqual(24_000);
+  });
+
+  it("fails closed when deterministic evidence cannot distinguish two dynamics courses", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 12, "DYN2 Anwendungen der Dynamik"),
+      candidate("C2", 19, "PHDYN Physikalische Grundlagen der Dynamik"),
+      candidate("C3", 17, "MAES2 Mathematik für Engineering Science 2"),
+    ];
+    let calls = 0;
+    const codex: CodexClient = {
+      async run() {
+        calls += 1;
+        if (calls === 1) {
+          return JSON.stringify({ candidate_ids: ["C1", "C2", "C3"], reasoning: "Candidates." });
+        }
+        throw new Error("semantic selector unavailable");
+      },
+    };
+    const config = resolverConfig("Ich lerne für meine Dynamikprüfung.");
+
+    const result = await createCourseResolverNode(config, codex, {
+      reader: fakeReader(candidates, {
+        C1: "Punktkinematik und Drallsatz",
+        C2: "Newtonsche Axiome und Kinematik",
+        C3: "Integralrechnung",
+      }),
+    })();
+
+    expect(config.targetCourseUrls).toBeUndefined();
+    expect(result.error_log).toMatch(/^Course resolution ambiguous:/);
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+    expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
+    expect(artifact.alternatives.map((entry: { label: string }) => entry.label)).toEqual(
+      expect.arrayContaining([
+        "DYN2 Anwendungen der Dynamik",
+        "PHDYN Physikalische Grundlagen der Dynamik",
+      ]),
+    );
+  });
+
+  it("does not let a medium-confidence model guess choose between two requested dynamics courses", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("C1", 12, "DYN2 Anwendungen der Dynamik"),
+      candidate("C2", 19, "PHDYN Physikalische Grundlagen der Dynamik"),
+    ];
+    const prompt = [
+      "Ich muss mich für meine kommende Dynamikprüfung im nächsten Monat vorbereiten.",
+      "Ich hätte gerne einen interaktiven Study Guide und ein PDF mit den Key Punkten,",
+      "Berechnungsarten, Formelherleitungen und dem nötigen Grundverständnis.",
+    ].join(" ");
+    const codex = sequenceCodex([
+      JSON.stringify({
+        candidate_ids: ["C1", "C2"],
+        reasoning: "Both dynamics courses are plausible.",
+      }),
+      JSON.stringify({
+        selected_id: "C2",
+        confidence: "medium",
+        reasoning: "The word Grundverständnis weakly favors the foundations course.",
+        alternatives: [{ id: "C1", reason: "The applications course is also relevant." }],
+      }),
+    ]);
+    const config = resolverConfig(prompt);
+
+    const result = await createCourseResolverNode(config, codex, {
+      reader: fakeReader(candidates, {
+        C1: "Punktkinematik, Schwerpunktsatz, Drallsatz und Schwingungen",
+        C2: "Translation, Rotation, Arbeit, Energie und Kinematik",
+      }),
+    })();
+
+    expect(config.targetCourseUrls).toBeUndefined();
+    expect(result.error_log).toMatch(/^Course resolution ambiguous:/);
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+    expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
+    expect(artifact.alternatives.map((entry: { label: string }) => entry.label)).toEqual(
+      expect.arrayContaining([
+        "DYN2 Anwendungen der Dynamik",
+        "PHDYN Physikalische Grundlagen der Dynamik",
+      ]),
+    );
   });
 
   it("fails closed when dashboard discovery itself fails", async () => {

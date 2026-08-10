@@ -17,6 +17,7 @@ import {
   deriveModuleDisplayTitle,
   moduleNavigationLayout,
 } from "./moduleTitles.js";
+import { assertQuestionBankPublishable } from "./questionBankReview.js";
 import type { JsonObject } from "./state.js";
 
 export function renderAdaptiveStudyGuide(
@@ -26,6 +27,7 @@ export function renderAdaptiveStudyGuide(
 ): string {
   const content = studyGuideContentSchema.parse(contentValue);
   const adaptive = adaptiveStudyModelSchema.parse(adaptiveValue);
+  assertQuestionBankPublishable(adaptive.questionBank);
   const text = (de: string, en: string) => language === "de" ? de : en;
   const artifactRevision = createHash("sha256")
     .update(JSON.stringify(adaptive.questionBank.items.map((item) => [
@@ -42,6 +44,7 @@ export function renderAdaptiveStudyGuide(
     adaptive.assessmentBlueprint,
     adaptive.questionBank,
   );
+  const hasAssessmentSurface = composedAssessment.simulationKind !== "none";
   const topicModules = content.topics.map((topic) =>
     adaptive.courseBlueprint.modules.find((candidate) => candidate.id === topic.id)
   );
@@ -223,8 +226,12 @@ export function renderAdaptiveStudyGuide(
       <p class="eyebrow">${esc(content.courseCode || text("Kursübersicht", "Course overview"))}</p>
       <h1>${esc(content.courseTitle)}</h1>
       <p class="hero-copy">${text(
-        "Lerne entlang der echten Kursthemen, übe gezielt im Fragenkatalog oder starte eine prüfungsnahe Sitzung.",
-        "Learn along the actual course topics, practise selectively in the question catalogue, or start an assessment-focused session.",
+        hasAssessmentSurface
+          ? "Lerne entlang der echten Kursthemen, übe gezielt im Fragenkatalog oder starte eine prüfungsnahe Sitzung."
+          : "Lerne entlang der echten Kursthemen und übe gezielt im Fragenkatalog.",
+        hasAssessmentSurface
+          ? "Learn along the actual course topics, practise selectively in the question catalogue, or start an assessment-focused session."
+          : "Learn along the actual course topics and practise selectively in the question catalogue.",
       )}</p>
       <details class="coverage-note">
         <summary>${text("Abdeckung und Quellenhinweise", "Coverage and source notes")}</summary>
@@ -243,10 +250,10 @@ export function renderAdaptiveStudyGuide(
     </aside>
   </section>
 
-  <nav class="main-tabs" role="tablist" aria-label="${text("Lernbereiche", "Learning areas")}" data-main-tabs>
+  <nav class="main-tabs" style="grid-template-columns:repeat(${hasAssessmentSurface ? 3 : 2},minmax(0,1fr))" role="tablist" aria-label="${text("Lernbereiche", "Learning areas")}" data-main-tabs>
     <button class="main-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="view-topics" data-main-tab="topics"><span>01</span><strong>${text("Themen", "Topics")}</strong><small>${text("Theorie und Kapitelübungen", "Theory and topic practice")}</small></button>
     <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="view-catalog" data-main-tab="catalog"><span>02</span><strong>${text("Fragenkatalog", "Question catalogue")}</strong><small>${text("Alle Fragen und Filter", "Every question and filter")}</small></button>
-    <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="view-exam" data-main-tab="exam"><span>03</span><strong>${text("Prüfung", "Assessment")}</strong><small>${text("Prüfungsmodus starten", "Start exam mode")}</small></button>
+    ${hasAssessmentSurface ? `<button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="view-exam" data-main-tab="exam"><span>03</span><strong>${text("Prüfung", "Assessment")}</strong><small>${text("Prüfungsmodus starten", "Start exam mode")}</small></button>` : ""}
   </nav>
 
   <main id="main-content">
@@ -313,7 +320,7 @@ export function renderAdaptiveStudyGuide(
       </div>
     </section>
 
-    <section class="main-panel" id="view-exam" data-main-panel="exam" role="tabpanel" hidden>
+    ${hasAssessmentSurface ? `<section class="main-panel" id="view-exam" data-main-panel="exam" role="tabpanel" hidden>
     <section class="assessment-card" id="exam-mode" data-assessment-support="${composedAssessment.support}" aria-labelledby="assessment-title">
       <div class="assessment-copy">
         <p class="eyebrow">${composedAssessment.simulationKind === "exam_simulation"
@@ -352,7 +359,7 @@ export function renderAdaptiveStudyGuide(
       </footer>
       <div class="exam-result" data-exam-result hidden></div>
     </section>
-    </section>
+    </section>` : ""}
   </main>
 
   <section class="sources" data-sb-sources>
@@ -867,7 +874,9 @@ main{max-width:1192px;margin:auto;padding:0 0 80px}.main-panel[hidden],.topic-pa
 .math-expression{display:inline;max-width:100%;margin:.08em .12em;padding:.08em 0;border-radius:.35em;background:rgba(50,58,97,.055);box-decoration-break:clone;-webkit-box-decoration-break:clone;font-family:Georgia,"Times New Roman",serif;font-weight:500;vertical-align:baseline}.math-expression__operand,.math-expression__relation{display:inline-flex;max-width:100%;align-items:baseline;margin:0 .12em;vertical-align:baseline}.math-expression__relation{font-weight:700;color:var(--blue)}.math-expression math{font-size:clamp(.94em,1.2vw,1.04em)}
 .reference-solution .math-expression,.exam-solution .math-expression,.question-feedback .math-expression{display:block;width:fit-content;max-width:100%;margin:.34em 0;padding:.1em .16em;overflow-wrap:anywhere}
 .exam-solution>div,.exam-solution ol,.exam-solution ul,.exam-solution li{min-width:0;max-width:100%}.exam-solution li{overflow-wrap:anywhere}
-.sources{background:#fff;border-top:3px solid var(--navy);padding:48px 24px 68px}.sources-inner{max-width:1192px;margin:auto}.source-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:18px}.source-card{border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}.source-card p{color:var(--muted);font-size:.8rem}.source-card a{color:var(--blue);font-weight:800;font-size:.77rem}.sr-only,.sr-live{position:fixed;left:-9999px}.question-templates{display:none}
+.sources{background:#fff;border-top:3px solid var(--navy);padding:48px 24px 68px}.sources-inner{max-width:1192px;margin:auto}.source-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:18px}.source-card{border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}.source-card strong,.source-card p,.source-card a{overflow-wrap:anywhere;word-break:break-word}.source-card p{color:var(--muted);font-size:.8rem}.source-card a{color:var(--blue);font-weight:800;font-size:.77rem}.sr-only,.sr-live{position:fixed;left:-9999px}.question-templates{display:none}
+main,.module-tabs{min-width:0}.module-tabs{width:100%;max-width:100%}.module-tab,.module-tab strong{min-width:0;max-width:100%;overflow-wrap:anywhere}
+@media(min-width:761px) and (max-width:1230px){.course-hero,.main-tabs,main{max-width:calc(100% - 36px)}}
 @media(max-width:1230px){.course-hero,.main-tabs,main{margin-left:18px;margin-right:18px}.topic-layout{grid-template-columns:minmax(0,1.2fr) minmax(330px,.8fr)}}
 @media(max-width:1080px){.course-hero{grid-template-columns:minmax(0,1.25fr) minmax(310px,.75fr)}.learning-dial-panel{grid-template-columns:126px minmax(0,1fr)}.progress-ring{width:126px}}
 @media(max-width:1100px){.topic-layout,.topic-layout--formula-heavy{grid-template-columns:1fr}.topic-layout--formula-heavy .concept-card{display:block}.exam-comparison{grid-template-columns:1fr}}

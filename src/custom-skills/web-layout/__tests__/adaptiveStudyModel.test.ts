@@ -1,46 +1,59 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   adaptiveStudyModelSchema,
   buildAdaptiveStudyModel,
+  questionBankSchema,
 } from "../adaptiveStudyModel.js";
+import { composeAssessment } from "../assessmentComposer.js";
+import type { AssessmentArchitecturePlan } from "../assessmentArchitecturePlan.js";
+import type { AssessmentSolutionSet } from "../assessmentSolutions.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 
 describe("adaptive Study Builder model", () => {
-  it("derives traceable blueprints and a reviewed question bank", () => {
-    const model = buildAdaptiveStudyModel(contentFixture(), [
-      "Musterprüfung",
-      "Dauer: 60 min",
-      "Erlaubt sind: Taschenrechner, Stifte, Lineal",
-      "Keine Verwendung von Unterlagen oder elektronischen Hilfsmitteln",
-      "Maximal sind auf diese Klausur 100 Punkte erreichbar.",
-      "Die Klausur ist ab 50 Punkten positiv bewertet.",
-      "Aufgabe 1: Toleranzrechnung (40 Punkte)",
-      "Aufgabe 2: Theorieteil (60 Punkte)",
-    ].join("\n"), "de");
+  it("consumes a verified architecture plan without re-inferring it from course text", () => {
+    const plan = assessmentPlanFixture({
+      title: "Evidence-defined assessment",
+      sections: [{
+        title: "Written response",
+        questionTypes: ["open-response"],
+        deliveryMode: "self-assessed",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Documented written response task.",
+      }],
+    });
+    const model = buildWithAssessmentPlan(
+      contentFixture(),
+      "Documented written response task.",
+      "de",
+      plan,
+    );
 
     expect(adaptiveStudyModelSchema.parse(model)).toEqual(model);
     expect(model.courseBlueprint.modules.map((module) => module.title))
       .toEqual(["Toleranzen", "Verbindungen"]);
     expect(model.assessmentBlueprint).toMatchObject({
-      mode: "explicit",
-      title: "Prüfungssimulation",
+      mode: "documented",
+      title: "Evidence-defined assessment",
       confidence: "high",
       durationMinutes: 60,
       maxPoints: 100,
       passingPoints: 50,
     });
     expect(model.assessmentBlueprint.sections.map((section) => section.title))
-      .toEqual(["Toleranzrechnung", "Theorieteil"]);
-    expect(model.questionBank.items).toHaveLength(8);
-    expect(model.questionBank.items.every((item) =>
-      item.learningObjectiveIds.length === 1 &&
-      item.review.status === "approved" &&
+      .toEqual(["Written response"]);
+    expect(model.questionBank.items).toHaveLength(9);
+    expect(model.questionBank.items.filter((item) => !item.assessmentSectionId).every((item) =>
+      item.learningObjectiveIds.length >= 1 &&
+      item.review.status === "pending" &&
       item.contentHash.length === 64 &&
       item.referenceSolution?.completeness === "complete" &&
       item.referenceSolution.review.status === "approved" &&
       item.referenceSolution.steps.length >= 2 &&
       item.referenceSolution.finalAnswer.length > 0
     )).toBe(true);
+    expect(model.questionBank.items.filter((item) => item.assessmentSectionId))
+      .toHaveLength(1);
     expect(model.questionBank.items.map((item) => item.origin))
       .toEqual(expect.arrayContaining([
         "course_original",
@@ -50,33 +63,148 @@ describe("adaptive Study Builder model", () => {
     expect(model.questionBank.coverage.missingObjectiveIds).toEqual([]);
   });
 
-  it("uses a transparent inferred exercise simulation without assessment evidence", () => {
+  it("uses a transparent mode=none without a verified plan", () => {
     const model = buildAdaptiveStudyModel(contentFixture(), "Ordinary course material without an exam description.", "en");
 
-    expect(model.assessmentBlueprint.mode).toBe("inferred");
-    expect(model.assessmentBlueprint.title).toBe("Exercise simulation based on course structure");
+    expect(model.assessmentBlueprint.mode).toBe("none");
+    expect(model.assessmentBlueprint.title).toBe("No documented assessment architecture");
     expect(model.assessmentBlueprint.durationMinutes).toBeNull();
     expect(model.assessmentBlueprint.maxPoints).toBeNull();
     expect(model.assessmentBlueprint.allowedAids).toEqual([]);
-    expect(model.assessmentBlueprint.sections.map((section) => section.questionTypes))
-      .toEqual([["selection"], ["calculation"], ["open-response"]]);
+    expect(model.assessmentBlueprint.sections).toEqual([]);
     expect(model.courseBlueprint.learningStages.some((stage) => stage.intent === "assessment"))
       .toBe(false);
   });
 
-  it("does not promote a mere assessment mention without evidenced sections", () => {
+  it("does not materialize a documented assessment source item without a stable extraction evidence reference", () => {
+    const plan = assessmentPlanFixture({
+      withEvidenceRefs: false,
+      sections: [{
+        title: "Documented response",
+        questionTypes: ["open-response"],
+        deliveryMode: "self-assessed",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Documented response task.",
+      }],
+    });
+    const model = buildWithAssessmentPlan(contentFixture(), "Documented response task.", "en", plan);
+    expect(model.assessmentBlueprint.mode).toBe("documented");
+    expect(model.questionBank.items.some((item) => item.assessmentSectionId)).toBe(false);
+  });
+
+  it("binds every explicitly evidenced objective and seals the stable evidence capsule", () => {
+    const model = buildAdaptiveStudyModel(contentFixture(), "Course evidence.", "en");
+    const item = model.questionBank.items.find((candidate) => candidate.legacyExerciseId === "tolerance-app")!;
+
+    expect(item.learningObjectiveIds).toEqual([
+      "tolerances-objective-1",
+      "tolerances-objective-2",
+    ]);
+    expect(item.scopeBasis.learningObjectives).toEqual([
+      "Grenzmaße unterscheiden",
+      "Passungen berechnen",
+    ]);
+    expect(item.scopeBasis.evidenceRefs).toEqual([{
+      sourceIds: ["course"],
+      sectionIndex: 0,
+      sectionHeading: "Toleranzen",
+      learningGoalIndexes: [0, 1],
+    }]);
+    expect(item.scopeBasis.evidenceHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const tampered = structuredClone(model.questionBank);
+    tampered.items.find((candidate) => candidate.id === item.id)!
+      .scopeBasis.evidenceRefs![0]!.sectionHeading = "Unrelated section";
+    expect(() => questionBankSchema.parse(tampered)).toThrow(/evidence hash/i);
+  });
+
+  it("does not invent retrieval provenance when no evidence capsule was generated", () => {
+    const content = contentFixture();
+    content.topics[0]!.retrieval[0]!.evidenceRefs = undefined;
+    const model = buildAdaptiveStudyModel(content, "Course evidence.", "en");
+    expect(model.questionBank.items.some((item) => item.legacyExerciseId === "tolerances-retrieval-1"))
+      .toBe(false);
+  });
+
+  it("does not promote a mere assessment mention or course name without a plan", () => {
     const model = buildAdaptiveStudyModel(
       contentFixture(),
       "Im Moodle-Kurs wird eine Musterprüfung erwähnt, aber Aufbau, Teile und Aufgabenanzahl sind nicht dokumentiert.",
       "de",
     );
 
-    expect(model.assessmentBlueprint.mode).toBe("inferred");
-    expect(model.assessmentBlueprint.title).toBe("Übungssimulation nach Kursstruktur");
+    expect(model.assessmentBlueprint.mode).toBe("none");
+    expect(model.assessmentBlueprint.title).toBe("Keine dokumentierte Prüfungsarchitektur");
     expect(model.assessmentBlueprint.confidence).toBe("low");
-    expect(model.assessmentBlueprint.sections.every((section) =>
-      section.evidenceLevel === "derived"
-    )).toBe(true);
+    expect(model.assessmentBlueprint.sections).toEqual([]);
+  });
+
+  it("keeps the explicit plan stable when only the course name changes", () => {
+    const plan = assessmentPlanFixture({
+      sections: [{
+        title: "Open response",
+        questionTypes: ["open-response"],
+        deliveryMode: "self-assessed",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Write the documented response.",
+      }],
+    });
+    const first = buildWithAssessmentPlan(contentFixture(), "Write the documented response.", "en", plan);
+    const renamed = contentFixture();
+    renamed.courseTitle = "A completely different discipline label";
+    renamed.courseCode = "OTHER";
+    const second = buildWithAssessmentPlan(renamed, "Write the documented response.", "en", plan);
+    expect(second.assessmentBlueprint).toEqual(first.assessmentBlueprint);
+  });
+
+  it("composes contract-authorized inferred practice from normal bank items without synthetic source tasks", () => {
+    const plan = assessmentPlanFixture({
+      mode: "inferred_practice",
+      sections: [{
+        title: "Objective-aligned selection practice",
+        questionTypes: ["selection"],
+        deliveryMode: "interactive",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Grenzmaße unterscheiden",
+      }],
+    });
+    const model = buildWithAssessmentPlan(contentFixture(), "No documented assessment.", "de", plan);
+    const composition = composeAssessment(model.assessmentBlueprint, model.questionBank);
+    expect(model.questionBank.items.some((item) => item.assessmentSectionId)).toBe(false);
+    expect(composition.simulationKind).toBe("exercise_simulation");
+    expect(composition.sections[0]?.items.some((item) => item.type === "cross")).toBe(true);
+  });
+
+  it("leaves unsupported evaluator-authored types as visible coverage gaps", () => {
+    const plan = assessmentPlanFixture({
+      sections: [{
+        title: "Custom response",
+        questionTypes: ["open-response", "custom-demonstration"],
+        deliveryMode: "self-assessed",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Perform the documented custom demonstration.",
+      }],
+    });
+    const model = buildWithAssessmentPlan(contentFixture(), "Perform the documented custom demonstration.", "en", plan);
+    const composition = composeAssessment(model.assessmentBlueprint, model.questionBank);
+    expect(model.questionBank.items.some((item) => item.assessmentSectionId)).toBe(false);
+    expect(composition.sections[0]?.uncoveredQuestionTypes).toContain("custom-demonstration");
+  });
+
+  it("fails closed when a plan is tampered after binding", () => {
+    const plan = assessmentPlanFixture({
+      sections: [{
+        title: "Original title",
+        questionTypes: ["open-response"],
+        deliveryMode: "self-assessed",
+        learningObjectiveIds: ["tolerances-objective-1"],
+        evidenceExcerpt: "Write the documented response.",
+      }],
+    });
+    const tampered = structuredClone(plan);
+    tampered.sections[0]!.title = "Tampered title";
+    expect(() => buildWithAssessmentPlan(contentFixture(), "Write the documented response.", "en", tampered))
+      .toThrow(/content hash mismatch/i);
   });
 
   it("attaches reviewed course visuals to modules and ordinary bank items", () => {
@@ -111,88 +239,59 @@ describe("adaptive Study Builder model", () => {
     )?.visual).toBeUndefined();
   });
 
-  it("recognizes natural-language section evidence without relying on a sample-exam heading", () => {
-    const german = buildAdaptiveStudyModel(
-      contentFixture(),
-      "Die Prüfung besteht aus einem Theorieteil und einem Rechenteil. Erlaubt sind: Taschenrechner.",
-      "de",
-    );
-    const english = buildAdaptiveStudyModel(
-      contentFixture(),
-      "The exam includes a vocabulary part and a writing section.",
-      "en",
-    );
-
-    expect(german.assessmentBlueprint.mode).toBe("explicit");
-    expect(german.assessmentBlueprint.sections.map((section) => section.questionTypes))
-      .toEqual(expect.arrayContaining([["selection", "open-response"], ["calculation"]]));
-    expect(english.assessmentBlueprint.mode).toBe("explicit");
-    expect(english.assessmentBlueprint.sections.map((section) => section.questionTypes))
-      .toEqual(expect.arrayContaining([["flashcard"], ["open-response"]]));
-  });
-
-  it("reconstructs a weighted Business English repeat-exam structure from course evidence", () => {
-    const model = buildAdaptiveStudyModel(
-      contentFixture(),
-      [
-        "Repeat Exam",
-        "The repeat exam will require knowledge of everything covered during the semester.",
-        "It will consist of a Pecha Kucha presentation (60%) and content questions to be answered orally (30%) and a vocabulary test (10%).",
-      ].join("\n"),
-      "en",
-    );
-
-    expect(model.assessmentBlueprint).toMatchObject({
-      mode: "explicit",
-      confidence: "high",
-    });
-    expect(model.assessmentBlueprint.sections.map((section) => ({
-      title: section.title,
-      weight: section.weight,
-      types: section.questionTypes,
-      deliveryMode: section.deliveryMode,
-      taskCount: section.taskCount,
-    }))).toEqual([
-      { title: "Pecha Kucha presentation", weight: 0.6, types: ["open-response"], deliveryMode: "external-performance", taskCount: null },
-      { title: "content questions to be answered orally", weight: 0.3, types: ["open-response"], deliveryMode: "external-performance", taskCount: null },
-      { title: "vocabulary test", weight: 0.1, types: ["flashcard"], deliveryMode: "interactive", taskCount: null },
-    ]);
-  });
-
-  it("classifies arbitrary weighted assessment parts by how the offline page can actually practise them", () => {
-    const model = buildAdaptiveStudyModel(
-      contentFixture(),
-      "Assessment consists of written cell identification (50%), laboratory specimen demonstration (30%), and case analysis (20%).",
-      "en",
-    );
-
-    expect(model.assessmentBlueprint.mode).toBe("explicit");
-    expect(model.assessmentBlueprint.sections.map((section) => ({
-      title: section.title,
-      weight: section.weight,
-      deliveryMode: section.deliveryMode,
-    }))).toEqual([
-      { title: "written cell identification", weight: 0.5, deliveryMode: "interactive" },
-      { title: "laboratory specimen demonstration", weight: 0.3, deliveryMode: "external-performance" },
-      { title: "case analysis", weight: 0.2, deliveryMode: "self-assessed" },
-    ]);
+  it("preserves evaluator-authored cross-discipline question types and capabilities losslessly", () => {
+    const variants = [
+      { type: "calculation", mode: "interactive" as const },
+      { type: "oral-presentation", mode: "external-performance" as const },
+      { type: "essay", mode: "self-assessed" as const },
+      { type: "vocabulary-recall", mode: "interactive" as const },
+      { type: "case-or-lab-response", mode: "self-assessed" as const },
+    ];
+    for (const [index, variant] of variants.entries()) {
+      const evidenceExcerpt = `Documented assessment task ${index + 1}.`;
+      const plan = assessmentPlanFixture({
+        title: `Architecture ${index + 1}`,
+        sections: [{
+          title: `Section ${index + 1}`,
+          questionTypes: [variant.type],
+          deliveryMode: variant.mode,
+          learningObjectiveIds: ["tolerances-objective-1"],
+          evidenceExcerpt,
+        }],
+      });
+      const model = buildWithAssessmentPlan(contentFixture(), evidenceExcerpt, "en", plan);
+      expect(model.assessmentBlueprint.sections[0]).toMatchObject({
+        questionTypes: [variant.type],
+        deliveryMode: variant.mode,
+      });
+    }
   });
 
   it("turns documented sample-exam tasks into authentic assessment items instead of metadata trivia", () => {
-    const sourceText = [
-      "Musterprüfung",
-      "Dauer: 60 min",
-      "Aufgabe 1: Toleranzrechnung (40 Punkte)",
-      "Für eine Welle sind das Höchstmaß Go = 50,030 mm und das Mindestmaß Gu = 49,990 mm gegeben.",
-      "Bestimmen Sie die Maßtoleranz, dokumentieren Sie die Ausgangsformel und geben Sie das Ergebnis mit Einheit an.",
-      "Aufgabe 2: Verbindungsanalyse (60 Punkte)",
-      "Eine belastete Verbindung ist anhand der im Kurs behandelten Beanspruchungsarten zu analysieren.",
-      "Ordnen Sie die Lasten zu, begründen Sie den maßgebenden Nachweis und dokumentieren Sie Ihre Annahmen nachvollziehbar.",
-    ].join("\n");
-    const model = buildAdaptiveStudyModel(contentFixture(), sourceText, "de", {
+    const calculationTask = "Für eine Welle sind Go = 50,030 mm und Gu = 49,990 mm gegeben. Bestimmen Sie die Maßtoleranz mit Rechenweg und Einheit.";
+    const responseTask = "Analysieren Sie die belastete Verbindung und begründen Sie den maßgebenden Nachweis nachvollziehbar.";
+    const plan = assessmentPlanFixture({
+      sections: [
+        {
+          title: "Toleranzrechnung",
+          questionTypes: ["calculation"],
+          deliveryMode: "interactive",
+          learningObjectiveIds: ["tolerances-objective-1"],
+          evidenceExcerpt: calculationTask,
+        },
+        {
+          title: "Verbindungsanalyse",
+          questionTypes: ["open-response"],
+          deliveryMode: "self-assessed",
+          learningObjectiveIds: ["connections-objective-1"],
+          evidenceExcerpt: responseTask,
+        },
+      ],
+    });
+    const model = buildWithAssessmentPlan(contentFixture(), `${calculationTask}\n${responseTask}`, "de", plan, {
       schemaVersion: 1,
       items: [1, 2].map((index) => ({
-        legacyExerciseId: `assessment-source-task-${index}`,
+        legacyExerciseId: `assessment-source-task-assessment-section-${String(index).padStart(20, "0")}`,
         completeness: "complete" as const,
         summary: `Vollständige Lösung für Aufgabe ${index}.`,
         steps: [
@@ -215,23 +314,85 @@ describe("adaptive Study Builder model", () => {
       .toEqual([1, 1]);
     expect(sourceTasks).toHaveLength(2);
     expect(sourceTasks.every((item) =>
-      item.stageIntent === "assessment" &&
-      item.difficulty === "assessment" &&
+      item.stageIntent === "minimum" &&
+      item.difficulty === "standard" &&
       item.origin === "course_original" &&
-      item.type === "calculation" &&
-      item.exercise.type === "calculation" &&
-      item.exercise.acceptedAnswers.includes("__self_check__") &&
       item.referenceSolution?.completeness === "complete" &&
       item.referenceSolution.review.status === "approved"
     )).toBe(true);
+    expect(sourceTasks.map((item) => item.type)).toEqual([
+      "calculation",
+      "application",
+    ]);
     expect(sourceTasks.map((item) => item.exercise.prompt).join(" "))
       .not.toMatch(/welche.*themen.*musterprüfung/i);
     expect(sourceTasks[0].exercise.type === "calculation" &&
       sourceTasks[0].exercise.givens.join(" ")).toContain("50,030 mm");
     expect(sourceTasks[0].exercise.type === "calculation" &&
-      sourceTasks[0].exercise.steps.join(" ")).toContain(
-        "Maßtoleranz, dokumentieren Sie die Ausgangsformel",
-      );
+      sourceTasks[0].exercise.steps.join(" ")).toContain("Ausgangsbeziehung");
+    expect(sourceTasks[1].exercise.type).toBe("application");
+    expect(sourceTasks[1].exercise).not.toHaveProperty("givens");
+    expect(sourceTasks[1].exercise).not.toHaveProperty("unit");
+    expect(sourceTasks[1].exercise).not.toHaveProperty("steps");
+  });
+
+  it("preserves calculation versus English external open-response semantics", () => {
+    const calculationTask = "Calculate the documented result, show the governing relation, and report its unit.";
+    const presentationTask = "Deliver a coherent presentation supported by course evidence and respond to audience questions.";
+    const plan = assessmentPlanFixture({
+      sections: [
+        {
+          title: "Force calculation",
+          questionTypes: ["calculation"],
+          deliveryMode: "interactive",
+          learningObjectiveIds: ["tolerances-objective-1"],
+          evidenceExcerpt: calculationTask,
+        },
+        {
+          title: "Pecha Kucha presentation",
+          questionTypes: ["open-response"],
+          deliveryMode: "external-performance",
+          learningObjectiveIds: ["connections-objective-1"],
+          evidenceExcerpt: presentationTask,
+        },
+      ],
+    });
+    const model = buildWithAssessmentPlan(contentFixture(), `${calculationTask}\n${presentationTask}`, "en", plan, {
+      schemaVersion: 1,
+      items: [{
+        legacyExerciseId: "assessment-source-task-assessment-section-00000000000000000001",
+        completeness: "complete",
+        summary: "Complete calculation solution.",
+        steps: ["Write the governing relation.", "Substitute the documented values."],
+        finalAnswer: "Documented final result.",
+        assumptions: [],
+        evidenceBasis: [calculationTask],
+        missingEvidence: [],
+        solutionOrigin: "study_buddy_generated",
+        review: { status: "approved", findings: [] },
+      }],
+    });
+    const sourceTasks = model.questionBank.items.filter((item) =>
+      item.legacyExerciseId.startsWith("assessment-source-task-")
+    );
+
+    expect(model.assessmentBlueprint.sections.map((section) => ({
+      types: section.questionTypes,
+      deliveryMode: section.deliveryMode,
+    }))).toEqual([
+      { types: ["calculation"], deliveryMode: "interactive" },
+      { types: ["open-response"], deliveryMode: "external-performance" },
+    ]);
+    expect(sourceTasks.map((item) => item.type)).toEqual(["calculation"]);
+    const calculation = sourceTasks[0]!;
+    expect(calculation.exercise.type).toBe("calculation");
+    expect(calculation.exercise).toHaveProperty("givens");
+
+    const composition = composeAssessment(model.assessmentBlueprint, model.questionBank);
+    expect(composition.excludedSections.map((section) => section.title))
+      .toContain("Pecha Kucha presentation");
+    expect(composition.sections.flatMap((section) => section.items).map((item) => item.id))
+      .not.toContain(expect.stringContaining("presentation"));
   });
 
   it("does not publish assessment metadata recall as question-bank items", () => {
@@ -291,12 +452,110 @@ describe("adaptive Study Builder model", () => {
   });
 });
 
+function buildWithAssessmentPlan(
+  content: StudyGuideContent,
+  sourceText: string,
+  language: "de" | "en",
+  plan: AssessmentArchitecturePlan,
+  solutions?: AssessmentSolutionSet,
+) {
+  return buildAdaptiveStudyModel(
+    content,
+    sourceText,
+    language,
+    solutions,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    plan,
+  );
+}
+
+function assessmentPlanFixture(input: {
+  title?: string;
+  mode?: "documented" | "inferred_practice";
+  withEvidenceRefs?: boolean;
+  sections: Array<{
+    title: string;
+    questionTypes: string[];
+    deliveryMode: "interactive" | "self-assessed" | "external-performance";
+    learningObjectiveIds: string[];
+    evidenceExcerpt: string;
+  }>;
+}): AssessmentArchitecturePlan {
+  const hash = "a".repeat(64);
+  const mode = input.mode ?? "documented";
+  const content = {
+    title: input.title ?? "Documented assessment",
+    mode,
+    confidence: mode === "documented" ? "high" as const : "medium" as const,
+    durationMinutes: mode === "documented" ? 60 : null,
+    maxPoints: mode === "documented" ? 100 : null,
+    passingPoints: mode === "documented" ? 50 : null,
+    allowedAids: [],
+    prohibitedAids: [],
+    basisRequirementIds: mode === "inferred_practice" ? ["interactive-preparation"] : [],
+    rationale: mode === "documented"
+      ? "The evaluator retained only the explicitly documented assessment architecture."
+      : "This is contract-authorized Study Buddy practice rather than an official assessment structure.",
+    sections: input.sections.map((section, index) => ({
+      ...section,
+      id: `assessment-section-${String(index + 1).padStart(20, "0")}`,
+      evidenceLevel: mode === "documented" ? "explicit" as const : "derived" as const,
+      taskCount: mode === "documented" ? 1 : null,
+      points: null,
+      weight: null,
+      durationMinutes: null,
+      ...(mode === "documented" && input.withEvidenceRefs !== false
+        ? {
+            evidenceRefs: [{
+              sourceIds: ["course"],
+              sectionIndex: index,
+              sectionHeading: `Evidence section ${index + 1}`,
+              learningGoalIndexes: [0],
+            }],
+          }
+        : {}),
+    })),
+  };
+  return {
+    schemaVersion: 1,
+    binding: {
+      cacheVersion: "assessment-architecture-v1-open-contract",
+      contractHash: hash,
+      originalPromptHash: hash,
+      courseHash: hash,
+      evidenceHash: hash,
+      semanticCacheKey: hash,
+    },
+    contentHash: createHash("sha256").update(canonicalJson(content)).digest("hex"),
+    ...content,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function contentFixture(): StudyGuideContent {
   const source = (provenance: "source" | "adapted" | "derived", task: string) => ({
     label: "Kursunterlagen",
     sourceTask: task,
     provenance,
   });
+  const evidence = (sectionIndex: number, sectionHeading: string, learningGoalIndexes: number[]) => [{
+    sourceIds: ["course"],
+    sectionIndex,
+    sectionHeading,
+    learningGoalIndexes,
+  }];
   return {
     courseTitle: "Cross-course Test",
     courseCode: "CCT",
@@ -305,6 +564,7 @@ function contentFixture(): StudyGuideContent {
       {
         id: "tolerances",
         title: "Toleranzen",
+        evidenceRefs: evidence(0, "Toleranzen", [0, 1]),
         learningGoals: ["Grenzmaße unterscheiden", "Passungen berechnen"],
         theory: {
           summary: "Tolerances describe permitted dimensional variation and fits combine hole and shaft limits in a traceable calculation.".repeat(2),
@@ -331,6 +591,7 @@ function contentFixture(): StudyGuideContent {
             ],
             explanation: "Die Toleranz ist die Differenz zwischen oberem und unterem Grenzmaß.",
             source: source("source", "Moodle Quiz 1, Frage 1"),
+            evidenceRefs: evidence(0, "Toleranzen", [0]),
           },
           {
             id: "tolerance-calc",
@@ -342,6 +603,7 @@ function contentFixture(): StudyGuideContent {
             steps: ["Verwende T = Go - Gu.", "Setze die Grenzmaße ein."],
             commonMistake: "Die Grenzmaße werden nicht addiert.",
             source: source("adapted", "Skript Kapitel 1, Beispiel 1"),
+            evidenceRefs: evidence(0, "Toleranzen", [1]),
           },
           {
             id: "tolerance-app",
@@ -351,13 +613,15 @@ function contentFixture(): StudyGuideContent {
             sampleAnswer: "Die kleinsten und größten möglichen Maße werden paarweise verglichen.",
             selfCheck: ["Grenzfälle genannt", "Passungsart begründet"],
             source: source("derived", "Abgeleitet aus Skript Kapitel 1: Passungsarten"),
+            evidenceRefs: evidence(0, "Toleranzen", [0, 1]),
           },
         ],
-        retrieval: [{ prompt: "Was ist eine Toleranz?", answer: "Die Differenz der Grenzmaße." }],
+        retrieval: [{ prompt: "Was ist eine Toleranz?", answer: "Die Differenz der Grenzmaße.", evidenceRefs: evidence(0, "Toleranzen", [0]) }],
       },
       {
         id: "connections",
         title: "Verbindungen",
+        evidenceRefs: evidence(1, "Verbindungen", [0]),
         learningGoals: ["Verbindungsarten vergleichen"],
         theory: {
           summary: "Mechanical connections are selected from load, material, manufacturing, and service requirements with explicit assumptions.".repeat(2),
@@ -384,6 +648,7 @@ function contentFixture(): StudyGuideContent {
             ],
             explanation: "Die Belastung ist eine technische Auswahlbedingung.",
             source: source("source", "Moodle Quiz 2, Frage 1"),
+            evidenceRefs: evidence(1, "Verbindungen", [0]),
           },
           {
             id: "connection-app-1",
@@ -393,6 +658,7 @@ function contentFixture(): StudyGuideContent {
             sampleAnswer: "Eine Schraube ist lösbar, eine Nietverbindung in der Regel nicht zerstörungsfrei.",
             selfCheck: ["Beispiele korrekt", "Unterschied erklärt"],
             source: source("derived", "Abgeleitet aus Skript Kapitel 2: Verbindungsarten"),
+            evidenceRefs: evidence(1, "Verbindungen", [0]),
           },
           {
             id: "connection-app-2",
@@ -402,9 +668,10 @@ function contentFixture(): StudyGuideContent {
             sampleAnswer: "Eine lösbare Schraubverbindung unterstützt wiederholte Demontage.",
             selfCheck: ["Wartung berücksichtigt", "Auswahl begründet"],
             source: source("derived", "Abgeleitet aus Lernziel Verbindungswahl"),
+            evidenceRefs: evidence(1, "Verbindungen", [0]),
           },
         ],
-        retrieval: [{ prompt: "Was bedeutet lösbar?", answer: "Demontage ohne Zerstörung." }],
+        retrieval: [{ prompt: "Was bedeutet lösbar?", answer: "Demontage ohne Zerstörung.", evidenceRefs: evidence(1, "Verbindungen", [0]) }],
       },
     ],
     sources: [{

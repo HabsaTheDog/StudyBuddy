@@ -56,7 +56,9 @@ describe("interactive evidence handoff", () => {
     expect(result.sources).toHaveLength(1);
     expect(result.sections[0]?.heading).toBe("Wälzlager");
     expect(result.sections[0]?.summary).toContain("L10");
-    expect(result.learning_modules[0]?.content_mode).toBe("quantitative");
+    expect(result.learning_modules[0]?.content_mode).toBe("mixed");
+    expect(result.learning_modules[0]?.learning_objectives).toEqual([]);
+    expect(result.learning_modules[0]?.assessment_signals).toEqual([]);
     expect(result.formulas).toEqual([]);
     expect(result.worked_examples).toEqual([]);
     expect(result.quiz_style_questions).toEqual([]);
@@ -125,7 +127,7 @@ describe("interactive evidence handoff", () => {
 
     expect(result.course.title).toBe("HUM-204 World Literature");
     expect(result.document_title).toBe("HUM-204 World Literature – Interactive Study Guide");
-    expect(result.learning_modules[0]?.content_mode).toBe("conceptual");
+    expect(result.learning_modules[0]?.content_mode).toBe("mixed");
   });
 
   it("reconstructs generic self-study and class pairs from the visible Moodle hierarchy", () => {
@@ -220,5 +222,75 @@ describe("interactive evidence handoff", () => {
     expect(result.sections[1]?.summary).toContain("international meeting");
     expect(result.sections.every((section) => section.source_ids.includes("res_course"))).toBe(true);
     expect(result.sections.flatMap((section) => section.key_concepts)).toContain("Meeting Role Play");
+  });
+
+  it("prefers selected subject topics over an arbitrary first-ten Moodle session cap", () => {
+    const courseUrl = "https://moodle.example/course/view.php?id=32844";
+    const topics = [
+      "Punktkinematik",
+      "Vektorkinematik",
+      "Massengeometrie",
+      "Schwerpunktsatz",
+      "Drallsatz",
+      "Schwingungen",
+    ];
+    const manifestTopics = [topics[2]!, topics[0]!, topics[1]!, ...topics.slice(3)];
+    const resources = manifestTopics.map((topic, index) => ({
+      id: `res_${index + 1}`,
+      parentId: null,
+      sectionPath: [`Course section: ${topic}`],
+      activityType: "resource",
+      title: `${topic} Vorlesung`,
+      originUrl: `${courseUrl}#${index + 1}`,
+      resolvedUrl: `https://moodle.example/pluginfile.php/${index + 1}/${topic}.pdf`,
+      localPath: `/tmp/${topic}.pdf`,
+      previewPath: null,
+      status: "acquired" as const,
+      checksum: `sum-${index + 1}`,
+      verifiedAt: "2026-08-09T00:00:00.000Z",
+      examRelevance: "confirmed" as const,
+      failureReason: null,
+      contentType: "application/pdf",
+      selection: { selected: true, role: "primary_lecture" as const, topic, priority: 10, reason: "core" },
+      extraction: { status: "usable" as const, method: "native_pdf_text", characterCount: 4000, pageCount: 10, warnings: [] },
+    }));
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-09T00:00:00.000Z",
+      courseUrl,
+      resources,
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-09T00:00:00.000Z",
+      warnings: [],
+      records: resources.map((resource, index) => ({
+        id: `ev_${index + 1}`,
+        resourceId: resource.id,
+        kind: "claim" as const,
+        locator: { section: resource.selection!.topic! },
+        content: `${resource.selection!.topic!} enthält belegte Theorie und Anwendungen.`,
+        confidence: 0.95,
+        pairId: null,
+        sourceUrl: resource.resolvedUrl,
+        localPath: resource.localPath,
+      })),
+    });
+    const state = moodleTestState({
+      moodle_raw_text: topics.map((topic) => `Course section: ${topic}\nTermininhalt`).join("\n"),
+      resource_manifest: manifest,
+      evidence_package: evidence,
+    });
+
+    const result = buildEvidenceHandoff(moodleTestConfig({
+      prompt: "Erstelle einen interaktiven Study Guide zum Abprüfen.",
+      outputLanguage: "de",
+      evidenceHandoffOnly: true,
+    }), state);
+
+    expect(result.learning_modules.map((module) => module.title)).toEqual(topics);
+    expect(result.learning_modules.every((module) => module.learning_objectives.length === 0)).toBe(true);
+    expect(result.learning_modules.every((module) => module.assessment_signals.length === 0)).toBe(true);
+    expect(result.learning_modules.at(-1)?.title).toBe("Schwingungen");
   });
 });

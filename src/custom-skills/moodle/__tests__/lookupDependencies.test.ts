@@ -7,16 +7,14 @@ import {
 } from "../examNavigatorContracts.js";
 import { reviewStudyModel } from "../studentFirstReview.js";
 
-describe("mandatory lookup dependency review", () => {
-  it("rejects tolerance content that skips the referenced table and lookup method", async () => {
+describe("included lookup dependency review", () => {
+  it("rejects an included lookup example that skips its referenced lookup method without inventing a visual requirement", async () => {
     const model = baseModel();
     const report = await reviewStudyModel(model, coverage(), manifest(), evidence());
 
     expect(report.ok).toBe(false);
-    expect(report.findings.map((finding) => finding.code)).toEqual(expect.arrayContaining([
-      "lookup-visual-missing",
-      "lookup-method-missing",
-    ]));
+    expect(report.findings.map((finding) => finding.code)).toContain("lookup-method-missing");
+    expect(report.findings.map((finding) => finding.code)).not.toContain("lookup-visual-missing");
   });
 
   it("accepts the chapter when it contains the lookup table and teaches the lookup", async () => {

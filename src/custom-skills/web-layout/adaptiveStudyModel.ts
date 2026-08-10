@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { isAssessmentMetaQuestionText } from "./assessmentQuestionPolicy.js";
 import {
+  normalizeStudyGuideEvidenceRefs,
+  studyGuideEvidenceRefSchema,
+  studyGuideEvidenceRefsHash,
   studyGuideContentSchema,
   studyGuideExerciseSchema,
+  type StudyGuideEvidenceRef,
   type StudyGuideContent,
 } from "./studyGuideContent.js";
 import type {
@@ -15,7 +19,27 @@ import {
   type LearningVisualSet,
 } from "./learningVisualTypes.js";
 import { deriveModuleDisplayTitle } from "./moduleTitles.js";
+import {
+  matchingApprovedQuestionReview,
+  questionBankItemContentHash,
+  questionBankItemReviewRecordSchema,
+  questionReviewContext,
+  type QuestionBankReviewSet,
+} from "./questionBankReview.js";
 import { handoffSectionGroups } from "./studyGuideProfile.js";
+import type { RequestContract } from "../shared/requestContract.js";
+import {
+  compatibleProgressionPlan,
+  matchingProgressionPlacement,
+  progressionBindingMatches,
+  type LearningProgressionPlan,
+  type ProgressionBinding,
+} from "./learningProgressionPlan.js";
+import {
+  assertAssessmentArchitecturePlanIntegrity,
+  assessmentArchitecturePlanSchema,
+  type AssessmentArchitecturePlan,
+} from "./assessmentArchitecturePlan.js";
 
 const learningStageIntentSchema = z.enum([
   "minimum",
@@ -72,7 +96,7 @@ export const courseBlueprintSchema = z.object({
   language: z.enum(["de", "en"]),
   scopeNote: z.string().min(1),
   modules: z.array(courseModuleSchema).min(1),
-  learningStages: z.array(learningStageSchema).min(2).max(5),
+  learningStages: z.array(learningStageSchema).min(1).max(5),
 });
 
 const assessmentEvidenceSchema = z.object({
@@ -91,18 +115,15 @@ const assessmentSectionSchema = z.object({
   points: z.number().nonnegative().nullable(),
   weight: z.number().min(0).max(1).nullable(),
   durationMinutes: z.number().int().positive().nullable(),
-  questionTypes: z.array(z.enum([
-    "selection",
-    "calculation",
-    "open-response",
-    "flashcard",
-  ])).min(1),
+  questionTypes: z.array(z.string().min(1)).min(1),
   learningObjectiveIds: z.array(z.string().min(1)),
+  evidenceExcerpt: z.string().min(1).max(1_200).optional(),
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
 
 export const assessmentBlueprintSchema = z.object({
   schemaVersion: z.literal(1),
-  mode: z.enum(["explicit", "inferred"]),
+  mode: z.enum(["documented", "none", "inferred_practice"]),
   title: z.string().min(1),
   confidence: z.enum(["high", "medium", "low"]),
   durationMinutes: z.number().int().positive().nullable(),
@@ -110,8 +131,12 @@ export const assessmentBlueprintSchema = z.object({
   passingPoints: z.number().nonnegative().nullable(),
   allowedAids: z.array(z.string().min(1)),
   prohibitedAids: z.array(z.string().min(1)),
-  sections: z.array(assessmentSectionSchema).min(1),
+  sections: z.array(assessmentSectionSchema),
   evidence: z.array(assessmentEvidenceSchema),
+  basisRequirementIds: z.array(z.string().min(1)).optional(),
+  rationale: z.string().min(1).optional(),
+  planBinding: assessmentArchitecturePlanSchema.shape.binding.optional(),
+  planContentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 const questionOriginSchema = z.enum([
@@ -120,16 +145,55 @@ const questionOriginSchema = z.enum([
   "study_buddy_generated",
 ]);
 
-const questionReviewSchema = z.object({
-  status: z.literal("approved"),
-  checks: z.object({
-    schema: z.literal(true),
-    scope: z.literal(true),
-    answer: z.literal(true),
-    provenance: z.literal(true),
-    rendering: z.literal(true),
+const questionReviewChecksSchema = z.object({
+  schema: z.boolean(),
+  scope: z.boolean(),
+  answer: z.boolean(),
+  provenance: z.boolean(),
+  rendering: z.boolean(),
+});
+
+const questionReviewSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("pending"),
+    checks: questionReviewChecksSchema,
+    findings: z.array(z.string()),
   }),
-  findings: z.array(z.string()),
+  z.object({
+    status: z.literal("approved"),
+    checks: z.object({
+      schema: z.literal(true),
+      scope: z.literal(true),
+      answer: z.literal(true),
+      provenance: z.literal(true),
+      rendering: z.literal(true),
+    }),
+    findings: z.array(z.string()),
+    record: questionBankItemReviewRecordSchema,
+  }),
+]);
+
+export const questionBankScopeBasisSchema = z.object({
+  topicTitle: z.string().min(1),
+  learningObjectives: z.array(z.string().min(1)).min(1),
+  sourceLabel: z.string().min(1),
+  sourceTask: z.string().min(1),
+  evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).superRefine((value, context) => {
+  if (Boolean(value.evidenceRefs) !== Boolean(value.evidenceHash)) {
+    context.addIssue({
+      code: "custom",
+      path: ["evidenceHash"],
+      message: "Scope-basis evidence references and evidence hash must be present together.",
+    });
+  } else if (value.evidenceRefs && studyGuideEvidenceRefsHash(value.evidenceRefs) !== value.evidenceHash) {
+    context.addIssue({
+      code: "custom",
+      path: ["evidenceHash"],
+      message: "Scope-basis evidence hash does not match its normalized evidence references.",
+    });
+  }
 });
 
 const questionBankItemSchema = z.object({
@@ -137,6 +201,7 @@ const questionBankItemSchema = z.object({
   legacyExerciseId: z.string().min(1),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   assessmentSectionId: z.string().min(1).optional(),
+  assessmentQuestionTypes: z.array(z.string().min(1)).optional(),
   topicId: z.string().min(1),
   learningObjectiveIds: z.array(z.string().min(1)).min(1),
   type: z.enum(["cross", "calculation", "application", "vocabulary"]),
@@ -146,12 +211,7 @@ const questionBankItemSchema = z.object({
   difficulty: z.enum(["basic", "standard", "advanced", "assessment"]),
   estimatedMinutes: z.number().int().positive(),
   origin: questionOriginSchema,
-  scopeBasis: z.object({
-    topicTitle: z.string().min(1),
-    learningObjectives: z.array(z.string().min(1)).min(1),
-    sourceLabel: z.string().min(1),
-    sourceTask: z.string().min(1),
-  }),
+  scopeBasis: questionBankScopeBasisSchema,
   review: questionReviewSchema,
   referenceSolution: z.object({
     legacyExerciseId: z.string().min(1),
@@ -210,31 +270,37 @@ export function buildAdaptiveStudyModel(
   language: "de" | "en",
   assessmentSolutions?: AssessmentSolutionSet,
   learningVisuals?: LearningVisualSet,
+  questionReviews?: QuestionBankReviewSet,
+  reviewContract?: { originalUserPrompt: string; requestContract: RequestContract },
+  progressionPlan?: LearningProgressionPlan,
+  progressionBinding?: ProgressionBinding,
+  assessmentPlan?: AssessmentArchitecturePlan,
 ): AdaptiveStudyModel {
   const content = studyGuideContentSchema.parse(contentValue);
-  const assessmentCorpus = normalizeEvidenceText(sourceText);
-  const hasAssessmentEvidence = hasExplicitAssessmentEvidence(assessmentCorpus);
   const courseBlueprint = buildCourseBlueprint(
     content,
     sourceText,
     language,
-    hasAssessmentEvidence,
     learningVisuals,
+    progressionPlan,
+    progressionBinding,
   );
-  const assessmentBlueprint = buildAssessmentBlueprint(
-    content,
-    courseBlueprint,
-    assessmentCorpus,
-    language,
-  );
+  const assessmentBlueprint = buildAssessmentBlueprint(assessmentPlan, language);
   const questionBank = buildQuestionBank(
     content,
     courseBlueprint,
     assessmentBlueprint,
-    assessmentCorpus,
+    sourceText,
     assessmentSolutions,
     learningVisuals,
+    questionReviews,
+    reviewContract,
+    progressionPlan,
+    progressionBinding,
   );
+  if (progressionPlan && !compatibleProgressionPlan(progressionPlan, questionBank, progressionBinding)) {
+    throw new Error("Learning progression plan is stale, incomplete, or bound to a different request contract.");
+  }
   return adaptiveStudyModelSchema.parse({
     courseBlueprint,
     assessmentBlueprint,
@@ -242,12 +308,13 @@ export function buildAdaptiveStudyModel(
   });
 }
 
-function buildCourseBlueprint(
+export function buildCourseBlueprint(
   content: StudyGuideContent,
   sourceText: string,
   language: "de" | "en",
-  hasAssessmentEvidence: boolean,
   learningVisuals?: LearningVisualSet,
+  progressionPlan?: LearningProgressionPlan,
+  progressionBinding?: ProgressionBinding,
 ): CourseBlueprint {
   const sectionGroups = handoffSectionGroups(sourceText);
   const modules = content.topics.map((topic, topicIndex) => ({
@@ -266,35 +333,31 @@ function buildCourseBlueprint(
     sourceLabels: [...new Set([
       ...topic.workedExamples.map((example) => example.source.label),
       ...topic.exercises.map((exercise) => exercise.source.label),
+      ...evidenceSourceLabels(content, verifiedEvidenceRefs(content, topic, topic.evidenceRefs)),
+      ...evidenceSourceLabels(content, topic.retrieval.flatMap((retrieval) =>
+        verifiedEvidenceRefs(content, topic, retrieval.evidenceRefs)
+      )),
     ])],
     learningBlocks: deriveLearningBlocks(topic, sourceText, Boolean(learningVisuals?.modules[topic.id])),
     ...(learningVisuals?.modules[topic.id]
       ? { theoryVisual: learningVisuals.modules[topic.id] }
       : {}),
   }));
-  const t = language === "de"
-    ? {
-        foundation: ["Grundlagen", "Begriffe, Zusammenhänge und erste sichere Anwendungen."],
-        application: ["Anwenden", "Das Gelernte in typischen Aufgaben verwenden."],
-        depth: ["Vertiefen", "Mehrschrittige, offene oder anspruchsvollere Aufgaben bearbeiten."],
-        assessment: ["Prüfungsnah", "An der belegten Prüfungs- oder Aufgabenform orientiert üben."],
-      }
-    : {
-        foundation: ["Foundations", "Build concepts, relationships, and first reliable applications."],
-        application: ["Apply", "Use the material in representative tasks."],
-        depth: ["Deepen", "Work through multi-step, open, or more demanding tasks."],
-        assessment: ["Assessment practice", "Practise the documented assessment or task format."],
-      };
-  const stages: CourseBlueprint["learningStages"] = [
-    { index: 1, intent: "foundation", label: t.foundation[0], description: t.foundation[1] },
-    { index: 2, intent: "application", label: t.application[0], description: t.application[1] },
-  ];
-  if (content.topics.some((topic) => topic.exercises.length >= 3)) {
-    stages.push({ index: 3, intent: "depth", label: t.depth[0], description: t.depth[1] });
-  }
-  if (hasAssessmentEvidence) {
-    stages.push({ index: stages.length + 1, intent: "assessment", label: t.assessment[0], description: t.assessment[1] });
-  }
+  const stages: CourseBlueprint["learningStages"] = progressionBindingMatches(progressionPlan, progressionBinding)
+    ? progressionPlan!.stages.map((stage, index) => ({
+        index: index + 1,
+        intent: stage.intent,
+        label: stage.label,
+        description: stage.description,
+      }))
+    : [{
+        index: 1,
+        intent: "minimum",
+        label: language === "de" ? "Neutral eingeordnet" : "Neutral placement",
+        description: language === "de"
+          ? "Für diese Ansicht liegt kein kompatibler, request-gebundener Lernprogressionsplan vor."
+          : "No compatible request-bound learning progression plan is available for this view.",
+      }];
   return courseBlueprintSchema.parse({
     schemaVersion: 1,
     courseId: stableSlug(content.courseCode || content.courseTitle),
@@ -314,17 +377,20 @@ function buildQuestionBank(
   sourceText: string,
   assessmentSolutions?: AssessmentSolutionSet,
   learningVisuals?: LearningVisualSet,
+  questionReviews?: QuestionBankReviewSet,
+  reviewContract?: { originalUserPrompt: string; requestContract: RequestContract },
+  progressionPlan?: LearningProgressionPlan,
+  progressionBinding?: ProgressionBinding,
 ): QuestionBank {
-  const assessmentStage = blueprint.learningStages.find((stage) => stage.intent === "assessment");
-  const depthStage = blueprint.learningStages.find((stage) => stage.intent === "depth");
-  const applicationStage = blueprint.learningStages.find((stage) => stage.intent === "application")!;
-  const foundationStage = blueprint.learningStages.find((stage) => stage.intent === "foundation")!;
-  const courseItems = content.topics.flatMap((topic) => {
+  const neutralStage = blueprint.learningStages[0]!;
+  const courseItems = content.topics.flatMap((topic, topicIndex) => {
     const module = blueprint.modules.find((candidate) => candidate.id === topic.id)!;
-    const fallbackSource = topic.exercises[0]?.source ?? topic.workedExamples[0]?.source;
-    const retrievalExercises: StudyGuideContent["topics"][number]["exercises"] = fallbackSource
-      ? topic.retrieval.flatMap((retrieval, retrievalIndex) => {
+    const retrievalExercises: StudyGuideContent["topics"][number]["exercises"] = topic.retrieval
+      .flatMap((retrieval, retrievalIndex) => {
+          const evidenceRefs = verifiedEvidenceRefs(content, topic, retrieval.evidenceRefs);
+          if (evidenceRefs.length === 0) return [];
           if (retrieval.prompt.trim().length < 8 || retrieval.answer.trim().length < 12) return [];
+          const sourceLabels = evidenceSourceLabels(content, evidenceRefs);
           return [{
             id: `${topic.id}-retrieval-${retrievalIndex + 1}`,
             type: "application" as const,
@@ -337,35 +403,21 @@ function buildQuestionBank(
               ? ["Die Kernaussage ist fachlich korrekt enthalten.", "Die Antwort bleibt innerhalb des genannten Kursthemas."]
               : ["The central claim is technically correct.", "The answer stays within the stated course topic."],
             source: {
-              label: fallbackSource.label,
-              sourceTask: blueprint.language === "de"
-                ? `Abgeleitet aus Quelle ${fallbackSource.label}: Wiederholungsfrage zu ${topic.title}`
-                : `Derived from source ${fallbackSource.label}: retrieval for ${topic.title}`,
+              label: sourceLabels.join(" · "),
+              sourceTask: evidenceRefs.map((reference) => reference.sectionHeading).join(" · "),
               provenance: "derived" as const,
             },
+            evidenceRefs,
           }];
-        })
-      : [];
-    return [...topic.exercises, ...retrievalExercises].map((exercise, exerciseIndex) => {
-      const objective = selectObjective(module.learningObjectives, exercise.prompt, exercise.source.sourceTask, exercise.id);
-      const assessmentLike = Boolean(
-        assessmentStage &&
-        /(?:musterprüfung|prüfung|exam|klausur|vocabulary\s*test|vokabeltest|test\s*question)/i.test(exercise.source.sourceTask),
+        });
+    return [...topic.exercises, ...retrievalExercises].map((exercise) => {
+      const evidenceRefs = verifiedEvidenceRefs(
+        content,
+        topic,
+        exercise.evidenceRefs ?? legacyExerciseEvidenceRefs(content, topic, topicIndex, exercise),
       );
-      const stage = assessmentLike
-        ? assessmentStage!
-        : exercise.type === "cross" || exercise.type === "vocabulary"
-          ? foundationStage
-          : exerciseIndex >= Math.ceil(topic.exercises.length / 2) && depthStage
-            ? depthStage
-            : applicationStage;
-      const difficulty = stage.intent === "assessment"
-        ? "assessment"
-        : stage.intent === "depth"
-          ? "advanced"
-          : stage.intent === "foundation"
-            ? "basic"
-            : "standard";
+      const objectives = objectivesForEvidence(module.learningObjectives, evidenceRefs);
+      const objectiveIds = objectives.map((objective) => objective.id);
       const origin = exercise.source.provenance === "source"
         ? "course_original"
         : exercise.source.provenance === "adapted"
@@ -373,47 +425,56 @@ function buildQuestionBank(
           : "study_buddy_generated";
       const referenceSolution = referenceSolutionFromExercise(
         exercise,
-        objective.title,
+        objectives.map((objective) => objective.title).join("; "),
         blueprint.language,
       );
       const visual = learningVisuals?.questions[exercise.id];
-      return {
-        id: stableQuestionId(
-          blueprint.courseId,
-          topic.id,
-          objective.id,
-          exercise.source.sourceTask,
-          exercise.type,
-          exercise.id,
-        ),
+      const id = stableQuestionId(
+        blueprint.courseId,
+        topic.id,
+        objectiveIds.join("+"),
+        exercise.source.sourceTask,
+        exercise.type,
+        exercise.id,
+      );
+      const scopeBasis = questionBankScopeBasisSchema.parse({
+        topicTitle: topic.title,
+        learningObjectives: objectives.map((objective) => objective.title),
+        sourceLabel: exercise.source.label,
+        sourceTask: exercise.source.sourceTask,
+        evidenceRefs,
+        evidenceHash: studyGuideEvidenceRefsHash(evidenceRefs),
+      });
+      const contentHash = questionBankItemContentHash({ exercise, referenceSolution, visual, scopeBasis });
+      const progressionItem = {
+        id,
         legacyExerciseId: exercise.id,
-        contentHash: sha256(JSON.stringify({ exercise, referenceSolution, visual })),
         topicId: topic.id,
-        learningObjectiveIds: [objective.id],
+        learningObjectiveIds: objectiveIds,
+        type: exercise.type,
+        origin,
+        scopeBasis,
+        exercise,
+      } as QuestionBank["items"][number];
+      const placement = matchingProgressionPlacement(progressionPlan, progressionItem, progressionBinding);
+      const stage = placement
+        ? blueprint.learningStages[progressionPlan!.stages.findIndex((candidate) => candidate.id === placement.stageId)] ?? neutralStage
+        : neutralStage;
+      return {
+        id,
+        legacyExerciseId: exercise.id,
+        contentHash,
+        topicId: topic.id,
+        learningObjectiveIds: objectiveIds,
         type: exercise.type,
         stageIndex: stage.index,
         stageIntent: stage.intent,
         stageLabel: stage.label,
-        difficulty,
+        difficulty: placement?.difficulty ?? "standard",
         estimatedMinutes: exercise.type === "cross" || exercise.type === "vocabulary" ? 2 : exercise.type === "calculation" ? 8 : 10,
         origin,
-        scopeBasis: {
-          topicTitle: topic.title,
-          learningObjectives: [objective.title],
-          sourceLabel: exercise.source.label,
-          sourceTask: exercise.source.sourceTask,
-        },
-        review: {
-          status: "approved" as const,
-          checks: {
-            schema: true as const,
-            scope: true as const,
-            answer: true as const,
-            provenance: true as const,
-            rendering: true as const,
-          },
-          findings: [],
-        },
+        scopeBasis,
+        review: resolvedQuestionReview(id, contentHash, questionReviews, reviewContract),
         referenceSolution,
         ...(visual ? { visual } : {}),
         exercise,
@@ -426,6 +487,10 @@ function buildQuestionBank(
     assessment,
     sourceText,
     assessmentSolutions,
+    questionReviews,
+    reviewContract,
+    progressionPlan,
+    progressionBinding,
   );
   const items = [...courseItems, ...assessmentItems].filter((item) =>
     !isAssessmentMetaQuestionText({
@@ -454,27 +519,65 @@ function buildQuestionBank(
   });
 }
 
+function resolvedQuestionReview(
+  itemId: string,
+  contentHash: string,
+  reviews?: QuestionBankReviewSet,
+  contract?: { originalUserPrompt: string; requestContract: RequestContract },
+): z.infer<typeof questionReviewSchema> {
+  if (reviews && contract) {
+    const record = matchingApprovedQuestionReview(
+      reviews,
+      { id: itemId, contentHash },
+      questionReviewContext(contract.originalUserPrompt, contract.requestContract),
+    );
+    if (record) {
+      return {
+        status: "approved",
+        checks: {
+          schema: true,
+          scope: true,
+          answer: true,
+          provenance: true,
+          rendering: true,
+        },
+        findings: record.findings.map((finding) => finding.message),
+        record,
+      };
+    }
+  }
+  return {
+    status: "pending",
+    checks: {
+      schema: false,
+      scope: false,
+      answer: false,
+      provenance: false,
+      rendering: false,
+    },
+    findings: [],
+  };
+}
+
 function deriveLearningBlocks(
   topic: StudyGuideContent["topics"][number],
   _sourceText: string,
   hasVisual: boolean,
 ): CourseBlueprint["modules"][number]["learningBlocks"] {
-  const corpus = [
-    topic.title,
-    ...topic.learningGoals,
-    ...topic.exercises.map((exercise) => `${exercise.prompt} ${exercise.source.sourceTask}`),
-  ].join(" ");
   const sourceReason = [...new Set([
     ...topic.workedExamples.map((example) => example.source.label),
     ...topic.exercises.map((exercise) => exercise.source.label),
   ])].slice(0, 2).join(" · ") || topic.title;
-  const blocks: CourseBlueprint["modules"][number]["learningBlocks"] = [
-    { kind: "theory", evidenceReason: `Course objectives and concepts in ${sourceReason}.` },
-    { kind: "worked-example", evidenceReason: `Worked application required for ${topic.title}.` },
-  ];
+  const blocks: CourseBlueprint["modules"][number]["learningBlocks"] = [];
   const add = (kind: CourseBlueprint["modules"][number]["learningBlocks"][number]["kind"], reason: string) => {
     if (!blocks.some((block) => block.kind === kind)) blocks.push({ kind, evidenceReason: reason });
   };
+  if (topic.theory.summary.trim() || topic.theory.keyIdeas.length > 0 || topic.theory.formulas.length > 0) {
+    add("theory", `Course objectives and concepts in ${sourceReason}.`);
+  }
+  if (topic.workedExamples.length > 0) {
+    add("worked-example", `The generated content plan retained source-supported worked example material for ${topic.title}.`);
+  }
   if (topic.exercises.some((exercise) => exercise.type === "cross")) {
     add("selection-practice", "The evidence supports concrete distinctions, classifications, or misconception checks.");
   }
@@ -490,8 +593,8 @@ function deriveLearningBlocks(
   if (hasVisual) {
     add("visual-interpretation", "An authorized course visual materially supports this objective.");
   }
-  if (/(?:pecha\s*kucha|presentation|oral(?:ly)?|speaking|vortrag|präsentation|mündlich)/i.test(corpus)) {
-    add("external-performance-preparation", "The course requires a live or externally judged performance that the offline page can prepare but not honestly simulate or grade.");
+  if (blocks.length === 0) {
+    add("theory", `The chapter remains visible for transparent source coverage: ${sourceReason}.`);
   }
   return blocks;
 }
@@ -500,103 +603,201 @@ function buildAssessmentSourceItems(
   content: StudyGuideContent,
   course: CourseBlueprint,
   assessment: AssessmentBlueprint,
-  sourceText: string,
+  _sourceText: string,
   assessmentSolutions?: AssessmentSolutionSet,
+  questionReviews?: QuestionBankReviewSet,
+  reviewContract?: { originalUserPrompt: string; requestContract: RequestContract },
+  progressionPlan?: LearningProgressionPlan,
+  progressionBinding?: ProgressionBinding,
 ): QuestionBank["items"] {
-  if (assessment.mode !== "explicit") return [];
-  const stage = course.learningStages.find((candidate) => candidate.intent === "assessment");
-  if (!stage) return [];
-  const tasks = numberedAssessmentTasks(assessmentExcerpt(sourceText));
-  if (!tasks.length) return [];
-  const sourceLabel = content.sources.find((source) =>
-    /(?:muster|probe|alt).{0,20}(?:prüfung|klausur)|sample.{0,12}exam|past.{0,12}(?:paper|exam)/i.test(source.label)
-  )?.label ?? assessment.evidence[0]?.label ??
-    (course.language === "de" ? "Prüfungsunterlagen" : "Assessment material");
+  if (assessment.mode !== "documented") return [];
+  const neutralStage = course.learningStages[0]!;
   const solutionsById = new Map(
     (assessmentSolutions?.items ?? []).map((solution) => [
       solution.legacyExerciseId,
       solution,
     ]),
   );
-  return tasks.flatMap((task, index) => {
-    const section = assessment.sections[index];
-    if (!section) return [];
-    const givens = assessmentTaskLines(task.context);
-    if (givens.join(" ").length < 80) return [];
+  return assessment.sections.flatMap((section, index) => {
+    if (
+      section.deliveryMode === "external-performance" ||
+      !section.evidenceExcerpt ||
+      !section.evidenceRefs ||
+      section.evidenceRefs.length === 0
+    ) return [];
     const module = bestAssessmentModule(course, section.learningObjectiveIds);
-    const objectives = section.learningObjectiveIds.length
-      ? course.modules.flatMap((candidate) => candidate.learningObjectives)
-        .filter((objective) => section.learningObjectiveIds.includes(objective.id))
-      : module.learningObjectives;
-    const selectedObjectives = objectives.length ? objectives : module.learningObjectives;
-    const sourceTask = course.language === "de"
-      ? `Originale Prüfungsaufgabe ${index + 1}: ${task.title}`
-      : `Original assessment task ${index + 1}: ${task.title}`;
-    const exercise: StudyGuideContent["topics"][number]["exercises"][number] = {
-      id: `assessment-source-task-${index + 1}`,
-      type: "calculation",
-      prompt: course.language === "de"
-        ? `Bearbeite die Prüfungsaufgabe „${task.title}“ vollständig und dokumentiere deinen Lösungsweg nachvollziehbar.`
-        : `Complete the assessment task “${task.title}” and document a traceable solution.`,
-      givens,
-      acceptedAnswers: ["__self_check__"],
-      unit: "",
-      steps: assessmentRubricSteps(givens, course.language),
-      commonMistake: course.language === "de"
-        ? "Nur Endwerte oder eine Beschreibung der Musterprüfung anzugeben, statt die technische Aufgabe mit Rechenweg zu lösen."
-        : "Reporting only final values or describing the sample exam instead of solving the technical task with a traceable method.",
-      source: {
-        label: sourceLabel,
-        sourceTask,
-        provenance: "source",
-      },
-    };
-    const referenceSolution = solutionsById.get(exercise.id);
+    if (!module) return [];
+    const selectedObjectives = module.learningObjectives.filter((objective) =>
+      section.learningObjectiveIds.includes(objective.id)
+    );
+    if (selectedObjectives.length === 0) return [];
+    const sourceLabel = assessment.evidence[index]?.label ?? content.sources[0]?.label ?? section.title;
+    const sourceTask = section.evidenceExcerpt;
+    const legacyExerciseId = `assessment-source-task-${section.id}`;
+    const referenceSolution = solutionsById.get(legacyExerciseId);
+    const exercise = assessmentSourceExerciseFromPlan({
+      legacyExerciseId,
+      evidenceExcerpt: section.evidenceExcerpt,
+      sourceLabel,
+      sourceTask,
+      language: course.language,
+      section,
+      referenceSolution,
+      solutionSetResolved: assessmentSolutions !== undefined,
+    });
+    if (!exercise) return [];
     const objectiveIds = selectedObjectives.map((objective) => objective.id);
-    return [{
-      id: stableQuestionId(
-        course.courseId,
-        module.id,
-        objectiveIds.join("+"),
-        sourceTask,
-        exercise.type,
-        exercise.id,
-      ),
+    const evidenceRefs = normalizeStudyGuideEvidenceRefs(section.evidenceRefs);
+    const scopeBasis = questionBankScopeBasisSchema.parse({
+      topicTitle: module.title,
+      learningObjectives: selectedObjectives.map((objective) => objective.title),
+      sourceLabel,
+      sourceTask,
+      evidenceRefs,
+      evidenceHash: studyGuideEvidenceRefsHash(evidenceRefs),
+    });
+    const id = stableQuestionId(
+      course.courseId,
+      module.id,
+      objectiveIds.join("+"),
+      sourceTask,
+      exercise.type,
+      exercise.id,
+    );
+    const normalizedReferenceSolution = referenceSolution
+      ? normalizeReferenceSolution(referenceSolution)
+      : undefined;
+    const contentHash = questionBankItemContentHash({
+      exercise,
+      referenceSolution: normalizedReferenceSolution,
+      scopeBasis,
+    });
+    const progressionItem = {
+      id,
       legacyExerciseId: exercise.id,
-      contentHash: sha256(JSON.stringify({ exercise, referenceSolution })),
+      assessmentQuestionTypes: section.questionTypes,
+      topicId: module.id,
+      learningObjectiveIds: objectiveIds,
+      type: exercise.type,
+      origin: "course_original",
+      scopeBasis,
+      exercise,
+    } as QuestionBank["items"][number];
+    const placement = matchingProgressionPlacement(progressionPlan, progressionItem, progressionBinding);
+    const stage = placement
+      ? course.learningStages[progressionPlan!.stages.findIndex((candidate) => candidate.id === placement.stageId)] ?? neutralStage
+      : neutralStage;
+    return [{
+      id,
+      legacyExerciseId: exercise.id,
+      contentHash,
       assessmentSectionId: section.id,
+      assessmentQuestionTypes: section.questionTypes,
       topicId: module.id,
       learningObjectiveIds: objectiveIds,
       type: exercise.type,
       stageIndex: stage.index,
       stageIntent: stage.intent,
       stageLabel: stage.label,
-      difficulty: "assessment",
-      estimatedMinutes: Math.max(10, Math.min(45, Math.round((task.points ?? 20) / 2))),
+      difficulty: placement?.difficulty ?? "standard",
+      estimatedMinutes: section.durationMinutes ?? 1,
       origin: "course_original",
-      scopeBasis: {
-        topicTitle: module.title,
-        learningObjectives: selectedObjectives.map((objective) => objective.title),
-        sourceLabel,
-        sourceTask,
-      },
-      review: {
-        status: "approved",
-        checks: {
-          schema: true,
-          scope: true,
-          answer: true,
-          provenance: true,
-          rendering: true,
-        },
-        findings: [],
-      },
-      ...(referenceSolution
-        ? { referenceSolution: normalizeReferenceSolution(referenceSolution) }
+      scopeBasis,
+      review: resolvedQuestionReview(id, contentHash, questionReviews, reviewContract),
+      ...(normalizedReferenceSolution
+        ? { referenceSolution: normalizedReferenceSolution }
         : {}),
       exercise,
     }];
   });
+}
+
+function assessmentSourceExerciseFromPlan(input: {
+  legacyExerciseId: string;
+  evidenceExcerpt: string;
+  sourceLabel: string;
+  sourceTask: string;
+  language: "de" | "en";
+  section: AssessmentBlueprint["sections"][number];
+  referenceSolution?: AssessmentReferenceSolution;
+  solutionSetResolved: boolean;
+}): StudyGuideContent["topics"][number]["exercises"][number] | null {
+  const source = {
+    label: input.sourceLabel,
+    sourceTask: input.sourceTask,
+    provenance: "source" as const,
+  };
+  const hasCompleteReference = input.referenceSolution?.completeness === "complete" &&
+    input.referenceSolution.missingEvidence.length === 0;
+  if (input.solutionSetResolved && !hasCompleteReference) return null;
+
+  // These are renderer capabilities, not a semantic type inference. An exact
+  // evaluator-authored calculation contract may become an auto-checkable item
+  // only after the source task has a complete reviewed solution. Other open
+  // question types remain visible to the composer as coverage gaps instead of
+  // being reinterpreted into a convenient local widget.
+  if (input.section.questionTypes.length !== 1) return null;
+  const [questionType] = input.section.questionTypes;
+  if (questionType === "calculation") {
+    if (!input.referenceSolution) {
+      return {
+        id: input.legacyExerciseId,
+        type: "application",
+        prompt: input.evidenceExcerpt,
+        instructions: input.language === "de"
+          ? ["Löse den dokumentierten Rechenauftrag vollständig.", "Prüfe Rechenweg und Ergebnis anhand der nachfolgenden Lösungsprüfung."]
+          : ["Solve the documented calculation task completely.", "Check the method and result against the subsequent solution review."],
+        sampleAnswer: input.language === "de"
+          ? "Eine geprüfte Referenzlösung wird vor der Veröffentlichung ergänzt."
+          : "A reviewed reference solution is added before publication.",
+        selfCheck: input.language === "de"
+          ? ["Alle dokumentierten Teilaufgaben sind bearbeitet.", "Rechenweg, Annahmen und Ergebnis sind nachvollziehbar."]
+          : ["Every documented subtask is addressed.", "The method, assumptions, and result are traceable."],
+        source,
+      };
+    }
+    return {
+      id: input.legacyExerciseId,
+      type: "calculation",
+      prompt: input.evidenceExcerpt,
+      givens: [input.evidenceExcerpt],
+      acceptedAnswers: [input.referenceSolution.finalAnswer],
+      unit: "",
+      steps: input.referenceSolution.steps,
+      commonMistake: input.language === "de"
+        ? "Nicht alle dokumentierten Teilaufgaben, Annahmen oder Einheiten zu prüfen."
+        : "Failing to check every documented subtask, assumption, or unit.",
+      source,
+    };
+  }
+  if (questionType !== "open-response") return null;
+  return {
+    id: input.legacyExerciseId,
+    type: "application",
+    prompt: input.evidenceExcerpt,
+    instructions: input.language === "de"
+      ? [
+          "Bearbeite den dokumentierten Auftrag vollständig in der vorgegebenen Form.",
+          "Vergleiche deine Ausführung anschließend mit der geprüften Referenz und den belegten Bewertungshinweisen.",
+        ]
+      : [
+          "Complete the documented task in its stated response form.",
+          "Then compare your work with the reviewed reference and documented assessment guidance.",
+        ],
+    sampleAnswer: input.referenceSolution?.finalAnswer ?? (input.language === "de"
+      ? "Eine geprüfte Study-Buddy-Vergleichslösung wird nach der Lösungsprüfung ergänzt."
+      : "A reviewed Study Buddy comparison response is added after solution review."),
+    selfCheck: input.language === "de"
+      ? [
+          "Der dokumentierte Auftrag ist vollständig bearbeitet.",
+          "Antwortform und Begründung entsprechen der belegten Aufgabenstellung.",
+        ]
+      : [
+          "The documented task is addressed completely.",
+          "The response form and reasoning match the evidenced task brief.",
+        ],
+    source,
+  };
 }
 
 function normalizeReferenceSolution(
@@ -726,68 +927,10 @@ function ensureTwoSolutionSteps(steps: string[], fallback: string): string[] {
   return clean.length >= 2 ? clean : [...clean, fallback].slice(0, 2);
 }
 
-function assessmentRubricSteps(
-  taskLines: string[],
-  language: "de" | "en",
-): string[] {
-  const demandIndex = taskLines.findIndex((line) =>
-    /(?:zu\s+ermittel|gesucht|required|to\s+be\s+determined|determine\s+the\s+following)/i.test(line)
-  );
-  const demandLines = demandIndex >= 0 ? taskLines.slice(demandIndex + 1) : taskLines;
-  const requested: string[] = [];
-  for (const line of demandLines) {
-    const numbered = /^\s*\d+[.)]\s*/.test(line);
-    const bullet = /^\s*[-–—•]\s*/.test(line);
-    const explicitDemand =
-      /(?:bestimm|ermittel|berechn|nachzuprüf|analys|determin|calculate|verify|analyse|analyze)/i.test(line);
-    if (numbered || (demandIndex >= 0 && bullet) || (demandIndex < 0 && explicitDemand)) {
-      const cleaned = cleanText(line.replace(/^\s*(?:\d+[.)]|[-–—•])\s*/, ""));
-      if (cleaned.length >= 5) requested.push(cleaned);
-      continue;
-    }
-    if (requested.length > 0 && line.length >= 3) {
-      requested[requested.length - 1] = cleanText(
-        `${requested[requested.length - 1]} ${line}`,
-      );
-    }
-  }
-  const uniqueRequested = [...new Set(requested)].slice(0, 7);
-  const taskCriteria = uniqueRequested.map((line) =>
-    language === "de"
-      ? conciseRubricCriterion(line, "de")
-      : conciseRubricCriterion(line, "en")
-  );
-  const methodCriteria = language === "de"
-    ? [
-        "Ausgangsformeln und Umformungen sind korrekt.",
-        "Zahlenwerte, Einheiten und Tabellenwerte sind nachvollziehbar.",
-        "Ergebnisse sind plausibel und den Teilfragen eindeutig zugeordnet.",
-      ]
-    : [
-        "Governing relations and rearrangements are correct.",
-        "Values, units, and table references are traceable.",
-        "Results are plausible and mapped clearly to the requested subtasks.",
-      ];
-  return [...taskCriteria, ...methodCriteria].slice(0, 10);
-}
-
-function conciseRubricCriterion(line: string, language: "de" | "en"): string {
-  const trimmed = line.replace(/[,:;.\s]+$/, "");
-  if (language === "de") {
-    if (/^(?:der|die|das|den)\b/i.test(trimmed)) return `${trimmed} korrekt bestimmt.`;
-    return `${trimmed} vollständig und korrekt bearbeitet.`;
-  }
-  return `${trimmed} completed correctly.`;
-}
-
 function bestAssessmentModule(
   course: CourseBlueprint,
   objectiveIds: string[],
-): CourseBlueprint["modules"][number] {
-  const explicitAssessmentModule = course.modules.find((module) =>
-    /(?:prüfung|klausur|exam|assessment|test)/i.test(module.title)
-  );
-  if (explicitAssessmentModule) return explicitAssessmentModule;
+): CourseBlueprint["modules"][number] | undefined {
   return [...course.modules].sort((left, right) => {
     const leftMatches = left.learningObjectives.filter((objective) =>
       objectiveIds.includes(objective.id)
@@ -796,407 +939,111 @@ function bestAssessmentModule(
       objectiveIds.includes(objective.id)
     ).length;
     return rightMatches - leftMatches || right.order - left.order;
-  })[0]!;
+  })[0];
 }
 
 function buildAssessmentBlueprint(
-  content: StudyGuideContent,
-  course: CourseBlueprint,
-  sourceText: string,
+  plan: AssessmentArchitecturePlan | undefined,
   language: "de" | "en",
 ): AssessmentBlueprint {
-  const explicitEvidence = hasExplicitAssessmentEvidence(sourceText);
-  const excerpt = assessmentExcerpt(sourceText);
-  const durationMinutes = firstNumber(excerpt, /(?:Dauer|duration|time)\s*:?\s*(\d{1,3})\s*(?:min|minutes?)/i);
-  const maxPoints = firstNumber(excerpt, /(?:Maximal\s+sind(?:\s+auf\s+diese\s+Klausur)?|maximum(?:\s+of)?)\D{0,40}(\d{1,4})\s*(?:Punkte|points?)/i);
-  const passingPoints = firstNumber(excerpt, /(?:ab|from)\s+(\d{1,4})\s*(?:Punkten|points?)\s+(?:positiv|pass)/i);
-  const numberedSections = numberedAssessmentTasks(excerpt);
-  const namedSections = numberedSections.length
-    ? numberedSections
-    : detectNamedAssessmentSections(excerpt);
-  const explicitStructure = explicitEvidence && namedSections.length > 0;
-  const sections = namedSections.length
-    ? namedSections.map((section, index) => assessmentSection(
-        section.title,
-        index,
-        explicitStructure ? "explicit" : "derived",
-        numberedSections.length ? 1 : null,
-        section.points,
-        maxPoints,
-        course,
-        section.context,
-        section.weight,
-      ))
-    : derivedAssessmentSections(content, course, language);
-  const pointsTotal = sections.reduce((total, section) => total + (section.points ?? 0), 0);
-  if (!maxPoints && pointsTotal > 0) {
-    for (const section of sections) section.weight = (section.points ?? 0) / pointsTotal;
+  if (!plan) {
+    return assessmentBlueprintSchema.parse({
+      schemaVersion: 1,
+      mode: "none",
+      title: language === "de" ? "Keine dokumentierte Prüfungsarchitektur" : "No documented assessment architecture",
+      confidence: "low",
+      durationMinutes: null,
+      maxPoints: null,
+      passingPoints: null,
+      allowedAids: [],
+      prohibitedAids: [],
+      sections: [],
+      evidence: [],
+      basisRequirementIds: [],
+      rationale: language === "de"
+        ? "Für diesen Modellaufbau wurde kein verifizierter Assessment-Plan übergeben."
+        : "No verified assessment plan was supplied for this model build.",
+    });
   }
-  const aids = extractAids(excerpt, /(?:Erlaubt\s+sind|Allowed(?:\s+aids)?(?:\s+are)?)\s*:?\s*([^\\\n]{3,240})/i);
-  const prohibited = extractAids(excerpt, /(?:Keine\s+Verwendung\s+von|Not\s+allowed)\s*:?\s*([^\\\n]{3,240})/i);
-  const title = explicitStructure
-    ? language === "de" ? "Prüfungssimulation" : "Exam simulation"
-    : language === "de" ? "Übungssimulation nach Kursstruktur" : "Exercise simulation based on course structure";
+  const verified = assertAssessmentArchitecturePlanIntegrity(plan);
   return assessmentBlueprintSchema.parse({
     schemaVersion: 1,
-    mode: explicitStructure ? "explicit" : "inferred",
-    title,
-    confidence: explicitStructure && sections.length >= 2
-      ? "high"
-      : explicitStructure
-        ? "medium"
-        : "low",
-    durationMinutes,
-    maxPoints,
-    passingPoints,
-    allowedAids: aids,
-    prohibitedAids: prohibited,
-    sections,
-    evidence: excerpt
-      ? [{
-          level: explicitEvidence ? "explicit" : "derived",
-          label: explicitEvidence
-            ? language === "de" ? "Prüfungsinformation im Kurs" : "Course assessment information"
-            : language === "de" ? "Aus Kurs- und Aufgabenstruktur abgeleitet" : "Derived from course and task structure",
-          excerpt: excerpt.slice(0, 1_200),
-        }]
-      : [],
+    mode: verified.mode,
+    title: verified.title,
+    confidence: verified.confidence,
+    durationMinutes: verified.durationMinutes,
+    maxPoints: verified.maxPoints,
+    passingPoints: verified.passingPoints,
+    allowedAids: verified.allowedAids,
+    prohibitedAids: verified.prohibitedAids,
+    sections: verified.sections.map((section, order) => ({ ...section, order })),
+    evidence: verified.sections.map((section) => ({
+      level: section.evidenceLevel,
+      label: section.title,
+      excerpt: section.evidenceExcerpt,
+    })),
+    basisRequirementIds: verified.basisRequirementIds,
+    rationale: verified.rationale,
+    planBinding: verified.binding,
+    planContentHash: verified.contentHash,
   });
 }
 
-function assessmentSection(
-  title: string,
-  order: number,
-  evidenceLevel: "explicit" | "derived",
-  taskCount: number | null,
-  points: number | null,
-  maxPoints: number | null,
-  course: CourseBlueprint,
-  context = "",
-  explicitWeight: number | null = null,
-): AssessmentBlueprint["sections"][number] {
-  const titleLower = title.toLocaleLowerCase();
-  const lower = `${title} ${context}`.toLocaleLowerCase();
-  const questionTypes: AssessmentBlueprint["sections"][number]["questionTypes"] =
-    /(?:rechen|calculation|numeric|mathemat)/i.test(titleLower)
-      ? ["calculation"]
-      : /(?:vocab|wortschatz|flashcard)/i.test(titleLower)
-        ? ["flashcard"]
-      : /(?:text|writing|essay|fall|case|argument|presentation|pecha|oral|speaking)/i.test(titleLower)
-          ? ["open-response"]
-          : /(?:theorie|theory|reading|lese|grammatik|grammar)/i.test(titleLower)
-            ? ["selection", "open-response"]
-            : /(?:berechn|maß(?:toleranz|eintragung)|festigkeit|nachgiebigkeit|vorspannkraft|drehmoment|calculation|numeric|mathemat)/i.test(lower)
-              ? ["calculation"]
-              : ["selection", "open-response"];
-  const titleTokens = meaningfulTokens(title);
-  const contextTokens = meaningfulTokens(context);
-  const objectives = course.modules.flatMap((module) => module.learningObjectives);
-  const matchedByTitle = objectives.filter((objective) =>
-    tokenSetsRelated(meaningfulTokens(objective.title), titleTokens)
-  );
-  const matchedByContext = course.modules
-    .filter((module) => tokenSetsRelated(meaningfulTokens(module.title), contextTokens))
-    .flatMap((module) => module.learningObjectives);
-  let matchedObjectives = [...new Map(
-    [...matchedByTitle, ...matchedByContext].map((objective) => [objective.id, objective]),
-  ).values()];
-  if (
-    matchedObjectives.length === 0 &&
-    (questionTypes.includes("flashcard") || /^(?:theorie(?:teil)?|theory(?:\s+section)?|rechen(?:teil)?|calculation(?:\s+section)?|numerical(?:\s+section)?|vokabular(?:teil)?|vocabulary(?:\s+(?:section|test|part))?|leseverstehen|reading(?:\s+comprehension)?|grammatik(?:teil)?|grammar(?:\s+section)?|schreib(?:teil)?|textproduktion|writing(?:\s+section)?|essay)$/i.test(title.trim()))
-  ) {
-    matchedObjectives = objectives;
-  }
-  return {
-    id: `assessment-section-${order + 1}`,
-    title,
-    order,
-    evidenceLevel,
-    deliveryMode: assessmentDeliveryMode(title, context),
-    taskCount,
-    points,
-    weight: explicitWeight ?? (points !== null && maxPoints ? points / maxPoints : null),
-    durationMinutes: null,
-    questionTypes,
-    learningObjectiveIds: matchedObjectives.map((objective) => objective.id),
-  };
-}
-
-function derivedAssessmentSections(
-  content: StudyGuideContent,
-  course: CourseBlueprint,
-  language: "de" | "en",
-): AssessmentBlueprint["sections"] {
-  const exercises = content.topics.flatMap((topic) => topic.exercises);
-  const definitions: Array<{ title: string; types: AssessmentBlueprint["sections"][number]["questionTypes"] }> = [];
-  if (exercises.some((exercise) => exercise.type === "cross")) {
-    definitions.push({
-      title: language === "de" ? "Grundlagen und Verständnis" : "Foundations and understanding",
-      types: ["selection"],
-    });
-  }
-  if (exercises.some((exercise) => exercise.type === "calculation")) {
-    definitions.push({
-      title: language === "de" ? "Rechnen und Anwenden" : "Calculation and application",
-      types: ["calculation"],
-    });
-  }
-  if (exercises.some((exercise) => exercise.type === "application")) {
-    definitions.push({
-      title: language === "de" ? "Transfer und offene Aufgaben" : "Transfer and open responses",
-      types: ["open-response"],
-    });
-  }
-  if (exercises.some((exercise) => exercise.type === "vocabulary")) {
-    definitions.push({
-      title: language === "de" ? "Vokabular und Fachbegriffe" : "Vocabulary and terminology",
-      types: ["flashcard"],
-    });
-  }
-  return definitions.map((definition, order) => ({
-    id: `assessment-section-${order + 1}`,
-    title: definition.title,
-    order,
-    evidenceLevel: "derived",
-    deliveryMode: definition.types.includes("open-response") ? "self-assessed" : "interactive",
-    taskCount: null,
-    points: null,
-    weight: null,
-    durationMinutes: null,
-    questionTypes: definition.types,
-    learningObjectiveIds: course.modules.flatMap((module) =>
-      module.learningObjectives.map((objective) => objective.id)
-    ),
-  }));
-}
-
-function assessmentDeliveryMode(
-  title: string,
-  context: string,
-): AssessmentBlueprint["sections"][number]["deliveryMode"] {
-  if (/(?:vocab|wortschatz|flashcard|selection|multiple\s*choice|identif(?:y|ication)|classif(?:y|ication)|matching|zuordn|calculation|rechen|numeric|reading|grammar|lese|grammatik)/i.test(title)) {
-    return "interactive";
-  }
-  if (/(?:pecha\s*kucha|presentation|oral(?:ly)?|speaking|viva|practical(?:\s+\w+){0,5}\s+(?:exam|demonstration)|lab(?:oratory)?(?:\s+\w+){0,5}\s+(?:exam|demonstration)|vortrag|präsentation|mündlich)/i.test(title)) {
-    return "external-performance";
-  }
-  if (/(?:writing|essay|case|argument|textproduktion|schreib|fallstudie)/i.test(`${title} ${context}`)) {
-    return "self-assessed";
-  }
-  return "interactive";
-}
-
-function selectObjective(
+function objectivesForEvidence(
   objectives: CourseBlueprint["modules"][number]["learningObjectives"],
-  prompt: string,
-  sourceTask: string,
-  fallbackKey: string,
-): CourseBlueprint["modules"][number]["learningObjectives"][number] {
-  const evidenceTokens = tokens(`${prompt} ${sourceTask}`);
-  const scored = objectives.map((objective) => ({
-    objective,
-    score: [...tokens(objective.title)].filter((token) => evidenceTokens.has(token)).length,
-  })).sort((left, right) => right.score - left.score);
-  if ((scored[0]?.score ?? 0) > 0) return scored[0].objective;
-  const fallbackIndex = Number.parseInt(sha256(fallbackKey).slice(0, 8), 16) % objectives.length;
-  return objectives[fallbackIndex];
+  refs: StudyGuideEvidenceRef[],
+): CourseBlueprint["modules"][number]["learningObjectives"] {
+  const indexes = new Set(refs.flatMap((reference) => reference.learningGoalIndexes));
+  const evidenced = objectives.filter((objective) => indexes.has(objective.order));
+  if (evidenced.length === 0) {
+    throw new Error("Evidence capsule does not bind any learning objective in its course module.");
+  }
+  return evidenced;
 }
 
-function hasExplicitAssessmentEvidence(value: string): boolean {
-  return assessmentMarkerIndexes(value).length > 0;
+function verifiedEvidenceRefs(
+  content: StudyGuideContent,
+  topic: StudyGuideContent["topics"][number],
+  refs: StudyGuideEvidenceRef[] | undefined,
+): StudyGuideEvidenceRef[] {
+  if (!refs || refs.length === 0) return [];
+  const normalized = normalizeStudyGuideEvidenceRefs(refs);
+  const sourceIds = new Set(content.sources.map((source) => source.id));
+  for (const reference of normalized) {
+    if (reference.sourceIds.some((sourceId) => !sourceIds.has(sourceId))) {
+      throw new Error(`Evidence capsule for ${topic.id} references an unknown source ID.`);
+    }
+    if (reference.learningGoalIndexes.some((index) => index >= topic.learningGoals.length)) {
+      throw new Error(`Evidence capsule for ${topic.id} references a missing learning goal index.`);
+    }
+  }
+  return normalized;
 }
 
-function assessmentExcerpt(value: string): string {
-  const indexes = assessmentMarkerIndexes(value);
-  if (indexes.length === 0) return "";
-  const candidates = indexes.map((index) => {
-    const excerpt = value.slice(Math.max(0, index - 500), index + 30_000);
-    const score =
-      (excerpt.match(/(?:Aufgabe|Question|Task)\s*\d{1,2}\s*:/gi)?.length ?? 0) * 12 +
-      (excerpt.match(/(?:\d+(?:[.,]\d+)?)\s*(?:Punkte|points?)/gi)?.length ?? 0) * 5 +
-      (excerpt.match(/\(\s*\d+(?:[.,]\d+)?\s*%\s*\)/g)?.length ?? 0) * 10 +
-      (/(?:consist(?:s|ed)?\s+of|besteht\s+aus).{0,500}(?:presentation|präsentation|vocabulary|vokabular|oral|mündlich)/is.test(excerpt) ? 20 : 0) +
-      (/(?:Dauer|duration|time)\s*:?\s*\d{1,3}\s*(?:min|minutes?)/i.test(excerpt) ? 8 : 0) +
-      (/(?:Erlaubt\s+sind|Allowed(?:\s+aids)?)/i.test(excerpt) ? 6 : 0) +
-      (/(?:Keine\s+Verwendung\s+von|Not\s+allowed)/i.test(excerpt) ? 6 : 0);
-    return { excerpt, score, index };
-  }).sort((left, right) => right.score - left.score || right.index - left.index);
-  return candidates[0].excerpt
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+function legacyExerciseEvidenceRefs(
+  content: StudyGuideContent,
+  topic: StudyGuideContent["topics"][number],
+  topicIndex: number,
+  exercise: StudyGuideContent["topics"][number]["exercises"][number],
+): StudyGuideEvidenceRef[] {
+  const matchedSource = content.sources.find((source) => source.label === exercise.source.label) ?? content.sources[0]!;
+  return [{
+    sourceIds: [matchedSource.id],
+    sectionIndex: topicIndex,
+    sectionHeading: topic.title,
+    learningGoalIndexes: [0],
+  }];
 }
 
-function numberedAssessmentTasks(
-  value: string,
-): Array<{
-  title: string;
-  points: number | null;
-  weight: number | null;
-  order: number;
-  context: string;
-}> {
-  const matches = [...value.matchAll(
-    /(?:Aufgabe|Question|Task)\s*(\d{1,2})\s*:\s*([^\\\n(]{3,120}?)(?:\s*\((\d+(?:[.,]\d+)?)\s*(?:Punkte|points?)\))?(?=\\n|\n|$)/gi,
-  )];
-  return matches.map((match, index) => ({
-    title: cleanText(match[2]),
-    points: match[3] ? Number(match[3].replace(",", ".")) : null,
-    weight: null,
-    order: index,
-    context: value.slice(
-      match.index,
-      matches[index + 1]?.index ?? Math.min(value.length, match.index + 4_000),
-    ).split(/\n(?:\[Linked file\]|Selection:|Extraction status:)/i)[0],
-  })).filter((section) => section.title.length >= 3);
-}
-
-function assessmentTaskLines(context: string): string[] {
-  const lines = context
-    .replace(/^(?:Aufgabe|Question|Task)\s*\d{1,2}\s*:[^\n]*(?:\n|$)/i, "")
-    .split(/\n+/)
-    .map((line) => cleanText(line))
-    .filter((line) =>
-      line.length >= 3 &&
-      !/^\[Linked file\]$/i.test(line) &&
-      !/^(?:Seite|Page)\s*\d+\b/i.test(line) &&
-      !/^(?:Punkte|Note|Bewertung|Score|Grade)\s*:/i.test(line)
-    )
-    .map((line) => line.slice(0, 700));
-  return lines.slice(0, 16);
-}
-
-function assessmentMarkerIndexes(value: string): number[] {
-  const indexes = [
-    ...value.matchAll(/(?:Musterprüfung|Prüfungsaufbau|Klausur|sample\s+exam|assessment\s+structure|exam\s+(?:format|structure))/gi),
-    ...value.matchAll(/(?:Prüfung.{0,220}?(?:besteht|gliedert|umfasst|Teil|Dauer|Punkte|Hilfsmittel)|(?:exam|assessment).{0,220}?(?:consist(?:s|ed)?|includes|section|part|duration|points|aids))/gis),
-  ].map((match) => match.index);
-  return [...new Set(indexes)].sort((left, right) => left - right);
-}
-
-function normalizeEvidenceText(value: string): string {
-  return value
-    .replace(/\\n/g, "\n")
-    .replace(/\\"/g, '"')
-    .replace(/\\t/g, " ")
-    .replace(/\u00a0/g, " ");
+function evidenceSourceLabels(content: StudyGuideContent, refs: StudyGuideEvidenceRef[]): string[] {
+  const labels = refs.flatMap((reference) => reference.sourceIds.map((sourceId) =>
+    content.sources.find((source) => source.id === sourceId)?.label
+  )).filter((label): label is string => Boolean(label));
+  return [...new Set(labels)];
 }
 
 function cleanText(value: string): string {
   return value.replace(/\\n/g, "\n").replace(/\s+/g, " ").trim();
-}
-
-function firstNumber(value: string, pattern: RegExp): number | null {
-  const match = pattern.exec(value);
-  return match?.[1] ? Number(match[1].replace(",", ".")) : null;
-}
-
-function extractAids(value: string, pattern: RegExp): string[] {
-  const match = pattern.exec(value)?.[1];
-  if (!match) return [];
-  return match
-    .split(/\s*(?:,|;|•| und | and )\s*/i)
-    .map((entry) => entry.replace(/[.]+$/g, "").trim())
-    .filter((entry) => entry.length >= 2)
-    .slice(0, 8);
-}
-
-function detectNamedAssessmentSections(
-  value: string,
-): Array<{ title: string; points: number | null; weight: number | null; order: number; context: string }> {
-  const weighted = [...value.matchAll(
-    /\b(Pecha\s*Kucha\s+presentation|content\s+questions?(?:\s+to\s+be\s+answered\s+orally)?|oral\s+(?:content\s+)?questions?|vocabulary\s+test)\s*\(\s*(\d+(?:[.,]\d+)?)\s*%\s*\)/gi,
-  )].map((match) => ({
-    title: cleanText(match[1]),
-    points: null,
-    weight: Number(match[2].replace(",", ".")) / 100,
-    order: match.index,
-    context: value.slice(Math.max(0, match.index - 500), match.index + 1_500),
-  }));
-  if (weighted.length >= 2) {
-    return [...new Map(weighted.map((section) => [
-      section.title.toLocaleLowerCase(),
-      section,
-    ])).values()]
-      .sort((left, right) => left.order - right.order)
-      .map((section, order) => ({ ...section, order }));
-  }
-  const genericWeighted = value
-    .split(/\s*(?:,|;|\band\b|\bund\b)\s*/i)
-    .flatMap((fragment) => {
-      const match = /([^()\n]{2,100}?)\s*\(\s*(\d+(?:[.,]\d+)?)\s*%\s*\)/i.exec(fragment);
-      if (!match) return [];
-      const title = cleanText(match[1])
-        .replace(/^.*?(?:consists?\s+of|besteht\s+aus|includes?|umfasst)\s+/i, "")
-        .replace(/^(?:an?|the|einen?|eine[mnr]?|einem)\s+/i, "")
-        .replace(/[.:]\s*$/, "");
-      if (title.length < 3 || title.length > 90) return [];
-      return [{
-        title,
-        points: null,
-        weight: Number(match[2].replace(",", ".")) / 100,
-        order: value.indexOf(match[0]),
-        context: value.slice(Math.max(0, value.indexOf(match[0]) - 500), value.indexOf(match[0]) + 1_500),
-      }];
-    });
-  if (genericWeighted.length >= 2) {
-    return [...new Map(genericWeighted.map((section) => [
-      section.title.toLocaleLowerCase(),
-      section,
-    ])).values()]
-      .sort((left, right) => left.order - right.order)
-      .map((section, order) => ({ ...section, order }));
-  }
-  const patterns = [
-    /\b(?:Theorie(?:teil)?|Theory(?:\s+section)?)\b/i,
-    /\b(?:Rechen(?:teil)?|Calculation(?:\s+section)?|Numerical(?:\s+section)?)\b/i,
-    /\b(?:Vokabular(?:teil)?|Vocabulary(?:\s+section)?)\b/i,
-    /\b(?:Leseverstehen|Reading(?:\s+comprehension)?)\b/i,
-    /\b(?:Grammatik(?:teil)?|Grammar(?:\s+section)?)\b/i,
-    /\b(?:Schreib(?:teil)?|Textproduktion|Writing(?:\s+section)?|Essay)\b/i,
-    /\b(?:Fall(?:studie|teil)?|Case(?:\s+study|\s+section)?)\b/i,
-    /\b(?:Pecha\s*Kucha\s+presentation|Presentation(?:\s+section)?)\b/i,
-    /\b(?:content\s+questions?(?:\s+to\s+be\s+answered\s+orally)?|oral\s+(?:content\s+)?questions?|Speaking(?:\s+section)?)\b/i,
-  ];
-  const titles: string[] = [];
-  for (const pattern of patterns) {
-    const match = pattern.exec(value);
-    if (match && !titles.some((title) => title.toLocaleLowerCase() === match[0].toLocaleLowerCase())) {
-      titles.push(match[0]);
-    }
-  }
-  return titles.map((title, order) => ({ title, points: null, weight: null, order, context: value }));
-}
-
-function tokens(value: string): Set<string> {
-  return new Set(
-    value
-      .normalize("NFKD")
-      .toLocaleLowerCase()
-      .match(/[a-zäöüß]{4,}/g) ?? [],
-  );
-}
-
-function meaningfulTokens(value: string): Set<string> {
-  const stop = new Set([
-    "einer", "eines", "einem", "eine", "einen", "einem", "einer", "eines",
-    "diese", "dieser", "dieses", "sowie", "anhand", "gegebenen", "durchführen",
-    "welche", "zusätzlichen", "angaben", "erforderlich", "erkennen", "unter",
-    "with", "from", "that", "this", "these", "which", "given", "using", "and",
-  ]);
-  return new Set([...tokens(value)].filter((token) => !stop.has(token)));
-}
-
-function tokenSetsRelated(left: Set<string>, right: Set<string>): boolean {
-  return [...left].some((leftToken) =>
-    [...right].some((rightToken) => {
-      const leftStem = leftToken.replace(/(?:ungen|ung|ern|en|er|es|e|s)$/i, "");
-      const rightStem = rightToken.replace(/(?:ungen|ung|ern|en|er|es|e|s)$/i, "");
-      return leftStem === rightStem ||
-        (leftStem.length >= 6 && rightStem.length >= 6 &&
-          (leftStem.includes(rightStem) || rightStem.includes(leftStem)));
-    })
-  );
 }
 
 function stableSlug(value: string): string {

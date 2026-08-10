@@ -38,33 +38,18 @@ export async function reviewStudyModel(
       findings.push(error("math", "formula-metadata", `Formula metadata incomplete: ${formula.name}`));
     }
   }
-  if (model.profile === "study_guide" && model.practiceItems.length > 0) {
-    findings.push(error("student_value", "study-guide-practice", "Study guides must not contain practice items."));
-  }
   if (model.profile === "study_guide") {
     for (const chapter of model.courseChapters.filter((entry) => entry.status === "covered")) {
       const topics = model.topics.filter((topic) => topic.chapterId === chapter.id);
-      const learningCharacters = topics.reduce(
-        (total, topic) => total + topic.summary.length + topic.learningGoals.join(" ").length,
-        0,
-      );
-      if (learningCharacters < 1_200) {
+      if (topics.length === 0) {
         findings.push(error(
           "student_value",
-          "chapter-too-shallow",
-          `Chapter is too shallow to learn from (${learningCharacters}/1200 learning characters): ${chapter.title}`,
-        ));
-      }
-      const needsApplication = chapter.contentMode !== "conceptual";
-      if (needsApplication && !model.workedExamples.some((example) => example.chapterId === chapter.id)) {
-        findings.push(error(
-          "student_value",
-          "chapter-example-missing",
-          `Covered ${chapter.contentMode} chapter has no worked example, case, or applied procedure: ${chapter.title}`,
+          "chapter-content-missing",
+          `Covered chapter has no source-backed subject content: ${chapter.title}`,
         ));
       }
     }
-    if (evidence) enforceLookupDependencies(model, manifest, evidence, findings);
+    if (evidence) validateIncludedLookupDependencies(model, manifest, evidence, findings);
   }
   if (new Set(model.checklist).size !== model.checklist.length) {
     findings.push(error("student_value", "duplicate-checklist", "The learning checklist contains duplicates."));
@@ -104,7 +89,7 @@ export async function reviewStudyModel(
   });
 }
 
-function enforceLookupDependencies(
+function validateIncludedLookupDependencies(
   model: StudyModel,
   manifest: ResourceManifest,
   evidence: EvidencePackage,
@@ -122,22 +107,8 @@ function enforceLookupDependencies(
     if (!resource || !chapter || chapter.status === "missing" || checkedChapters.has(chapter.id)) continue;
     checkedChapters.add(chapter.id);
 
-    const chapterFigures = model.figures.filter((figure) => figure.chapterId === chapter.id);
-    const hasLookupVisual = chapterFigures.some((figure) =>
-      Boolean(figure.relativePath) &&
-      /(?:tabelle|table|tabellenbuch|toleranzgrad|grundtoleranz|grundabmaß|grundabmass|kennlinie|nomogramm)/i.test(
-        `${figure.title} ${figure.caption}`,
-      )
-    );
-    if (!hasLookupVisual) {
-      findings.push(error(
-        "student_value",
-        "lookup-visual-missing",
-        `Chapter references a mandatory table lookup but contains no usable lookup table/diagram: ${chapter.title} (${resource.title})`,
-      ));
-    }
-
     const examples = model.workedExamples.filter((example) => example.chapterId === chapter.id);
+    if (examples.length === 0) continue;
     const hasLookupMethod = examples.some((example) =>
       /(?:tabelle|tabellenzeile|tabellenspalte|nennmaßbereich|nennmassbereich|toleranzgrad|grundabmaß|grundabmass|ablesen|nachschlagen|TB\s*\d)/i.test(
         `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")} ${example.result}`,
@@ -147,7 +118,7 @@ function enforceLookupDependencies(
       findings.push(error(
         "student_value",
         "lookup-method-missing",
-        `Chapter references a mandatory table lookup, but its worked example skips the lookup method and starts from pre-read values: ${chapter.title}`,
+        `An included worked example uses a table lookup but skips the lookup method and starts from pre-read values: ${chapter.title}`,
       ));
     }
   }

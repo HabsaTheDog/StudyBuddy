@@ -32,9 +32,8 @@ export function studyBuddyTemplatePromptReference(language: SupportedLanguage = 
     "- #sb-checklist(( [...], [...], )) only for actual to-do or final self-check tasks where empty checkboxes are useful. Never use it for chapter key concepts, vocabulary, theory summaries, worked-example steps, or question banks.",
     "",
     "Layout balance rules:",
-    "- Default to normal Typst prose paragraphs for explanations. A study document should read like a clear script, not like a sequence of boxes.",
-    "- Each level-1 content section should start with one to three ordinary paragraphs before any checklist, table, formula, or callout.",
-    "- Keep at least half of the substantive body content as prose outside callouts, source notes, tables, checklists, formula panels, and exercises.",
+    "- Use ordinary Typst prose for explanations when the evaluated request calls for narrative understanding. Formula sheets, glossaries, tables, worksheets, and other legitimate document patterns may use a different evidence-backed balance.",
+    "- Do not enforce a paragraph count or prose ratio. Let the evaluated request contract and supplied material determine the useful balance of prose, lists, mathematics, tables, examples, and exercises.",
     "- Avoid back-to-back boxed components. If two visual components are necessary, separate them with explanatory prose or merge them.",
     "- Never place two #sb-callout blocks directly after each other. Group related warnings into one concise source caveat or use ordinary prose/list text.",
     "- Use at most one callout in a normal level-1 section, and omit it entirely when the section has no warning, deadline, core takeaway, or unusual source issue.",
@@ -72,7 +71,7 @@ export function studyBuddyTemplatePromptReference(language: SupportedLanguage = 
     "- Use Omega or text \"Ohm\"; never use Omega.alt.",
     "",
     "Content and locale rules:",
-    "- Produce a polished study document, not a plain headings-only transcript. Use approved formula, example, table, checklist, diagram, and source-note components where the extracted data supports them, while keeping prose as the primary reading path.",
+    "- Produce a polished document whose reading pattern matches the evaluated request. Use only components justified by the contract and extracted data; no component type or prose-heavy reading path is universally required.",
     "- Mirror every explicitly requested deliverable as a clear level-1 section and keep practical steps actionable.",
     language === "en"
       ? "- Write all learner-facing prose and labels in English. Use en-GB date conventions, 24-hour time, decimal points in prose, and SI units."

@@ -36,13 +36,13 @@ describe("discipline-aware student value review", () => {
     expect(review.findings.map((finding) => finding.code)).not.toContain("chapter-example-missing");
   });
 
-  it("requires an executable application for a procedural chapter", async () => {
+  it("does not invent an application requirement for a procedural chapter", async () => {
     const model = studyModel("procedural", []);
 
     const review = await reviewStudyModel(model, coverage, manifest);
 
-    expect(review.ok).toBe(false);
-    expect(review.findings.map((finding) => finding.code)).toContain("chapter-example-missing");
+    expect(review.ok).toBe(true);
+    expect(review.findings.map((finding) => finding.code)).not.toContain("chapter-example-missing");
   });
 
   it("accepts a source-grounded case analysis as the application for a case-based chapter", async () => {

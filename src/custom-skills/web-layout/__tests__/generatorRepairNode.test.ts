@@ -65,6 +65,32 @@ describe("targeted artifact repair", () => {
     expect(result.artifact_repair_stage).toBe(2);
     expect(result.html_document).toContain("Repaired Guide");
   });
+
+  it("uses the generator-local retry count for model escalation", async () => {
+    const runDir = await temporaryDirectory();
+    const attempts: number[] = [];
+    const codex: CodexClient = {
+      async run(_prompt, options) {
+        attempts.push(options.attempt ?? -1);
+        const repairPath = path.join(runDir, ".repair", "document.html");
+        const html = await readFile(repairPath, "utf8");
+        await writeFile(repairPath, html.replace("Guide", "Repaired Guide"), "utf8");
+        return "UPDATED_DOCUMENT_HTML";
+      },
+    };
+    const node = createGeneratorNode(config(runDir), codex);
+    await node({
+      ...initialWebLayoutState,
+      retry_count: 6,
+      validator_retry_count: 3,
+      generator_retry_count: 0,
+      html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "study-guide", language: "de" }),
+      error_log: "Semantic quality review failed: preserve answers",
+      validation_report: { ok: true, issues: [] },
+    });
+
+    expect(attempts).toEqual([1]);
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {

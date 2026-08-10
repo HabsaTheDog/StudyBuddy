@@ -1,6 +1,7 @@
 import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
+import { launchMoodleBrowser } from "../browserLaunch.js";
 import { dismissCommonOverlays, ensureLoggedIn, isAuthFailure, looksLikeLoginPage } from "../browserAuth.js";
 import { extractReadableFileText } from "../fileTextExtraction.js";
 import { safeFileName } from "../runDiagnostics.js";
@@ -46,7 +47,11 @@ export function createCisScraperNode(config: MoodleRuntimeConfig) {
 
     try {
       await diagnostics?.log("info", "cis_login", "Opening CIS dashboard...");
-      browser = await chromium.launch({ headless: config.headless });
+      browser = await launchMoodleBrowser({
+        headless: config.headless,
+        abortSignal: config.abortSignal,
+        purpose: "CIS scraper",
+      });
       config.abortSignal?.addEventListener("abort", () => {
         void browser?.close();
       }, { once: true });

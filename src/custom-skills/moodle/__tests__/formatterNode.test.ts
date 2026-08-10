@@ -47,7 +47,7 @@ describe("formatterNode", () => {
     expect(receivedPrompt).not.toContain("engineering study note");
     expect(receivedPrompt).toContain("sb-flowchart-branch");
     expect(receivedPrompt).toContain("Never draw diagrams with text arrow glyphs");
-    expect(receivedPrompt).toContain("Default to normal Typst prose paragraphs");
+    expect(receivedPrompt).toContain("Do not enforce a paragraph count or prose ratio");
     expect(receivedPrompt).toContain("Do not use callouts as normal paragraph wrappers");
     expect(validateTypstMock).toHaveBeenCalledWith(
       studyBuddyTypstDocument(),
@@ -66,13 +66,15 @@ describe("formatterNode", () => {
     });
   });
 
-  it("uses the deterministic renderer on the retry route without another Codex call", async () => {
+  it("uses the contract-aware repair formatter instead of a semantic deterministic fallback", async () => {
     validateTypstMock.mockResolvedValueOnce({ ok: true });
     let codexCalls = 0;
+    let receivedPrompt = "";
     const codex: CodexClient = {
-      async run() {
+      async run(prompt) {
         codexCalls += 1;
-        return "";
+        receivedPrompt = prompt;
+        return studyBuddyTypstDocument("= Repaired Ablaufplan");
       },
     };
 
@@ -91,11 +93,11 @@ describe("formatterNode", () => {
       }),
     );
 
-    expect(codexCalls).toBe(0);
+    expect(codexCalls).toBe(1);
+    expect(receivedPrompt).toContain("Typst validation failed");
+    expect(receivedPrompt).toContain("Evaluated request contract");
     expect(result.error_log).toBeNull();
-    expect(result.final_document).toContain("So arbeitest du mit dieser Unterlage");
-    expect(result.final_document).toContain("Erarbeite zuerst die Erklärung");
-    expect(result.final_document).not.toContain("Quellen und Modellannahmen");
+    expect(result.final_document).toContain("Repaired Ablaufplan");
   });
 
   it("routes semantic quality findings to the repairing LLM formatter", async () => {

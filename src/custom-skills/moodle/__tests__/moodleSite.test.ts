@@ -5,6 +5,7 @@ import {
   extractMoodleUrlFromText,
   isExternalToMoodle,
   isLikelyMoodleUrl,
+  normalizeMoodleCourseIdentity,
   normalizeMoodleCourseTitle,
 } from "../moodleSite.js";
 
@@ -52,5 +53,14 @@ describe("generic Moodle site handling", () => {
     expect(normalizeMoodleCourseTitle(
       "Course: World Literature: Modernism | University Virtual Campus",
     )).toBe("World Literature: Modernism");
+  });
+
+  it("separates catalogue code, title, and flattened dashboard metadata", () => {
+    expect(normalizeMoodleCourseIdentity(
+      "BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik LektorInnen: Fröhlich, Hainzl Ihre Rolle: TeilnehmerIn",
+    )).toEqual({ code: "DYN2", title: "Anwendungen der Dynamik" });
+    expect(normalizeMoodleCourseIdentity(
+      "BMR-VZ-2-SS2026-ENG2-EN/165608 BMR Business English LektorIn: Andrea Zimpernik Ihre Rolle: TeilnehmerIn",
+    )).toEqual({ code: "ENG2", title: "BMR Business English" });
   });
 });

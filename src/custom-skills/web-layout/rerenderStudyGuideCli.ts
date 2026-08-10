@@ -6,14 +6,15 @@ import { prepareWebLayoutArtifact } from "./assetPipeline.js";
 import { createWebLayoutRuntimeConfig } from "./config.js";
 import { applyOfflineSecurityPolicy } from "./htmlShell.js";
 import { renderAdaptiveStudyGuide } from "./adaptiveStudyGuideRenderer.js";
-import { buildAdaptiveStudyModel } from "./adaptiveStudyModel.js";
-import {
-  assessmentSolutionSetSchema,
-  missingAssessmentSolutionIds,
-} from "./assessmentSolutions.js";
+import { adaptiveStudyModelSchema } from "./adaptiveStudyModel.js";
 import { studyGuideContentSchema } from "./studyGuideContent.js";
-import { learningVisualSetSchema } from "./learningVisualTypes.js";
 import { validateWebLayoutFile, validationReportToJson } from "./validation.js";
+import {
+  REQUEST_CONTRACT_FILE,
+  REQUEST_CONTRACT_INTEGRITY_FILE,
+  RequestContractSchema,
+  verifyRequestContractIntegrity,
+} from "../shared/requestContract.js";
 
 const startedMs = Date.now();
 const startedAt = new Date(startedMs).toISOString();
@@ -35,15 +36,45 @@ const options = program.opts<{
   browserHeaded?: boolean;
 }>();
 const runDir = path.resolve(options.runDir);
-const [contentText, priorConfigText, layoutText, sourceText, solutionText, visualText] = await Promise.all([
+const [
+  contentText,
+  priorConfigText,
+  layoutText,
+  sourceText,
+  courseBlueprintText,
+  assessmentBlueprintText,
+  questionBankText,
+  contractText,
+  contractIntegrityText,
+  assessmentPlanText,
+  progressionPlanText,
+  questionReviewsText,
+  solutionText,
+  visualText,
+] = await Promise.all([
   readFile(path.join(sourceRunDir, "study-guide-content.json"), "utf8"),
   readFile(path.join(sourceRunDir, "config.json"), "utf8"),
   readFile(path.join(sourceRunDir, "layout-spec.json"), "utf8"),
   readFile(path.join(sourceRunDir, "source.txt"), "utf8"),
+  readFile(path.join(sourceRunDir, "course-blueprint.json"), "utf8"),
+  readFile(path.join(sourceRunDir, "assessment-blueprint.json"), "utf8"),
+  readFile(path.join(sourceRunDir, "question-bank.json"), "utf8"),
+  readFile(path.join(sourceRunDir, REQUEST_CONTRACT_FILE), "utf8"),
+  readFile(path.join(sourceRunDir, REQUEST_CONTRACT_INTEGRITY_FILE), "utf8"),
+  readFile(path.join(sourceRunDir, "assessment-architecture-plan.json"), "utf8"),
+  readFile(path.join(sourceRunDir, "learning-progression-plan.json"), "utf8"),
+  readFile(path.join(sourceRunDir, "question-bank-reviews.json"), "utf8"),
   readFile(path.join(sourceRunDir, "assessment-solutions.json"), "utf8").catch(() => ""),
   readFile(path.join(sourceRunDir, "learning-visuals.json"), "utf8").catch(() => ""),
 ]);
-const content = JSON.parse(contentText);
+const content = studyGuideContentSchema.parse(JSON.parse(contentText));
+const adaptive = adaptiveStudyModelSchema.parse({
+  courseBlueprint: JSON.parse(courseBlueprintText),
+  assessmentBlueprint: JSON.parse(assessmentBlueprintText),
+  questionBank: JSON.parse(questionBankText),
+});
+const requestContract = RequestContractSchema.parse(JSON.parse(contractText));
+verifyRequestContractIntegrity(requestContract, JSON.parse(contractIntegrityText));
 const priorConfig = JSON.parse(priorConfigText) as Record<string, unknown>;
 const prompt = typeof priorConfig.prompt === "string" && priorConfig.prompt.trim()
   ? priorConfig.prompt
@@ -58,7 +89,12 @@ const language = options.language === "en" ||
 const originalUserPrompt = options.originalUserPrompt?.trim() ||
   (typeof priorConfig.originalUserPrompt === "string"
     ? priorConfig.originalUserPrompt
-    : prompt);
+    : requestContract.originalPrompt);
+if (requestContract.originalPrompt !== originalUserPrompt) {
+  throw new Error(
+    "Deterministic rerender refused: the exact original prompt does not match the verified RequestContract.",
+  );
+}
 const config = createWebLayoutRuntimeConfig({
   prompt,
   originalUserPrompt,
@@ -70,24 +106,6 @@ const config = createWebLayoutRuntimeConfig({
   sourceRunDir: typeof priorConfig.sourceRunDir === "string" ? priorConfig.sourceRunDir : undefined,
 });
 await mkdir(runDir, { recursive: true });
-const adaptive = buildAdaptiveStudyModel(
-  studyGuideContentSchema.parse(content),
-  sourceText,
-  language,
-  solutionText
-    ? assessmentSolutionSetSchema.parse(JSON.parse(solutionText))
-    : undefined,
-  visualText
-    ? learningVisualSetSchema.parse(JSON.parse(visualText))
-    : undefined,
-);
-const missingSolutions = missingAssessmentSolutionIds(adaptive);
-if (missingSolutions.length > 0) {
-  throw new Error(
-    `Deterministic rerender requires reviewed assessment-solutions.json for: ${missingSolutions.join(", ")}. ` +
-    "Run the full Study Guide workflow once to generate and review the missing solutions.",
-  );
-}
 const html = applyOfflineSecurityPolicy(renderAdaptiveStudyGuide(content, adaptive, language));
 const prepared = await prepareWebLayoutArtifact(html, config);
 const report = await validateWebLayoutFile(prepared.validationHtml, prepared.report.buildPath, "study-guide", {
@@ -115,15 +133,20 @@ await Promise.all([
     renderer: "adaptive-study-guide-v2",
   }, null, 2)}\n`, "utf8"),
   writeFile(path.join(runDir, "study-guide-content.json"), contentText, "utf8"),
+  writeFile(path.join(runDir, "course-blueprint.json"), courseBlueprintText, "utf8"),
+  writeFile(path.join(runDir, "assessment-blueprint.json"), assessmentBlueprintText, "utf8"),
+  writeFile(path.join(runDir, "question-bank.json"), questionBankText, "utf8"),
+  writeFile(path.join(runDir, REQUEST_CONTRACT_FILE), contractText, "utf8"),
+  writeFile(path.join(runDir, REQUEST_CONTRACT_INTEGRITY_FILE), contractIntegrityText, "utf8"),
+  writeFile(path.join(runDir, "assessment-architecture-plan.json"), assessmentPlanText, "utf8"),
+  writeFile(path.join(runDir, "learning-progression-plan.json"), progressionPlanText, "utf8"),
+  writeFile(path.join(runDir, "question-bank-reviews.json"), questionReviewsText, "utf8"),
   ...(solutionText
     ? [writeFile(path.join(runDir, "assessment-solutions.json"), solutionText, "utf8")]
     : []),
   ...(visualText
     ? [writeFile(path.join(runDir, "learning-visuals.json"), visualText, "utf8")]
     : []),
-  writeFile(path.join(runDir, "course-blueprint.json"), `${JSON.stringify(adaptive.courseBlueprint, null, 2)}\n`, "utf8"),
-  writeFile(path.join(runDir, "assessment-blueprint.json"), `${JSON.stringify(adaptive.assessmentBlueprint, null, 2)}\n`, "utf8"),
-  writeFile(path.join(runDir, "question-bank.json"), `${JSON.stringify(adaptive.questionBank, null, 2)}\n`, "utf8"),
   writeFile(path.join(runDir, "layout-spec.json"), layoutText, "utf8"),
   writeFile(path.join(runDir, "source.txt"), sourceText, "utf8"),
   writeFile(path.join(runDir, "validation-report.json"), `${JSON.stringify({
@@ -132,7 +155,7 @@ await Promise.all([
   }, null, 2)}\n`, "utf8"),
   writeFile(path.join(runDir, "quality-review.json"), `${JSON.stringify({
     ok: true,
-    summary: "Adaptive Study Guide passed deterministic content-contract and browser validation.",
+    summary: "Persisted independently reviewed adaptive Study Guide passed deterministic rerender and browser validation.",
     findings: [],
     renderer: "adaptive-study-guide-v2",
   }, null, 2)}\n`, "utf8"),

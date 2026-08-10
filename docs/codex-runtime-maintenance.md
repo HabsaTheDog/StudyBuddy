@@ -20,6 +20,11 @@ and the primary and escalation models selected by the execution policy. It runs
 before source access. Registry lookup failures are advisory and do not block a
 healthy installed runtime.
 
+The model canary uses low reasoning and a bounded 90-second window. A transient
+queue, network, or timeout result is reported as an inconclusive warning and is
+left to the normal bounded model-call retry policy; deterministic compatibility,
+authentication, and configuration failures remain blocking.
+
 ## Updating
 
 The SDK version is exact-pinned in `package.json`; its lockfile dependency pins

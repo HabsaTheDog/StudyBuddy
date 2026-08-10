@@ -467,7 +467,7 @@ describe("deterministic Typst renderer", () => {
     expect(source).not.toContain("ddot(");
     expect(source).not.toContain("\\ddot");
     expect(source).toContain("accent(r, dot.double)_x");
-    expect(source).toContain("accent(vec(r), dot.double)_y");
+    expect(source).toContain("accent(bold(r), dot.double)_y");
     expect(source).toContain("accent(phi, dot.double)");
     await expect(
       validateTypst(source, await getStudyBuddyTypstSupportFiles()),

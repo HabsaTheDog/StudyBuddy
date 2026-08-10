@@ -9,6 +9,7 @@ import { studyBuddyCssTokenBlock } from "../designGuidelines.js";
 import { applyOfflineSecurityPolicy, minimalValidStudyBuddyHtml } from "../htmlShell.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 import { validateSingleFileHtml, validateWebLayoutHtml } from "../validation.js";
+import { approveQuestionBankForRendering } from "./fixtures/approvedQuestionBank.js";
 
 const tempDirs: string[] = [];
 
@@ -156,11 +157,11 @@ describe("single-file HTML validation", () => {
       const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-adaptive-browser-"));
       tempDirs.push(runDir);
       const content = adaptiveContentFixture();
-      const model = buildAdaptiveStudyModel(
+      const model = approveQuestionBankForRendering(buildAdaptiveStudyModel(
         content,
         "Ordinary course material without a documented assessment structure.",
         "en",
-      );
+      ));
       const html = applyOfflineSecurityPolicy(renderAdaptiveStudyGuide(content, model, "en"))
         .replace(":root{", `:root{${studyBuddyCssTokenBlock()}`)
         .replace('src="assets/logo.png"', 'src="data:image/png;base64,iVBORw0KGgo="');

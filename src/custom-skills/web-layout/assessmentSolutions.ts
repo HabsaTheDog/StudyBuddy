@@ -10,6 +10,10 @@ import type { AdaptiveStudyModel } from "./adaptiveStudyModel.js";
 import type { StudyGuideContent } from "./studyGuideContent.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 import { balancedExcerpt } from "./modelText.js";
+import {
+  hashRequestContract,
+  type RequestContract,
+} from "../shared/requestContract.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +45,17 @@ const reviewedSolutionSchema = generatedSolutionSchema.extend({
     status: z.literal("approved"),
     findings: z.array(z.string()),
   }),
+  contractBinding: z.object({
+    contractHash: z.string().regex(/^[a-f0-9]{64}$/),
+    originalPromptHash: z.string().regex(/^[a-f0-9]{64}$/),
+    itemSemanticHash: z.string().regex(/^[a-f0-9]{64}$/),
+    planSemanticHash: z.string().regex(/^[a-f0-9]{64}$/),
+    assessmentSectionId: z.string().min(1),
+    assessmentQuestionTypes: z.array(z.string().min(1)).min(1),
+    deliveryMode: z.enum(["interactive", "self-assessed", "external-performance"]),
+    exerciseType: z.enum(["cross", "calculation", "application", "vocabulary"]),
+    responseMode: z.enum(["quantitative-calculation", "constructed-response"]),
+  }).optional(),
 });
 
 export const assessmentSolutionSetSchema = z.object({
@@ -50,6 +65,149 @@ export const assessmentSolutionSetSchema = z.object({
 
 export type AssessmentSolutionSet = z.infer<typeof assessmentSolutionSetSchema>;
 export type AssessmentReferenceSolution = AssessmentSolutionSet["items"][number];
+
+export interface AssessmentContractContext {
+  contractHash: string;
+  originalPrompt: string;
+  originalPromptHash: string;
+  evaluationStatus: RequestContract["evaluationStatus"];
+  userGoal: string;
+  deliverables: RequestContract["deliverables"];
+  requirements: RequestContract["requirements"];
+  reviewChecks: string[];
+  notRequired: string[];
+  forbidden: string[];
+  contentStrategy: RequestContract["contentStrategy"];
+}
+
+export interface AssessmentSolutionTaskContract {
+  schemaVersion: 1;
+  contractHash: string;
+  originalPromptHash: string;
+  itemSemanticHash: string;
+  planSemanticHash: string;
+  assessmentSectionId: string;
+  assessmentQuestionTypes: string[];
+  deliveryMode: "interactive" | "self-assessed" | "external-performance";
+  exerciseType: AdaptiveStudyModel["questionBank"]["items"][number]["type"];
+  responseMode: "quantitative-calculation" | "constructed-response";
+  learningObjectiveIds: string[];
+}
+
+export function assessmentSolutionSemanticCacheKey(
+  context: Pick<AssessmentContractContext, "contractHash" | "originalPromptHash">,
+  payload: unknown,
+): string {
+  return createHash("sha256").update(JSON.stringify({
+    contractHash: context.contractHash,
+    originalPromptHash: context.originalPromptHash,
+    payload,
+  })).digest("hex");
+}
+
+export function assessmentSolutionContractContext(
+  originalUserPrompt: string,
+  requestContract: RequestContract,
+  requestContractHash: string,
+  owner: "content" | "visual" = "content",
+): AssessmentContractContext {
+  const actualHash = hashRequestContract(requestContract);
+  if (actualHash !== requestContractHash) {
+    throw new Error(`Assessment request contract hash mismatch: expected ${requestContractHash}, computed ${actualHash}.`);
+  }
+  if (requestContract.originalPrompt !== originalUserPrompt) {
+    throw new Error("Assessment request contract does not match the exact original user prompt.");
+  }
+  const assignments = requestContract.reviewAssignments.filter((assignment) => assignment.owner === owner);
+  const requirementIds = new Set(assignments.flatMap((assignment) => assignment.requirementIds));
+  const requirements = requestContract.requirements.filter((requirement) => requirementIds.has(requirement.id));
+  const deliverableIds = new Set(requirements.flatMap((requirement) => requirement.appliesTo));
+  return {
+    contractHash: actualHash,
+    originalPrompt: originalUserPrompt,
+    originalPromptHash: createHash("sha256").update(originalUserPrompt).digest("hex"),
+    evaluationStatus: requestContract.evaluationStatus,
+    userGoal: requestContract.userGoal,
+    deliverables: requestContract.deliverables.filter((deliverable) => deliverableIds.has(deliverable.id)),
+    requirements,
+    reviewChecks: [...new Set(assignments.flatMap((assignment) => assignment.checks))],
+    notRequired: requestContract.notRequired,
+    forbidden: requestContract.forbidden,
+    contentStrategy: requestContract.contentStrategy,
+  };
+}
+
+export function assessmentSolutionTaskContract(
+  model: AdaptiveStudyModel,
+  item: AdaptiveStudyModel["questionBank"]["items"][number],
+  context: Pick<AssessmentContractContext, "contractHash" | "originalPromptHash">,
+): AssessmentSolutionTaskContract {
+  if (!item.assessmentSectionId || !item.assessmentQuestionTypes?.length) {
+    throw new Error(`Assessment solution item ${item.id} has no bound assessment section/question types.`);
+  }
+  const section = model.assessmentBlueprint.sections.find((candidate) =>
+    candidate.id === item.assessmentSectionId
+  );
+  if (!section) {
+    throw new Error(`Assessment solution item ${item.id} cites unknown section ${item.assessmentSectionId}.`);
+  }
+  if (!sameStrings(item.assessmentQuestionTypes, section.questionTypes)) {
+    throw new Error(`Assessment solution item ${item.id} question types do not match its assessment plan section.`);
+  }
+  const planBinding = model.assessmentBlueprint.planBinding;
+  if (
+    planBinding &&
+    (planBinding.contractHash !== context.contractHash ||
+      planBinding.originalPromptHash !== context.originalPromptHash)
+  ) {
+    throw new Error(`Assessment solution item ${item.id} belongs to a different request-bound assessment plan.`);
+  }
+  const calculationDeclared = section.questionTypes.includes("calculation");
+  const questionTypes = [...item.assessmentQuestionTypes].sort();
+  const responseMode = item.type === "calculation" &&
+      item.exercise.type === "calculation" && calculationDeclared
+    ? "quantitative-calculation"
+    : item.type === "application" &&
+        item.exercise.type === "application" && !calculationDeclared
+      ? "constructed-response"
+      : null;
+  if (!responseMode) {
+    throw new Error(
+      `Assessment solution item ${item.id} has an unsupported or contradictory response contract.`,
+    );
+  }
+  const itemSemanticHash = createHash("sha256").update(JSON.stringify({
+    id: item.id,
+    legacyExerciseId: item.legacyExerciseId,
+    assessmentSectionId: item.assessmentSectionId,
+    assessmentQuestionTypes: questionTypes,
+    topicId: item.topicId,
+    learningObjectiveIds: item.learningObjectiveIds,
+    type: item.type,
+    scopeBasis: item.scopeBasis,
+    exercise: item.exercise,
+  })).digest("hex");
+  const planSemanticHash = createHash("sha256").update(JSON.stringify({
+    planContentHash: model.assessmentBlueprint.planContentHash,
+    planBinding: model.assessmentBlueprint.planBinding,
+    mode: model.assessmentBlueprint.mode,
+    basisRequirementIds: [...(model.assessmentBlueprint.basisRequirementIds ?? [])].sort(),
+    section: { ...section, questionTypes: [...section.questionTypes].sort() },
+  })).digest("hex");
+  return {
+    schemaVersion: 1,
+    contractHash: context.contractHash,
+    originalPromptHash: context.originalPromptHash,
+    itemSemanticHash,
+    planSemanticHash,
+    assessmentSectionId: item.assessmentSectionId,
+    assessmentQuestionTypes: questionTypes,
+    deliveryMode: section.deliveryMode,
+    exerciseType: item.type,
+    responseMode,
+    learningObjectiveIds: [...item.learningObjectiveIds],
+  };
+}
 
 const generatedSetSchema = z.object({
   items: z.array(generatedSolutionSchema),
@@ -185,7 +343,22 @@ export async function resolveAssessmentSolutions(input: {
   sourceText: string;
   model: AdaptiveStudyModel;
   priorError: string | null;
+  originalUserPrompt: string;
+  requestContract: RequestContract;
+  requestContractHash: string;
 }): Promise<AssessmentSolutionSet> {
+  const contentContract = assessmentSolutionContractContext(
+    input.originalUserPrompt,
+    input.requestContract,
+    input.requestContractHash,
+    "content",
+  );
+  const visualContract = assessmentSolutionContractContext(
+    input.originalUserPrompt,
+    input.requestContract,
+    input.requestContractHash,
+    "visual",
+  );
   const tasks = input.model.questionBank.items.filter((item) =>
     item.assessmentSectionId && item.legacyExerciseId.startsWith("assessment-source-task-")
   );
@@ -198,22 +371,24 @@ export async function resolveAssessmentSolutions(input: {
     );
     return empty;
   }
+  const taskContracts = new Map(tasks.map((task) => [
+    task.id,
+    assessmentSolutionTaskContract(input.model, task, contentContract),
+  ]));
 
-  const fingerprint = createHash("sha256").update(JSON.stringify({
-    version: "assessment-solutions-v3-embedded-task-evidence",
+  const fingerprint = assessmentSolutionSemanticCacheKey(contentContract, {
+    version: "assessment-solutions-v5-open-item-contract",
     language: input.config.language,
     tasks: tasks.map((item) => ({
       id: item.legacyExerciseId,
-      prompt: item.exercise.prompt,
-      exercise: item.exercise,
-      section: item.assessmentSectionId,
+      taskContract: taskContracts.get(item.id),
     })),
     content: input.content.topics.map((topic) => ({
       title: topic.title,
       theory: topic.theory,
       workedExamples: topic.workedExamples,
     })),
-  })).digest("hex");
+  });
   const sharedPath = path.join(
     process.cwd(),
     "study-buddy-data",
@@ -228,13 +403,14 @@ export async function resolveAssessmentSolutions(input: {
     input.config.runDir,
     tasks.length,
   );
-  if (cached && coversAllTasks(cached, tasks.map((item) => item.legacyExerciseId))) {
+  if (cached && coversAllTaskContracts(cached, tasks, taskContracts)) {
     const visualized = await attachAssessmentVisuals({
       config: input.config,
       codex: input.codex,
       tasks,
       solutions: cached.items,
       localImages,
+      visualContract,
     });
     const migrated = assessmentSolutionSetSchema.parse({
       schemaVersion: 1,
@@ -260,19 +436,15 @@ export async function resolveAssessmentSolutions(input: {
   const itemCacheDir = path.join(path.dirname(sharedPath), "items");
   await mkdir(itemCacheDir, { recursive: true });
   const resolvedItems = await Promise.all(tasks.map(async (task, index) => {
-    const itemFingerprint = createHash("sha256").update(JSON.stringify({
-      version: "assessment-solution-item-v2-transparent-reference-assumptions",
+    const taskContract = taskContracts.get(task.id)!;
+    const itemFingerprint = assessmentSolutionSemanticCacheKey(contentContract, {
+      version: "assessment-solution-item-v4-open-item-contract",
       language: input.config.language,
-      task: {
-        id: task.legacyExerciseId,
-        prompt: task.exercise.prompt,
-        exercise: task.exercise,
-        section: task.assessmentSectionId,
-      },
+      taskContract,
       topic: relevantTopicContext(input.content, task.topicId),
-    })).digest("hex");
+    });
     const itemCachePath = path.join(itemCacheDir, `${itemFingerprint}.json`);
-    const cachedItem = await readReviewedSolution(itemCachePath);
+    const cachedItem = await readReviewedSolution(itemCachePath, taskContract);
     if (cachedItem) {
       await input.config.diagnostics?.log(
         "info",
@@ -283,7 +455,7 @@ export async function resolveAssessmentSolutions(input: {
     }
     const localImage = localImages[index] ? [localImages[index]!] : [];
     const generatedResponse = await input.codex.run(
-      buildSolutionPrompt(input, task),
+      buildAssessmentSolutionPrompt(input, task, contentContract),
       {
         task: "content_analyzer",
         attempt: index + 1,
@@ -296,7 +468,7 @@ export async function resolveAssessmentSolutions(input: {
     assertExactCoverage(generated.items, [task.legacyExerciseId]);
     const solution = generated.items[0]!;
     const reviewResponse = await input.codex.run(
-      buildReviewPrompt(input, task, solution),
+      buildAssessmentSolutionReviewPrompt(input, task, solution, contentContract),
       {
         task: "quality_reviewer",
         attempt: index + 1,
@@ -325,6 +497,7 @@ export async function resolveAssessmentSolutions(input: {
     const resolved = reviewedSolutionSchema.parse({
       ...solution,
       solutionOrigin: "study_buddy_generated",
+      contractBinding: persistedTaskBinding(taskContract),
       review: {
         status: "approved",
         findings: review.findings,
@@ -339,6 +512,7 @@ export async function resolveAssessmentSolutions(input: {
     tasks,
     solutions: resolvedItems,
     localImages,
+    visualContract,
   });
   const result = assessmentSolutionSetSchema.parse({
     schemaVersion: 1,
@@ -359,6 +533,7 @@ async function attachAssessmentVisuals(input: {
   tasks: AdaptiveStudyModel["questionBank"]["items"];
   solutions: AssessmentReferenceSolution[];
   localImages: string[];
+  visualContract: AssessmentContractContext;
 }): Promise<AssessmentReferenceSolution[]> {
   const stripped = input.solutions.map(({ taskImage: _taskImage, ...solution }) => solution);
   if (input.localImages.length === 0) return stripped;
@@ -371,8 +546,8 @@ async function attachAssessmentVisuals(input: {
       : [],
     hash: createHash("sha256").update(await readFile(imagePath)).digest("hex"),
   })));
-  const cropFingerprint = createHash("sha256").update(JSON.stringify({
-    version: "assessment-visual-crops-v1-diagram-only",
+  const cropFingerprint = assessmentSolutionSemanticCacheKey(input.visualContract, {
+    version: "assessment-visual-crops-v2-request-contract",
     language: input.config.language,
     pages: evidence.map(({ legacyExerciseId, prompt, givens, hash }) => ({
       legacyExerciseId,
@@ -380,7 +555,7 @@ async function attachAssessmentVisuals(input: {
       givens,
       hash,
     })),
-  })).digest("hex");
+  });
   const cropCachePath = path.join(
     process.cwd(),
     "study-buddy-data",
@@ -392,7 +567,7 @@ async function attachAssessmentVisuals(input: {
   let plan = await readVisualPlan(cropCachePath);
   if (!plan || !coversAllTasks(plan, evidence.map((item) => item.legacyExerciseId))) {
     const response = await input.codex.run(
-      buildVisualCropPrompt(input.config.language, evidence),
+      buildVisualCropPrompt(input.config.language, evidence, input.visualContract),
       {
         task: "content_analyzer",
         attempt: 1,
@@ -445,16 +620,19 @@ function buildVisualCropPrompt(
     prompt: string;
     givens: string[];
   }>,
+  contract: AssessmentContractContext,
 ): string {
   return [
     "ASSESSMENT_VISUAL_CROP_PLANNER",
     "Return JSON only. The attached page images correspond to the supplied items in the same order.",
     "For each page, decide whether the learner needs an original diagram, graph, table, map, illustration, or other visual that cannot be represented adequately by the HTML task text.",
+    "The exact original request and the visual review assignment below are authoritative. If visuals are forbidden or explicitly not required, return crop=null for every item. Do not invent visual requirements absent from the assigned contract context.",
     "When a visual is needed, return one normalized crop rectangle on a 1000 × 1000 coordinate system: x and y are the top-left corner; width and height are the crop size.",
     "Crop only the indispensable visual. Include dimension arrows, legends, labels, axes, and callouts that belong to the drawing. Exclude page headings, prose paragraphs, bullet lists, the written task statement, requested-subtask lists, page numbers, borders, and blank page area.",
     "Use 10–20 normalized units of padding around the visual. The crop may not cover more than 60% of the page. If the page contains no independently useful visual, set crop to null.",
     "The alt text must describe only the cropped visual in the requested language, without repeating the task statement.",
     `Language: ${language}`,
+    `Visual contract context:\n${JSON.stringify(contract)}`,
     `Items:\n${JSON.stringify(evidence.map(({ legacyExerciseId, prompt, givens }) => ({
       legacyExerciseId,
       htmlTaskText: { prompt, givens },
@@ -549,7 +727,7 @@ export function missingAssessmentSolutionIds(model: AdaptiveStudyModel): string[
   );
 }
 
-function buildSolutionPrompt(
+export function buildAssessmentSolutionPrompt(
   input: {
     config: WebLayoutRuntimeConfig;
     content: StudyGuideContent;
@@ -558,26 +736,40 @@ function buildSolutionPrompt(
     priorError: string | null;
   },
   task: AdaptiveStudyModel["questionBank"]["items"][number],
+  contract: AssessmentContractContext,
 ): string {
+  const taskContract = assessmentSolutionTaskContract(input.model, task, contract);
+  const responseInstructions = taskContract.responseMode === "quantitative-calculation"
+    ? [
+        "Quantitative calculation contract: solve every requested quantitative subtask. Show the governing relation, any necessary rearrangement, substituted values, intermediate results, and the final result. Carry units wherever they apply and include a short dimensional or physical plausibility check where meaningful; do not invent a unit for a dimensionless or unit-free result.",
+        "If the task requires a handbook, diagram, standard table, or conventional approximation absent from the extracted course text, a complete pedagogical comparison calculation may adopt a commonly taught value only when it is explicitly disclosed under assumptions and is not presented as an official course value.",
+        "Do not stop at a symbolic relation when the declared task requires a checkable numerical result. Use completeness=insufficient only when even a transparent in-scope assumption cannot produce the requested comparison result.",
+        "finalAnswer must state every requested quantitative result or conclusion with applicable units, never 'see steps'.",
+      ]
+    : [
+        "Constructed-response contract: provide a complete model response to every requested subtask in the declared response form. Use steps for the response structure, evidence-based reasoning, and explicit comparison criteria or rubric; finalAnswer must contain the complete comparison response or conclusions, never 'see steps'.",
+        "For oral or external performance, supply a substantive model content/argument and criteria the learner can rehearse against; do not pretend the offline page performed or officially graded the live act. For self-assessed work, make the comparison criteria specific enough to judge fulfilment.",
+        "Do not add quantitative machinery that is absent from this exact constructed-response task. Do not translate the declared plan type through a subject template.",
+      ];
   return [
     "ASSESSMENT_SOLUTION_AUTHOR",
-    "Create a complete comparison solution for every supplied assessment task. Return JSON only.",
+    "Create one complete comparison solution for the supplied assessment task. Return JSON only.",
     "This is a bounded assessment-answer transformation. Use the supplied course evidence, task text, and attached task-page images. Do not use tools or external research.",
-    "The learner must be able to compare their own response with the result after finishing the exam. A rubric, checklist, generic method description, or list of requested quantities is not a solution.",
-    "For every requested subtask, show the governing relation or reasoning, any rearrangement, substituted values with units, intermediate result, final result, and a short plausibility check. Preserve the task's notation.",
-    "Use model knowledge only inside the assessment scope established by the original task. Stable textbook, language, disciplinary, or engineering relations may fill a course-evidence gap, but every such use must be stated under assumptions and must not be presented as an official course value.",
-    "If the original task visibly expects a handbook, diagram, standard table, profile table, or conventional approximation that is absent from the extracted course text, create a complete pedagogical worked solution with commonly taught reference values or approximations. State every adopted value, convention, safety factor, and source family under assumptions; call the result a Study Buddy comparison solution, not an official answer.",
-    "Do not stop at symbolic formulas and do not set completeness=insufficient merely because the exact course table is unavailable when a technically defensible disclosed assumption permits a concrete worked result. Use completeness=insufficient only when even a transparent assumption cannot produce a meaningful checkable solution.",
-    "Set completeness=complete only when finalAnswer answers every requested subtask. finalAnswer must contain the concrete final values or conclusions, not 'see steps'.",
-    "evidenceBasis names the exact course source, task image, formula, or worked example used. missingEvidence must be empty for a publishable solution.",
+    "The learner must be able to compare their own response with a substantive answer after finishing. A generic method description or a list that merely repeats requested subtasks is not a solution.",
+    ...responseInstructions,
+    "Use model knowledge only inside the assessment scope established by the original task. Disclose every adopted assumption and never present a Study Buddy comparison answer as an official course key.",
+    "Set completeness=complete only when the response answers every requested subtask in its declared response form.",
+    "evidenceBasis names the exact course source, task image, relation, example, or passage used. missingEvidence must be empty for a publishable solution.",
     input.priorError?.includes("Assessment solutions failed")
       ? `Repair these prior solution findings:\n${input.priorError}`
       : "",
     `Language: ${input.config.language}`,
-    `Assessment blueprint:\n${JSON.stringify(input.model.assessmentBlueprint)}`,
+    `Assigned content contract context (exact original request, verified hashes, and content-owned requirements only):\n${JSON.stringify(contract)}`,
+    `Bound item/plan solution contract:\n${JSON.stringify(taskContract)}`,
     `Assessment task:\n${JSON.stringify({
       legacyExerciseId: task.legacyExerciseId,
       sectionId: task.assessmentSectionId,
+      assessmentQuestionTypes: task.assessmentQuestionTypes,
       scopeBasis: task.scopeBasis,
       exercise: task.exercise,
     })}`,
@@ -588,7 +780,7 @@ function buildSolutionPrompt(
   ].filter(Boolean).join("\n\n");
 }
 
-function buildReviewPrompt(
+export function buildAssessmentSolutionReviewPrompt(
   input: {
     config: WebLayoutRuntimeConfig;
     content: StudyGuideContent;
@@ -597,17 +789,25 @@ function buildReviewPrompt(
   },
   task: AdaptiveStudyModel["questionBank"]["items"][number],
   solution: z.infer<typeof generatedSolutionSchema>,
+  contract: AssessmentContractContext,
 ): string {
+  const taskContract = assessmentSolutionTaskContract(input.model, task, contract);
+  const responseReview = taskContract.responseMode === "quantitative-calculation"
+    ? "For this quantitative contract, verify the relations, necessary rearrangements, substitutions, applicable units, arithmetic, results, disclosed assumptions, and meaningful plausibility checks. Do not require units where none apply."
+    : "For this constructed-response contract, verify substantive coverage, evidence-based reasoning, response-form fidelity, and usable comparison criteria or rubric. Reject invented quantitative apparatus that is absent from the exact task.";
   return [
     "ASSESSMENT_SOLUTION_REVIEWER",
     "Independently review every proposed assessment solution. Return JSON only.",
     "Approve only if the learner can compare their response against a complete, internally consistent answer to every requested subtask.",
-    "Check formulas or reasoning, substitutions, units, arithmetic, final conclusions, assumptions, and alignment with the attached task-page images. Reject generic rubrics, placeholders, omitted subtasks, unsupported normative values, or a finalAnswer that does not state concrete results.",
-    "Do not demand that a Study Buddy-generated solution pretend to be an official course solution. Explicit, technically defensible handbook values, standard approximations, and assumptions are acceptable when they stay inside the task scope and are disclosed.",
-    "When an exact course table is absent, approve a complete arithmetic solution under plausible disclosed assumptions if every requested subtask has a concrete result and the result is clearly labelled as a Study Buddy comparison rather than an official key. Reject only implausible assumptions, arithmetic errors, hidden assumptions, or missing subtasks.",
+    responseReview,
+    "Reject placeholders, omitted subtasks, hidden assumptions, unsupported claims, or a finalAnswer that does not contain the actual comparison response. Do not demand that a Study Buddy-generated solution pretend to be an official course solution.",
     `Language: ${input.config.language}`,
+    `Assigned content contract context (exact original request, verified hashes, and content-owned requirements only):\n${JSON.stringify(contract)}`,
+    `Bound item/plan solution contract:\n${JSON.stringify(taskContract)}`,
     `Task:\n${JSON.stringify({
       legacyExerciseId: task.legacyExerciseId,
+      sectionId: task.assessmentSectionId,
+      assessmentQuestionTypes: task.assessmentQuestionTypes,
       exercise: task.exercise,
     })}`,
     `Proposed solution:\n${JSON.stringify(solution)}`,
@@ -684,6 +884,20 @@ function coversAllTasks(
   return ids.every((id) => present.has(id));
 }
 
+function coversAllTaskContracts(
+  set: AssessmentSolutionSet,
+  tasks: AdaptiveStudyModel["questionBank"]["items"],
+  contracts: Map<string, AssessmentSolutionTaskContract>,
+): boolean {
+  if (!coversAllTasks(set, tasks.map((item) => item.legacyExerciseId))) return false;
+  return tasks.every((task) => {
+    const solution = set.items.find((item) => item.legacyExerciseId === task.legacyExerciseId);
+    const contract = contracts.get(task.id);
+    return Boolean(solution?.contractBinding && contract &&
+      JSON.stringify(solution.contractBinding) === JSON.stringify(persistedTaskBinding(contract)));
+  });
+}
+
 function assertExactCoverage(
   items: Array<{ legacyExerciseId: string }>,
   ids: string[],
@@ -707,12 +921,31 @@ async function readSolutionSet(filePath: string): Promise<AssessmentSolutionSet 
 
 async function readReviewedSolution(
   filePath: string,
+  expectedContract: AssessmentSolutionTaskContract,
 ): Promise<AssessmentReferenceSolution | null> {
   try {
-    return reviewedSolutionSchema.parse(JSON.parse(await readFile(filePath, "utf8")));
+    const solution = reviewedSolutionSchema.parse(JSON.parse(await readFile(filePath, "utf8")));
+    return solution.contractBinding &&
+        JSON.stringify(solution.contractBinding) === JSON.stringify(persistedTaskBinding(expectedContract))
+      ? solution
+      : null;
   } catch {
     return null;
   }
+}
+
+function persistedTaskBinding(contract: AssessmentSolutionTaskContract) {
+  return {
+    contractHash: contract.contractHash,
+    originalPromptHash: contract.originalPromptHash,
+    itemSemanticHash: contract.itemSemanticHash,
+    planSemanticHash: contract.planSemanticHash,
+    assessmentSectionId: contract.assessmentSectionId,
+    assessmentQuestionTypes: contract.assessmentQuestionTypes,
+    deliveryMode: contract.deliveryMode,
+    exerciseType: contract.exerciseType,
+    responseMode: contract.responseMode,
+  };
 }
 
 function relevantTopicContext(
@@ -726,4 +959,10 @@ function relevantTopicContext(
 
 function stripJsonFence(value: string): string {
   return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
