@@ -28,8 +28,9 @@ npm run check:release
 ```
 
 Run the no-credentials example, a synthetic PDF/HTML artifact, and approved
-manual smoke tests on every claimed platform. Generate and review the dependency
-license inventory and SBOM.
+manual smoke tests on every claimed platform. `npm run check:release` verifies
+that a production-only CycloneDX SBOM can be generated. Generate the final SBOM
+from the exact clean release checkout and attach it to the draft release.
 
 ## 4. Build artifacts
 
