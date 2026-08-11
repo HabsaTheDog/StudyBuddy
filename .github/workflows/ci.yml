@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22.16
@@ -61,6 +63,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22.16
@@ -69,6 +73,7 @@ jobs:
       - run: npm run check:links
       - run: npm run check:public-tree
       - run: npm run check:licenses
+      - run: npm run check:sbom
       - run: npm run audit:production
       - name: Verify pinned submodule commit is public
         run: |
@@ -83,6 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           submodules: true
       - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
         with:
@@ -99,3 +105,6 @@ jobs:
       - name: Test UI workspace
         working-directory: t3code-fork
         run: vp run -r --concurrency-limit 2 test
+      - name: Audit Study Buddy release dependencies
+        working-directory: t3code-fork
+        run: node scripts/study-buddy-audit.ts

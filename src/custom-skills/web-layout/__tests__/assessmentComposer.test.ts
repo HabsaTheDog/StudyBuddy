@@ -41,7 +41,10 @@ describe("assessment composer", () => {
       section.items.map((item) => item.id)
     );
     expect(new Set(selectedIds).size).toBe(selectedIds.length);
-    expect(selectedIds).toEqual(expect.arrayContaining(["q-selection", "q-calc"]));
+    expect(selectedIds).toEqual(expect.arrayContaining([
+      "q-selection-assessment",
+      "q-calc-assessment",
+    ]));
     expect(result.insufficiency).toContain(
       "At least one assessment section has no documented task count; a bounded representative practice selection is inferred and is not presented as an official count.",
     );
@@ -93,9 +96,23 @@ describe("assessment composer", () => {
     expect(result.unassignedQuestionIds).toContain("q-unrelated");
   });
 
+  it("does not expose an empty assessment surface when no approved item can be composed", () => {
+    const result = composeAssessment(blueprintFixture(), {
+      ...bankFixture(),
+      items: [],
+    });
+
+    expect(result.simulationKind).toBe("none");
+    expect(result.support).toBe("insufficient");
+    expect(result.sections.every((section) => section.items.length === 0)).toBe(true);
+    expect(result.evidenceNotes).toContain(
+      "No compatible approved item is available for a separate assessment surface; ordinary reviewed practice remains available in the course topics and question catalogue.",
+    );
+  });
+
   it("never upgrades inferred or low-confidence structure to an exam claim", () => {
     const inferred = blueprintFixture();
-    inferred.mode = "inferred";
+    inferred.mode = "inferred_practice";
     inferred.title = "Exercise simulation based on course structure";
     inferred.durationMinutes = null;
     inferred.maxPoints = null;
@@ -119,7 +136,7 @@ describe("assessment composer", () => {
       prohibitedAids: [],
     });
     expect(inferredResult.evidenceNotes).toContain(
-      "Substantial assessment structure is inferred from course evidence.",
+      "This is contract-authorized Study Buddy practice derived from course objectives, not an official assessment structure.",
     );
 
     const lowConfidence = blueprintFixture();
@@ -217,7 +234,7 @@ describe("assessment composer", () => {
 
   it("bounds inferred practice sessions instead of loading the complete question bank", () => {
     const blueprint = blueprintFixture();
-    blueprint.mode = "inferred";
+    blueprint.mode = "inferred_practice";
     blueprint.confidence = "low";
     blueprint.durationMinutes = null;
     blueprint.sections = blueprint.sections.map((section) => ({
@@ -240,12 +257,29 @@ describe("assessment composer", () => {
 
     expect(result.sections).toHaveLength(2);
     expect(result.sections.every((section) =>
-      section.selectionLimit === 2 &&
+      section.selectionLimit === 1 &&
       section.selectionLimitBasis === "inferred_practice_session" &&
       section.items.length <= section.selectionLimit
     )).toBe(true);
-    expect(result.sections.flatMap((section) => section.items)).toHaveLength(4);
-    expect(result.unassignedQuestionIds).toHaveLength(36);
+    expect(result.sections.flatMap((section) => section.items)).toHaveLength(2);
+    expect(result.unassignedQuestionIds).toHaveLength(38);
+  });
+
+  it("does not derive unknown task counts from assessment weight or duration", () => {
+    const baseline = composeAssessment(blueprintFixture(), bankFixture());
+    const altered = blueprintFixture();
+    altered.durationMinutes = 600;
+    altered.sections = altered.sections.map((section, index) => ({
+      ...section,
+      weight: index === 0 ? 0.99 : 0.01,
+      durationMinutes: index === 0 ? 599 : 1,
+    }));
+
+    const ids = (result: ReturnType<typeof composeAssessment>) =>
+      result.sections.map((section) => section.items.map((item) => item.id));
+    expect(ids(composeAssessment(altered, bankFixture()))).toEqual(ids(baseline));
+    expect(composeAssessment(altered, bankFixture()).sections.map((section) => section.selectionLimit))
+      .toEqual(baseline.sections.map((section) => section.selectionLimit));
   });
 
   it("excludes externally judged performance and normalizes the useful online test", () => {
@@ -296,8 +330,8 @@ describe("assessment composer", () => {
     const result = composeAssessment(blueprint, bank);
 
     expect(result.sections.map((section) => section.id)).toEqual(["vocabulary"]);
-    expect(result.sections[0].selectionLimit).toBe(10);
-    expect(result.sections[0].items).toHaveLength(10);
+    expect(result.sections[0].selectionLimit).toBe(14);
+    expect(result.sections[0].items).toHaveLength(14);
     expect(result.excludedSections.map((section) => section.id)).toEqual(["presentation", "oral"]);
     expect(result.sections.flatMap((section) => section.items).every((item) =>
       item.type === "vocabulary"
@@ -308,7 +342,7 @@ describe("assessment composer", () => {
 function blueprintFixture(): AssessmentBlueprint {
   return {
     schemaVersion: 1,
-    mode: "explicit",
+    mode: "documented",
     title: "Exam simulation",
     confidence: "high",
     durationMinutes: 60,
@@ -443,13 +477,13 @@ function questionItem(
       sourceTask: "task",
     },
     review: {
-      status: "approved",
+      status: "pending",
       checks: {
-        schema: true,
-        scope: true,
-        answer: true,
-        provenance: true,
-        rendering: true,
+        schema: false,
+        scope: false,
+        answer: false,
+        provenance: false,
+        rendering: false,
       },
       findings: [],
     },

@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
 import { ResourceManifestSchema } from "../examNavigatorContracts.js";
-import { discoverVisualCandidates, hydrateExtractedVisualAssets } from "../visualAssets.js";
+import {
+  discoverVisualCandidates,
+  hydrateExtractedVisualAssets,
+  visualRequiredResourceIds,
+} from "../visualAssets.js";
 import { moodleExtractedData, moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 let runDir: string | null = null;
@@ -18,6 +22,76 @@ afterEach(async () => {
 });
 
 describe("visual asset discovery", () => {
+  it("requires visual evidence for a selected PDF with only a partial text layer", () => {
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: "https://moodle.example/course",
+      generatedAt: new Date().toISOString(),
+      resources: [{
+        id: "res-pendulum",
+        parentId: null,
+        sectionPath: ["Schwingungen"],
+        activityType: "resource",
+        title: "Physikalisches Pendel",
+        originUrl: "https://moodle.example/pendulum",
+        resolvedUrl: null,
+        localPath: "/tmp/pendulum.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: null,
+        verifiedAt: null,
+        examRelevance: "confirmed",
+        failureReason: null,
+        selection: {
+          selected: true,
+          role: "worked_example",
+          topic: "Schwingungen",
+          priority: 590,
+          reason: "Selected worked example.",
+        },
+        extraction: {
+          status: "partial",
+          method: "native_pdf_text",
+          characterCount: 122,
+          pageCount: 2,
+          warnings: ["Sparse text layer."],
+        },
+      }, {
+        id: "res-formula",
+        parentId: null,
+        sectionPath: ["Schwingungen"],
+        activityType: "resource",
+        title: "Formelsammlung",
+        originUrl: "https://moodle.example/formula",
+        resolvedUrl: null,
+        localPath: "/tmp/formula.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: null,
+        verifiedAt: null,
+        examRelevance: "confirmed",
+        failureReason: null,
+        selection: {
+          selected: true,
+          role: "formula",
+          topic: "Schwingungen",
+          priority: 900,
+          reason: "Selected formula reference.",
+        },
+        extraction: {
+          status: "usable",
+          method: "native_pdf_text",
+          characterCount: 4_000,
+          pageCount: 4,
+          warnings: [],
+        },
+      }],
+    });
+
+    expect([...visualRequiredResourceIds({ resource_manifest: manifest })])
+      .toEqual(["res-pendulum"]);
+  });
+
   it("turns Moodle image artifacts into managed visual candidates", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-visuals-"));
     const sourcesDir = path.join(runDir, "sources");
@@ -259,7 +333,7 @@ describe("visual asset discovery", () => {
     });
   });
 
-  it("adds a source diagram when a worked example explicitly depends on diagram reading", async () => {
+  it("does not invent an unplanned source diagram from worked-example keywords", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-example-visual-"));
     const solutionPath = path.join(runDir, "sources", "solution-f.pdf");
     await writeFile(path.join(runDir, "visual-candidates.json"), JSON.stringify({
@@ -304,14 +378,7 @@ describe("visual asset discovery", () => {
 
     const hydrated = await hydrateExtractedVisualAssets(runDir, data, "auto");
 
-    expect(hydrated.visual_assets).toContainEqual(expect.objectContaining({
-      kind: "moodle_pdf_image",
-      relative_path: "assets/visuals/viscosity-diagram.jpg",
-      source_page: 1,
-    }));
-    expect(hydrated.figures).toContainEqual(expect.objectContaining({
-      asset_id: "auto-example-visual-1",
-      source_ids: ["solution-f"],
-    }));
+    expect(hydrated.visual_assets).toEqual([]);
+    expect(hydrated.figures).toEqual([]);
   });
 });

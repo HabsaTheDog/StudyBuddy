@@ -233,11 +233,6 @@ async function validateHtmlFileInBrowser(
         await page.screenshot({ path: viewport.path, fullPage: false });
       });
       const metrics = await page.evaluate(() => {
-        const selector = (element: Element) => {
-          if (element.id) return `${element.tagName.toLowerCase()}#${CSS.escape(element.id)}`;
-          const classes = Array.from(element.classList).slice(0, 3).map((name) => `.${CSS.escape(name)}`).join("");
-          return `${element.tagName.toLowerCase()}${classes}`;
-        };
         const overflowingElements = Array.from(document.querySelectorAll<HTMLElement>("body *"))
           .flatMap((element) => {
             const rect = element.getBoundingClientRect();
@@ -246,8 +241,14 @@ async function validateHtmlFileInBrowser(
             const overflowRight = Math.max(0, rect.right - document.documentElement.clientWidth);
             if (overflowLeft <= 2 && overflowRight <= 2) return [];
             const style = getComputedStyle(element);
+            const selector = element.id
+              ? `${element.tagName.toLowerCase()}#${CSS.escape(element.id)}`
+              : `${element.tagName.toLowerCase()}${Array.from(element.classList)
+                .slice(0, 3)
+                .map((name) => `.${CSS.escape(name)}`)
+                .join("")}`;
             return [{
-              selector: selector(element),
+              selector,
               left: Math.round(rect.left),
               right: Math.round(rect.right),
               width: Math.round(rect.width),
@@ -823,6 +824,19 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       const topicPanel = document.querySelector<HTMLElement>('[data-main-panel="topics"]');
       const catalogPanel = document.querySelector<HTMLElement>('[data-main-panel="catalog"]');
       const examPanel = document.querySelector<HTMLElement>('[data-main-panel="exam"]');
+      const composition = JSON.parse(
+        document.querySelector<HTMLScriptElement>("#assessment-composition")?.textContent ||
+          "{\"simulationKind\":\"none\",\"examItemIds\":[]}",
+      ) as {
+        simulationKind?: "exam_simulation" | "exercise_simulation" | "none";
+        examItemIds?: string[];
+        sectionItemIds?: Array<{
+          itemIds?: string[];
+          selectionLimit?: number;
+          selectionLimitBasis?: string;
+        }>;
+      };
+      const assessmentSurfaceRequired = composition.simulationKind !== "none";
       const mainTabs = Array.from(
         document.querySelectorAll<HTMLButtonElement>("[data-main-tab]"),
       );
@@ -852,10 +866,10 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       document.documentElement.style.scrollBehavior = priorScrollBehavior;
       document.querySelector<HTMLButtonElement>('[data-main-tab="topics"]')?.click();
       document.querySelector<HTMLButtonElement>('[data-main-tab="catalog"]')?.click();
-      const threeMainTabs = mainTabs.length === 3 &&
+      const threeMainTabs = mainTabs.length === (assessmentSurfaceRequired ? 3 : 2) &&
         topicPanel?.hidden === true &&
         catalogPanel?.hidden === false &&
-        examPanel?.hidden === true &&
+        (assessmentSurfaceRequired ? examPanel?.hidden === true : examPanel === null) &&
         document.querySelector('[data-main-tab="catalog"]')?.getAttribute("aria-selected") === "true";
 
       const cross = bank.items.find((item) => item.type === "cross");
@@ -1123,20 +1137,9 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       )?.dataset.questionId;
       document.querySelector<HTMLButtonElement>('[data-main-tab="exam"]')?.click();
       document.querySelector<HTMLButtonElement>("[data-start-assessment]")?.click();
-      const composition = JSON.parse(
-        document.querySelector<HTMLScriptElement>("#assessment-composition")?.textContent ||
-          "{\"examItemIds\":[]}",
-      ) as {
-        examItemIds?: string[];
-        sectionItemIds?: Array<{
-          itemIds?: string[];
-          selectionLimit?: number;
-          selectionLimitBasis?: string;
-        }>;
-      };
       const composedSectionIds = (composition.sectionItemIds ?? [])
         .flatMap((section) => section.itemIds ?? []);
-      const assessmentSessionBounded =
+      const assessmentSessionBounded = !assessmentSurfaceRequired || (
         (composition.examItemIds?.length ?? 0) > 0 &&
         composedSectionIds.length === new Set(composedSectionIds).size &&
         composedSectionIds.length === (composition.examItemIds?.length ?? 0) &&
@@ -1147,13 +1150,16 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
           ["documented_task_count", "inferred_practice_session"].includes(
             section.selectionLimitBasis ?? "",
           )
-        );
-      const examTasksAreAuthentic = (composition.examItemIds?.length ?? 0) > 0 &&
+        )
+      );
+      const examTasksAreAuthentic = !assessmentSurfaceRequired || (
+        (composition.examItemIds?.length ?? 0) > 0 &&
         (composition.examItemIds ?? []).every((id) => {
           const item = bank.items.find((candidate) => candidate.id === id);
           const prompt = item?.exercise.prompt ?? "";
           return !/(?:wie lange|how long).{0,50}(?:prüfung|klausur|exam|test)|(?:welche|what|which).{0,80}(?:hilfsmittel|aids|themen|topics|aufbau|structure).{0,80}(?:prüfung|klausur|exam|musterprüfung)/i.test(prompt);
-        });
+        })
+      );
       const examShell = document.querySelector<HTMLElement>("[data-exam-shell]");
       const examCard = document.querySelector<HTMLElement>(
         "[data-exam-question] [data-sb-question-card]",
@@ -1173,11 +1179,11 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       const examItemCount = composition.examItemIds?.length ?? 0;
       const firstNext = document.querySelector<HTMLButtonElement>("[data-exam-next]");
       const firstFinish = document.querySelector<HTMLButtonElement>("[data-exam-finish]");
-      let examFinishOnlyOnLastQuestion = examItemCount === 1
+      let examFinishOnlyOnLastQuestion = !assessmentSurfaceRequired || (examItemCount === 1
         ? firstNext?.hidden === true && firstFinish?.hidden === false
         : examItemCount > 1 &&
           firstNext?.hidden === false &&
-          firstFinish?.hidden === true;
+          firstFinish?.hidden === true);
       firstNext?.click();
       document.querySelector<HTMLButtonElement>("[data-exam-prev]")?.click();
       const restoredExamCard = document.querySelector<HTMLElement>(
@@ -1197,9 +1203,11 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       }
       const lastNext = document.querySelector<HTMLButtonElement>("[data-exam-next]");
       const lastFinish = document.querySelector<HTMLButtonElement>("[data-exam-finish]");
-      examFinishOnlyOnLastQuestion &&=
-        lastNext?.hidden === true &&
-        lastFinish?.hidden === false;
+      if (assessmentSurfaceRequired) {
+        examFinishOnlyOnLastQuestion &&=
+          lastNext?.hidden === true &&
+          lastFinish?.hidden === false;
+      }
       const expectedAssessmentVisualIds = bank.items.filter((item) =>
         composition.examItemIds?.includes(item.id) &&
         item.referenceSolution?.taskImage?.kind === "diagram_crop"
@@ -1303,7 +1311,7 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       const solutionPanels = examReviewCards.map((card) =>
         card.querySelector<HTMLElement>(".exam-solution")
       );
-      const examSolutionsVisible =
+      const examSolutionsVisible = !assessmentSurfaceRequired || (
         examReviewCards.length === (composition.examItemIds?.length ?? 0) &&
         solutionPanels.length > 0 &&
         solutionPanels.every((panel) =>
@@ -1318,7 +1326,8 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
         ) &&
         examReviewCards.every((card) =>
           Boolean(card.querySelector<HTMLElement>(".exam-user-answer")?.textContent?.trim())
-        );
+        )
+      );
       const formulaBearingSolutions = solutionPanels.filter((panel) =>
         Boolean(panel && /[=≈≤≥≠<>]/.test(panel.textContent ?? ""))
       );
@@ -1414,15 +1423,16 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
         "[data-exam-review-item] [data-exam-rate=\"correct\"]",
       );
       manualCorrect?.click();
-      const examSelfAssessmentScoring =
+      const examSelfAssessmentScoring = !assessmentSurfaceRequired || (
         examReviewCards.length === (composition.examItemIds?.length ?? 0) &&
         Boolean(document.querySelector("[data-exam-score]")?.textContent?.trim()) &&
         Boolean(document.querySelector("[data-exam-score-percent]")?.textContent?.trim()) &&
         Boolean(document.querySelector("[data-exam-score-status]")?.textContent?.trim()) &&
         (manualCorrect
           ? manualCorrect.closest("[data-exam-review-item]")?.classList.contains("is-rated") === true
-          : examReviewCards.every((card) => card.classList.contains("is-rated")));
-      const separateExamSurface = Boolean(
+          : examReviewCards.every((card) => card.classList.contains("is-rated")))
+      );
+      const separateExamSurface = !assessmentSurfaceRequired || Boolean(
         examShell && !examShell.hidden && examCard && catalogIdBeforeExam &&
         examPanel?.hidden === false &&
         catalogPanel?.hidden === true &&
@@ -1454,6 +1464,7 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
         topicQuestionNavigation,
         catalogLinkScrollsTop,
         catalogLinkScrollPosition: { mainTabsTop, hotbarBottom, scrollY: window.scrollY },
+        assessmentSurfaceRequired,
         examTasksAreAuthentic,
         examFinishOnlyOnLastQuestion,
         examSolutionsVisible,

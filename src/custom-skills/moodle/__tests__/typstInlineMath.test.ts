@@ -52,6 +52,16 @@ describe("Typst inline mathematics", () => {
       .toBe("τ₁ ≤ τ₁B / S; N/mm²; π · d²");
     expect(cleanVisibleMathText("integral_0^2 f(x) dif x arrow infinity"))
       .toBe("∫₀² f(x) dx → ∞");
+    expect(cleanVisibleMathText("m ddot(x) = -c x - k dot(x); ddot(phi) + omega_0^2 phi = 0"))
+      .toBe("m ẍ = -c x - k ẋ; φ̈ + ω₀² φ = 0");
+    expect(cleanVisibleMathText("ddot(bold(r)) = dot(vec(v))"))
+      .toBe("𝐫̈ = 𝐯̇");
+    expect(cleanVisibleMathText("dot(bold(L)_O) = sum bold(M)_O"))
+      .toBe("𝐋̇ₒ = ∑ 𝐌ₒ");
+    expect(cleanVisibleMathText("r dot(varphi) bold(e)_varphi"))
+      .toBe("r φ̇ 𝐞_φ");
+    expect(cleanVisibleMathText("bold(r)_{PA} times bold(v); s^(-2)"))
+      .toBe("𝐫ₚₐ × 𝐯; s⁻²");
     expect(cleanVisibleMathText("`origin: source`")).toBe("origin: source");
   });
 
@@ -109,6 +119,90 @@ describe("Typst inline mathematics", () => {
     expect(cleanVisibleMathText("dot.dot(x)_1 = 4 dot.dot(x)_2")).toBe(
       "ẍ₁ = 4 ẍ₂",
     );
+    await expect(
+      validateTypst(
+        studyBuddyTypstDocument(`$ ${normalized} $`),
+        await getStudyBuddyTypstSupportFiles(),
+      ),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes curried fractions with nested sums in the compact renderer", async () => {
+    const normalized = formatFormulaMath(
+      "bold(r)_k = frac(sum_(i=1)^n bold(r)_i F_i)(sum_(i=1)^n F_i)",
+    );
+
+    expect(normalized).toContain(
+      "frac(sum_(i=1)^n bold(r)_i F_i, sum_(i=1)^n F_i)",
+    );
+    await expect(
+      validateTypst(
+        studyBuddyTypstDocument(`$ ${normalized} $`),
+        await getStudyBuddyTypstSupportFiles(),
+      ),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("repairs half-converted LaTeX fraction delimiters from structured formulas", async () => {
+    const normalized = formatFormulaMath(
+      "x_S = frac(2r}{pi}, quad S = (frac(2r}{pi}, frac(2r}{pi})",
+    );
+
+    expect(normalized).toContain("x_S = frac(2r, pi)");
+    expect(normalized).toContain("S = (frac(2r, pi), frac(2r, pi))");
+    expect(normalized).not.toContain("}");
+    await expect(
+      validateTypst(
+        studyBuddyTypstDocument(`$ ${normalized} $`),
+        await getStudyBuddyTypstSupportFiles(),
+      ),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("keeps vector styling and Greek subscripts as executable Typst math", async () => {
+    const normalized = formatFormulaMath(
+      "bold(a) := ddot(bold(r)), quad bold(v) = dot(r) bold(e)_r + r dot(phi) bold(e)_phi",
+    );
+
+    expect(normalized).toContain("accent(bold(r), dot.double)");
+    expect(normalized).not.toContain("ddot");
+    expect(normalized).not.toContain('"bold"');
+    expect(normalized).toContain("bold(e)_phi");
+    expect(normalized).not.toContain('_"phi"');
+    await expect(
+      validateTypst(
+        studyBuddyTypstDocument(`$ ${normalized} $`),
+        await getStudyBuddyTypstSupportFiles(),
+      ),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes unary vec notation and quoted varphi into visible vector math", async () => {
+    const normalized = formatFormulaMath(
+      'vec(r)(t) = vec(v)(t), quad vec(v) = dot(r) vec(e)_r + r dot("varphi") vec(e)_varphi',
+    );
+
+    expect(normalized).toContain("bold(r)(t) = bold(v)(t)");
+    expect(normalized).toContain("dot(phi) bold(e)_phi");
+    expect(normalized).not.toContain("vec(r)");
+    expect(normalized).not.toContain("varphi");
+    await expect(
+      validateTypst(
+        studyBuddyTypstDocument(`$ ${normalized} $`),
+        await getStudyBuddyTypstSupportFiles(),
+      ),
+    ).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("separates implicit products of common physics variables", async () => {
+    const normalized = formatFormulaMath(
+      "sqrt(v_0^2 - 2gv_0 sin(alpha)t + g^2t^2), quad ma + cx + kx = 0",
+    );
+
+    expect(normalized).toContain("2g v_0");
+    expect(normalized).toContain("m a + c x + k x");
+    expect(normalized).not.toContain('"gv"');
+    expect(normalized).not.toContain('"gt"');
     await expect(
       validateTypst(
         studyBuddyTypstDocument(`$ ${normalized} $`),

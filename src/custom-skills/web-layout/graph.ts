@@ -17,6 +17,14 @@ import { createStudyGuideContentNode } from "./nodes/studyGuideContentNode.js";
 import { acquireRunLease } from "../shared/runLease.js";
 import { ExecutionTelemetry } from "../moodle/executionTelemetry.js";
 import { STUDY_BUDDY_MODEL_POLICY_VERSION } from "../shared/modelPolicy.js";
+import {
+  createRequestContractIntegrity,
+  minimalRequestContract,
+  REQUEST_CONTRACT_FILE,
+  REQUEST_CONTRACT_INTEGRITY_FILE,
+  RequestContractSchema,
+  verifyRequestContractIntegrity,
+} from "../shared/requestContract.js";
 
 const MAX_RETRIES = 3;
 
@@ -57,11 +65,15 @@ export async function runWebLayoutGraph(
   await diagnostics.log("info", "config", `Run directory: ${config.runDir}`);
   await writeJson(path.join(config.runDir, "config.json"), sanitizeWebLayoutConfig(config));
 
-  let state: WebLayoutState = initialWebLayoutState;
+  const freshInitialState: WebLayoutState = {
+    ...initialWebLayoutState,
+    request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]),
+  };
+  let state: WebLayoutState = freshInitialState;
   try {
     state = config.resumeRunDir
       ? await loadResumeState(config)
-      : initialWebLayoutState;
+      : freshInitialState;
     const graph = buildWebLayoutGraph(config, dependencies);
     state = (await withRuntimeGuard(
       config,
@@ -198,7 +210,9 @@ export function buildWebLayoutGraph(
       abort: END,
     })
     .addConditionalEdges("qualityReviewer", routeAfterQualityReview, {
+      studyGuideContent: "studyGuideContent",
       generator: "generator",
+      qualityReviewer: "qualityReviewer",
       diskWriter: "diskWriter",
       abort: END,
     })
@@ -332,17 +346,29 @@ function routeAfterValidator(state: LangGraphWebLayoutState): "generator" | "dis
   return state.validator_retry_count >= MAX_RETRIES ? "abort" : "generator";
 }
 
-function routeAfterQualityReview(
+export function routeAfterQualityReview(
   state: LangGraphWebLayoutState,
-): "generator" | "diskWriter" | "abort" {
+): "studyGuideContent" | "generator" | "qualityReviewer" | "diskWriter" | "abort" {
   if (!state.error_log) return "diskWriter";
-  return state.quality_retry_count >= MAX_RETRIES ? "abort" : "generator";
+  if (state.quality_retry_count >= MAX_RETRIES) return "abort";
+  if (state.error_log.startsWith("Quality reviewer failed:")) return "qualityReviewer";
+  if (
+    state.error_log.startsWith("Semantic quality review failed:") &&
+    /\[owner:(?:source|content|visual)\]/.test(state.error_log) &&
+    Object.keys(state.study_guide_content).length > 0
+  ) return "studyGuideContent";
+  return "generator";
 }
 
 async function persistRunArtifacts(config: WebLayoutRuntimeConfig, state: WebLayoutState): Promise<void> {
   await mkdir(config.runDir, { recursive: true });
   await Promise.all([
     writeFile(path.join(config.runDir, "source.txt"), state.source_text, "utf8"),
+    writeJson(path.join(config.runDir, REQUEST_CONTRACT_FILE), state.request_contract),
+    writeJson(
+      path.join(config.runDir, REQUEST_CONTRACT_INTEGRITY_FILE),
+      createRequestContractIntegrity(state.request_contract),
+    ),
     writeJson(path.join(config.runDir, "layout-spec.json"), state.layout_spec),
     writeJson(path.join(config.runDir, "study-guide-content.json"), state.study_guide_content),
     writeJson(path.join(config.runDir, "course-blueprint.json"), state.course_blueprint),
@@ -373,6 +399,8 @@ async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayou
     assessmentBlueprint,
     questionBank,
     qualityReview,
+    requestContract,
+    requestContractIntegrity,
   ] = await Promise.all([
     readFile(path.join(resumeDir, "source.txt"), "utf8").catch(() => ""),
     readOptionalResumeJson(path.join(resumeDir, "layout-spec.json")),
@@ -381,7 +409,21 @@ async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayou
     readOptionalResumeJson(path.join(resumeDir, "assessment-blueprint.json")),
     readOptionalResumeJson(path.join(resumeDir, "question-bank.json")),
     readOptionalResumeJson(path.join(resumeDir, "quality-review.json")),
+    readOptionalResumeJson(path.join(resumeDir, REQUEST_CONTRACT_FILE)),
+    readOptionalResumeJson(path.join(resumeDir, REQUEST_CONTRACT_INTEGRITY_FILE)),
   ]);
+  const verifiedRequestContract = requestContract && typeof requestContract === "object"
+    ? RequestContractSchema.parse(requestContract)
+    : null;
+  if (verifiedRequestContract) {
+    if (!requestContractIntegrity) {
+      throw new Error(`Resume request contract integrity is missing: ${resumeDir}`);
+    }
+    verifyRequestContractIntegrity(verifiedRequestContract, requestContractIntegrity);
+    if (verifiedRequestContract.originalPrompt !== config.originalUserPrompt) {
+      throw new Error("Resume request contract does not match the exact original user prompt.");
+    }
+  }
   // A resume source.txt may contain only an earlier repair prompt. Whenever a
   // canonical handoff or local source is configured (explicitly or inherited),
   // rebuild from that evidence instead of trusting the stale snapshot.
@@ -412,10 +454,26 @@ async function loadResumeState(config: WebLayoutRuntimeConfig): Promise<WebLayou
     `Resuming latest non-empty web-layout checkpoint from ${resumeDir}; it will be validated before review.`,
   );
   const qualityFindings = qualityReview?.ok === false && Array.isArray(qualityReview.findings)
-    ? qualityReview.findings.filter((finding): finding is string => typeof finding === "string")
+    ? qualityReview.findings.flatMap((finding) => {
+        if (typeof finding === "string") return [finding];
+        if (!finding || typeof finding !== "object") return [];
+        const record = finding as Record<string, unknown>;
+        if (record.severity !== "blocking" || typeof record.message !== "string") return [];
+        return [[
+          typeof record.owner === "string" ? `[owner:${record.owner}]` : "[owner:content]",
+          typeof record.requirementId === "string" ? `[requirement:${record.requirementId}]` : "",
+          typeof record.deliverableId === "string" ? `[deliverable:${record.deliverableId}]` : "",
+          typeof record.targetId === "string" ? `[target:${record.targetId}]` : "",
+          record.message,
+          typeof record.repairInstruction === "string" ? `Repair: ${record.repairInstruction}` : "",
+        ].filter(Boolean).join(" ")];
+      })
     : [];
   return {
     source_text: sourceText,
+    request_contract: verifiedRequestContract
+      ? verifiedRequestContract as WebLayoutState["request_contract"]
+      : initialWebLayoutState.request_contract,
     layout_spec: resumeLayoutSpec,
     study_guide_content: studyGuideContent ?? {},
     course_blueprint: courseBlueprint ?? {},

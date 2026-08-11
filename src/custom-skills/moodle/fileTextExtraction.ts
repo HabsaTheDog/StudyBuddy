@@ -23,6 +23,12 @@ export interface ExtractionTooling {
 
 export type ExtractionExecutableName = "pdftotext" | "pdftoppm" | "libreoffice" | "typst";
 
+// A fixed document-wide character threshold classified multi-page slide decks
+// with little more than repeated headers as fully readable. Keep the small
+// absolute floor for genuinely short files, but require enough text per PDF
+// page before downstream analysis may rely on the native text layer alone.
+const MIN_USABLE_PDF_CHARACTERS_PER_PAGE = 80;
+
 const EXECUTABLE_OVERRIDES: Record<ExtractionExecutableName, string> = {
   pdftotext: "STUDY_BUDDY_PDFTOTEXT_PATH",
   pdftoppm: "STUDY_BUDDY_PDFTOPPM_PATH",
@@ -102,12 +108,26 @@ export async function extractPdfText(
   }
   const text = await readFile(textPath, "utf8");
   await writeFile(textPath, text, "utf8");
-  if (text.replace(/\s+/g, "").length >= 80) {
-    return extractionResult(pdfPath, "native_pdf_text", text, []);
+  const pageCount = inferredPageCount(text);
+  const characterCount = text.replace(/\s+/g, "").length;
+  const charactersPerPage = characterCount / Math.max(1, pageCount);
+  if (
+    characterCount >= 80 &&
+    charactersPerPage >= MIN_USABLE_PDF_CHARACTERS_PER_PAGE
+  ) {
+    return extractionResult(pdfPath, "native_pdf_text", text, [], pageCount);
   }
-  return extractionResult(pdfPath, "native_pdf_text", text, [
-    "PDF contains little embedded text. Automatic OCR is intentionally disabled; the catalog can still expose this resource and the visual pipeline can inspect selected pages.",
-  ]);
+  return extractionResult(
+    pdfPath,
+    "native_pdf_text",
+    text,
+    [
+      characterCount >= 80
+        ? `PDF text layer is sparse (${Math.round(charactersPerPage)} readable characters per page). Treat this source as visual-required instead of relying on native text alone.`
+        : "PDF contains little embedded text. Automatic OCR is intentionally disabled; the catalog can still expose this resource and the visual pipeline can inspect selected pages.",
+    ],
+    pageCount,
+  );
 }
 
 async function extractOfficeText(
@@ -241,7 +261,11 @@ function extractionResult(
   explicitPageCount?: number,
 ): FileExtractionResult {
   const characterCount = text.replace(/\s+/g, "").length;
-  const status = characterCount >= 80
+  const pageCount = explicitPageCount ?? inferredPageCount(text);
+  const sparsePdfText = method === "native_pdf_text" &&
+    pageCount > 0 &&
+    characterCount / pageCount < MIN_USABLE_PDF_CHARACTERS_PER_PAGE;
+  const status = characterCount >= 80 && !sparsePdfText
     ? "usable"
     : characterCount >= 24
       ? "partial"
@@ -252,7 +276,14 @@ function extractionResult(
     method,
     text,
     characterCount,
-    pageCount: explicitPageCount ?? (text ? text.split("\f").length : null),
+    pageCount: text ? pageCount : null,
     warnings,
   };
+}
+
+function inferredPageCount(text: string): number {
+  if (!text) return 0;
+  const pages = text.split("\f");
+  if (pages.at(-1)?.trim() === "") pages.pop();
+  return Math.max(1, pages.length);
 }

@@ -34,11 +34,23 @@ export const learningSupportResourceSchema = z.object({
   resourceUrls: z.array(resourceUrlSchema),
 }).strict();
 
+const learningArchitectureModuleLimitSchema = z.object({
+  strategy: z.literal("truncate_with_manifest"),
+  maxModules: z.number().int().positive(),
+  originalModuleCount: z.number().int().positive(),
+  omittedModules: z.array(z.object({
+    id: nonEmptyTextSchema,
+    title: nonEmptyTextSchema,
+    resourceUrls: z.array(resourceUrlSchema),
+  }).strict()).min(1),
+}).strict();
+
 export const learningArchitectureSchema = z.object({
   schemaVersion: z.literal(1),
   modules: z.array(learningModuleSchema),
   supportResources: z.array(learningSupportResourceSchema),
   excludedResourceUrls: z.array(resourceUrlSchema),
+  moduleLimit: learningArchitectureModuleLimitSchema.optional(),
 }).strict().superRefine((architecture, context) => {
   const ids = new Set<string>();
   for (const [kind, entries] of [
@@ -88,41 +100,42 @@ export interface LearningArchitectureCatalogEntry {
 export interface LearningArchitectureInput {
   briefs: LearningArchitectureDocumentBrief[];
   catalog: LearningArchitectureCatalogEntry[];
+  language?: "de" | "en";
 }
 
 export type LearningArchitectureValidation =
   | { success: true; data: LearningArchitecture }
   | { success: false; error: string };
 
-/**
- * Keeps model-call count bounded without discarding learning objectives or
- * source coverage. Adjacent modules are combined because course order is part
- * of the architecture and usually reflects prerequisite progression.
- */
+/** Keeps model-call count bounded without inventing a semantic umbrella. */
 export function boundLearningArchitecture(
   architecture: LearningArchitecture,
   maxModules = 6,
 ): LearningArchitecture {
-  if (architecture.modules.length <= maxModules || maxModules < 1) return architecture;
-  const groups = Array.from({ length: maxModules }, () => [] as LearningArchitecture["modules"]);
-  architecture.modules.forEach((module, index) => {
-    groups[Math.floor(index * maxModules / architecture.modules.length)].push(module);
+  if (!Number.isInteger(maxModules) || maxModules < 1) {
+    throw new RangeError(`Learning architecture module limit must be a positive integer, got ${maxModules}.`);
+  }
+  if (architecture.modules.length <= maxModules) return architecture;
+  const modules = architecture.modules.slice(0, maxModules);
+  const omitted = architecture.modules.slice(maxModules);
+  return learningArchitectureSchema.parse({
+    ...architecture,
+    modules,
+    excludedResourceUrls: uniqueStrings([
+      ...architecture.excludedResourceUrls,
+      ...omitted.flatMap((module) => module.resourceUrls),
+    ]).sort(),
+    moduleLimit: {
+      strategy: "truncate_with_manifest",
+      maxModules,
+      originalModuleCount: architecture.modules.length,
+      omittedModules: omitted.map((module) => ({
+        id: module.id,
+        title: module.title,
+        resourceUrls: module.resourceUrls,
+      })),
+    },
   });
-  const priorityRank = { essential: 0, important: 1, supplementary: 2 } as const;
-  const modules = groups.filter((group) => group.length > 0).map((group, index) => {
-    const modes = new Set(group.map((module) => module.contentMode));
-    return {
-      id: `${group[0].id}-cluster-${index + 1}`,
-      title: group.map((module) => module.title).join(" / "),
-      priority: [...group]
-        .sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority])[0].priority,
-      contentMode: modes.size === 1 ? group[0].contentMode : "mixed" as const,
-      learningObjectives: [...new Set(group.flatMap((module) => module.learningObjectives))],
-      assessmentSignals: [...new Set(group.flatMap((module) => module.assessmentSignals))],
-      resourceUrls: [...new Set(group.flatMap((module) => module.resourceUrls))],
-    };
-  });
-  return learningArchitectureSchema.parse({ ...architecture, modules });
 }
 
 /**
@@ -219,7 +232,11 @@ export function buildDeterministicLearningArchitecture(
 
   const usedIds = new Set<string>();
   const learningModules = [...modules.values()]
-    .map((module) => buildLearningModule(module, uniqueId(module.title, usedIds)))
+    .map((module) => buildLearningModule(
+      module,
+      uniqueId(module.title, usedIds),
+      input.language ?? "en",
+    ))
     .sort(compareModules);
   const supportResources = groupSupportResources(supportRecords, usedIds);
 
@@ -410,91 +427,68 @@ function isGenericContainerTitle(value: string): boolean {
   return /^(?:(?:lecture|vorlesung|slides?|folien|chapter|kapitel|unit|einheit|week|woche|session|prasenz|praesenz|presence|module|modul|block|topic|thema|course|kurs|overview|uberblick|ueberblick|summary|zusammenfassung|materials?|materialien|unterlagen|documents?|resources?|ressourcen?|exam|prufung|pruefung|test)\s*)+(?:\d+|[a-z]|[ivxlcdm]+)?$/i.test(normalized);
 }
 
-function buildLearningModule(module: ModuleAccumulator, id: string): LearningModule {
-  const contentMode = inferContentMode(module.records);
+function buildLearningModule(
+  module: ModuleAccumulator,
+  id: string,
+  language: "de" | "en",
+): LearningModule {
   return {
     id,
     title: module.title,
     priority: inferPriority(module.records),
-    contentMode,
-    learningObjectives: learningObjectives(module.title, contentMode),
-    assessmentSignals: assessmentSignals(module.records),
+    contentMode: "mixed",
+    learningObjectives: neutralLearningObjectives(module.title, language),
+    assessmentSignals: assessmentSignals(module.records, language),
     resourceUrls: uniqueStrings(module.records.flatMap((record) => record.urls)).sort(),
   };
 }
 
 function inferPriority(records: ResourceRecord[]): LearningPriority {
   const roles = new Set(records.map((record) => record.role));
-  const text = records.map(resourceText).join(" ");
   if (
-    [...roles].some((role) => ["primary_lecture", "sample_exam", "worked_example"].includes(role)) ||
-    /\b(?:exam|prüfung|pruefung|test|quiz|assignment|aufgabe|exercise|übung|uebung|assessment)\b/i.test(text)
+    [...roles].some((role) => [
+      "primary_lecture",
+      "sample_exam",
+      "worked_example",
+      "exercise",
+      "solution",
+    ].includes(role)) || records.some(isPracticeResource)
   ) return "essential";
   if (roles.has("overview") || records.some((record) => record.priority >= 500)) return "important";
   return "supplementary";
 }
 
-function inferContentMode(records: ResourceRecord[]): LearningContentMode {
-  const text = records.map(resourceText).join(" ");
-  const caseBased = /\b(?:case\s+study|fallstudie|case|scenario|szenario|vignette|decision\s+situation)\b/i.test(text);
-  const quantitative = /\b(?:calculate|calculation|compute|equation|formula|derive|solve|numeric|quantitative|berechne[nt]?|rechnung|gleichung|formel|herleiten|lösen|loesen)\b/i.test(text);
-  const procedural = /\b(?:procedure|protocol|workflow|step[- ]by[- ]step|perform|technique|method|prozess|verfahren|protokoll|ablauf|durchführen|durchfuehren)\b/i.test(text);
-  const conceptual = /\b(?:explain|understand|concept|principle|theory|compare|distinguish|interpret|erklären|erklaeren|verstehen|konzept|prinzip|theorie|vergleichen|unterscheiden|interpretieren)\b/i.test(text);
-  const active = [caseBased, quantitative, procedural, conceptual].filter(Boolean).length;
-  if (active > 1) return "mixed";
-  if (caseBased) return "case_based";
-  if (quantitative) return "quantitative";
-  if (procedural) return "procedural";
-  if (conceptual) return "conceptual";
-  if (records.some((record) => record.role === "primary_lecture")) return "mixed";
-  return "conceptual";
+function neutralLearningObjectives(
+  title: string,
+  language: "de" | "en",
+): string[] {
+  return [language === "de"
+    ? `Die unter „${title}“ evidenzierten Kursinhalte nachvollziehen.`
+    : `Review the evidence-backed course material identified as “${title}”.`];
 }
 
-function learningObjectives(title: string, mode: LearningContentMode): string[] {
-  switch (mode) {
-    case "quantitative":
-      return [
-        `Apply the quantitative relationships and calculations used in ${title}.`,
-        `Interpret and check results for ${title}.`,
-      ];
-    case "procedural":
-      return [
-        `Carry out the central procedure for ${title} in the correct sequence.`,
-        `Recognize decision points and common errors in ${title}.`,
-      ];
-    case "case_based":
-      return [
-        `Analyze a representative case involving ${title}.`,
-        `Justify a conclusion using evidence from the case.`,
-      ];
-    case "mixed":
-      return [
-        `Explain the central ideas behind ${title}.`,
-        `Apply them to calculations, procedures, or cases represented in the course.`,
-      ];
-    default:
-      return [
-        `Explain the central concepts and relationships in ${title}.`,
-        `Distinguish ${title} from closely related ideas.`,
-      ];
-  }
-}
-
-function assessmentSignals(records: ResourceRecord[]): string[] {
+function assessmentSignals(
+  records: ResourceRecord[],
+  language: "de" | "en",
+): string[] {
   const roles = new Set(records.map((record) => record.role));
-  const text = records.map(resourceText).join(" ");
   const signals: string[] = [];
-  if (roles.has("sample_exam") || /\b(?:sample|past|mock|muster).{0,20}(?:exam|prüfung|pruefung|test)\b/i.test(text)) {
-    signals.push("Appears in sample, mock, or past assessment material.");
+  if (roles.has("sample_exam")) {
+    signals.push(language === "de"
+      ? "Kommt in Muster-, Probe- oder früheren Prüfungsunterlagen vor."
+      : "Appears in sample, mock, or past assessment material.");
   }
-  if (roles.has("worked_example") || /\b(?:solution|worked\s+example|lösung|loesung|musterlösung|musterloesung)\b/i.test(text)) {
-    signals.push("Practiced in worked examples or solutions.");
+  if (roles.has("worked_example") || roles.has("solution")) {
+    signals.push(language === "de"
+      ? "Wird in durchgerechneten Beispielen oder Lösungen geübt."
+      : "Practiced in worked examples or solutions.");
   }
-  if (/\b(?:assignment|exercise|worksheet|quiz|aufgabe|übung|uebung|arbeitsblatt)\b/i.test(text)) {
-    signals.push("Practiced in an assignment, exercise, worksheet, or quiz.");
-  }
-  if (roles.has("primary_lecture")) {
-    signals.push("Emphasized in primary teaching material.");
+  if (roles.has("exercise") || records.some((record) =>
+    record.role === "supplementary" && isPracticeResource(record)
+  )) {
+    signals.push(language === "de"
+      ? "Wird in einer Aufgabe, Übung, einem Arbeitsblatt oder Quiz geübt."
+      : "Practiced in an assignment, exercise, worksheet, or quiz.");
   }
   return uniqueStrings(signals);
 }
@@ -539,10 +533,6 @@ function uniqueId(value: string, used: Set<string>): string {
   while (used.has(candidate)) candidate = `${base}-${suffix++}`;
   used.add(candidate);
   return candidate;
-}
-
-function resourceText(record: ResourceRecord): string {
-  return `${record.title} ${record.topic ?? ""} ${record.sectionTitle ?? ""} ${record.summary}`;
 }
 
 function normalizeRole(role: string | null | undefined): string {

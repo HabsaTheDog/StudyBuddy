@@ -400,25 +400,31 @@ function scanEquationStart(value: string, comparatorIndex: number): number {
   let start = comparatorIndex;
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
     const token = tokens[index]!;
-    if (!looksLikeEquationLeftToken(token[0])) break;
+    if (!looksLikeEquationLeftToken(token[0], index === tokens.length - 1)) break;
     start = hardBoundary + 1 + (token.index ?? 0);
   }
   while (start < comparatorIndex && /\s/.test(value[start]!)) start += 1;
   return start;
 }
 
-function looksLikeEquationLeftToken(token: string): boolean {
+function looksLikeEquationLeftToken(token: string, allowNamedQuantity = false): boolean {
   const normalized = token.replace(/^[,،]+|[,،]+$/g, "");
   if (!normalized) return false;
   if (/^(?:ab|am|an|auf|aus|bei|der|die|das|den|dem|des|ein|eine|einer|eines|für|im|in|ist|mit|of|the|to|um|von|wird|zu)$/i.test(normalized)) {
     return false;
   }
   if (/^(?:sin|cos|tan|lim|log|ln|exp|max|min|mod)$/i.test(normalized)) return true;
+  if (/^[A-Za-zÄÖÜäöüα-ωΑ-ΩµμΣ∞ℝ]\p{M}+$/u.test(normalized)) return true;
   if (/^[A-Za-zÄÖÜäöüα-ωΑ-ΩµμΣ∞ℝ]{1,2}$/u.test(normalized)) return true;
   if (/^[α-ωΑ-Ω][A-Za-zÄÖÜäöüß]{1,5}$/u.test(normalized)) return true;
   if (/^[A-Za-zÄÖÜäöü](?:(?:[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9]*)|(?:min|max|ges|zul|eff|nom|krit|vorh))(?:,(?:min|max|ges|zul|eff|nom|krit|vorh))?$/u.test(normalized)) {
     return true;
   }
+  // Named-quantity equations are common in explanatory prose, for example
+  // "Weg = Geschwindigkeit × Zeit". A single title-cased word immediately
+  // before a relation is a safe equation boundary and keeps the complete
+  // relation available to the accessible MathML renderer.
+  if (allowNamedQuantity && /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{2,31}$/u.test(normalized)) return true;
   if (/^[A-Za-zÄÖÜäöü]{1,4},(?:min|max|ges|zul|eff|nom|krit|vorh)$/u.test(normalized)) return true;
   return /[0-9₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹()[\]{}_^′'∫Σ√+\-−*/·×]/u.test(normalized);
 }
@@ -567,7 +573,7 @@ function readMathAtom(tokens: string[], start: number, preserveDelimiters = true
 
 function mathTokens(value: string): string[] {
   return value.match(
-    /[α-ωΑ-Ω][A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+|[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝµμ]+|\d+(?:[.,]\d+)?|[₀-₉₊₋₌₍₎ₐₑₒₓₔₕₖₗₘₙₚₛₜ]+|[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+|\S/gu,
+    /[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝµμ]\p{M}+|[α-ωΑ-Ω][A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+|[A-Za-zÄÖÜäöüα-ωΑ-ΩΣ∞ℝµμ]+|\d+(?:[.,]\d+)?|[₀-₉₊₋₌₍₎ₐₑₒₓₔₕₖₗₘₙₚₛₜ]+|[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ]+|\S/gu,
   ) ?? [];
 }
 
@@ -682,6 +688,10 @@ function typographicScripts(value: string): string {
 }
 
 function mathToken(token: string): string {
+  const overlinedVariable = token.match(/^([A-Za-zÄÖÜäöüα-ωΑ-ΩµμΣ∞ℝ])\u0304$/u);
+  if (overlinedVariable) {
+    return `<mover accent="true"><mi>${esc(overlinedVariable[1]!)}</mi><mo>¯</mo></mover>`;
+  }
   if (/^(?:mm|cm|dm|km|µm|μm|nm|N|kN|MN|Pa|kPa|MPa|GPa|Nm|kNm|J|kJ|W|kW|Hz|rad|kg|ms|DIN|ISO|EN)$/u.test(token)) {
     return `<mtext>${esc(token)}</mtext>`;
   }

@@ -6,14 +6,21 @@ not promised; safety and reproducibility gates take priority.
 ## Release blockers
 
 - Rotate or revoke every credential previously disclosed outside protected
-  storage and complete automated full-history scans of both repositories.
-- Replace real portal/course/attempt fixtures with synthetic examples.
+  storage. Automated full-history scans of both repositories are now in place;
+  the remaining rotation confirmation is a maintainer action.
+- Real-looking portal resource IDs in current test fixtures have been replaced
+  with synthetic IDs and the public-tree gate enforces this boundary.
 - Review, split, test, commit, and publish the current `t3code-fork` work; then
   pin its public commit from the root repository.
-- Replace the inherited T3 CI/release automation with Study Buddy-owned,
-  GitHub-hosted workflows.
-- Add an integrated clean-clone test for the pinned UI submodule.
-- Complete license/SBOM review and a clean-machine install on each claimed
+- Inherited T3 deployment/release automation is disabled and CI now uses
+  GitHub-hosted runners. A dedicated signed Study Buddy artifact workflow is
+  still required before binary publication.
+- Root CI recursively checks out, audits, formats, typechecks, and tests the
+  pinned UI submodule. A final clean-clone run is still required after the new
+  fork commit and root gitlink are public.
+- License and SBOM generation gates are implemented, and the fork now installs
+  from a clean frozen-lockfile checkout without private registry access.
+  Complete final SBOM review and clean-machine installation on each claimed
   platform.
 - Remove the course-specific production template shortcut or convert it to
   validated evidence-derived bank content.
@@ -27,7 +34,9 @@ not promised; safety and reproducibility gates take priority.
   and a small set of contribution-ready issues.
 
 The concrete repository sequence is tracked in
-[docs/github-launch.md](docs/github-launch.md).
+[docs/github-launch.md](docs/github-launch.md). The current verified state and
+remaining owner actions are recorded in
+[docs/release-readiness.md](docs/release-readiness.md).
 
 ## Later candidates
 

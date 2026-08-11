@@ -1,4 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
+import { minimalRequestContract, type RequestContract } from "../shared/requestContract.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
@@ -9,6 +10,7 @@ export type JsonArray = JsonValue[];
 
 export interface WebLayoutState {
   source_text: string;
+  request_contract: RequestContract;
   layout_spec: JsonObject;
   study_guide_content: JsonObject;
   course_blueprint: JsonObject;
@@ -29,6 +31,7 @@ export interface WebLayoutState {
 
 export const initialWebLayoutState: WebLayoutState = {
   source_text: "",
+  request_contract: minimalRequestContract("Create the requested Study Buddy artifact.", ["artifact"]),
   layout_spec: {},
   study_guide_content: {},
   course_blueprint: {},
@@ -51,6 +54,10 @@ export const WebLayoutStateAnnotation = Annotation.Root({
   source_text: Annotation<string>({
     reducer: (_current, update) => update,
     default: () => "",
+  }),
+  request_contract: Annotation<RequestContract>({
+    reducer: (_current, update) => update,
+    default: () => minimalRequestContract("Create the requested Study Buddy artifact.", ["artifact"]),
   }),
   layout_spec: Annotation<JsonObject>({
     reducer: (_current, update) => update,

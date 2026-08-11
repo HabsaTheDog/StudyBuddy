@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runWebLayoutGraph } from "../graph.js";
+import { routeAfterQualityReview, runWebLayoutGraph } from "../graph.js";
 import { minimalValidStudyBuddyHtml } from "../htmlShell.js";
-import type { LangGraphWebLayoutState } from "../state.js";
+import { initialWebLayoutState, type LangGraphWebLayoutState } from "../state.js";
 
 const previousWorkspace = process.env.STUDY_BUDDY_WORKSPACE;
 const tempDirs: string[] = [];
@@ -15,6 +15,27 @@ afterEach(async () => {
 });
 
 describe("web layout graph", () => {
+  it("routes contract-owned content and visual findings to the semantic builder, not the presentation generator", () => {
+    const base = {
+      ...initialWebLayoutState,
+      study_guide_content: { courseTitle: "Reviewed guide" },
+      quality_retry_count: 1,
+    } as LangGraphWebLayoutState;
+
+    expect(routeAfterQualityReview({
+      ...base,
+      error_log: "Semantic quality review failed:\n- [owner:visual] [target:topic-1] crop is wrong",
+    })).toBe("studyGuideContent");
+    expect(routeAfterQualityReview({
+      ...base,
+      error_log: "Semantic quality review failed:\n- [owner:interaction] [target:control-1] control is broken",
+    })).toBe("generator");
+    expect(routeAfterQualityReview({
+      ...base,
+      error_log: "Semantic quality review failed:\n- [owner:technical] [target:viewport] overflow",
+    })).toBe("generator");
+  });
+
   it("retries the generator after validator failure", async () => {
     const workspace = await tempWorkspace();
     let generatorCalls = 0;
@@ -154,7 +175,7 @@ describe("web layout graph", () => {
     let qualityCalls = 0;
     const resumed = await runWebLayoutGraph(
       {
-        prompt: "Resume flashcards",
+        prompt: "Build flashcards",
         kind: "flashcards",
         requestName: "resume-target",
         resumeRunDir: first.runDir,
@@ -210,7 +231,7 @@ describe("web layout graph", () => {
     let receivedRepair = "";
     const resumed = await runWebLayoutGraph(
       {
-        prompt: "Resume flashcards",
+        prompt: "Build flashcards",
         kind: "flashcards",
         requestName: "resume-quality-target",
         resumeRunDir: first.runDir,

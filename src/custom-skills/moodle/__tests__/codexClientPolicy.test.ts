@@ -1,12 +1,51 @@
 import type { ThreadItem } from "@openai/codex-sdk";
 import { describe, expect, it } from "vitest";
 import {
+  classifyCodexError,
   resolveCodexTaskAccessPolicy,
   resolveModelPromptCharacterBudget,
   summarizeCodexToolUsage,
 } from "../codexClient.js";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../../shared/childProcessSecurity.js";
 
 describe("Codex task access policy", () => {
+  it("treats account usage exhaustion as terminal rather than a retryable rate limit", () => {
+    expect(classifyCodexError(new Error(
+      "You've hit your usage limit. Purchase more credits or try again later.",
+    ))).toEqual({ category: "usage_limit", retryable: false });
+    expect(classifyCodexError(new Error("rate limit exceeded")))
+      .toEqual({ category: "rate_limit", retryable: true });
+  });
+
+  it("keeps portal and arbitrary host secrets out of Codex children", () => {
+    const environment = buildCodexChildEnvironment({
+      PATH: "/bin",
+      HOME: "/home/student",
+      CODEX_HOME: "/private/codex-home",
+      LANG: "de_AT.UTF-8",
+      MOODLE_PASSWORD: "portal-secret",
+      CIS_CALENDAR_URL: "https://calendar.example.test/private-feed",
+      OPENAI_API_KEY: "host-api-key",
+      NODE_OPTIONS: "--require=/tmp/injected.js",
+    });
+
+    expect(environment).toEqual({
+      PATH: "/bin",
+      HOME: "/home/student",
+      CODEX_HOME: "/private/codex-home",
+      LANG: "de_AT.UTF-8",
+    });
+    expect(buildCodexShellEnvironmentConfig(environment)).toEqual({
+      shell_environment_policy: {
+        inherit: "none",
+        set: { PATH: "/bin", LANG: "de_AT.UTF-8" },
+      },
+    });
+  });
+
   it.each([
     "artifact_planner",
     "content_analyzer",

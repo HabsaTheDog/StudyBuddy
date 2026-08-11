@@ -45,7 +45,8 @@ export function assessExamNavigatorCoverage(
   const needsDeepMaterial =
     config.intentDecision?.needsCourseMaterial === true &&
     config.intentDecision?.needsDownloadedFiles === true;
-  const examScopeRequested = /\b(?:prüfung|pruefung|exam|klausur|prüfungsstoff|pruefungsstoff)\b/i
+  // German compounds such as "Dynamikprüfung" still request exam scope.
+  const examScopeRequested = /(?:prüfung|pruefung|exam|klausur|prüfungsstoff|pruefungsstoff)\b/i
     .test(config.prompt);
   const examScopeConfirmed = manifest.resources.some(
     (resource) => resource.examRelevance === "confirmed",
@@ -161,6 +162,10 @@ export function targetCourseResources(manifest: ResourceManifest): ResourceManif
   const targetUrl = canonicalizeResourceUrl(manifest.courseUrl);
   const targetId = stableResourceId(targetUrl);
   return manifest.resources.filter((resource) => {
+    // The bounded resource plan is created only after target-course resolution.
+    // It is therefore authoritative when later Moodle navigation snapshots have
+    // overwritten a resource's immediate parent page.
+    if (resource.selection?.selected === true) return true;
     if (canonicalizeResourceUrl(resource.originUrl) === targetUrl) return true;
     if (resource.parentId === targetId) return true;
     if (resource.sectionPath.length > 0 && (!resource.parentId || resource.parentId === targetId)) {

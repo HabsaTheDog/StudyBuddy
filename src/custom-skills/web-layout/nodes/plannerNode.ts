@@ -6,18 +6,13 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 import type { CodexClient } from "../codexClient.js";
 import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 import { studyGuideBlockGuidance } from "../studyGuideBlockContract.js";
-import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { balancedExcerpt } from "../modelText.js";
+
+const PLANNER_PROMPT_TARGET_CHARS = 50_000;
 
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      if (config.kind === "study-guide" && state.source_text.includes("## Extracted data")) {
-        const parsed = layoutSpecSchema.parse(deterministicStudyGuidePlan(config, state.source_text)) as JsonObject;
-        await writeFile(path.join(config.runDir, "layout-spec.json"), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-        await config.diagnostics?.log("info", "planner", "Built standardized study-guide layout plan deterministically from the reusable block contract.");
-        return { layout_spec: parsed, error_log: null };
-      }
       const response = await codex.run(buildPlannerPrompt(config, state), {
         outputSchema: layoutSpecJsonSchema,
         task: "artifact_planner",
@@ -49,41 +44,13 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
   };
 }
 
-function deterministicStudyGuidePlan(config: WebLayoutRuntimeConfig, sourceText: string) {
-  const english = config.language === "en";
-  const requirements = deriveStudyGuideRequirements(sourceText);
-  const titles = requirements.sectionTitles.slice(0, requirements.topicTarget);
-  return {
-    title: `${requirements.courseCode} – ${english ? "Interactive Study Guide" : "Interaktiver Study Guide"}`,
-    language: config.language,
-    kind: "study-guide",
-    audience: english ? "Students preparing for an exam with source-grounded material" : "Studierende in einer quellenbasierten Prüfungsvorbereitung",
-    learningGoals: english
-      ? ["Cover every supported course topic in a meaningful learning sequence", "Reinforce knowledge through evidence-appropriate application", "Diagnose mistakes with concrete feedback"]
-      : ["Alle belegten Kursthemen in einer sinnvollen Lernreihenfolge erschließen", "Wissen durch passende Anwendung festigen", "Fehler mit konkreter Rückmeldung diagnostizieren"],
-    sections: titles.map((title, index) => ({
-      id: `topic-${index + 1}`,
-      title,
-      purpose: english ? "Standardized learning path from orientation through theory, example, practice, and review" : "Standardisierter Lernpfad aus Orientierung, Theorie, Beispiel, Übung und Auswertung",
-      interactionType: english ? `Evidence-adaptive ${requirements.archetype} practice` : `Evidenzadaptives ${requirements.archetype} Training`,
-    })),
-    requiredInteractions: english
-      ? ["Sticky top bar without sidebar", "Responsive chapter dropdown", "Persistent progress", "Source-grounded or visibly derived tasks and feedback"]
-      : ["Sticky Hotbar ohne Sidebar", "Responsives Kapitel-Dropdown", "Persistenter Fortschritt", "Quellengebundene oder sichtbar abgeleitete Aufgaben und Rückmeldungen"],
-    dataModel: { studyGuideProfile: requirements },
-    designDirection: english ? `Standardized Study Buddy block system adapted to a ${requirements.archetype} course profile.` : `Standardisiertes Study-Buddy-Blocksystem für ein ${requirements.archetype} Kursprofil; Blöcke werden nur verwendet, wenn die Evidenz sie trägt.`,
-    accessibilityNotes: english
-      ? ["Keyboard-accessible controls", "Semantic forms and MathML", "No horizontal document overflow"]
-      : ["Tastaturbedienbare Controls", "Semantische Formulare und MathML", "Kein horizontaler Dokumentüberlauf"],
-  };
-}
-
-export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<LangGraphWebLayoutState, "source_text" | "error_log">): string {
-  return [
+export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<LangGraphWebLayoutState, "source_text" | "request_contract" | "error_log">): string {
+  const fixedPrompt = [
     "Create a JSON-only implementation plan for a Study Buddy offline interactive HTML learning tool.",
     `Requested kind: ${config.kind}`,
     `Language: ${config.language}`,
-    "Keep scope proportional to the request. Choose one primary learning interaction and only add supporting interactions that directly serve it.",
+    "Use the evaluated request contract as the semantic authority. Keep scope proportional to it; choose learning interactions from its requirements and the course evidence, never from a fixed subject or study-guide template.",
+    "Optional components mentioned under notRequired are allowed but cannot become acceptance blockers. Components under forbidden must not appear. Preserve every explicit must requirement and treat should requirements as evidence-backed recommendations.",
     adaptiveLearningInteractionGuidance(),
     config.kind === "study-guide" ? studyGuideBlockGuidance() : "",
     "Do not invent authoring systems, editable content builders, imports, exports, source search/filter interfaces, or modal source browsers unless the user explicitly requested them.",
@@ -91,9 +58,24 @@ export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<L
       ? "Only the user prompt is available. Plan a clearly labelled demo without course-specific factual claims, citations, or source-management UI."
       : "Plan source-aware citations only for sources actually present in the supplied handoff or files.",
     "Return JSON matching the supplied Structured Output schema, with no Markdown fences and no prose.",
-    state.error_log ? `Previous error to repair:\n${state.error_log}` : "",
-    `Source text:\n${balancedExcerpt(state.source_text, 45_000)}`,
+    state.error_log ? `Previous error to repair:\n${balancedExcerpt(state.error_log, 4_000)}` : "",
+    `Exact original user request:\n${config.originalUserPrompt}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
   ].filter(Boolean).join("\n\n");
+  const sourceHeader = "\n\nSource text:\n";
+  const sourceBudget = Math.max(
+    0,
+    Math.min(40_000, PLANNER_PROMPT_TARGET_CHARS - fixedPrompt.length - sourceHeader.length),
+  );
+  if (sourceBudget === 0 && state.source_text.trim()) {
+    throw new Error(
+      `Layout planner request contract and instructions exceed the ${PLANNER_PROMPT_TARGET_CHARS}-character planning budget before source evidence can be represented.`,
+    );
+  }
+  const sourceExcerpt = sourceBudget > 0
+    ? balancedExcerpt(state.source_text, sourceBudget)
+    : "";
+  return `${fixedPrompt}${sourceHeader}${sourceExcerpt}`;
 }
 
 function stripJsonFence(value: string): string {

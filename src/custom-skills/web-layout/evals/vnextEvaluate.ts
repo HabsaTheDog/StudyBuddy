@@ -325,7 +325,7 @@ function generatedQuestionsOutsideScope(items: unknown[]): number {
 }
 
 function inferredOfficialAssessmentClaims(value: unknown): number {
-  if (!isRecord(value) || value.mode !== "inferred") return 0;
+  if (!isRecord(value) || value.mode !== "inferred_practice") return 0;
   const officialFields = ["durationMinutes", "maxPoints", "passingPoints"];
   const claimsOfficialValue = officialFields.some((field) => value[field] !== null && value[field] !== undefined);
   const officialTitle = /(?:exam simulation|prüfungssimulation|official|offiziell)/i.test(String(value.title ?? ""));

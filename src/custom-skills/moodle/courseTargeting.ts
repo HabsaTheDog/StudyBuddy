@@ -21,13 +21,15 @@ export interface ResolvedCourseIdentity {
 interface CourseAlias {
   code: string;
   aliases: string[];
+  /** Subject stems that may appear inside German exam/course compounds. */
+  compoundTerms?: string[];
 }
 
 const COURSE_ALIASES: CourseAlias[] = [
-  { code: "MEL", aliases: ["MEL", "MEL1", "Maschinenelemente", "Maschinenelemente 1"] },
-  { code: "DYN2", aliases: ["DYN2", "Anwendung der Dynamik", "Anwendungen der Dynamik"] },
-  { code: "PHDYN", aliases: ["PHDYN", "Physikalische Grundlagen der Dynamik"] },
-  { code: "MAES2", aliases: ["MAES", "MAES2", "Mathematik für Engineering Science 2"] },
+  { code: "MEL", aliases: ["MEL", "MEL1", "Maschinenelemente", "Maschinenelemente 1"], compoundTerms: ["maschinenelemente"] },
+  { code: "DYN2", aliases: ["DYN2", "Anwendung der Dynamik", "Anwendungen der Dynamik"], compoundTerms: ["dynamik"] },
+  { code: "PHDYN", aliases: ["PHDYN", "Physikalische Grundlagen der Dynamik"], compoundTerms: ["dynamik"] },
+  { code: "MAES2", aliases: ["MAES", "MAES2", "Mathematik für Engineering Science 2"], compoundTerms: ["mathematik"] },
   { code: "ETLB2", aliases: ["ETLB2", "Elektrotechnik Labor 2"] },
   { code: "TEZEI", aliases: ["TEZEI", "Technisches Zeichnen", "Grundlagen des technischen Zeichnens"] },
 ];
@@ -46,6 +48,10 @@ export function extractCourseTargetHint(prompt: string): CourseTargetHint {
         alias.length > 3 &&
         textIncludesPhrase(prompt, alias) &&
         !mentionIsNegated(prompt, alias)
+      ) ||
+      course.compoundTerms?.some((term) =>
+        textIncludesKnownCourseCompound(prompt, term) &&
+        !mentionIsNegated(prompt, term)
       )
     ) {
       canonicalLabel ??= `${course.code} / ${course.aliases[course.aliases.length - 1]}`;
@@ -65,6 +71,22 @@ export function extractCourseTargetHint(prompt: string): CourseTargetHint {
     requestedNames: [...requestedNames],
     canonicalLabel,
   };
+}
+
+const COURSE_COMPOUND_SUFFIXES = [
+  "prüfung",
+  "pruefung",
+  "klausur",
+  "test",
+  "kurs",
+  "vorlesung",
+];
+
+function textIncludesKnownCourseCompound(text: string, subject: string): boolean {
+  const normalizedSubject = subject.toLowerCase();
+  return textTokens(text).some((token) =>
+    COURSE_COMPOUND_SUFFIXES.some((suffix) => token === `${normalizedSubject}${suffix}`)
+  );
 }
 
 /**
@@ -125,6 +147,34 @@ export function extractResolvedCourseIdentity(sourceText: string): ResolvedCours
       confidence: confidenceValue === "high" || confidenceValue === "medium" || confidenceValue === "low"
         ? confidenceValue
         : "medium",
+    };
+  }
+
+  // Evidence-first recovery stores the course-resolution record as compact
+  // JSON. In that representation the originally line-oriented fields are
+  // flattened into one `content` string, for example
+  // "Selected: ... Course title: DYN2 – Anwendungen der Dynamik". Preserve
+  // the canonical probed title instead of falling back to the short request
+  // code during zero-crawl recovery.
+  const compactCourseTitle = /\bCourse title:\s*(.+?)(?=\s+(?:URL|Confidence|Method):|["}\]]|$)/i
+    .exec(sourceText)?.[1]?.replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+  const compactCourseUrl = /\bsourceUrl["']?\s*:\s*["'](https?:\/\/[^"']+)/i
+    .exec(sourceText)?.[1]?.trim();
+  if (compactCourseTitle) {
+    return {
+      title: compactCourseTitle,
+      ...(compactCourseUrl ? { url: compactCourseUrl } : {}),
+      confidence: "high",
+    };
+  }
+
+  const evidenceSectionTitle = /["']section["']\s*:\s*["'](?:Course|Kurs)\s*:\s*([^|"']+?)(?:\s*\||["'])/i
+    .exec(sourceText)?.[1]?.replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+  if (evidenceSectionTitle) {
+    return {
+      title: evidenceSectionTitle,
+      ...(compactCourseUrl ? { url: compactCourseUrl } : {}),
+      confidence: "high",
     };
   }
 

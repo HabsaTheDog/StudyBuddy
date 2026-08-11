@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,7 +16,8 @@ import {
   isKnownPdfEndpoint,
 } from "../resourceAcquisition.js";
 import { buildResourceManifest, stableResourceId, verifyResourceLinks } from "../resourceManifest.js";
-import { moodleTestConfig } from "./support/moodleTestBlocks.js";
+import { createCoverageNode } from "../nodes/coverageNode.js";
+import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -157,6 +158,105 @@ describe("external resource acquisition", () => {
     ]));
   });
 
+  it("keeps selected downloads in the target course when later activity snapshots repeat navigation links", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-course-scope-repair-"));
+    temporaryDirectories.push(runDir);
+    const sourcesDir = path.join(runDir, "sources");
+    await mkdir(sourcesDir, { recursive: true });
+    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=101";
+    const feedbackUrl = "https://moodle.technikum-wien.at/mod/feedback/view.php?id=103";
+    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=102";
+    const localPath = path.join(sourcesDir, "translation.pdf");
+    await writeFile(localPath, "%PDF-1.4\nfixture\n", "utf8");
+    await writeFile(path.join(sourcesDir, "1-course.json"), JSON.stringify({
+      origin: courseUrl,
+      refs: {},
+      snapshot: [
+        '- heading "Kurs: Physikalische Grundlagen der Dynamik | FHTW Moodle" [level=2, ref=e1]',
+        `- link "Kontrollfragen Translation" [ref=e2, url=${resourceUrl}]`,
+        `- link "Feedback" [ref=e3, url=${feedbackUrl}]`,
+      ].join("\n"),
+    }));
+    await writeFile(path.join(sourcesDir, "2-feedback.json"), JSON.stringify({
+      origin: feedbackUrl,
+      refs: {},
+      snapshot: [
+        `- link "Physikalische Grundlagen der Dynamik" [ref=e1, url=${courseUrl}]`,
+        `- link "Kontrollfragen Translation" [ref=e2, url=${resourceUrl}]`,
+        `- link "Feedback" [ref=e3, url=${feedbackUrl}]`,
+      ].join("\n"),
+    }));
+    await writeFile(path.join(runDir, "resource-plan.json"), `${JSON.stringify({
+      entries: [{
+        href: resourceUrl,
+        selected: true,
+        role: "primary_lecture",
+        topic: "Translation",
+        priority: 900,
+        reason: "Selected for the target course.",
+      }],
+    })}\n`, "utf8");
+    const rawText = [
+      "[Moodle page]",
+      "Title: Physikalische Grundlagen der Dynamik",
+      `URL: ${courseUrl}`,
+      "",
+      "[Linked file]",
+      "Title: Kontrollfragen Translation",
+      `URL: ${resourceUrl}`,
+      "Resource status: acquired",
+      `Saved path: ${localPath}`,
+      "Selection: selected",
+      "Resource role: primary_lecture",
+      "Resource topic: Translation",
+      "Resource priority: 900",
+      "Selection reason: Selected for the target course.",
+      "Acquisition status: completed",
+      "Acquisition transport: authenticated_request",
+      "Acquisition attempts: 1",
+      "Acquisition bytes: 20",
+      "Acquisition duration ms: 5",
+      "Extraction status: usable",
+      "Extraction method: native_pdf_text",
+      "Extraction characters: 500",
+      "Extraction pages: 2",
+      "Extraction warnings: none",
+    ].join("\n");
+
+    const manifest = await buildResourceManifest(runDir, rawText, {
+      preferredCourseUrls: [courseUrl],
+    });
+    const acquired = manifest.resources.find((resource) => resource.originUrl === resourceUrl);
+    expect(acquired).toMatchObject({
+      parentId: stableResourceId(courseUrl),
+      status: "acquired",
+      localPath,
+    });
+    expect(manifest.resources.find((resource) => resource.originUrl === feedbackUrl)?.parentId)
+      .not.toBe(stableResourceId(feedbackUrl));
+
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev-translation",
+        resourceId: acquired!.id,
+        kind: "claim",
+        locator: { page: 1 },
+        content: "Translation evidence",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resourceUrl,
+        localPath,
+      }],
+      warnings: [],
+    });
+    const coverage = assessExamNavigatorCoverage(studyGuideConfig(), manifest, evidence);
+    expect(coverage.status).not.toBe("blocked");
+    expect(coverage.discoveredResources).toBe(1);
+    expect(coverage.acquiredResources).toBe(1);
+  });
+
   it("persists classified failures without turning diagnostics into study evidence", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-resource-failure-"));
     temporaryDirectories.push(runDir);
@@ -280,6 +380,147 @@ describe("external resource acquisition", () => {
     expect(coverage.discoveredResources).toBe(5);
     expect(coverage.acquiredResources).toBe(5);
     expect(coverage.failedResources).toBe(0);
+  });
+
+  it("treats the bounded target-course plan as authoritative over a stale snapshot parent", () => {
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
+    const otherCourse = "https://moodle.technikum-wien.at/course/view.php?id=101";
+    const staleActivityParent = stableResourceId(
+      "https://moodle.technikum-wien.at/mod/feedback/view.php?id=301",
+    );
+    const selected = plannedResource("Translation", staleActivityParent, true, "acquired", 0);
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: targetCourse,
+      generatedAt: new Date().toISOString(),
+      resources: [
+        resource(targetCourse, "course", "discovered", null, targetCourse),
+        resource(otherCourse, "course", "discovered", null, otherCourse),
+        resource("Feedback", "page", "discovered", stableResourceId(targetCourse),
+          "https://moodle.technikum-wien.at/mod/feedback/view.php?id=301"),
+        selected,
+      ],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev-selected",
+        resourceId: selected.id,
+        kind: "claim",
+        locator: {},
+        content: "Selected acquired evidence",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: selected.originUrl,
+        localPath: selected.localPath,
+      }],
+      warnings: [],
+    });
+
+    const coverage = assessExamNavigatorCoverage(studyGuideConfig(), manifest, evidence);
+
+    expect(coverage.status).not.toBe("blocked");
+    expect(coverage.discoveredResources).toBe(1);
+    expect(coverage.acquiredResources).toBe(1);
+    expect(coverage.usableEvidenceRecords).toBe(1);
+  });
+
+  it("recognizes a German compound as an exam-scope request", () => {
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
+    const targetId = stableResourceId(targetCourse);
+    const selected = plannedResource("Translation", targetId, true, "acquired", 0);
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: targetCourse,
+      generatedAt: new Date().toISOString(),
+      resources: [resource(targetCourse, "course", "discovered", null, targetCourse), selected],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev-exam-scope",
+        resourceId: selected.id,
+        kind: "claim",
+        locator: {},
+        content: "Course content without an official exam boundary.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: selected.originUrl,
+        localPath: selected.localPath,
+      }],
+      warnings: [],
+    });
+    const coverage = assessExamNavigatorCoverage({
+      ...studyGuideConfig(),
+      prompt: "Ich lerne für meine Dynamikprüfung.",
+    }, manifest, evidence);
+
+    expect(coverage.status).toBe("partial");
+    expect(coverage.detail).toContain("offizielle Prüfungsabgrenzung");
+    expect(coverage.acquiredResources).toBe(1);
+  });
+
+  it("repairs persisted course scope locally before the publication gate", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-coverage-recovery-"));
+    temporaryDirectories.push(runDir);
+    const targetCourse = "https://moodle.technikum-wien.at/course/view.php?id=102";
+    const staleParent = stableResourceId(
+      "https://moodle.technikum-wien.at/mod/feedback/view.php?id=301",
+    );
+    const selected = plannedResource("Translation", staleParent, true, "acquired", 0);
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      courseUrl: targetCourse,
+      generatedAt: new Date().toISOString(),
+      resources: [
+        resource(targetCourse, "course", "discovered", null, targetCourse),
+        resource("Other course", "course", "discovered", null,
+          "https://moodle.technikum-wien.at/course/view.php?id=101"),
+        selected,
+      ],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: new Date().toISOString(),
+      records: [{
+        id: "ev-selected",
+        resourceId: selected.id,
+        kind: "claim",
+        locator: {},
+        content: "Selected acquired evidence",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: selected.originUrl,
+        localPath: selected.localPath,
+      }],
+      warnings: [],
+    });
+    const node = createCoverageNode({ ...studyGuideConfig(), runDir });
+
+    const result = await node(moodleTestState({
+      resource_manifest: manifest,
+      evidence_package: evidence,
+    }));
+
+    expect(result.error_log).toBeNull();
+    expect(result.coverage_assessment).toMatchObject({
+      acquiredResources: 1,
+      usableEvidenceRecords: 1,
+    });
+    expect(result.resource_manifest?.resources.find((entry) => entry.id === selected.id)?.parentId)
+      .toBe(stableResourceId(targetCourse));
+    const recovery = JSON.parse(await readFile(path.join(runDir, "coverage-recovery.json"), "utf8")) as {
+      status: string;
+      performedNetworkAccess: boolean;
+      performedModelCall: boolean;
+    };
+    expect(recovery).toMatchObject({
+      status: "repaired",
+      performedNetworkAccess: false,
+      performedModelCall: false,
+    });
   });
 
   it("blocks only when a selected critical topic lacks usable evidence", () => {
