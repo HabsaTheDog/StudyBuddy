@@ -20,6 +20,8 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   mutation workflows in the Study Buddy interface fork.
 - Updated Electron and provider dependencies and added a high/critical audit
   gate for the desktop/server workspaces included in Study Buddy releases.
+- Limited the fork workspace and frozen lockfile to shipped Study Buddy packages,
+  removing the disabled relay's private tarball from default clean installs.
 
 ### Documentation
 

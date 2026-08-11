@@ -18,8 +18,10 @@ not promised; safety and reproducibility gates take priority.
 - Root CI recursively checks out, audits, formats, typechecks, and tests the
   pinned UI submodule. A final clean-clone run is still required after the new
   fork commit and root gitlink are public.
-- License and SBOM generation gates are implemented. Complete final SBOM review
-  and clean-machine installation on each claimed platform.
+- License and SBOM generation gates are implemented, and the fork now installs
+  from a clean frozen-lockfile checkout without private registry access.
+  Complete final SBOM review and clean-machine installation on each claimed
+  platform.
 - Remove the course-specific production template shortcut or convert it to
   validated evidence-derived bank content.
 
