@@ -95,6 +95,7 @@ npm run verify
 npm run check:links
 npm run check:public-tree
 npm run check:licenses
+npm run check:sbom
 npm run audit:production
 ```
 

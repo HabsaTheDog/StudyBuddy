@@ -46,8 +46,9 @@
     "check:links": "node scripts/check-markdown-links.mjs",
     "check:public-tree": "node scripts/check-public-tree.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
+    "check:sbom": "node scripts/check-sbom.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run audit:production"
+    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run audit:production"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.3.2",
