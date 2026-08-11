@@ -5,6 +5,10 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Codex } from "@openai/codex-sdk";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../shared/childProcessSecurity.js";
 import type { RunDiagnostics } from "./runDiagnostics.js";
 
 const require = createRequire(import.meta.url);
@@ -369,7 +373,7 @@ async function defaultRunProcess(
   return new Promise((resolve, reject) => {
     const invocation = resolveCodexProcessInvocation(command, args);
     const child = spawn(invocation.command, invocation.args, {
-      env: process.env,
+      env: buildCodexChildEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -420,7 +424,12 @@ async function defaultRunCanary(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CANARY_TIMEOUT_MS);
   try {
-    const codex = new Codex({ codexPathOverride: input.binaryPath });
+    const codexEnvironment = buildCodexChildEnvironment();
+    const codex = new Codex({
+      codexPathOverride: input.binaryPath,
+      env: codexEnvironment,
+      config: buildCodexShellEnvironmentConfig(codexEnvironment),
+    });
     const thread = codex.startThread({
       workingDirectory: input.workingDirectory,
       skipGitRepoCheck: true,
