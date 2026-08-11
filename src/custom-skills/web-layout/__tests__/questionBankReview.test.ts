@@ -365,6 +365,42 @@ describe("independent question-bank item review", () => {
     expect(calls).toBe(2);
   });
 
+  it("forces an item-local re-review without re-reviewing valid cached siblings", async () => {
+    const runDir = await temporaryRunDir();
+    const prompt = "Review this evidence-bound question bank.";
+    const contract = minimalRequestContract(prompt, ["interactive-study-guide"]);
+    const content = contentFixture();
+    const sourceText = sourceTextFixture();
+    const draft = buildAdaptiveStudyModel(content, sourceText, "en");
+    const reviewedBatches: Array<Array<{ itemId: string; contentHash: string }>> = [];
+    const codex = {
+      run: async (reviewPrompt: string) => {
+        const match = /Items to review:\n(\[[\s\S]*?\])\n\nComplete item-local evidence capsules:/.exec(reviewPrompt);
+        if (!match) throw new Error("Malformed question review prompt.");
+        reviewedBatches.push(JSON.parse(match[1]) as Array<{ itemId: string; contentHash: string }>);
+        return approvedBatch(reviewPrompt, draft.questionBank.items);
+      },
+    };
+    const config = createWebLayoutRuntimeConfig({ prompt, originalUserPrompt: prompt, kind: "study-guide", runDir });
+    await resolveQuestionBankReviews({ config, codex, content, sourceText, questionBank: draft.questionBank, requestContract: contract, priorError: null });
+
+    const forced = draft.questionBank.items[0]!;
+    await resolveQuestionBankReviews({
+      config,
+      codex,
+      content,
+      sourceText,
+      questionBank: draft.questionBank,
+      requestContract: contract,
+      priorError: "Re-review the rebuilt local evidence capsule.",
+      forceEvidenceRebuildItemIds: [forced.id],
+    });
+
+    expect(reviewedBatches.at(-1)?.map(({ itemId, contentHash }) => ({ itemId, contentHash }))).toEqual([
+      { itemId: forced.id, contentHash: forced.contentHash },
+    ]);
+  });
+
   it("fails closed on synthetic assessment-section refs without asking the model to label the claim unsupported", async () => {
     const runDir = await temporaryRunDir();
     const prompt = "Review the exact grounded item.";
