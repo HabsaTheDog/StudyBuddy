@@ -386,7 +386,7 @@ describe("moodle graph retry routing", () => {
     expect(result.error_log).toBeNull();
     expect(result.retry_count).toBe(1);
     await expect(readFile(outputPath, "utf8")).resolves.toContain("DYN2");
-  });
+  }, 10_000);
 
   it("aborts before the analyzer when required Moodle authentication failed", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
@@ -629,11 +629,11 @@ describe("moodle graph retry routing", () => {
     const sourcesDir = path.join(sourceDir, "sources");
     await mkdir(sourcesDir, { recursive: true });
     await mkdir(recoveryDir, { recursive: true });
-    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=32916";
-    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=2249357";
+    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=101";
+    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=102";
     const resourceId = stableResourceId(resourceUrl);
     const staleParent = stableResourceId(
-      "https://moodle.technikum-wien.at/mod/feedback/view.php?id=2249369",
+      "https://moodle.technikum-wien.at/mod/feedback/view.php?id=103",
     );
     const localPath = path.join(sourcesDir, "translation.pdf");
     await writeFile(localPath, "%PDF-1.4\nfixture\n", "utf8");

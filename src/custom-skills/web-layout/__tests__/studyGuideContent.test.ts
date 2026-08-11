@@ -422,7 +422,7 @@ describe("study-guide canonical content bank", () => {
     expect(finalItems.find((item) => item.id === unchanged.itemId)?.review.record?.contentHash).toBe(unchanged.contentHash);
   });
 
-  it("rebuilds an unavailable capsule and re-reviews the unchanged item once", async () => {
+  it("rejects a model-authored evidence-unavailable verdict and retries the same review batch", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-content-capsule-rebuild-"));
     tempDirs.push(runDir);
     const config = createWebLayoutRuntimeConfig({ prompt: "Build evidence-grounded interactive practice", kind: "study-guide", language: "en", runDir });
@@ -461,13 +461,16 @@ describe("study-guide canonical content bank", () => {
     })({ ...initialWebLayoutState, source_text: languageHandoff(), request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]) });
 
     expect(result.error_log).toBeNull();
-    expect(reviewedBatches.at(-1)?.map(({ itemId, contentHash }) => ({ itemId, contentHash }))).toEqual([
-      { itemId: unavailableId, contentHash: unavailableHash },
-    ]);
+    expect(unavailableId).not.toBe("");
+    expect(unavailableHash).not.toBe("");
+    const batchesContainingRejectedVerdict = reviewedBatches.filter((batch) =>
+      batch.some((item) => item.itemId === unavailableId && item.contentHash === unavailableHash)
+    );
+    expect(batchesContainingRejectedVerdict).toHaveLength(2);
+    expect(batchesContainingRejectedVerdict[1]).toEqual(batchesContainingRejectedVerdict[0]);
     expect(contentRepairCalls).toBe(0);
-    const diagnostic = JSON.parse(await readFile(path.join(runDir, "question-bank-evidence-diagnostics.json"), "utf8"));
-    expect(diagnostic.status).toBe("resolved");
-    expect(diagnostic.items[0]).toMatchObject({ itemId: unavailableId, contentHash: unavailableHash, previousVerdict: "evidence_unavailable", refreshedVerdict: "approved" });
+    await expect(readFile(path.join(runDir, "question-bank-evidence-diagnostics.json"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("drops ordinary inferred-practice renderer-type rejects when objectives survive", async () => {
