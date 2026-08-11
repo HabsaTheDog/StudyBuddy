@@ -267,6 +267,61 @@ pending
   exact field path early enough for bounded chapter-local repair. The complete
   Web Layout suite now passes with 197 tests and 3 intentional skips; global
   TypeScript typecheck and diff whitespace checks pass.
+- Bounded desktop iteration 5 removes four publication-path defects without
+  relaxing semantic or interaction quality: a repair pass processes every
+  actually missing chapter instead of an arbitrary first three; exact source
+  IDs referenced by verified extraction sections are restored from the handoff
+  registry when a model returns only a source alias; the final page reviewer
+  sees the exact request and contract plus bounded validation, canonical
+  content, and visible learner HTML while generated CSS and JavaScript are
+  omitted; item-local repair can no longer replace orchestrator-owned source or
+  Evidence Capsule references. Focused regressions and the global TypeScript
+  typecheck pass. A new clean Balanced desktop round is the remaining acceptance
+  step; no token, call, chapter, or duration ceiling was introduced.
+- Combined DYN2 desktop round `224b887f-1e0a-4c3a-89bb-578e3861d7c3`
+  produced and browser-validated the interactive HTML, then exposed a
+  cross-deliverable review defect: the HTML reviewer treated the separately
+  requested, downstream PDF as if it had to be embedded in the HTML and sent
+  the otherwise valid page back through content repair. The HTML quality node
+  now receives only the contract deliverables and requirements assigned to the
+  interactive artifact, deterministically discards findings explicitly bound
+  to another known deliverable, and numbers its own attempts from the local
+  quality retry counter. The complete RequestContract hash and exact original
+  prompt remain bound; PDF requirements continue to be enforced by the PDF
+  workflow rather than weakened or silently accepted by the HTML workflow.
+- The canonical end-to-end workflow now resolves requested artifact branches
+  from the integrity-verified RequestContract after one shared extraction.
+  Interactive HTML and standardized PDF rendering use independent run
+  directories and execute concurrently through the generic Study Workflow DAG;
+  publication joins only after every required branch succeeds. A resume reuses
+  a terminal reviewed branch and runs only the missing or failed sibling.
+- The shared workflow executor models modules with stable IDs, dependencies,
+  required/optional status, and exclusive resource keys. Independent artifact
+  or read-only task modules run in parallel; Moodle/quiz modules that claim the
+  same mutable browser or quiz resource are serialized. Failed dependencies
+  skip only their downstream modules while unrelated validated work is
+  preserved. This is the foundation for course-wide quiz inspection followed
+  by PDF/HTML synthesis without coupling quiz logic to either renderer.
+- Fresh cross-course desktop round `428d5917-bfd5-4742-9ef5-ca7df44e2870`
+  validates that shared extraction can publish both artifacts for MEL1: 42
+  independently approved interactive items across 12 topics, four responsive
+  browser audits with no failures, and an 11-page standardized PDF whose first
+  visual finding was routed only to the formatter and whose final all-page
+  review passed without findings.
+- The first Business-English matrix round returned valid repairs for only part
+  of a multi-item repair batch; the orchestrator discarded the entire response
+  and aborted before HTML publication. Item-local repair now retains every
+  exact, schema-valid result and retries only omitted identities with the
+  existing three-attempt semantic bound. A regression proves a three-item
+  response can return two items first and request only the missing third item
+  next, without chapter regeneration or loss of the accepted repairs.
+- Fresh Business-English desktop round
+  `b796e2a7-bea2-447d-a62c-1fd471acd812` verifies that fallback end to end from
+  a new natural-language prompt: one extraction, concurrent HTML/PDF branches,
+  24 published items with 24 exact approved review records, zero browser audit
+  failures at four viewports, and a 10-page PDF with a passed all-page visual
+  review. Both canonical artifacts are byte-identical to their published
+  deliverables; no worker remains active.
 
 ## Agent lanes
 

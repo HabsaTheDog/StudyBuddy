@@ -81,8 +81,10 @@ function inferProfile(normalized: string): ArtifactProfile {
 }
 
 function inferFormats(normalized: string, profile: ArtifactProfile): OutputFormat[] {
-  const asksHtml = /\b(?:html|webseite|website|navigator|interaktiv)\b/.test(normalized);
-  const asksPdf = /\b(?:pdf|lernzettel|study guide|dokument|skript)\b/.test(normalized);
+  const forbidsHtml = /\b(?:kein(?:e[snm]?)?|ohne|not|no)\s+(?:(?:interaktive[snm]?|interactive)\s+)?(?:html|webseite|website|navigator|study guide)\b/.test(normalized);
+  const forbidsPdf = /\b(?:kein(?:e[snm]?)?|ohne|not|no)\s+(?:pdf|lernzettel|dokument|skript)\b/.test(normalized);
+  const asksHtml = !forbidsHtml && /\b(?:html|webseite|website|navigator|interaktiv)\b/.test(normalized);
+  const asksPdf = !forbidsPdf && /\b(?:pdf|lernzettel|study guide|dokument|skript)\b/.test(normalized);
   if (asksHtml && asksPdf) return ["html", "pdf"];
   if (asksHtml) return ["html"];
   if (asksPdf) return ["pdf"];

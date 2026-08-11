@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +56,7 @@ describe("request evaluator", () => {
       forbidden: [],
     });
     expect(result.request_contract?.requirements.map((requirement) => requirement.id)).toEqual(["interactive", "pdf-scope"]);
+    await expect(access(path.join(runDir, "request-contract.json"))).rejects.toThrow();
   });
 
   it("treats Moodle content as untrusted evidence in the evaluator prompt", () => {

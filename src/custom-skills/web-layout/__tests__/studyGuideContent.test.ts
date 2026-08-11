@@ -69,6 +69,25 @@ describe("study-guide canonical content bank", () => {
     expect(refs.every((ref) => ref.sectionIndex === 1)).toBe(true);
   });
 
+  it("restores an exact handoff source referenced by evidence when the model source list uses an alias", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 2/4"));
+    content.sources = [{
+      id: "model-alias",
+      label: "Model alias",
+      url: "",
+      coverage: "Unit 2",
+    }];
+
+    bindStudyGuideEvidenceRefs(content, languageHandoff());
+
+    expect(content.sources).toContainEqual({
+      id: "reader_ch2",
+      label: "Course Reader",
+      url: "https://learn.example.edu/moodle/mod/resource/view.php?id=2",
+      coverage: "Unit 2",
+    });
+  });
+
   it("rejects chapter evidence refs that use aggregate goal indexes instead of topic-local indexes", () => {
     const malformed = modelChapter("Chapter 1/12");
     const topic = (malformed.topics as Array<Record<string, unknown>>)[0]!;
@@ -605,6 +624,36 @@ describe("study-guide canonical content bank", () => {
       await readFile(path.join(runDir, "study-guide-content.json"), "utf8"),
     ) as StudyGuideContent;
     expect(partialContent.scopeNote).not.toContain("[partial-repair-timeout]");
+  });
+
+  it("repairs every missing chapter in one bounded graph pass", async () => {
+    process.env.STUDY_BUDDY_WEB_CONTENT_CONCURRENCY = "3";
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "web-content-all-missing-repair-"));
+    tempDirs.push(runDir);
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Build an English language study guide",
+      kind: "study-guide",
+      language: "en",
+      runDir,
+    });
+    const repairChapters: number[] = [];
+    const result = await createStudyGuideContentNode(config, {
+      run: async (prompt, options) => {
+        if (options.task === "content_repair" && prompt.includes("Chapter")) {
+          repairChapters.push(Number(prompt.match(/Chapter\s+(\d+)\//)?.[1] ?? 1));
+        }
+        return modelOrReviewResponse(prompt);
+      },
+    })({
+      ...initialWebLayoutState,
+      source_text: languageHandoff(),
+      request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]),
+      error_log: "The previous pass did not produce complete chapter files.",
+      content_retry_count: 1,
+    });
+
+    expect(result.error_log).toBeNull();
+    expect(repairChapters.sort((left, right) => left - right)).toEqual([1, 2, 3, 4]);
   });
 
   it("keeps explicit learning modules separate when they share a Moodle course-page source", () => {

@@ -76,6 +76,26 @@ describe("diskWriterNode", () => {
     expect(review.findings).toContainEqual(expect.objectContaining({ page: 1, code: "blank-page" }));
   });
 
+  it("rejects visibly printed Typst markup in the compiled PDF text layer", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
+    const node = createDiskWriterNode(moodleTestConfig({
+      outputPath: path.join(runDir, "document.typ"),
+      runDir,
+      prompt: "test",
+    }));
+
+    const result = await node(moodleTestState({
+      final_document: '#set page()\n#let raw = "$bold(r)$: Ortsvektor"\n#raw\n',
+    }));
+
+    expect(result.error_log).toMatch(/repair target: formatter[\s\S]*raw-typesetting-markup/i);
+    const review = JSON.parse(
+      await readFile(path.join(runDir, "pdf-post-render-review.json"), "utf8"),
+    ) as { ok: boolean; findings: Array<{ page: number | null; code: string }> };
+    expect(review.ok).toBe(false);
+    expect(review.findings).toContainEqual(expect.objectContaining({ page: 1, code: "raw-typesetting-markup" }));
+  });
+
   it("attaches rendered page sheets to an injected visual reviewer and persists page-local findings", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
     const run = vi.fn<CodexClient["run"]>().mockResolvedValue(JSON.stringify({

@@ -17,7 +17,13 @@ import { createQuizPolicy, isMoodleQuizAttemptUrl } from "./quizPolicy.js";
 import { createQuizSafetyPolicy } from "./interactive/config.js";
 import { classifyStudyBuddyIntent } from "./taskIntent.js";
 import { classifyArtifactIntent } from "./studentFirstPolicy.js";
-import { parseExecutionProfile, parseReasoningEffort } from "./modelPolicy.js";
+import {
+  parseExecutionProfile,
+  parseReasoningEffort,
+  resolveTaskModelPolicy,
+  type StudyBuddyExecutionProfile,
+  type StudyBuddyReasoningEffort,
+} from "./modelPolicy.js";
 import { resolveTaskBudget } from "./taskBudget.js";
 import type { CodexPreflightMode } from "./codexRuntime.js";
 import {
@@ -40,13 +46,8 @@ const DEFAULT_BROWSER_BACKEND = "agent-browser";
 const DEFAULT_MOODLE_URL = "https://moodle.technikum-wien.at/my/";
 const DEFAULT_CIS_URL = "https://cis.technikum-wien.at/cis.php/";
 const DEFAULT_QUICK_MAX_RUNTIME_MS = 12 * 60_000;
-// A staged PDF workflow must fit into one useful interactive wait window.
-// Extraction owns most of the budget; the standardized render is deterministic
-// and receives the remaining three minutes. Environment/CLI overrides remain
-// available for explicitly requested long-form quality runs.
 const DEFAULT_ARTIFACT_MAX_RUNTIME_MS = 15 * 60_000;
 const DEFAULT_EXTRACTION_MAX_RUNTIME_MS = 14 * 60_000;
-const DEFAULT_RENDER_MAX_RUNTIME_MS = 1 * 60_000;
 const DEFAULT_QUICK_IDLE_TIMEOUT_MS = 8 * 60_000;
 const DEFAULT_ARTIFACT_IDLE_TIMEOUT_MS = 5 * 60_000;
 
@@ -137,6 +138,11 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     prompt: originalUserPrompt,
     preference: input.outputLanguage,
   });
+  const executionProfile = parseExecutionProfile(
+    input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
+  );
+  const codexReasoningEffort =
+    input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT);
 
   return {
     prompt: input.prompt,
@@ -177,7 +183,14 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,
     quizSafetyPolicy,
-    maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(stage, intentDecision.wantsQuickAnswer),
+    maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(
+      stage,
+      intentDecision.wantsQuickAnswer,
+      executionProfile,
+      codexModel,
+      codexReasoningEffort,
+      input.modelPolicyOverrides,
+    ),
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
     sourceRunDir: input.sourceRunDir
@@ -207,8 +220,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     intentDecision,
     artifactIntent,
     codexModel,
-    codexReasoningEffort:
-      input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT),
+    codexReasoningEffort,
     codexPath: trimOptional(input.codexPath) ?? trimOptional(process.env.STUDY_BUDDY_CODEX_PATH),
     codexCompatibilityFallbackModel:
       trimOptional(input.codexCompatibilityFallbackModel) ??
@@ -218,9 +230,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     ),
     codexModelExplicit: Boolean(codexModel),
     runtimeCacheDir: workspaceData.cacheRoot,
-    executionProfile: parseExecutionProfile(
-      input.executionProfile ?? process.env.STUDY_BUDDY_EXECUTION_PROFILE,
-    ),
+    executionProfile,
     modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
@@ -391,6 +401,10 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 function parseMaxRuntimeMs(
   stage: MoodleRuntimeConfig["stage"],
   wantsQuickAnswer: boolean,
+  executionProfile: StudyBuddyExecutionProfile,
+  globalModel: string | undefined,
+  globalReasoningEffort: StudyBuddyReasoningEffort | undefined,
+  overrides: MoodleRuntimeConfig["modelPolicyOverrides"],
 ): number {
   const stageOverride = stage === "extract"
     ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
@@ -402,11 +416,36 @@ function parseMaxRuntimeMs(
   const fallback = stage === "extract"
     ? DEFAULT_EXTRACTION_MAX_RUNTIME_MS
     : stage === "render"
-      ? DEFAULT_RENDER_MAX_RUNTIME_MS
+      ? resolveDefaultRenderMaxRuntimeMs(
+          executionProfile,
+          globalModel,
+          globalReasoningEffort,
+          overrides,
+        )
       : wantsQuickAnswer
         ? DEFAULT_QUICK_MAX_RUNTIME_MS
         : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
   return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
+}
+
+function resolveDefaultRenderMaxRuntimeMs(
+  profile: StudyBuddyExecutionProfile,
+  globalModel: string | undefined,
+  globalReasoningEffort: StudyBuddyReasoningEffort | undefined,
+  overrides: MoodleRuntimeConfig["modelPolicyOverrides"],
+): number {
+  const policy = (task: "artifact_builder" | "artifact_repair" | "quality_reviewer", attempt: number) =>
+    resolveTaskModelPolicy({
+      profile,
+      task,
+      attempt,
+      globalModel,
+      globalReasoningEffort,
+      overrides,
+    }).timeoutMs;
+  const formatterCapacity = policy("artifact_builder", 1) + 2 * policy("artifact_repair", 2);
+  const visualReviewCapacity = 3 * 3 * policy("quality_reviewer", 1);
+  return formatterCapacity + visualReviewCapacity + 2 * 60_000;
 }
 
 function parseIdleTimeoutMs(

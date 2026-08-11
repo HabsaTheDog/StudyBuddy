@@ -214,7 +214,7 @@ describe("createRuntimeConfig", () => {
     expect(JSON.stringify(sanitized)).not.toContain("/opt/codex-preview/bin/codex");
   });
 
-  it("keeps the staged PDF workflow inside the default fifteen-minute budget", async () => {
+  it("derives render capacity from the selected bounded model policies", async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), "moodle-artifact-timeout-"));
     vi.stubEnv("STUDY_BUDDY_WORKSPACE", tempRoot);
 
@@ -228,11 +228,13 @@ describe("createRuntimeConfig", () => {
       moodleUrl: "https://moodle.example/course/view.php?id=42",
       stage: "render",
       sourceRunDir: tempRoot,
+      executionProfile: "balanced",
     });
 
     expect(extractionConfig.maxRuntimeMs).toBe(14 * 60_000);
     expect(extractionConfig.idleTimeoutMs).toBe(5 * 60_000);
-    expect(renderConfig.maxRuntimeMs).toBe(1 * 60_000);
+    expect(renderConfig.maxRuntimeMs).toBe(1_890_000);
+    expect(renderConfig.maxRuntimeMs).toBeGreaterThan(4 * 60_000);
     expect(renderConfig.idleTimeoutMs).toBe(5 * 60_000);
   });
 

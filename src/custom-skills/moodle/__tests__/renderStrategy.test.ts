@@ -4,6 +4,15 @@ import { classifyArtifactIntent } from "../studentFirstPolicy.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 describe("renderStrategy", () => {
+  it("respects explicit output-format exclusions", () => {
+    expect(classifyArtifactIntent(
+      "Erstelle bitte nur das PDF, keinen interaktiven HTML Study Guide.",
+    ).formats).toEqual(["pdf"]);
+    expect(classifyArtifactIntent(
+      "Erstelle nur eine interaktive HTML-Datei, kein PDF.",
+    ).formats).toEqual(["html"]);
+  });
+
   it("keeps semantic content choices out of the routing intent", () => {
     const overview = classifyArtifactIntent(
       "Erstelle ein kompaktes PDF mit wichtigen Rechenarten und notwendigen Formelherleitungen.",
