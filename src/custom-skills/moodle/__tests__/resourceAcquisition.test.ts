@@ -163,9 +163,9 @@ describe("external resource acquisition", () => {
     temporaryDirectories.push(runDir);
     const sourcesDir = path.join(runDir, "sources");
     await mkdir(sourcesDir, { recursive: true });
-    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=32916";
-    const feedbackUrl = "https://moodle.technikum-wien.at/mod/feedback/view.php?id=2249369";
-    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=2249357";
+    const courseUrl = "https://moodle.technikum-wien.at/course/view.php?id=101";
+    const feedbackUrl = "https://moodle.technikum-wien.at/mod/feedback/view.php?id=103";
+    const resourceUrl = "https://moodle.technikum-wien.at/mod/resource/view.php?id=102";
     const localPath = path.join(sourcesDir, "translation.pdf");
     await writeFile(localPath, "%PDF-1.4\nfixture\n", "utf8");
     await writeFile(path.join(sourcesDir, "1-course.json"), JSON.stringify({
