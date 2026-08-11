@@ -185,7 +185,10 @@ export async function reviewRenderedPdf(
     };
     pages.push(report);
 
-    if (textPage) findings.push(...geometryFindings(textPage));
+    if (textPage) {
+      findings.push(...geometryFindings(textPage));
+      findings.push(...rawTypesettingMarkupFindings(textPage));
+    }
     if (medianWordHeightPoints !== null && medianWordHeightPoints < 4.5) {
       findings.push(finding(
         page,
@@ -394,6 +397,20 @@ function geometryFindings(page: PdfTextPage): PdfPostRenderFinding[] {
   return findings;
 }
 
+function rawTypesettingMarkupFindings(page: PdfTextPage): PdfPostRenderFinding[] {
+  const raw = page.words
+    .map((word) => word.text)
+    .filter((word) => /\$(?:\\?[A-Za-z]|bold|dot|frac|sqrt|sum|integral|dif)|#(?:sb-|import|let|show)\b|\\[([]/.test(word));
+  if (raw.length === 0) return [];
+  return [finding(
+    page.page,
+    "readability",
+    "error",
+    "raw-typesetting-markup",
+    `The PDF visibly prints typesetting source instead of rendered content (${[...new Set(raw)].slice(0, 4).join(", ")}). Convert math-bearing component arguments from strings to Typst content blocks.`,
+  )];
+}
+
 function countDuplicateWordBoxes(words: PdfWordBox[]): number {
   const seen = new Set<string>();
   let duplicates = 0;
@@ -489,7 +506,7 @@ function buildModelReviewPrompt(pages: number[]): string {
     "Review the attached contact sheet(s) of the exact compiled PDF pages.",
     `Visible page labels in this batch: ${pages.join(", ")}.`,
     "This is a subject-agnostic render gate. Do not evaluate factual content, course coverage, examples, question counts, pedagogy, writing style, or whether optional sections exist.",
-    "Report only concrete visible production defects: clipped/cut-off content, overlapping text or blocks, broken glyphs/formulas, unreadably small body text, distorted/cropped images, blank or corrupt pages, or gross layout breakage.",
+    "Report only concrete visible production defects: clipped/cut-off content, overlapping text or blocks, broken glyphs/formulas, visibly printed source markup such as $bold(...)$ or #sb-..., unreadably small body text, distorted/cropped images, blank or corrupt pages, or gross layout breakage.",
     "Use the visible page label for every finding. A deliberate full-bleed background, page break, or ordinary whitespace is not a defect.",
     "Set severity=error only when the delivered page is materially unreadable or broken; use warning for a localized concern that remains usable.",
     "Every repairTarget must be formatter. Return JSON only.",

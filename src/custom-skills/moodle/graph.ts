@@ -496,7 +496,7 @@ function createRequestContractCheckpointNode(config: MoodleRuntimeConfig) {
   };
 }
 
-async function persistVerifiedRequestContract(
+export async function persistVerifiedRequestContract(
   runDir: string,
   contract: RequestContract,
   context: string,
@@ -507,23 +507,29 @@ async function persistVerifiedRequestContract(
     readOptional(path.join(runDir, REQUEST_CONTRACT_FILE)),
     readOptional(path.join(runDir, REQUEST_CONTRACT_INTEGRITY_FILE)),
   ]);
-  if (existingContractText) {
-    const existingContract = RequestContractSchema.parse(JSON.parse(existingContractText));
-    const existingHash = createRequestContractIntegrity(existingContract).contractHash;
-    if (existingHash !== integrity.contractHash) {
-      throw new Error(
-        `Request contract mismatch in ${context}: existing ${existingHash}, incoming ${integrity.contractHash}.`,
-      );
-    }
+  if (Boolean(existingContractText) !== Boolean(existingIntegrityText)) {
+    throw new Error(
+      `Request contract integrity pair is incomplete in ${context}; both contract and integrity files are required.`,
+    );
   }
-  if (existingIntegrityText) {
+  if (existingContractText && existingIntegrityText) {
+    const existingContract = RequestContractSchema.parse(JSON.parse(existingContractText));
     const existingIntegrity = verifyRequestContractIntegrity(
-      parsedContract,
+      existingContract,
       JSON.parse(existingIntegrityText),
     );
     if (existingIntegrity.contractHash !== integrity.contractHash) {
+      const samePromptRevision = context === "extraction" &&
+        existingContract.originalPrompt === parsedContract.originalPrompt;
+      if (samePromptRevision) {
+        await Promise.all([
+          writeJson(path.join(runDir, REQUEST_CONTRACT_FILE), parsedContract),
+          writeJson(path.join(runDir, REQUEST_CONTRACT_INTEGRITY_FILE), integrity),
+        ]);
+        return integrity.contractHash;
+      }
       throw new Error(
-        `Request contract hash mismatch in ${context}: existing ${existingIntegrity.contractHash}, incoming ${integrity.contractHash}.`,
+        `Request contract mismatch in ${context}: existing ${existingIntegrity.contractHash}, incoming ${integrity.contractHash}.`,
       );
     }
   }

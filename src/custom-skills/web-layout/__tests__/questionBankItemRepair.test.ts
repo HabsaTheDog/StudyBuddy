@@ -48,7 +48,11 @@ describe("item-local question repair", () => {
         observedSchema = options.outputSchema;
         return JSON.stringify({ repairs: [{
           itemId: item.id, previousContentHash: item.contentHash,
-          exercise: application("repair", "A complete grounded comparison with the principle, application, and justification."),
+          exercise: {
+            ...application("repair", "A complete grounded comparison with the principle, application, and justification."),
+            source: { label: "Invented replacement", sourceTask: "Changed task", provenance: "derived" },
+            evidenceRefs: [{ sourceIds: ["invented"], sectionIndex: 99, sectionHeading: "Invented", learningGoalIndexes: [0], exactSpan: null }],
+          },
         }] });
       } },
     });
@@ -60,6 +64,8 @@ describe("item-local question repair", () => {
     expect(repaired.topics[0]!.exercises[0]).toEqual(content.topics[0]!.exercises[0]);
     expect(repaired.topics[0]!.exercises[1]).not.toEqual(content.topics[0]!.exercises[1]);
     expect(repaired.topics[0]!.exercises[1]!.id).toBe("repair");
+    expect(repaired.topics[0]!.exercises[1]!.source).toEqual(content.topics[0]!.exercises[1]!.source);
+    expect(repaired.topics[0]!.exercises[1]!.evidenceRefs).toEqual(content.topics[0]!.exercises[1]!.evidenceRefs);
   });
 
   it("fails closed with an owner-specific diagnosis for assessment items", async () => {
@@ -140,6 +146,58 @@ describe("item-local question repair", () => {
     expect(maxActive).toBeLessThanOrEqual(3);
     expect(actualCharacters).toBe(metrics.batchedCharacters);
     expect(metrics.batchedCharacters).toBeLessThan(metrics.isolatedCharacters);
+  });
+
+  it("keeps valid partial batch repairs and retries only omitted identities", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "partial-item-batch-repair-"));
+    tempDirs.push(runDir);
+    const config = createWebLayoutRuntimeConfig({ prompt: "Create interactive English practice", kind: "study-guide", runDir });
+    const contract = minimalRequestContract(config.originalUserPrompt, [config.kind]);
+    const content = studyGuideContentSchema.parse({
+      courseTitle: "English", courseCode: "ENG", scopeNote: "Bounded evidence.",
+      sources: [{ id: "s1", label: "Script", url: "", coverage: "Communication" }],
+      topics: [{
+        id: "topic", title: "Communication", learningGoals: ["Communicate clearly"],
+        theory: { summary: "Grounded communication guidance.", keyIdeas: [], formulas: [] },
+        workedExamples: [], retrieval: [],
+        exercises: [application("repair-1", "Incomplete one."), application("repair-2", "Incomplete two."), application("repair-3", "Incomplete three.")],
+      }],
+    });
+    const items = buildAdaptiveStudyModel(content, "Evidence", "en").questionBank.items;
+    const context = questionReviewContext(config.originalUserPrompt, contract);
+    const targets = items.map((item) => {
+      const unsigned = {
+        itemId: item.id, contentHash: item.contentHash,
+        contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
+        reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict: "rejected" as const },
+        checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true },
+        findings: [{ code: "answer", severity: "blocking" as const, message: "Incomplete.", repairInstruction: "Complete this answer." }],
+      };
+      return { item, review: { schemaVersion: 1 as const, recordId: questionBankItemReviewRecordId(unsigned), ...unsigned } };
+    });
+    const calls: Array<{ attempt: number; itemIds: string[] }> = [];
+    const repairs = await resolveQuestionBankItemRepairBatch({
+      config, content, sourceText: "Evidence", requestContract: contract, targets,
+      codex: { run: async (prompt, options) => {
+        const promptItems = [...prompt.matchAll(/Repair target:\n([^\n]+)/g)].map((match) =>
+          (JSON.parse(match[1]!) as { item: typeof items[number] }).item
+        );
+        calls.push({ attempt: options.attempt ?? 0, itemIds: promptItems.map((item) => item.id) });
+        const returned = calls.length === 1 ? promptItems.slice(0, 2) : promptItems;
+        return JSON.stringify({ repairs: returned.map((item) => ({
+          itemId: item.id,
+          previousContentHash: item.contentHash,
+          exercise: { ...item.exercise, sampleAnswer: `${String((item.exercise as { sampleAnswer: string }).sampleAnswer)} Complete.` },
+        })) });
+      } },
+    });
+
+    expect(repairs).toHaveLength(3);
+    expect(calls).toEqual([
+      { attempt: 1, itemIds: items.map((item) => item.id) },
+      { attempt: 2, itemIds: [items[2]!.id] },
+    ]);
+    expect(repairs.map(({ item }) => item.id)).toEqual(items.map((item) => item.id));
   });
 });
 

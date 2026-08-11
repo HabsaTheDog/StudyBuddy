@@ -3,6 +3,11 @@ import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
+import {
+  hashRequestContract,
+  minimalRequestContract,
+  type RequestContract,
+} from "../../shared/requestContract.js";
 import { adaptiveQualityCriteria } from "../learningInteractionGuidance.js";
 import { balancedExcerpt, compactHtmlForModel } from "../modelText.js";
 import { studyGuideBlockQualityCriteria } from "../studyGuideBlockContract.js";
@@ -45,12 +50,21 @@ export function createQualityReviewerNode(config: WebLayoutRuntimeConfig, codex:
         path.join(config.runDir, ".build", "document.html"),
         "utf8",
       ).catch(() => state.html_document);
-      const response = await codex.run(buildPrompt(config, state, bundledHtml), {
+      const requestContract = state.request_contract ?? minimalRequestContract(
+        config.originalUserPrompt,
+        ["interactive HTML study guide"],
+      );
+      const reviewScope = htmlReviewScope(requestContract);
+      const response = await codex.run(buildPrompt(config, state, bundledHtml, requestContract, reviewScope), {
         task: "quality_reviewer",
-        attempt: state.retry_count + 1,
+        attempt: state.quality_retry_count + 1,
         outputSchema: qualityReviewSchema,
       });
-      const review = removeOrchestrationFindings(parseReview(response));
+      const review = keepHtmlFindingsOnly(
+        removeOrchestrationFindings(parseReview(response)),
+        requestContract,
+        reviewScope,
+      );
       await writeFile(
         path.join(config.runDir, "quality-review.json"),
         `${JSON.stringify(review, null, 2)}\n`,
@@ -86,9 +100,12 @@ function buildPrompt(
   config: WebLayoutRuntimeConfig,
   state: LangGraphWebLayoutState,
   bundledHtml: string,
+  requestContract: RequestContract,
+  reviewScope: HtmlReviewScope,
 ): string {
   return [
-    "Review this offline interactive Study Buddy page against the exact original request and evaluated request contract, then for source fidelity, subject correctness, pedagogy, usability, and appropriate interaction design.",
+    "Review this offline interactive Study Buddy page against its assigned part of the exact original request and evaluated request contract, then for source fidelity, subject correctness, pedagogy, usability, and appropriate interaction design.",
+    "This node reviews ONLY the interactive HTML deliverable(s) listed below. Other requested deliverables are built and reviewed by separate downstream workflows. Their absence from this HTML artifact is never an HTML defect and must not be reported. Do not ask this page to contain, link, prove, or replace a PDF or any other out-of-scope deliverable.",
     "Do not rewrite it. Return JSON only. Mark ok=false only for a violated explicit must requirement, an explicit prohibition, or a concrete correctness/safety/technical defect. Missing should recommendations may be findings but must not make ok=false by themselves.",
     "Return every finding as a structured object. Bind it to the exact requirementId and deliverableId when applicable, select the repair owner (source, content, interaction, visual, or technical), name the smallest stable targetId available, and provide an item-local repairInstruction. Use null only when no contract or artifact target exists. Evidence-derived should gaps are advisory. Set ok=false if and only if at least one finding is blocking.",
     "Do not invent a conventional study-guide requirement. In particular, examples, calculations, images, vocabulary, or any fixed item count are blockers only when the contract makes them explicit must requirements.",
@@ -98,14 +115,106 @@ function buildPrompt(
     config.kind === "study-guide" ? studyGuideBlockQualityCriteria() : "",
     `Requested kind: ${config.kind}`,
     `Exact original user request:\n${config.originalUserPrompt}`,
-    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
-    `Browser and static validation:\n${JSON.stringify(state.validation_report)}`,
+    `Verified full request-contract hash (trust binding only): ${hashRequestContract(requestContract)}`,
+    `HTML review scope derived from that contract:\n${JSON.stringify(reviewScope.promptContext, null, 2)}`,
+    `Browser and static validation:\n${balancedExcerpt(JSON.stringify(state.validation_report), 4_000)}`,
     config.kind === "study-guide"
-      ? `Canonical validated content bank the HTML must faithfully render:\n${balancedExcerpt(JSON.stringify(state.study_guide_content ?? {}), 120_000)}`
-      : `Source:\n${balancedExcerpt(state.source_text, 100_000)}`,
+      ? `Canonical validated content bank the HTML must faithfully render:\n${balancedExcerpt(JSON.stringify(state.study_guide_content ?? {}), 8_000)}`
+      : `Source:\n${balancedExcerpt(state.source_text, 8_000)}`,
     "HTML below is the validated, bundled delivery artifact. Local asset references in the editable generator source are irrelevant if this artifact contains the corresponding data URI.",
-    `HTML:\n${compactHtmlForModel(bundledHtml)}`,
+    `HTML:\n${compactQualityReviewHtml(bundledHtml)}`,
   ].join("\n\n");
+}
+
+interface HtmlReviewScope {
+  deliverableIds: Set<string>;
+  requirementIds: Set<string>;
+  promptContext: {
+    deliverables: RequestContract["deliverables"];
+    requirements: RequestContract["requirements"];
+    notRequired: RequestContract["notRequired"];
+    forbidden: RequestContract["forbidden"];
+    reviewAssignments: Array<{ owner: string; requirementIds: string[] }>;
+  };
+}
+
+function htmlReviewScope(contract: RequestContract): HtmlReviewScope {
+  const explicitlyInteractive = contract.deliverables.filter((deliverable) =>
+    /(?:interactive|html|web|study[-_ ]?guide)/i.test(deliverable.kind)
+  );
+  const nonDocumentDeliverables = contract.deliverables.filter((deliverable) =>
+    !/(?:pdf|document|print)/i.test(deliverable.kind)
+  );
+  const deliverables = explicitlyInteractive.length > 0
+    ? explicitlyInteractive
+    : nonDocumentDeliverables.length > 0
+      ? nonDocumentDeliverables
+      : contract.deliverables;
+  const deliverableIds = new Set(deliverables.map((deliverable) => deliverable.id));
+  const requirements = contract.requirements.filter((requirement) =>
+    requirement.appliesTo.some((deliverableId) => deliverableIds.has(deliverableId))
+  );
+  const requirementIds = new Set(requirements.map((requirement) => requirement.id));
+  return {
+    deliverableIds,
+    requirementIds,
+    promptContext: {
+      deliverables,
+      requirements,
+      notRequired: contract.notRequired,
+      forbidden: contract.forbidden,
+      reviewAssignments: contract.reviewAssignments
+        .map((assignment) => ({
+          owner: assignment.owner,
+          requirementIds: assignment.requirementIds.filter((requirementId) =>
+            requirementIds.has(requirementId)
+          ),
+        }))
+        .filter((assignment) => assignment.requirementIds.length > 0),
+    },
+  };
+}
+
+function keepHtmlFindingsOnly(
+  review: { ok: boolean; summary: string; findings: WebQualityFinding[] },
+  contract: RequestContract,
+  scope: HtmlReviewScope,
+): { ok: boolean; summary: string; findings: WebQualityFinding[] } {
+  const knownDeliverableIds = new Set(contract.deliverables.map((deliverable) => deliverable.id));
+  const requirementsById = new Map(contract.requirements.map((requirement) => [requirement.id, requirement]));
+  const findings = review.findings.filter((finding) => {
+    if (
+      finding.deliverableId &&
+      knownDeliverableIds.has(finding.deliverableId) &&
+      !scope.deliverableIds.has(finding.deliverableId)
+    ) return false;
+    if (
+      finding.targetId &&
+      knownDeliverableIds.has(finding.targetId) &&
+      !scope.deliverableIds.has(finding.targetId)
+    ) return false;
+    if (finding.requirementId) {
+      const requirement = requirementsById.get(finding.requirementId);
+      if (requirement && !scope.requirementIds.has(requirement.id)) return false;
+    }
+    return true;
+  });
+  if (findings.length === review.findings.length) return review;
+  const ok = !findings.some((finding) => finding.severity === "blocking");
+  return {
+    ok,
+    summary: findings.length === 0
+      ? "Die interaktive HTML-Ausgabe erfüllt ihren eigenen geprüften Lieferumfang; Befunde zu separaten Deliverables werden in deren Workflow geprüft."
+      : review.summary,
+    findings,
+  };
+}
+
+function compactQualityReviewHtml(html: string): string {
+  const visibleArtifact = html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "<style>[stylesheet omitted]</style>")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "<script>[runtime omitted]</script>");
+  return compactHtmlForModel(visibleArtifact, 12_000);
 }
 
 export interface WebQualityFinding {

@@ -277,7 +277,7 @@
   let formula-size = if compact { 9.5pt } else { 11.5pt }
   block(
     width: 100%,
-    breakable: true,
+    breakable: false,
     fill: sb-colors.soft,
     stroke: (left: 2.2pt + sb-colors.cyan, rest: 0.5pt + sb-colors.line),
     radius: 3pt,
@@ -927,7 +927,7 @@
   #body
 ]
 
-#let sb-page-rules(body) = [
+#let sb-page-rules(body, compact: false) = [
   #set text(
     font: "New Computer Modern",
     size: 10.2pt,
@@ -938,7 +938,7 @@
   #set par(justify: true, leading: 0.68em)
   #set heading(numbering: "1.1", outlined: true)
   #show heading.where(level: 1): it => [
-    #pagebreak(weak: true)
+    #if compact == false [#pagebreak(weak: true)]
     #v(1mm)
     #grid(
       columns: (auto, 1fr),
@@ -1054,7 +1054,7 @@
     paper: "a4",
     margin: (left: 18mm, right: 18mm, top: 17mm, bottom: 17mm),
   )
-  #show: sb-page-rules
+  #show: body => sb-page-rules(body, compact: compact)
   #if compact [
     #counter(page).update(1)
     #set page(header: none, footer: sb-footer(language: language))

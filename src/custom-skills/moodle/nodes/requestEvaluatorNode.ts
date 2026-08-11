@@ -21,7 +21,6 @@ export function createRequestEvaluatorNode(config: MoodleRuntimeConfig, codex: C
     const cachePath = requestContractCachePath(config, state);
     const cached = await readContract(cachePath);
     if (cached) {
-      await persistContract(config.runDir, cached);
       await config.diagnostics?.log("info", "analyzer", "Reused the prompt-and-evidence keyed request contract.");
       return { request_contract: cached, error_log: null };
     }
@@ -53,7 +52,6 @@ export function createRequestEvaluatorNode(config: MoodleRuntimeConfig, codex: C
         );
       }
     }
-    await persistContract(config.runDir, contract);
     if (contract.evaluationStatus === "evaluated") {
       await persistContract(path.dirname(cachePath), contract, path.basename(cachePath));
     }

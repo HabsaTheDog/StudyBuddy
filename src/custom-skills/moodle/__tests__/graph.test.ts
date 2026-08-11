@@ -10,6 +10,7 @@ import {
   checkpointPdfPostRenderReview,
   loadExtractionReviewState,
   loadRenderState,
+  persistVerifiedRequestContract,
   qualityFailureNeedsSourceAcquisition,
   resolvePreflightModels,
   routeAfterExtractionQualityReview,
@@ -72,6 +73,41 @@ afterEach(async () => {
 });
 
 describe("moodle graph retry routing", () => {
+  it("atomically replaces a same-prompt extraction contract after evidence changes", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-contract-revision-"));
+    const initial = minimalRequestContract("make compact notes", ["pdf"]);
+    const revised = { ...initial, evaluationStatus: "evaluated" as const, userGoal: "Grounded notes" };
+    const initialHash = await persistVerifiedRequestContract(runDir, initial, "extraction");
+    const revisedHash = await persistVerifiedRequestContract(runDir, revised, "extraction");
+    expect(revisedHash).not.toBe(initialHash);
+    const persisted = JSON.parse(await readFile(path.join(runDir, REQUEST_CONTRACT_FILE), "utf8"));
+    const integrity = JSON.parse(await readFile(path.join(runDir, REQUEST_CONTRACT_INTEGRITY_FILE), "utf8"));
+    expect(persisted.userGoal).toBe(revised.userGoal);
+    expect(integrity.contractHash).toBe(revisedHash);
+  });
+
+  it("rejects prompt changes and incomplete contract-integrity pairs", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-contract-boundary-"));
+    await persistVerifiedRequestContract(runDir, minimalRequestContract("make compact notes", ["pdf"]), "extraction");
+    await expect(persistVerifiedRequestContract(
+      runDir,
+      minimalRequestContract("different user request", ["pdf"]),
+      "extraction",
+    )).rejects.toThrow("Request contract mismatch");
+    const incompleteDir = path.join(runDir, "incomplete");
+    await mkdir(incompleteDir, { recursive: true });
+    await writeFile(
+      path.join(incompleteDir, REQUEST_CONTRACT_FILE),
+      JSON.stringify(minimalRequestContract("make compact notes", ["pdf"])),
+      "utf8",
+    );
+    await expect(persistVerifiedRequestContract(
+      incompleteDir,
+      minimalRequestContract("make compact notes", ["pdf"]),
+      "extraction",
+    )).rejects.toThrow("integrity pair is incomplete");
+  });
+
   it("preflights the PDF visual reviewer for render-only runs", () => {
     const models = resolvePreflightModels(moodleTestConfig({
       stage: "render",

@@ -113,22 +113,11 @@ export async function resolveQuestionBankItemRepairBatch(input: {
   if (batches.length > ITEM_REPAIR_MAX_BATCH_CALLS) {
     throw new Error(`Item-local repair needs ${batches.length} model calls and exceeds its ${ITEM_REPAIR_MAX_BATCH_CALLS}-call round bound.`);
   }
-  const generated = (await mapWithConcurrency(batches, ITEM_REPAIR_MAX_CONCURRENCY, async (batch) => {
-    const response = await input.codex.run(buildRepairPrompt(input, batch), {
-      task: "content_repair", attempt: 1, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
-    });
-    const candidate = modelRepairBatchSchema.parse(JSON.parse(stripJsonFence(response)));
-    const expected = new Map(batch.map((target) => [itemKey(target.item), target]));
-    if (candidate.repairs.length !== batch.length) throw new Error("Item-local repair batch returned incomplete coverage.");
-    const patches = candidate.repairs.map((value) => {
-      const target = expected.get(`${value.itemId}\0${value.previousContentHash}`);
-      if (!target) throw new Error("Item-local repair batch returned a stale, duplicate, or unsolicited identity.");
-      expected.delete(`${value.itemId}\0${value.previousContentHash}`);
-      return { item: target.item, exercise: validateReplacement(value, { ...input, ...target }) };
-    });
-    if (expected.size > 0) throw new Error("Item-local repair batch omitted one or more exact requested identities.");
-    return patches;
-  })).flat();
+  const generated = (await mapWithConcurrency(
+    batches,
+    ITEM_REPAIR_MAX_CONCURRENCY,
+    async (batch) => resolveCompleteRepairBatch(input, batch),
+  )).flat();
   // Commit caches only after every parallel batch has complete valid coverage.
   await Promise.all(generated.map(async (repair) => {
     const target = pending.find(({ item }) => itemKey(item) === itemKey(repair.item))!;
@@ -142,6 +131,38 @@ export async function resolveQuestionBankItemRepairBatch(input: {
     if (!repair) throw new Error(`Item-local repair lost result for ${item.id}.`);
     return repair;
   });
+}
+
+async function resolveCompleteRepairBatch(
+  input: Parameters<typeof resolveQuestionBankItemRepairBatch>[0],
+  batch: Parameters<typeof resolveQuestionBankItemRepairBatch>[0]["targets"],
+): Promise<QuestionBankItemRepair[]> {
+  const resolved = new Map<string, QuestionBankItemRepair>();
+  let pending = batch;
+  for (let attempt = 1; attempt <= 3 && pending.length > 0; attempt += 1) {
+    const response = await input.codex.run(buildRepairPrompt(input, pending), {
+      task: "content_repair", attempt, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
+    });
+    const candidate = modelRepairBatchSchema.parse(JSON.parse(stripJsonFence(response)));
+    const expected = new Map(pending.map((target) => [itemKey(target.item), target]));
+    for (const value of candidate.repairs) {
+      const key = `${value.itemId}\0${value.previousContentHash}`;
+      const target = expected.get(key);
+      if (!target || resolved.has(key)) {
+        throw new Error("Item-local repair batch returned a stale, duplicate, or unsolicited identity.");
+      }
+      expected.delete(key);
+      resolved.set(key, { item: target.item, exercise: validateReplacement(value, { ...input, ...target }) });
+    }
+    pending = pending.filter(({ item }) => !resolved.has(itemKey(item)));
+  }
+  if (pending.length > 0) {
+    throw new Error(
+      `Item-local repair omitted ${pending.length} exact requested identit${pending.length === 1 ? "y" : "ies"} after three missing-only attempts: ` +
+      pending.map(({ item }) => item.id).join(", "),
+    );
+  }
+  return batch.map(({ item }) => resolved.get(itemKey(item))!);
 }
 
 function assertRepairOwner(item: QuestionBank["items"][number]): void {
@@ -239,7 +260,15 @@ function validateReplacement(
   if (value.itemId !== input.item.id || value.previousContentHash !== input.item.contentHash) {
     throw new Error(`Item-local repair returned stale identity for ${input.item.id}.`);
   }
-  const exercise = studyGuideExerciseSchema.parse(normalizeModelExercise(value.exercise));
+  const normalized = normalizeModelExercise(value.exercise);
+  if (!normalized || typeof normalized !== "object" || Array.isArray(normalized)) {
+    throw new Error(`Item-local repair returned an invalid exercise for ${input.item.id}.`);
+  }
+  const exercise = studyGuideExerciseSchema.parse({
+    ...normalized,
+    source: structuredClone(input.item.exercise.source),
+    evidenceRefs: structuredClone(input.item.exercise.evidenceRefs),
+  });
   if (exercise.id !== input.item.legacyExerciseId || exercise.type !== input.item.type) {
     throw new Error(`Item-local repair changed stable exercise identity or response mode for ${input.item.id}.`);
   }

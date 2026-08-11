@@ -16,6 +16,10 @@ describe("Study Buddy Typst components", () => {
       /#let sb-header[\s\S]*?align: \(left, horizon\)/,
     );
     expect(componentSource).not.toContain("#ff5f6d");
+    expect(componentSource).toContain("sb-page-rules(body, compact: false)");
+    expect(componentSource).toContain("if compact == false [#pagebreak(weak: true)]");
+    expect(componentSource).toContain("sb-page-rules(body, compact: compact)");
+    expect(componentSource).toMatch(/#let sb-formula\([\s\S]*?breakable: false/);
     expect(logo?.content).toBeInstanceOf(Buffer);
     expect(logo?.content.length).toBeGreaterThan(1_000);
   });
@@ -31,8 +35,8 @@ describe("Study Buddy Typst components", () => {
 
       #sb-formula(
         name: "Einzelelemente",
-        variables: "U: Spannung",
-        units: "V",
+        variables: ([$U$: Spannung],),
+        units: ([$U$: V],),
         note: "Gültig für den ohmschen Widerstand.",
         compact: true,
       )[$ U = R I $]

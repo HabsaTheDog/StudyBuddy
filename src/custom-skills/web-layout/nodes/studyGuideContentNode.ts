@@ -22,7 +22,6 @@ interface StudyGuideChunkPlan {
   index: number;
 }
 
-const MAX_REPAIR_CHUNKS_PER_PASS = 3;
 const MAX_ITEM_REPAIR_ROUNDS = 3;
 
 export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
@@ -356,9 +355,7 @@ async function buildChunkedModelContent(
       pendingPlans.push(plan);
     }
   }
-  const selectedPendingPlans = state.error_log
-    ? pendingPlans.slice(0, MAX_REPAIR_CHUNKS_PER_PASS)
-    : pendingPlans;
+  const selectedPendingPlans = pendingPlans;
   const effectiveBatchSize = state.error_log ? 1 : batchSize;
   const batches = Array.from(
     { length: Math.ceil(selectedPendingPlans.length / effectiveBatchSize) },
@@ -499,7 +496,13 @@ export function bindStudyGuideEvidenceRefs(content: StudyGuideContent, sourceTex
   const sections = readExtractionHandoff(sourceText)?.sections ?? [];
   if (sections.length === 0) return 0;
   let rebound = 0;
+  const referencedSourceCoverage = new Map<string, Set<string>>();
   const bind = (ref: StudyGuideEvidenceRef): void => {
+    for (const sourceId of ref.sourceIds) {
+      const coverage = referencedSourceCoverage.get(sourceId) ?? new Set<string>();
+      coverage.add(ref.sectionHeading.trim());
+      referencedSourceCoverage.set(sourceId, coverage);
+    }
     const matches = sections.flatMap((section, sectionIndex) => {
       const heading = typeof section.heading === "string" ? section.heading.trim() : "";
       const sourceIds = Array.isArray(section.source_ids) ? section.source_ids.map(String) : [];
@@ -520,6 +523,18 @@ export function bindStudyGuideEvidenceRefs(content: StudyGuideContent, sourceTex
     for (const retrieval of topic.retrieval) {
       for (const ref of retrieval.evidenceRefs ?? []) bind(ref);
     }
+  }
+  const presentSourceIds = new Set(content.sources.map((source) => source.id));
+  for (const source of handoffSourceRegistry(sourceText)) {
+    if (!source.id || presentSourceIds.has(source.id) || !referencedSourceCoverage.has(source.id)) continue;
+    content.sources.push({
+      id: source.id,
+      label: source.label,
+      url: source.url,
+      coverage: [...referencedSourceCoverage.get(source.id)!].filter(Boolean).join(" · "),
+    });
+    presentSourceIds.add(source.id);
+    rebound += 1;
   }
   return rebound;
 }

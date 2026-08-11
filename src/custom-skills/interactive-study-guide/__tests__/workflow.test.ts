@@ -2,6 +2,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { acquireInteractiveWorkflowAdmission, runInteractiveStudyGuideWorkflow } from "../workflow.js";
+import {
+  createRequestContractIntegrity,
+  type RequestContract,
+} from "../../shared/requestContract.js";
 
 async function validHandoff(runDir: string): Promise<void> {
   await mkdir(runDir, { recursive: true });
@@ -10,6 +14,37 @@ async function validHandoff(runDir: string): Promise<void> {
   await writeFile(path.join(runDir, "moodle_raw.txt"), "evidence", "utf8");
   await writeFile(path.join(runDir, "extracted-data.json"), "{}", "utf8");
   await writeFile(path.join(runDir, "source_coverage.json"), "{}", "utf8");
+}
+
+async function combinedHandoff(runDir: string): Promise<void> {
+  await validHandoff(runDir);
+  const contract: RequestContract = {
+    schemaVersion: 1,
+    evaluationStatus: "evaluated",
+    originalPrompt: "Create an interactive guide and a compact PDF",
+    userGoal: "Learn with an interactive guide and compact reference",
+    deliverables: [
+      { id: "html", kind: "interactive study guide", purpose: "Self testing" },
+      { id: "pdf", kind: "compact PDF study reference", purpose: "Compact reference" },
+    ],
+    requirements: [],
+    notRequired: [],
+    forbidden: [],
+    contentStrategy: {
+      summary: "Share one source handoff",
+      quantityBasis: "No fixed quota",
+      completionRule: "Both requested deliverables pass their own review",
+    },
+    reviewAssignments: [
+      { owner: "technical", requirementIds: [], checks: ["Validate each requested artifact"] },
+    ],
+  };
+  await writeFile(path.join(runDir, "request-contract.json"), `${JSON.stringify(contract)}\n`, "utf8");
+  await writeFile(
+    path.join(runDir, "request-contract-integrity.json"),
+    `${JSON.stringify(createRequestContractIntegrity(contract))}\n`,
+    "utf8",
+  );
 }
 
 describe("interactive Study Guide workflow", () => {
@@ -49,6 +84,7 @@ describe("interactive Study Guide workflow", () => {
         calls.push(`extract:${input.prompt}`);
         expect(input.evidenceHandoffOnly).toBe(true);
         expect(input.visualMode).toBe("off");
+        expect(input.formats).toEqual(["html"]);
         expect(input.executionProfile).toBe("balanced");
         await validHandoff(input.runDir!);
         return { ok: true, runDir: input.runDir! } as never;
@@ -70,6 +106,119 @@ describe("interactive Study Guide workflow", () => {
       "extract:Erstelle einen interaktiven Study Guide für MEL",
       "web:Erstelle einen interaktiven Study Guide für MEL",
     ]);
+  });
+
+  it("fans HTML and PDF out in parallel from one validated extraction handoff", async () => {
+    const root = path.join(process.cwd(), "study-buddy-data", "test-combined-artifact-workflow", `${Date.now()}`);
+    const sourceRunDir = path.join(root, "extraction");
+    let entered = 0;
+    let maximumParallel = 0;
+    let releaseBoth!: () => void;
+    const bothEntered = new Promise<void>((resolve) => { releaseBoth = resolve; });
+    const enterBranch = async () => {
+      entered += 1;
+      maximumParallel = Math.max(maximumParallel, entered);
+      if (entered === 2) releaseBoth();
+      await bothEntered;
+    };
+    const publishedSources: string[][] = [];
+    const result = await runInteractiveStudyGuideWorkflow({
+      prompt: "Create an interactive guide and a compact PDF",
+      runDir: root,
+    }, {
+      runExtraction: async (input) => {
+        expect(input.formats).toEqual(["html", "pdf"]);
+        await combinedHandoff(input.runDir!);
+        return { ok: true, runDir: input.runDir! } as never;
+      },
+      runWebLayout: async (input) => {
+        expect(input.sourceRunDir).toBe(sourceRunDir);
+        await enterBranch();
+        const outputPath = path.join(input.runDir!, "document.html");
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(outputPath, "<!doctype html><title>Combined</title>", "utf8");
+        entered -= 1;
+        return { ok: true, runDir: input.runDir!, outputPath } as never;
+      },
+      runPdfRender: async (input) => {
+        expect(input).toMatchObject({
+          stage: "render",
+          sourceRunDir,
+          maxPages: 0,
+          maxCisPages: 0,
+          allowFileDownloads: false,
+          formats: ["pdf"],
+        });
+        await enterBranch();
+        const pdfPath = path.join(input.runDir!, "document.pdf");
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(path.join(input.runDir!, "document.typ"), "#set page(width: 210mm)", "utf8");
+        await writeFile(pdfPath, "%PDF-test", "utf8");
+        entered -= 1;
+        return { ok: true, runDir: input.runDir!, pdfPath } as never;
+      },
+      publish: async ({ sourcePaths }) => {
+        const concreteSources = sourcePaths.filter((sourcePath): sourcePath is string => Boolean(sourcePath));
+        publishedSources.push(concreteSources);
+        return concreteSources.map((sourcePath) => ({
+          sourcePath,
+          publishedPath: `/tmp/${path.basename(sourcePath)}`,
+          bytes: 1,
+          sha256: "test",
+        }));
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(maximumParallel).toBe(2);
+    expect(result.outputPath).toBe(path.join(root, "web-layout", "document.html"));
+    expect(result.pdfPath).toBe(path.join(root, "pdf-render", "document.pdf"));
+    expect(publishedSources).toEqual([[
+      path.join(root, "web-layout", "document.html"),
+      path.join(root, "pdf-render", "document.pdf"),
+    ]]);
+  });
+
+  it("reuses a validated HTML branch and reruns only the missing PDF branch", async () => {
+    const root = path.join(process.cwd(), "study-buddy-data", "test-combined-branch-resume", `${Date.now()}`);
+    const extractionRunDir = path.join(root, "extraction");
+    const webRunDir = path.join(root, "web-layout");
+    await combinedHandoff(extractionRunDir);
+    await mkdir(webRunDir, { recursive: true });
+    await writeFile(path.join(webRunDir, "run-summary.md"), "Run status: success\n", "utf8");
+    await writeFile(path.join(webRunDir, "error.log"), "", "utf8");
+    await writeFile(path.join(webRunDir, "quality-review.json"), '{"ok":true,"findings":[]}\n', "utf8");
+    await writeFile(path.join(webRunDir, "document.html"), "<!doctype html><title>Reusable</title>", "utf8");
+    let extractionCalls = 0;
+    let htmlCalls = 0;
+    let pdfCalls = 0;
+    const result = await runInteractiveStudyGuideWorkflow({
+      prompt: "Create an interactive guide and a compact PDF",
+      resumeRunDir: root,
+    }, {
+      runExtraction: async () => {
+        extractionCalls += 1;
+        throw new Error("must reuse extraction");
+      },
+      runWebLayout: async () => {
+        htmlCalls += 1;
+        throw new Error("must reuse HTML");
+      },
+      runPdfRender: async (input) => {
+        pdfCalls += 1;
+        const pdfPath = path.join(input.runDir!, "document.pdf");
+        await mkdir(input.runDir!, { recursive: true });
+        await writeFile(path.join(input.runDir!, "document.typ"), "#set page(width: 210mm)", "utf8");
+        await writeFile(pdfPath, "%PDF-test", "utf8");
+        return { ok: true, runDir: input.runDir!, pdfPath } as never;
+      },
+      publish: async () => [],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(extractionCalls).toBe(0);
+    expect(htmlCalls).toBe(0);
+    expect(pdfCalls).toBe(1);
   });
 
   it("keeps the exact user request separate from a specific operational prompt", async () => {
