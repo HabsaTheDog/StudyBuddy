@@ -1270,3 +1270,22 @@ Status: implemented and regression-tested on 2026-08-09; clean app round in prog
   `dot(bold(L)_O)` even when the structured formula block itself is valid.
 - Targeted extraction, visual-selection, analyzer, source-architecture, and
   Typst-inline regression suites pass, and TypeScript type checking is clean.
+
+## Open-source process containment and review integrity
+
+Status: implemented and release-gate verified on 2026-08-10
+
+- Codex SDK clients and runtime preflights receive a minimal allowlisted process
+  environment plus a shell policy that inherits no host variables. Portal and
+  arbitrary host secrets are excluded while the required Codex home, path, and
+  locale remain available.
+- The interface provider boundary applies the same denial policy before Codex,
+  ACP, PTY, and ordinary child-process creation. Study Buddy portal variables
+  cannot be reintroduced through a provider override.
+- A model-authored `evidence_unavailable` verdict is rejected as malformed;
+  evidence availability remains owned by the deterministic local capsule
+  resolver. Regression coverage also proves that an explicit same-item
+  re-review bypasses only that item's cache and preserves approved siblings.
+- Root release verification passes the complete question-bank and Moodle graph
+  suites after the evidence-review regression repair and an explicit integration
+  timeout for the I/O-heavy analyzer-retry/Typst graph case.
