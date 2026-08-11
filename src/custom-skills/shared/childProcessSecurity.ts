@@ -3,6 +3,21 @@ const CHILD_ENV_ALLOWLIST = new Set([
   "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR",
 ]);
 
+const CODEX_ENV_ALLOWLIST = new Set([
+  ...CHILD_ENV_ALLOWLIST,
+  "CODEX_HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "PATHEXT",
+  "TERM",
+  "COLORTERM",
+  "NO_COLOR",
+]);
+
 export function assertNoSensitiveCommandArguments(
   args: readonly string[],
   sensitiveValues: readonly string[],
@@ -28,4 +43,31 @@ export function buildCredentialFreeChildEnvironment(
       );
     }),
   );
+}
+
+/**
+ * Build the complete environment for Codex SDK/CLI children. Provider login
+ * state belongs in CODEX_HOME; portal credentials and arbitrary host secrets
+ * must never be inherited by Codex or captured in its shell snapshots.
+ */
+export function buildCodexChildEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(source).flatMap(([key, value]) =>
+      CODEX_ENV_ALLOWLIST.has(key) && value ? [[key, value] as const] : [],
+    ),
+  );
+}
+
+export function buildCodexShellEnvironmentConfig(environment: Record<string, string>) {
+  return {
+    shell_environment_policy: {
+      inherit: "none" as const,
+      set: {
+        PATH: environment.PATH ?? "",
+        LANG: environment.LANG ?? environment.LC_ALL ?? "C.UTF-8",
+      },
+    },
+  };
 }
