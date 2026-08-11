@@ -3,9 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
+import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
 import { createWebLayoutRuntimeConfig } from "../config.js";
 import { buildGeneratorPrompt, createGeneratorNode } from "../nodes/generatorNode.js";
-import { initialWebLayoutState } from "../state.js";
+import { initialWebLayoutState, type JsonObject, type LangGraphWebLayoutState } from "../state.js";
+import type { StudyGuideContent } from "../studyGuideContent.js";
+import { approveQuestionBankForRendering } from "./fixtures/approvedQuestionBank.js";
 
 const tempDirs: string[] = [];
 
@@ -42,7 +45,7 @@ describe("generator prompt", () => {
         modelCalls += 1;
         throw new Error("The English study-guide renderer must not call the model.");
       },
-    })({
+    })(approvedGeneratorState({
       ...initialWebLayoutState,
       study_guide_content: {
         courseTitle: "Engineering Mechanics",
@@ -73,7 +76,7 @@ describe("generator prompt", () => {
         }],
         sources: [{ id: "mechanics", label: "Mechanics notes", url: "", coverage: "Force equilibrium" }],
       },
-    });
+    }, "en"));
 
     expect(modelCalls).toBe(0);
     expect(result.error_log).toBeNull();
@@ -82,7 +85,8 @@ describe("generator prompt", () => {
     expect(result.html_document).toContain("Engineering Mechanics");
     expect(result.html_document).toContain("Question catalogue");
     expect(result.html_document).toContain("Theory and topic practice");
-    expect(result.html_document).toContain("Start exam mode");
+    expect(result.html_document).not.toContain("Start exam mode");
+    expect(result.html_document).not.toContain('data-main-tab="exam"');
     expect(result.html_document).toContain("Continue learning");
     expect(result.html_document).not.toContain("Start with unseen questions");
     expect(result.html_document).toContain("Check answer");
@@ -124,7 +128,7 @@ describe("generator prompt", () => {
       run: async () => {
         throw new Error("The standardized renderer must not call the model.");
       },
-    })({
+    })(approvedGeneratorState({
       ...initialWebLayoutState,
       study_guide_content: {
         courseTitle: "HUM-204 World Literature",
@@ -163,7 +167,7 @@ describe("generator prompt", () => {
           coverage: "Narrative voice and close reading",
         }],
       },
-    });
+    }, "en"));
 
     expect(result.error_log).toBeNull();
     expect(result.html_document).toContain("data-sb-application-exercise");
@@ -183,6 +187,7 @@ describe("generator prompt", () => {
     });
     const prompt = buildGeneratorPrompt(config, {
       source_text: "source",
+      request_contract: initialWebLayoutState.request_contract,
       layout_spec: { title: "Demo" },
       html_document: "",
       validation_report: {},
@@ -196,10 +201,11 @@ describe("generator prompt", () => {
     expect(prompt).toContain("Do not display legacy prototype marks");
     expect(prompt).toContain("one coherent primary learning interaction");
     expect(prompt).toContain("do not build citations or source-management controls");
-    expect(prompt).toContain("not from a broad subject label");
-    expect(prompt).toContain("Rules, policy, business, and economics");
-    expect(prompt).toContain("Biomedical or medical material");
-    expect(prompt).toContain("flashcards may be primary only when higher-order application is not supported");
+    expect(prompt).toContain("Never infer them from a course name or broad subject label");
+    expect(prompt).toContain("Select only interactions that actually exercise an evidenced learning action");
+    expect(prompt).toContain("Preserve the response form demonstrated or required by the evidence");
+    expect(prompt).not.toContain("Rules, policy, business, and economics");
+    expect(prompt).not.toContain("Biomedical or medical material");
     expect(prompt).toContain("Never award exam credit for unrestricted free text");
     expect(prompt).toContain("native semantic MathML");
     expect(prompt).toContain("never expose raw TeX, Typst, or ASCII approximations");
@@ -215,13 +221,14 @@ describe("generator prompt", () => {
     });
     const prompt = buildGeneratorPrompt(config, {
       source_text: "source",
+      request_contract: initialWebLayoutState.request_contract,
       layout_spec: { title: "Mathematics" },
       html_document: "",
       validation_report: {},
       error_log: null,
     });
 
-    expect(prompt).toContain("course-dependent study guide, not a quiz dashboard");
+    expect(prompt).toContain("supplied course-dependent learning bank, not a generic quiz dashboard");
     expect(prompt).toContain("data-sb-learning-content");
     expect(prompt).toContain("data-sb-practice");
     expect(prompt).toContain("data-sb-progress");
@@ -242,6 +249,7 @@ describe("generator prompt", () => {
     });
     const prompt = buildGeneratorPrompt(config, {
       source_text: "source",
+      request_contract: initialWebLayoutState.request_contract,
       layout_spec: { title: "Guide" },
       html_document: '<!doctype html><img src="data:image/png;base64,QUJDREVGRw=="><script>function keepMe(){}</script>',
       validation_report: { ok: false },
@@ -252,6 +260,30 @@ describe("generator prompt", () => {
     expect(prompt).toContain("edit only .repair/document.html");
     expect(prompt).not.toContain("function keepMe(){}");
     expect(prompt).not.toContain("QUJDREVGRw==");
+  });
+
+  it("keeps a study-guide artifact repair prompt independent of a large canonical bank", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-repair-budget-"));
+    tempDirs.push(runDir);
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Repair the generated study guide",
+      kind: "study-guide",
+      runDir,
+    });
+    const uniqueBankMarker = "CANONICAL_BANK_FIELD_".repeat(6_000);
+    const prompt = buildGeneratorPrompt(config, {
+      source_text: "source",
+      request_contract: initialWebLayoutState.request_contract,
+      layout_spec: { title: "Guide" },
+      study_guide_content: { uniqueBankMarker },
+      html_document: "<!doctype html><html><head></head><body></body></html>",
+      validation_report: { ok: false, issues: [{ code: "runtime", message: "One local control failed." }] },
+      error_log: "Repair the one reported runtime control.",
+    });
+
+    expect(prompt).not.toContain(uniqueBankMarker);
+    expect(prompt).toContain("already embedded in the staged artifact");
+    expect(prompt.length).toBeLessThan(120_000);
   });
 
   it("rejects a status message when the staged repair artifact was not modified", async () => {
@@ -293,3 +325,21 @@ describe("generator prompt", () => {
     await expect(readFile(path.join(runDir, ".repair", "document.html"), "utf8")).resolves.toBe(repaired);
   });
 });
+
+function approvedGeneratorState(
+  state: LangGraphWebLayoutState,
+  language: "de" | "en",
+): LangGraphWebLayoutState {
+  const content = state.study_guide_content as unknown as StudyGuideContent;
+  const model = approveQuestionBankForRendering(buildAdaptiveStudyModel(
+    content,
+    "Ordinary authorized course material for a deterministic renderer fixture.",
+    language,
+  ));
+  return {
+    ...state,
+    course_blueprint: model.courseBlueprint as unknown as JsonObject,
+    assessment_blueprint: model.assessmentBlueprint as unknown as JsonObject,
+    question_bank: model.questionBank as unknown as JsonObject,
+  };
+}

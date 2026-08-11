@@ -2,6 +2,15 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
+import {
+  hashRequestContract,
+  minimalRequestContract,
+  REQUEST_CONTRACT_FILE,
+  REQUEST_CONTRACT_INTEGRITY_FILE,
+  RequestContractSchema,
+  verifyRequestContractIntegrity,
+  type RequestContract,
+} from "../../shared/requestContract.js";
 
 const MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_HANDOFF_FILE_BYTES = 25 * 1024 * 1024;
@@ -19,9 +28,17 @@ export function createSourceNode(config: WebLayoutRuntimeConfig) {
           "Run study_buddy_task.sh extract first, then retry with --source-run-dir <extraction-run>.",
         );
       }
-      const chunks = [`# User prompt\n${config.prompt.trim()}`];
+      const chunks = [`# User prompt\n${config.originalUserPrompt.trim()}`];
+      let requestContract = minimalRequestContract(config.originalUserPrompt, [config.kind]);
       if (config.sourceRunDir) {
-        chunks.push(await readMoodleHandoff(config.sourceRunDir));
+        const handoff = await readMoodleHandoff(config.sourceRunDir);
+        if (handoff.requestContract.originalPrompt !== config.originalUserPrompt) {
+          throw new Error(
+            "Moodle request contract does not match the exact original user prompt for this HTML run.",
+          );
+        }
+        chunks.push(handoff.text);
+        requestContract = handoff.requestContract;
         chunks.push(
           `# Local Moodle artifact root\n${config.sourceRunDir}\n` +
           "Visual assets may be referenced only by a validated visual_assets.relative_path from the extraction handoff.",
@@ -43,6 +60,7 @@ export function createSourceNode(config: WebLayoutRuntimeConfig) {
       await config.diagnostics?.log("info", "source", `Prepared source text (${sourceText.length} chars).`);
       return {
         source_text: sourceText,
+        request_contract: requestContract,
         error_log: null,
       };
     } catch (error) {
@@ -69,7 +87,7 @@ async function readTextSourceFile(filePath: string): Promise<string> {
   return `# Source file: ${filePath}\n${text}`;
 }
 
-async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
+async function readMoodleHandoff(sourceRunDir: string): Promise<{ text: string; requestContract: RequestContract }> {
   const [
     summary,
     errorLog,
@@ -80,6 +98,8 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     evidencePackage,
     studyModel,
     reviewReport,
+    requestContract,
+    requestContractIntegrity,
     practiceCorpus,
   ] = await Promise.all([
     readRequired(path.join(sourceRunDir, "run-summary.md")),
@@ -91,6 +111,8 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     readOptional(path.join(sourceRunDir, "evidence-package.json")),
     readOptional(path.join(sourceRunDir, "study-model.json")),
     readOptional(path.join(sourceRunDir, "review-report.json")),
+    readRequired(path.join(sourceRunDir, REQUEST_CONTRACT_FILE)),
+    readRequired(path.join(sourceRunDir, REQUEST_CONTRACT_INTEGRITY_FILE)),
     readPracticeCorpus(sourceRunDir),
   ]);
   if (!/^Run status:\s*(?:success|partial)$/m.test(summary)) {
@@ -107,7 +129,15 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
   for (const optionalJson of [sourceMap, evidencePackage, studyModel, reviewReport]) {
     if (optionalJson) JSON.parse(optionalJson);
   }
-  return [
+  const parsedRequestContract = RequestContractSchema.parse(JSON.parse(requestContract));
+  const verifiedIntegrity = verifyRequestContractIntegrity(
+    parsedRequestContract,
+    JSON.parse(requestContractIntegrity),
+  );
+  if (verifiedIntegrity.contractHash !== hashRequestContract(parsedRequestContract)) {
+    throw new Error("Verified Moodle request contract hash changed during HTML handoff loading.");
+  }
+  return { text: [
     `# Moodle extraction handoff: ${sourceRunDir}`,
     "## Source coverage",
     coverage.trim(),
@@ -117,9 +147,10 @@ async function readMoodleHandoff(sourceRunDir: string): Promise<string> {
     evidencePackage ? `## Evidence package summary\n${summarizeEvidencePackage(evidencePackage)}` : "",
     studyModel ? `## Validated study model\n${studyModel.trim()}` : "",
     reviewReport ? `## Student-first review\n${reviewReport.trim()}` : "",
+    `## Evaluated user request contract\n${requestContract.trim()}`,
     practiceCorpus ? `## Full extracted practice corpus\n${practiceCorpus}` : "",
     studyModel ? "" : `## Raw source text\n${rawText.trim()}`,
-  ].join("\n\n");
+  ].join("\n\n"), requestContract: parsedRequestContract };
 }
 
 async function readPracticeCorpus(sourceRunDir: string): Promise<string> {

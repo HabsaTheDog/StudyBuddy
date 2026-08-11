@@ -1,13 +1,78 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   buildAdaptiveStudyModel,
   type AdaptiveStudyModel,
 } from "../adaptiveStudyModel.js";
 import { renderAdaptiveStudyGuide } from "../adaptiveStudyGuideRenderer.js";
+import type { AssessmentArchitecturePlan } from "../assessmentArchitecturePlan.js";
 import { STUDY_BUDDY_HTML_TOKENS } from "../designGuidelines.js";
+import { questionBankItemReviewRecordId } from "../questionBankReview.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
+import { approveQuestionBankForRendering } from "./fixtures/approvedQuestionBank.js";
 
 describe("adaptive study-guide renderer contracts", () => {
+  it("fails closed for pending, rejected, stale, or tampered item review records", () => {
+    const pending = fixture();
+    pending.model.questionBank.items[0]!.review = {
+      status: "pending",
+      checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false },
+      findings: [],
+    };
+    expect(() => renderAdaptiveStudyGuide(pending.content, pending.model, "en"))
+      .toThrow(/review is not approved/i);
+
+    const rejected = fixture();
+    const rejectedReview = rejected.model.questionBank.items[0]!.review;
+    if (rejectedReview.status !== "approved") throw new Error("Expected approved fixture review.");
+    rejectedReview.record.reviewer.verdict = "rejected";
+    rejectedReview.record.recordId = questionBankItemReviewRecordId(rejectedReview.record);
+    expect(() => renderAdaptiveStudyGuide(rejected.content, rejected.model, "en"))
+      .toThrow(/verdict is not publishable/i);
+
+    const stale = fixture();
+    const staleReview = stale.model.questionBank.items[0]!.review;
+    if (staleReview.status !== "approved") throw new Error("Expected approved fixture review.");
+    staleReview.record.contentHash = "f".repeat(64);
+    staleReview.record.recordId = questionBankItemReviewRecordId(staleReview.record);
+    expect(() => renderAdaptiveStudyGuide(stale.content, stale.model, "en"))
+      .toThrow(/record is stale/i);
+
+    const tampered = fixture();
+    const tamperedReview = tampered.model.questionBank.items[0]!.review;
+    if (tamperedReview.status !== "approved") throw new Error("Expected approved fixture review.");
+    tamperedReview.record.findings.push({
+      code: "tampered",
+      severity: "advisory",
+      message: "This record was changed after sealing.",
+      repairInstruction: "Restore the sealed record.",
+    });
+    tamperedReview.findings.push("This record was changed after sealing.");
+    expect(() => renderAdaptiveStudyGuide(tampered.content, tampered.model, "en"))
+      .toThrow(/seal is invalid/i);
+
+    const changedContent = fixture();
+    changedContent.model.questionBank.items[0]!.exercise.prompt += " Changed after review.";
+    expect(() => renderAdaptiveStudyGuide(changedContent.content, changedContent.model, "en"))
+      .toThrow(/content does not match its reviewed content hash/i);
+  });
+
+  it("renders an item carrying an exact internally consistent independent review record", () => {
+    const { content, model } = fixture();
+    expect(renderAdaptiveStudyGuide(content, model, "en")).toContain("data-sb-practice");
+  });
+
+  it("omits the assessment tab and surface when the verified architecture mode is none", () => {
+    const { content } = fixture();
+    const model = approveQuestionBankForRendering(buildAdaptiveStudyModel(content, "Course material only.", "en"));
+    const html = renderAdaptiveStudyGuide(content, model, "en");
+    expect(model.assessmentBlueprint.mode).toBe("none");
+    expect(html).not.toContain('data-main-tab="exam"');
+    expect(html).not.toContain('data-main-panel="exam"');
+    expect(html).not.toMatch(/<button[^>]+data-start-assessment/);
+    expect(html).toContain("Learn along the actual course topics and practise selectively in the question catalogue.");
+  });
+
   it("exposes required semantic containers and type-specific exercise markers", () => {
     const { content, model } = fixture();
     const html = renderAdaptiveStudyGuide(content, model, "en");
@@ -90,6 +155,17 @@ describe("adaptive study-guide renderer contracts", () => {
 
     expect(html).toContain(".answer-options label>span{display:grid");
     expect(html).not.toContain(".answer-options label span{display:grid");
+  });
+
+  it("wraps unbroken source labels instead of widening tablet layouts", () => {
+    const { content, model } = fixture();
+    content.sources[0]!.label = "2_Beispiel_Kopplung_Scheibe_Stab";
+    const html = renderAdaptiveStudyGuide(content, model, "en");
+
+    expect(html).toContain(
+      ".source-card strong,.source-card p,.source-card a{overflow-wrap:anywhere;word-break:break-word}",
+    );
+    expect(html).toContain("2_Beispiel_Kopplung_Scheibe_Stab");
   });
 
   it("shows grouped Moodle subtopics without creating duplicate learning workspaces", () => {
@@ -190,7 +266,6 @@ describe("adaptive study-guide renderer contracts", () => {
     expect(html).toContain("Self-assessment");
     expect(html).toContain("exam-criteria-details");
     expect(html).toContain("data-reference-solution");
-    expect(html).toContain("data-assessment-task-visual");
     expect(html).not.toContain("assessment-task-sheet__viewport");
     expect(html).not.toContain('<details class="exam-solution"');
     expect(html).not.toContain("Reference solution missing");
@@ -198,7 +273,7 @@ describe("adaptive study-guide renderer contracts", () => {
     expect(html).toContain("examSession.ratings");
   });
 
-  it("downgrades low-confidence structure and exposes genuine insufficiency", () => {
+  it("omits a low-confidence assessment surface when no approved item is compatible", () => {
     const { content, model } = fixture();
     const changed = structuredClone(model);
     changed.assessmentBlueprint.confidence = "low";
@@ -217,14 +292,12 @@ describe("adaptive study-guide renderer contracts", () => {
       sectionItemIds: Array<{ itemIds: string[] }>;
     }>(html, "assessment-composition");
 
-    expect(composition.simulationKind).toBe("exercise_simulation");
+    expect(composition.simulationKind).toBe("none");
     expect(composition.support).toBe("insufficient");
     expect(composition.sectionItemIds[0].itemIds).toEqual([]);
-    expect(html).toContain('<h2 id="assessment-title">Exercise simulation based on course structure</h2>');
-    expect(html).toContain('data-assessment-support="insufficient"');
-    expect(html).toContain("no compatible reviewed question is available.");
-    expect(html).toContain("data-start-assessment");
-    expect(html).toContain("data-exam-result");
+    expect(html).not.toContain('data-main-tab="exam"');
+    expect(html).not.toContain('data-main-panel="exam"');
+    expect(html).not.toMatch(/<button[^>]+data-start-assessment/);
   });
 
   it("renders course vocabulary as a reusable learning block and excludes live performance from the exam", () => {
@@ -244,14 +317,28 @@ describe("adaptive study-guide renderer contracts", () => {
         provenance: "derived",
       },
     });
-    const model = buildAdaptiveStudyModel(
+    const assessmentEvidence = [
+      "Pecha Kucha presentation (60%).",
+      "Content questions answered orally (30%).",
+      "Vocabulary test (10%).",
+    ];
+    const plan = rendererAssessmentPlan([
+      { title: "Pecha Kucha presentation", questionTypes: ["open-response"], deliveryMode: "external-performance", evidenceExcerpt: assessmentEvidence[0]! },
+      { title: "content questions to be answered orally", questionTypes: ["open-response"], deliveryMode: "external-performance", evidenceExcerpt: assessmentEvidence[1]! },
+      { title: "vocabulary test", questionTypes: ["flashcard"], deliveryMode: "interactive", evidenceExcerpt: assessmentEvidence[2]! },
+    ]);
+    const model = approveQuestionBankForRendering(buildAdaptiveStudyModel(
       content,
-      [
-        "Repeat Exam",
-        "It consists of a Pecha Kucha presentation (60%) and content questions to be answered orally (30%) and a vocabulary test (10%).",
-      ].join("\n"),
+      assessmentEvidence.join("\n"),
       "en",
-    );
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      plan,
+    ));
     const html = renderAdaptiveStudyGuide(content, model, "en");
     const composition = embeddedJson<{
       examItemIds: string[];
@@ -292,7 +379,9 @@ describe("adaptive study-guide renderer contracts", () => {
         },
       });
     }
-    const model = buildAdaptiveStudyModel(content, "Vocabulary test covering all course modules.", "en");
+    const model = approveQuestionBankForRendering(
+      buildAdaptiveStudyModel(content, "Vocabulary test covering all course modules.", "en"),
+    );
     const html = renderAdaptiveStudyGuide(content, model, "en");
 
     expect(html).toContain('data-vocabulary-mode="carousel"');
@@ -385,22 +474,23 @@ function fixture(): { content: StudyGuideContent; model: AdaptiveStudyModel } {
       coverage: "The documented topic and objective.",
     }],
   };
+  const assessmentTask = "Given x = 3 and y = 2x, determine y and show the calculation.";
+  const plan = rendererAssessmentPlan([{
+    title: "Calculation",
+    questionTypes: ["calculation"],
+    deliveryMode: "interactive",
+    evidenceExcerpt: assessmentTask,
+  }]);
   return {
     content,
-    model: buildAdaptiveStudyModel(
+    model: approveQuestionBankForRendering(buildAdaptiveStudyModel(
       content,
-      [
-        "Sample exam",
-        "Duration: 60 min",
-        "Question 1: Calculation (20 points)",
-        "Given x = 3 and the documented relationship y = 2x, determine y.",
-        "Show the governing relation, substitution, intermediate calculation, final result, and a plausibility check.",
-      ].join("\n"),
+      assessmentTask,
       "en",
       {
         schemaVersion: 1,
         items: [{
-          legacyExerciseId: "assessment-source-task-1",
+          legacyExerciseId: `assessment-source-task-${plan.sections[0]!.id}`,
           completeness: "complete",
           summary: "Apply the documented proportional relationship to the supplied value.",
           steps: [
@@ -452,6 +542,67 @@ function fixture(): { content: StudyGuideContent; model: AdaptiveStudyModel } {
           },
         },
       },
-    ),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      plan,
+    )),
   };
+}
+
+function rendererAssessmentPlan(
+  sections: Array<{
+    title: string;
+    questionTypes: string[];
+    deliveryMode: "interactive" | "self-assessed" | "external-performance";
+    evidenceExcerpt: string;
+  }>,
+): AssessmentArchitecturePlan {
+  const boundSections = sections.map((section, index) => ({
+    ...section,
+    id: `assessment-section-${String(index + 1).padStart(20, "0")}`,
+    evidenceLevel: "explicit" as const,
+    taskCount: 1,
+    points: null,
+    weight: null,
+    durationMinutes: null,
+    learningObjectiveIds: ["topic-objective-1"],
+  }));
+  const content = {
+    title: "Documented assessment",
+    mode: "documented" as const,
+    confidence: "high" as const,
+    durationMinutes: 60,
+    maxPoints: 100,
+    passingPoints: 50,
+    allowedAids: [],
+    prohibitedAids: [],
+    basisRequirementIds: [],
+    rationale: "The evaluator retained the documented assessment structure.",
+    sections: boundSections,
+  };
+  const hash = "a".repeat(64);
+  return {
+    schemaVersion: 1,
+    binding: {
+      cacheVersion: "assessment-architecture-v1-open-contract",
+      contractHash: hash,
+      originalPromptHash: hash,
+      courseHash: hash,
+      evidenceHash: hash,
+      semanticCacheKey: hash,
+    },
+    contentHash: createHash("sha256").update(canonicalJson(content)).digest("hex"),
+    ...content,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

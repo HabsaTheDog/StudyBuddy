@@ -5,6 +5,10 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Codex } from "@openai/codex-sdk";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../shared/childProcessSecurity.js";
 import type { RunDiagnostics } from "./runDiagnostics.js";
 
 const require = createRequire(import.meta.url);
@@ -12,7 +16,7 @@ const CACHE_SCHEMA_VERSION = 1;
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60_000;
 const LATEST_VERSION_TTL_MS = 60 * 60_000;
 const PROCESS_TIMEOUT_MS = 20_000;
-const CANARY_TIMEOUT_MS = 45_000;
+const CANARY_TIMEOUT_MS = 90_000;
 const UPDATE_COMMAND = "npm install --save-exact @openai/codex-sdk@latest";
 const CANARY_RESPONSE = "STUDY_BUDDY_RUNTIME_OK";
 
@@ -209,6 +213,12 @@ export async function preflightCodexRuntime(
     }
     cache.doctor = { key: doctorKey, expiresAt: now + cacheTtlMs, checks: doctorChecks };
   }
+  const recoverableDoctorFailures = baseReport.doctorChecks.filter(isRecoverableDoctorFailure);
+  if (recoverableDoctorFailures.length > 0) {
+    warnings.push(
+      `Codex doctor reported a transient provider HTTP reachability failure; continuing to the authenticated model canary and bounded model-call recovery (${recoverableDoctorFailures.map((check) => check.summary).join("; ")}).`,
+    );
+  }
 
   if (!input.bypassCache && cache.latest && cache.latest.expiresAt > now) {
     baseReport.latestStableVersion = cache.latest.version;
@@ -234,7 +244,7 @@ export async function preflightCodexRuntime(
     ? parseCodexVersion(globalVersionResult.stdout || globalVersionResult.stderr)
     : null;
 
-  const failedModels: Array<{ model: string; error: string }> = [];
+  const failedModels: Array<{ model: string; error: string; transient: boolean }> = [];
   for (const model of requestedModels) {
     const cacheKey = probeCacheKey(binaryPath, effectiveCliVersion, model);
     const cached = cache.probes[cacheKey];
@@ -248,12 +258,20 @@ export async function preflightCodexRuntime(
       cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      failedModels.push({ model, error: message });
+      failedModels.push({ model, error: message, transient: isTransientCanaryError(message) });
       baseReport.modelProbes.push({ model, status: "failed", checkedAt, error: message });
     }
   }
 
-  if (failedModels.length > 0 && input.fallbackModel && !input.explicitModel) {
+  const compatibilityFailures = failedModels.filter((item) => !item.transient);
+  const transientFailures = failedModels.filter((item) => item.transient);
+  if (transientFailures.length > 0) {
+    warnings.push(
+      `Compatibility canary was inconclusive for ${transientFailures.map((item) => item.model).join(", ")} after a transient timeout or cancellation; continuing with the requested policy so its bounded model-call retries can decide runtime health.`,
+    );
+  }
+
+  if (compatibilityFailures.length > 0 && input.fallbackModel && !input.explicitModel) {
     const fallback = input.fallbackModel.trim();
     if (fallback && !requestedModels.includes(fallback)) {
       const cacheKey = probeCacheKey(binaryPath, effectiveCliVersion, fallback);
@@ -269,7 +287,7 @@ export async function preflightCodexRuntime(
         baseReport.fallbackApplied = fallback;
         baseReport.effectiveModels = [fallback];
         warnings.push(
-          `Configured compatibility fallback ${fallback} replaced policy-selected model(s): ${failedModels.map((item) => item.model).join(", ")}.`,
+          `Configured compatibility fallback ${fallback} replaced policy-selected model(s): ${compatibilityFailures.map((item) => item.model).join(", ")}.`,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -278,12 +296,12 @@ export async function preflightCodexRuntime(
     }
   }
 
-  const unresolvedFailures = failedModels.length > 0 && !baseReport.fallbackApplied;
+  const unresolvedFailures = compatibilityFailures.length > 0 && !baseReport.fallbackApplied;
   if (unresolvedFailures) {
     baseReport.status = "warning";
     await writeRuntimeCache(cachePath, cache);
     await persistRuntimeReport(input.runDir, baseReport);
-    const detail = failedModels.map((item) => `${item.model}: ${item.error}`).join("; ");
+    const detail = compatibilityFailures.map((item) => `${item.model}: ${item.error}`).join("; ");
     throw new CodexRuntimePreflightError(
       `Codex runtime preflight failed before source access. ${detail}. Effective CLI: ${effectiveCliVersion}. Run: ${UPDATE_COMMAND}`,
       baseReport,
@@ -355,7 +373,7 @@ async function defaultRunProcess(
   return new Promise((resolve, reject) => {
     const invocation = resolveCodexProcessInvocation(command, args);
     const child = spawn(invocation.command, invocation.args, {
-      env: process.env,
+      env: buildCodexChildEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -406,22 +424,42 @@ async function defaultRunCanary(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CANARY_TIMEOUT_MS);
   try {
-    const codex = new Codex({ codexPathOverride: input.binaryPath });
+    const codexEnvironment = buildCodexChildEnvironment();
+    const codex = new Codex({
+      codexPathOverride: input.binaryPath,
+      env: codexEnvironment,
+      config: buildCodexShellEnvironmentConfig(codexEnvironment),
+    });
     const thread = codex.startThread({
       workingDirectory: input.workingDirectory,
       skipGitRepoCheck: true,
       sandboxMode: "read-only",
       model: input.model,
+      modelReasoningEffort: "low",
     });
-    const result = await thread.run(`Reply with exactly ${CANARY_RESPONSE}.`, {
-      signal: controller.signal,
-    });
+    let result;
+    try {
+      result = await thread.run(`Reply with exactly ${CANARY_RESPONSE}.`, {
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Compatibility canary timed out after ${CANARY_TIMEOUT_MS}ms.`, {
+          cause: error,
+        });
+      }
+      throw error;
+    }
     if (result.finalResponse.trim() !== CANARY_RESPONSE) {
       throw new Error(`Unexpected compatibility canary response for ${input.model}.`);
     }
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function isTransientCanaryError(message: string): boolean {
+  return /operation was aborted|\babort(?:ed)?\b|timed?\s*out|timeout|temporar(?:y|ily)|queue|rate limit|overloaded|connection (?:reset|closed)|network/i.test(message);
 }
 
 function parseDoctorChecks(stdout: string): CodexDoctorCheck[] {
@@ -452,12 +490,15 @@ function isCriticalDoctorFailure(check: CodexDoctorCheck): boolean {
   return [
     "auth.credentials",
     "config.load",
-    "network.provider_reachability",
     "runtime.provenance",
     "runtime.search",
     "sandbox.helpers",
     "state.paths",
   ].includes(check.id);
+}
+
+function isRecoverableDoctorFailure(check: CodexDoctorCheck): boolean {
+  return check.status === "fail" && check.id === "network.provider_reachability";
 }
 
 function parseCodexVersion(output: string): string | null {

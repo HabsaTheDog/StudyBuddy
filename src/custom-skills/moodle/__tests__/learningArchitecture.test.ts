@@ -9,7 +9,7 @@ import {
 } from "../learningArchitecture.js";
 
 describe("domain-neutral learning architecture", () => {
-  it("compacts large architectures without dropping objectives or resources", () => {
+  it("truncates with an explicit manifest instead of semantically merging distinct modules", () => {
     const modules = Array.from({ length: 10 }, (_, index) => ({
       id: `module-${index + 1}`,
       title: `Topic ${index + 1}`,
@@ -19,76 +19,87 @@ describe("domain-neutral learning architecture", () => {
       assessmentSignals: [`Signal ${index + 1}`],
       resourceUrls: [`https://moodle.example/topic-${index + 1}.pdf`],
     }));
-    const compacted = boundLearningArchitecture({
+    const bounded = boundLearningArchitecture({
       schemaVersion: 1,
       modules,
       supportResources: [],
       excludedResourceUrls: [],
     });
 
-    expect(compacted.modules).toHaveLength(6);
-    expect(compacted.modules.flatMap((module) => module.learningObjectives)).toHaveLength(10);
-    expect(compacted.modules.flatMap((module) => module.resourceUrls)).toHaveLength(10);
-    expect(compacted.modules[0].priority).toBe("essential");
+    expect(bounded.modules).toHaveLength(6);
+    expect(bounded.modules.map((module) => module.title)).toEqual([
+      "Topic 1", "Topic 2", "Topic 3", "Topic 4", "Topic 5", "Topic 6",
+    ]);
+    expect(bounded.modules.every((module) => !module.title.includes(" / "))).toBe(true);
+    expect(bounded.moduleLimit).toEqual({
+      strategy: "truncate_with_manifest",
+      maxModules: 6,
+      originalModuleCount: 10,
+      omittedModules: [7, 8, 9, 10].map((number) => ({
+        id: `module-${number}`,
+        title: `Topic ${number}`,
+        resourceUrls: [`https://moodle.example/topic-${number}.pdf`],
+      })),
+    });
+    expect(bounded.excludedResourceUrls).toEqual(
+      [7, 8, 9, 10]
+        .map((number) => `https://moodle.example/topic-${number}.pdf`)
+        .sort(),
+    );
+    expect(() => boundLearningArchitecture({
+      schemaVersion: 1,
+      modules,
+      supportResources: [],
+      excludedResourceUrls: [],
+    }, 0)).toThrow(/positive integer/);
   });
-  it.each([
+
+  it("uses identical neutral fallback semantics across subjects", () => {
+    const fixtures = [
     {
-      domain: "technical",
-      title: "Lecture 03 - Fatigue Design",
-      topic: "Fatigue Design",
-      summary: "Explain the principle, calculate safety factors, and interpret a worked solution.",
-      expectedMode: "mixed",
+      domain: "DYN",
+      title: "Lecture 03 - Angular Momentum Calculations",
+      topic: "Angular Momentum",
+      summary: "Derive equations and calculate a result.",
     },
     {
-      domain: "mathematics",
-      title: "Unit 04 - Differential Equations",
-      topic: "Differential Equations",
-      summary: "Solve equations, calculate initial values, and check the solution.",
-      expectedMode: "quantitative",
+      domain: "English",
+      title: "Unit 04 - Presentation Language",
+      topic: "Presentation Language",
+      summary: "Practice vocabulary and deliver a presentation.",
     },
     {
-      domain: "medicine",
-      title: "Seminar - Acute Chest Pain",
-      topic: "Acute Chest Pain",
-      summary: "Use a patient vignette to analyze a case and justify the next decision.",
-      expectedMode: "case_based",
+      domain: "Lab",
+      title: "Laboratory Protocol and Workflow",
+      topic: "Laboratory Session",
+      summary: "Follow the protocol step by step.",
     },
     {
-      domain: "business",
-      title: "Workshop - Market Entry",
-      topic: "Market Entry",
-      summary: "Analyze a case study, compare alternatives, and justify a decision.",
-      expectedMode: "mixed",
+      domain: "Cases",
+      title: "Clinical Case Study",
+      topic: "Clinical Decisions",
+      summary: "Analyze a case and justify the decision.",
     },
-    {
-      domain: "humanities",
-      title: "Seminar 05 - Colonial Narratives",
-      topic: "Colonial Narratives",
-      summary: "Interpret narrative voice and compare competing readings in their historical context.",
-      expectedMode: "conceptual",
-    },
-    {
-      domain: "language",
-      title: "Workshop 06 - Academic Peer Review",
-      topic: "Academic Peer Review",
-      summary: "Follow a step-by-step writing and peer-review procedure, then revise the draft.",
-      expectedMode: "procedural",
-    },
-  ])("creates a meaningful $domain module without subject-specific routing", (fixture) => {
-    const url = `https://moodle.example/resource/${encodeURIComponent(fixture.domain)}.pdf`;
-    const architecture = buildDeterministicLearningArchitecture({
-      briefs: [brief(fixture.title, fixture.topic, fixture.summary, url)],
-      catalog: [catalog(fixture.title, fixture.topic, url)],
+    ];
+    const modules = fixtures.map((fixture) => {
+      const url = `https://moodle.example/resource/${encodeURIComponent(fixture.domain)}.pdf`;
+      return buildDeterministicLearningArchitecture({
+        briefs: [brief(fixture.title, fixture.topic, fixture.summary, url)],
+        catalog: [catalog(fixture.title, fixture.topic, url)],
+      }).modules[0];
     });
 
-    expect(architecture.modules).toHaveLength(1);
-    expect(architecture.modules[0]).toMatchObject({
-      title: fixture.topic,
-      priority: "essential",
-      contentMode: fixture.expectedMode,
-      resourceUrls: [url],
-    });
-    expect(architecture.modules[0].learningObjectives.length).toBeGreaterThanOrEqual(2);
+    expect(modules.map((module) => module.contentMode)).toEqual([
+      "mixed", "mixed", "mixed", "mixed",
+    ]);
+    expect(modules.every((module) => module.priority === "essential")).toBe(true);
+    expect(modules.every((module) => module.assessmentSignals.length === 0)).toBe(true);
+    expect(modules.map((module) => module.learningObjectives)).toEqual(fixtures.map((fixture) => [
+      `Review the evidence-backed course material identified as “${fixture.topic}”.`,
+    ]));
+    expect(modules.flatMap((module) => module.learningObjectives).join(" ")).not.toMatch(
+      /\b(?:calculate|calculation|case|procedure|protocol|workflow|apply|derive|solve)\b/i,
+    );
   });
 
   it("does not turn organizational containers or generic session names into modules", () => {
@@ -247,6 +258,23 @@ describe("domain-neutral learning architecture", () => {
     });
 
     expect(architecture.modules[0].contentMode).toBe("mixed");
+  });
+
+  it("localizes deterministic objectives and assessment signals to German", () => {
+    const architecture = buildDeterministicLearningArchitecture({
+      language: "de",
+      briefs: [],
+      catalog: [{
+        ...catalog("4_Folien_Drallsatz", "Drallsatz", "https://moodle.example/drall.pdf"),
+        role: "primary_lecture",
+      }],
+    });
+
+    expect(architecture.modules[0].learningObjectives).toEqual([
+      "Die unter „Drallsatz“ evidenzierten Kursinhalte nachvollziehen.",
+    ]);
+    expect(architecture.modules[0].assessmentSignals).toEqual([]);
+    expect(architecture.modules[0].learningObjectives.join(" ")).not.toMatch(/\b(?:Explain|Apply)\b/);
   });
 
   it("validates model JSON strictly and rejects incomplete modules", () => {

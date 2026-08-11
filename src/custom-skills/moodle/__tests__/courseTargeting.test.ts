@@ -32,6 +32,25 @@ describe("courseTargeting", () => {
     ).toContain("DYN2");
   });
 
+  it("recognizes Dynamikprüfung as a course compound without forcing one ambiguous dynamics course", () => {
+    const hint = extractCourseTargetHint(
+      "Ich muss mich für meine kommende Dynamikprüfung vorbereiten.",
+    );
+
+    expect(hint.requestedCodes).toEqual(expect.arrayContaining(["DYN2", "PHDYN"]));
+    const resolved = resolveCourseTargetsFromLinks("Dynamikprüfung", [
+      {
+        href: "https://moodle.example/course/view.php?id=12",
+        label: "DYN2 Anwendungen der Dynamik",
+      },
+      {
+        href: "https://moodle.example/course/view.php?id=19",
+        label: "PHDYN Physikalische Grundlagen der Dynamik",
+      },
+    ]);
+    expect(resolved.status).toBe("ambiguous");
+  });
+
   it("resolves generic Dynamik against the acquired DYN2 corpus in a multi-course comparison", () => {
     expect(resolveRequestedCourseCode(
       "Erstelle einen PDF-Study-Guide für Dynamik.",
@@ -58,6 +77,29 @@ describe("courseTargeting", () => {
     ].join("\n"))).toEqual({
       title: "World Literature: Modernism and Memory",
       url: "https://learn.example.edu/course/view.php?id=204",
+      confidence: "high",
+    });
+  });
+
+  it("preserves the canonical title from a compact evidence-package record", () => {
+    expect(extractResolvedCourseIdentity(JSON.stringify({
+      content: "Selected: BMR-VZ-2-SS2026-DYN2-DE Anwendungen der Dynamik LektorInnen: Example Ihre Rolle: TeilnehmerIn Course title: DYN2 – Anwendungen der Dynamik",
+      sourceUrl: "https://moodle.example/course/view.php?id=32844",
+    }))).toEqual({
+      title: "DYN2 – Anwendungen der Dynamik",
+      url: "https://moodle.example/course/view.php?id=32844",
+      confidence: "high",
+    });
+  });
+
+  it("reads a canonical course title from an evidence-package section", () => {
+    expect(extractResolvedCourseIdentity(JSON.stringify({
+      locator: { section: "Kurs: Anwendungen der Dynamik | FHTW Moodle" },
+      content: "Kursmaterial",
+      sourceUrl: "https://moodle.example/course/view.php?id=32844",
+    }))).toEqual({
+      title: "Anwendungen der Dynamik",
+      url: "https://moodle.example/course/view.php?id=32844",
       confidence: "high",
     });
   });

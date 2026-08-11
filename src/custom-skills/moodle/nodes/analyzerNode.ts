@@ -42,7 +42,10 @@ import {
 } from "../adaptiveRuntimeBudget.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
-const CHAPTER_ANALYZER_VERSION = "2026-07-26.8-subtopic-frequency";
+// Bump whenever the semantic handoff contract changes. In particular, caches
+// produced before this version may contain topic-specific examples injected by
+// deterministic code instead of content selected from the evaluated request.
+const CHAPTER_ANALYZER_VERSION = "2026-08-09.4-localized-contract-repair";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
@@ -57,6 +60,16 @@ const FRAGMENT_RECORD_OVERLAP = 2;
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
 // and avoid turning apparent parallelism into paired model timeouts.
 const CHAPTER_ANALYZER_CONCURRENCY = 1;
+
+class IncompleteChapterAnalysisError extends Error {
+  constructor(
+    message: string,
+    readonly partialData: ReturnType<typeof validateExtractedData> | null,
+  ) {
+    super(message);
+    this.name = "IncompleteChapterAnalysisError";
+  }
+}
 
 export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
@@ -87,6 +100,22 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
       if (error instanceof ModelCallTimeoutError) {
         throw capacityCheckpoint(error);
       }
+      const partialData = error instanceof IncompleteChapterAnalysisError && error.partialData
+        ? reconcileRequestedCourseIdentity(
+            config,
+            error.partialData,
+            state.moodle_raw_text,
+          )
+        : null;
+      if (partialData) {
+        await persistExtractedData(config.runDir, partialData);
+        await config.diagnostics?.log(
+          "warn",
+          "analyzer",
+          "Persisted validated chapter handoffs before routing exhausted localized gaps.",
+          { retainedSections: partialData.sections.length },
+        );
+      }
       const nonRetryable = isNonRetryableCodexError(error);
       if (nonRetryable) {
         await config.diagnostics?.log(
@@ -99,8 +128,9 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
         );
       }
       return {
+        ...(partialData ? { extracted_data: partialData } : {}),
         error_log: `Analyzer failed${nonRetryable ? " (non-retryable)" : ""}: ${error instanceof Error ? error.message : String(error)}`,
-        retry_count: nonRetryable
+        retry_count: nonRetryable || partialData
           ? Math.max(ANALYZER_RETRY_LIMIT, state.retry_count + 1)
           : state.retry_count + 1,
       };
@@ -119,13 +149,14 @@ export function reconcileRequestedCourseIdentity(
     config.originalUserPrompt ?? "",
     sourceText,
   );
-  const courseTitle = resolvedIdentity &&
-      resolvedIdentity.confidence !== "low" &&
-      resolvedIdentity.confidence !== "direct"
+  const resolvedTitle = resolvedIdentity &&
+      resolvedIdentity.confidence !== "low"
     ? resolvedIdentity.title
-    : requestedCode ?? (resolvedIdentity?.confidence === "direct"
-      ? resolvedIdentity.title
-      : undefined);
+    : requestedCode;
+  const courseTitle = resolvedTitle && requestedCode &&
+      !normalizeFocusText(resolvedTitle).includes(normalizeFocusText(requestedCode))
+    ? `${requestedCode} – ${resolvedTitle}`
+    : resolvedTitle;
   if (!courseTitle) return data;
   const title = config.artifactIntent.profile === "study_guide"
     ? `${courseTitle} – Study Guide`
@@ -151,7 +182,7 @@ async function analyzeWholeRequest(
   const response = await codex.run(await buildAnalyzerPrompt(config, state), {
     outputSchema: extractedDataJsonSchema,
     task: state.error_log ? "content_repair" : "content_analyzer",
-    attempt: state.retry_count + 1,
+    attempt: state.error_log ? Math.max(1, state.retry_count) : state.retry_count + 1,
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
   return validateAnalyzerResponse(response, config);
@@ -305,7 +336,9 @@ async function analyzeCourseChapters(
               {
                 outputSchema: extractedDataJsonSchema,
                 task: invalidKeys.has(focus.key) ? "content_repair" : "content_analyzer",
-                attempt: state.retry_count + 1,
+                attempt: invalidKeys.has(focus.key)
+                  ? Math.max(1, state.retry_count)
+                  : state.retry_count + 1,
                 localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
             ), config);
@@ -353,9 +386,23 @@ async function analyzeCourseChapters(
     length: Math.min(CHAPTER_ANALYZER_CONCURRENCY, focuses.length),
   }, () => worker()));
   if (failures.length > 0) {
-    throw new Error(failures
-      .map(({ focus, message }) => `[chapter: ${focus.title}] Chapter analyzer failed: ${message}`)
-      .join("\n"));
+    const completed = results
+      .map((data, index) => data ? { data, focus: focuses[index] } : null)
+      .filter((entry): entry is { data: ReturnType<typeof validateExtractedData>; focus: ChapterFocus } =>
+        Boolean(entry)
+      );
+    throw new IncompleteChapterAnalysisError(
+      failures
+        .map(({ focus, message }) => `[chapter: ${focus.title}] Chapter analyzer failed: ${message}`)
+        .join("\n"),
+      completed.length > 0
+        ? mergeChapterHandoffs(
+            completed.map((entry) => entry.data),
+            completed.map((entry) => entry.focus),
+            config,
+          )
+        : null,
+    );
   }
   return mergeChapterHandoffs(results, focuses, config);
 }
@@ -413,9 +460,17 @@ async function analyzeDenseChapter(
     ? focusMatchesError(focus, state.error_log) ? state.error_log : null
     : repairFeedbackOverride;
   const officialTopicCount = officialCourseTopics(focus).length;
-  const effectiveMaxSlices = officialTopicCount > 0
+  const baseMaxSlices = officialTopicCount > 0
     ? Math.max(maxSlices, Math.min(4, candidateSlices.length))
     : maxSlices;
+  // A support source that passed the semantic-content gate must receive one
+  // real evidence slot; otherwise a full direct-source budget can plan the
+  // support correctly and then silently crowd it out before the model call.
+  const effectiveMaxSlices = Math.min(
+    profileBudget.maxModelCallsPerModule,
+    candidateSlices.length,
+    baseMaxSlices + ((focus.supportResourceIds?.length ?? 0) > 0 ? 1 : 0),
+  );
   const retrievalRequests = await readVisualRetrievalRequests(config.runDir);
   const dependencyResourceIds = new Set(retrievalRequests
     .filter((request) => request.priority === "high" && focus.resourceIds.includes(request.resourceId))
@@ -507,6 +562,7 @@ async function analyzeDenseChapter(
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
+      requestContract: state.request_contract,
       policy: STUDENT_FIRST_POLICY_VERSION,
       focus,
       slice: slice.key,
@@ -528,11 +584,6 @@ async function analyzeDenseChapter(
     })).digest("hex");
     const fragmentCachePaths = [...new Set([semanticFingerprint, legacyFingerprint])]
       .map((fingerprint) => path.join(fragmentCacheDir, `${fingerprint}.json`));
-    const requiresApplication =
-      sliceRequiresAppliedExample(state, focus, slice) ||
-      (slices.length === 1 && focusNeedsQuantitativeApplication(focus));
-    const minimumLearningCharacters =
-      slices.length === 1 && focusNeedsQuantitativeApplication(focus) ? 1_200 : 0;
     let cachedFragment: ChapterFragment | null = null;
     for (const cachePath of fragmentCachePaths) {
       cachedFragment = await readFile(cachePath, "utf8")
@@ -557,17 +608,16 @@ async function analyzeDenseChapter(
         `Invalidated formula-metadata fragment ${index + 1}/${slices.length}: ${slice.label}`,
       );
     }
-    const cachedApplicationError = cachedFragment && requiresApplication
-      ? appliedFragmentQualityError(cachedFragment, focus, minimumLearningCharacters)
+    const cachedFormulaError = cachedFragment
+      ? fragmentFormulaQualityError(cachedFragment, focus)
       : null;
-    if (cachedFragment && cachedApplicationError) {
+    if (cachedFragment && cachedFormulaError) {
       cachedFragment = null;
-      sliceRepairFeedback =
-        `Validator-Diagnose: ${cachedApplicationError}`;
+      sliceRepairFeedback = `Validator-Diagnose: ${cachedFormulaError}`;
       await config.diagnostics?.log(
         "info",
         "analyzer",
-        `Invalidated weak application fragment ${index + 1}/${slices.length}: ${slice.label}`,
+        `Invalidated mathematically inconsistent fragment ${index + 1}/${slices.length}: ${slice.label}`,
       );
     }
     if (cachedFragment) {
@@ -593,7 +643,7 @@ async function analyzeDenseChapter(
     );
     let fragment: ChapterFragment | null = null;
     let localRepairFeedback = sliceRepairFeedback;
-    const localAttempts = requiresApplication ? 2 : 1;
+    const localAttempts = 1;
     for (let localAttempt = 0; localAttempt < localAttempts; localAttempt += 1) {
       const prompt = buildChapterFragmentPrompt(
         config,
@@ -607,12 +657,17 @@ async function analyzeDenseChapter(
         localRepairFeedback,
       );
       try {
+        const repairing = Boolean(localRepairFeedback) || localAttempt > 0;
         const response = await codex.run(prompt, {
           outputSchema: chapterFragmentJsonSchema,
-          task: localRepairFeedback || localAttempt > 0
-            ? "content_repair"
-            : "content_analyzer",
-          attempt: state.retry_count + localAttempt + 1,
+          task: repairing ? "content_repair" : "content_analyzer",
+          // A first local repair is attempt 1 of the repair task. Counting the
+          // preceding analyzer call as repair attempt 1 skipped the balanced
+          // Terra repair lane and escalated every ordinary validation miss to
+          // Sol. Only a failed repair itself may advance to attempt 2.
+          attempt: repairing
+            ? Math.max(1, state.retry_count + localAttempt)
+            : state.retry_count + 1,
           localImages,
         });
         throwIfAborted(config.abortSignal);
@@ -621,11 +676,9 @@ async function analyzeDenseChapter(
           slice,
           visualManifest,
         );
-        const applicationError = requiresApplication
-          ? appliedFragmentQualityError(candidate, focus, minimumLearningCharacters)
-          : null;
-        if (applicationError) {
-          throw new Error(applicationError);
+        const formulaError = fragmentFormulaQualityError(candidate, focus);
+        if (formulaError) {
+          throw new Error(formulaError);
         }
         fragment = candidate;
         break;
@@ -636,16 +689,20 @@ async function analyzeDenseChapter(
         localRepairFeedback =
           `Validator-Diagnose für den einmaligen lokalen Reparaturversuch: ${
             error instanceof Error ? error.message : String(error)
-          } Die bereits ausgewählte Anwendungsquelle muss als vollständig nachvollziehbares Beispiel mit Aufgabenstellung, konkreter mathematischer Beziehung, geordneten Schritten, Ergebnis und Kontrolle umgesetzt werden. Falls die Quellwerte nicht vollständig lesbar sind, erstelle aus den belegten Beziehungen ein kleines origin='derived'-Beispiel mit ausdrücklich gesetzten Werten.`;
+          }`;
         await config.diagnostics?.log(
           "warn",
           "analyzer",
           `Repairing only the invalid ${focus.title} topic fragment before advancing.`,
+          { validatorDiagnostic: localRepairFeedback },
         );
       }
     }
     if (!fragment) {
-      throw new Error(`Chapter fragment repair produced no result for ${focus.title}.`);
+      throw new Error(
+        `[chapter: ${focus.title}] [owner: content] [repair: content_analyzer] ` +
+        `[fallback: withhold_affected_content] Chapter fragment repair produced no result.`,
+      );
     }
     await Promise.all(fragmentCachePaths.map((cachePath) =>
       writeFile(cachePath, `${JSON.stringify(fragment, null, 2)}\n`, "utf8")
@@ -691,10 +748,11 @@ function sliceRequiresAppliedExample(
   });
 }
 
-function appliedFragmentQualityError(
+export function appliedFragmentQualityError(
   fragment: ChapterFragment,
   focus: ChapterFocus,
   minimumLearningCharacters = 0,
+  priorFragments: ChapterFragment[] = [],
 ): string | null {
   const example = fragment.worked_examples[0];
   if (!example) {
@@ -703,7 +761,9 @@ function appliedFragmentQualityError(
   if (example.steps.length < 4) {
     return `The ${focus.title} worked example needs at least four ordered reasoning and checking steps.`;
   }
-  if (example.result.trim().length < 24) {
+  const compactExecutableResult = /[=≈≤≥]/.test(example.result) &&
+    /(?:\d|sqrt|frac|pi|vec|dot|sum|integral)/i.test(example.result);
+  if (example.result.trim().length < 24 && !compactExecutableResult) {
     return `The ${focus.title} worked example result is too short to be independently checked.`;
   }
   if (minimumLearningCharacters > 0) {
@@ -732,11 +792,12 @@ function appliedFragmentQualityError(
     }
   }
   if (focusNeedsQuantitativeApplication(focus)) {
-    const formulaText = fragment.formulas.map((formula) =>
+    const chapterFormulas = [...priorFragments, fragment].flatMap((entry) => entry.formulas);
+    const formulaText = chapterFormulas.map((formula) =>
       `${formula.name} ${formula.typst} ${formula.context} ${formula.variables.join(" ")}`
     ).join(" ");
     if (
-      fragment.formulas.length === 0 ||
+      chapterFormulas.length === 0 ||
       !formulaAlignsWithQuantitativeFocus(formulaText, focus)
     ) {
       return `The quantitative ${focus.title} fragment has no central formula aligned with its named learning objectives.`;
@@ -752,14 +813,65 @@ function appliedFragmentQualityError(
     if (!/(?:prüf|kontroll|plausib|einheit|vorzeichen|probe|check)/i.test(exampleText)) {
       return `The quantitative ${focus.title} worked example contains no explicit result check.`;
     }
+    const dimensionalError = derivedTimeFunctionDimensionalError(example);
+    if (dimensionalError) return dimensionalError;
   }
   return null;
+}
+
+function derivedTimeFunctionDimensionalError(
+  example: ChapterFragment["worked_examples"][number],
+): string | null {
+  if (example.origin !== "derived") return null;
+  const text = [example.prompt, ...example.steps, example.result]
+    .join(" ")
+    .replace(/\\\(|\\\)|\$/g, " ")
+    .replace(/\s+/g, " ");
+  // A trailing length unit does not make a polynomial in dimensional time
+  // valid. Each numerical coefficient must carry the complementary time unit.
+  // This catches model-created forms such as x(t)=2t^2 m while leaving
+  // equations whose velocity/acceleration coefficients are declared intact.
+  const barePolynomialWithTrailingLength =
+    /\b[xyzr]\s*\(\s*t\s*\)\s*=\s*[+-]?\d+(?:[.,]\d+)?\s*t(?:\s*\^\s*\d+)?\s*(?:m|mm|cm)\b/i;
+  if (!barePolynomialWithTrailingLength.test(text)) return null;
+  return "The derived time-function example places a length unit after a bare polynomial in t; attach the complementary time unit to every numerical coefficient before differentiating.";
+}
+
+export function fragmentFormulaQualityError(
+  fragment: ChapterFragment,
+  focus: ChapterFocus,
+): string | null {
+  const objectiveText = normalizeFocusText([
+    focus.title,
+    ...(focus.learningObjectives ?? []),
+  ].join(" "));
+  const expectsOscillatorEquation =
+    /(?:schwing|oscillat|vibrat)/.test(objectiveText) &&
+    /(?:bewegungsgleich|equation of motion|motion equation)/.test(objectiveText);
+  if (!expectsOscillatorEquation) return null;
+  const equations = fragment.formulas.filter((formula) =>
+    /(?:bewegungsgleich|equation of motion|standardform)/i.test(
+      `${formula.name} ${formula.context}`,
+    )
+  );
+  if (equations.length === 0) return null;
+  if (equations.some((formula) =>
+    /(?:ddot\s*\(|dif\s*\^\s*2|d\s*\^\s*2)/i.test(formula.typst)
+  )) return null;
+  return `The ${focus.title} equation of motion must contain a second time derivative; a first derivative alone is dimensionally inconsistent with stiffness and inertia terms.`;
 }
 
 function formulaAlignsWithQuantitativeFocus(
   formulaText: string,
   focus: ChapterFocus,
 ): boolean {
+  // The deterministic architecture fallback deliberately uses broad learning
+  // objectives when the source catalog supplies a topic but no explicit
+  // learning outcomes. At this point the formulas are already restricted to
+  // the chapter's selected evidence. Requiring a lexical match against phrases
+  // such as "die zentralen Zusammenhänge erklären" would reject valid formulas
+  // simply because their names use the concrete physical quantities instead.
+  if (hasOnlyGenericFallbackObjectives(focus.learningObjectives ?? [])) return true;
   const normalizedFormula = normalizeFocusText(formulaText);
   const titleAnchors = focusAnchorTerms(focus.title);
   const titleMatches = titleAnchors.some((anchor) => normalizedFormula.includes(anchor));
@@ -775,6 +887,15 @@ function formulaAlignsWithQuantitativeFocus(
   return (
     titleMatches && (objectiveAnchors.length === 0 || objectiveMatches >= 1)
   ) || objectiveMatches >= 2 || assessmentMatches >= 2;
+}
+
+function hasOnlyGenericFallbackObjectives(objectives: string[]): boolean {
+  if (objectives.length === 0) return false;
+  return objectives.every((objective) => {
+    const normalized = normalizeFocusText(objective);
+    return /^(?:die zentralen (?:zusammenhange|begriffe).+ erklaren|sie auf (?:rechnungen|typische aufgaben).+ anwenden|explain the central (?:ideas|concepts|relationships).+|apply them to .+)/
+      .test(normalized);
+  });
 }
 
 function focusAnchorTerms(value: string): string[] {
@@ -1301,6 +1422,12 @@ export function buildChapterFragmentPrompt(
   retrievalRequests: VisualRetrievalRequest[],
   repairFeedback: string | null = null,
 ): string {
+  const localizedRepairFeedback = repairFeedback
+    ? localizeChapterRepairDiagnostic(focus, repairFeedback)
+    : null;
+  const repairContractContext = localizedRepairFeedback
+    ? contentRepairContractContext(state)
+    : null;
   const resources = state.resource_manifest.resources
     .filter((resource) => slice.resourceIds.includes(resource.id))
     .map((resource) => ({
@@ -1329,22 +1456,17 @@ export function buildChapterFragmentPrompt(
     }));
 
   const documentLanguage = languageName(config.outputLanguage);
-  const officialTopicCount = officialCourseTopics(focus).length;
-  const sectionMinimum = Math.max(3, officialTopicCount);
-  const sectionMaximum = Math.max(6, officialTopicCount + 2);
-  const applicationCount = Math.min(2, officialTopicCount);
-  const applicationTarget = officialTopicCount > 0 && focus.contentMode !== "conceptual"
-    ? `${applicationCount} fully traceable applications spanning ${applicationCount === 1 ? "the official topic" : "different official topics"}`
-    : "at most one fully traceable application";
   return [
     "Return only schema-valid JSON. Use only the supplied evidence and allowed IDs; do not research, open files, repeat other chapters, or invent claims, sources, relationships, or values.",
-    `Depth target: ${sectionMinimum}–${sectionMaximum} explanatory sections, 2–8 central formulas when applicable, ${applicationTarget}, at most 2 essential figures, and at most 2 warnings. Explain meaning, relationships, method choice, boundary conditions, and typical errors rather than listing keywords.`,
-    officialTopicCount > 0
+    "Let the evaluated request contract and available evidence determine the chapter depth and which content components are useful. Do not satisfy a fixed section, formula, example, figure, or warning quota. Explain meaning, relationships, method choice, boundary conditions, and typical errors only where relevant to the request.",
+    "Optional arrays such as worked_examples and figures may be empty. Populate them only when the contract asks for them or the evidence-derived content strategy justifies them.",
+    officialCourseTopics(focus).length > 0
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
     "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
-    "Choose a discipline-appropriate teaching path (calculation, case, source interpretation, decision, comparison, or procedure). The application must show givens/question, ordered reasoning, result/decision, and a check when the evidence supports it.",
+    "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
     "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
+    "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
     "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
     "Use an attached visual only when it is necessary and legible. Attached images correspond to the listed candidate IDs; never use shell or filesystem tools to inspect them. Choose figures by candidate ID and give a concrete placement_hint.",
     "For table, diagram, glossary, corpus, map, timeline, or other reference lookups, use concrete values or claims only when visible in evidence or an attached candidate. Otherwise teach the complete source-selection and interpretation path; a copied answer never replaces the lookup method.",
@@ -1358,13 +1480,57 @@ export function buildChapterFragmentPrompt(
       evidenceBlock: slice.label,
     })}`,
     `Teil ${index + 1}/${total}: ${slice.label}. Lernmodus: ${focus.contentMode ?? "mixed"}.`,
-    `Nutzerauftrag: ${config.prompt}`,
-    repairFeedback ? `Verbindliche Review-Rückmeldung für diesen Reparaturversuch:\n${repairFeedback}` : "",
+    `Nutzerauftrag: ${localizedRepairFeedback ? state.request_contract.originalPrompt : config.prompt}`,
+    localizedRepairFeedback
+      ? `Relevante RequestContract-Zuweisung für diese Inhaltsreparatur: ${JSON.stringify(repairContractContext, null, 2)}`
+      : `Evaluierter Request Contract: ${JSON.stringify(state.request_contract, null, 2)}`,
+    localizedRepairFeedback
+      ? `Lokalisierte Validator-Diagnose für diesen Reparaturversuch:\n${localizedRepairFeedback}`
+      : "",
     `Erlaubte Ressourcen: ${JSON.stringify(resources, null, 2)}`,
     `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, 2)}`,
     `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, 2)}`,
     `Evidenz für diesen Teil: ${JSON.stringify(slice.records, null, 2)}`,
   ].join("\n\n");
+}
+
+function localizeChapterRepairDiagnostic(
+  focus: ChapterFocus,
+  repairFeedback: string,
+): string {
+  const taggedLines = repairFeedback.split(/\r?\n/).filter((line) => {
+    const tag = /\[chapter:\s*([^\]]+)\]/i.exec(line)?.[1]?.trim();
+    if (!tag) return false;
+    return normalizeChapterMatch(tag) === normalizeChapterMatch(focus.title) ||
+      safeChapterKey(tag) === focus.key;
+  });
+  return (taggedLines.length > 0 ? taggedLines.join("\n") : repairFeedback).trim();
+}
+
+function contentRepairContractContext(state: LangGraphAgentState) {
+  const contract = state.request_contract;
+  const assignments = contract.reviewAssignments.filter((assignment) =>
+    assignment.owner === "content"
+  );
+  const assignedRequirementIds = new Set(assignments.flatMap((assignment) =>
+    assignment.requirementIds
+  ));
+  const requirements = contract.requirements.filter((requirement) =>
+    assignedRequirementIds.has(requirement.id)
+  );
+  const relevantDeliverableIds = new Set(requirements.flatMap((requirement) =>
+    requirement.appliesTo
+  ));
+  return {
+    originalPrompt: contract.originalPrompt,
+    deliverables: contract.deliverables.filter((deliverable) =>
+      relevantDeliverableIds.has(deliverable.id)
+    ),
+    requirements,
+    reviewAssignments: assignments,
+    notRequired: contract.notRequired,
+    forbidden: contract.forbidden,
+  };
 }
 
 function selectChapterVisualCandidates(
@@ -1438,6 +1604,8 @@ function normalizeFragmentReferences(
     formulas: fragment.formulas.map((formula) => ({
       ...formula,
       typst: normalizeAnalyzerFormulaSyntax(formula.typst),
+      variables: formula.variables.map(normalizeAnalyzerFormulaSyntax),
+      units: formula.units.map(normalizeAnalyzerFormulaSyntax),
       source_ids: normalizeSources(formula.source_ids),
     })),
     worked_examples: fragment.worked_examples.map((example) => ({
@@ -1454,7 +1622,11 @@ function normalizeFragmentReferences(
 }
 
 export function normalizeAnalyzerFormulaSyntax(value: string): string {
-  return value.replace(/\$/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/\bdot\s*\.\s*double\s*\((bold\([^()]+\)|[^()]+)\)/g, "ddot($1)")
+    .replace(/\$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function materializeDenseChapter(
@@ -1495,13 +1667,7 @@ function materializeDenseChapter(
   const courseTitle = state.resource_manifest.resources.find((resource) =>
     resource.activityType === "course"
   )?.title ?? (config.outputLanguage === "en" ? "Moodle course" : "Moodle-Kurs");
-  const requiredExamples = buildDeterministicChapterExamples(state, focus);
   const modelExamples = fragments.flatMap((fragment) => fragment.worked_examples);
-  // Quantitative examples are the most common source of late semantic-review
-  // failures. When a chapter has a source-anchored deterministic example, use
-  // that single reproducible path instead of retaining a second model-created
-  // calculation whose arithmetic cannot be guaranteed.
-  const compatibleModelExamples = requiredExamples.length > 0 ? [] : modelExamples;
 
   return validateExtractedData({
     document_title: `${courseTitle} – Study Guide`,
@@ -1514,7 +1680,7 @@ function materializeDenseChapter(
       (formula) => `${formula.name.toLowerCase()}\u0000${formula.typst}`,
     ),
     worked_examples: uniqueBy(
-      [...requiredExamples, ...compatibleModelExamples],
+      modelExamples,
       (example) => example.prompt.toLowerCase().replace(/\s+/g, " ").trim(),
     ),
     quiz_style_questions: [],
@@ -1523,230 +1689,6 @@ function materializeDenseChapter(
     learning_modules: [focusLearningModule(focus, resources.map((resource) => resource.id))],
     warnings: [...new Set(fragments.flatMap((fragment) => fragment.warnings))],
   });
-}
-
-function buildDeterministicToleranceLookupExamples(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  if (!/(?:toleranz|passung)/i.test(focus.title)) return [];
-  const records = state.evidence_package.records.filter((record) =>
-    focus.resourceIds.includes(record.resourceId)
-  );
-  const evidenceText = records.map((record) => record.content).join("\n");
-  if (!/(?:TB\s*2-1|TB\s*2-2|TB\s*2-3)/i.test(evidenceText)) return [];
-  const shaft = /(?:[∅Ø]\s*)?(\d+(?:[.,]\d+)?)\s*k6\s+ei\s*=\s*([+−-]?\d+(?:[.,]\d+)?)\s*[µμu]m\s+es\s*=\s*([+−-]?\d+(?:[.,]\d+)?)\s*[µμu]m/i.exec(evidenceText);
-  const hole = /(?:[∅Ø]\s*)?(\d+(?:[.,]\d+)?)\s*H7\s+EI\s*=\s*([+−-]?\d+(?:[.,]\d+)?)\s*[µμu]m\s+ES\s*=\s*([+−-]?\d+(?:[.,]\d+)?)\s*[µμu]m/i.exec(evidenceText);
-  if (!shaft || !hole || shaft[1].replace(",", ".") !== hole[1].replace(",", ".")) return [];
-  const parseMicrometers = (value: string) => Number(value.replace("−", "-").replace(",", "."));
-  const nominal = Number(shaft[1].replace(",", "."));
-  const ei = parseMicrometers(shaft[2]);
-  const es = parseMicrometers(shaft[3]);
-  const EI = parseMicrometers(hole[2]);
-  const ES = parseMicrometers(hole[3]);
-  if (![nominal, ei, es, EI, ES].every(Number.isFinite)) return [];
-  const it6 = es - ei;
-  const it7 = ES - EI;
-  const goB = nominal + ES / 1_000;
-  const guB = nominal + EI / 1_000;
-  const goW = nominal + es / 1_000;
-  const guW = nominal + ei / 1_000;
-  const po = ES - ei;
-  const pu = EI - es;
-  const pt = it7 + it6;
-  const lookupSourceIds = [...new Set(records
-    .filter((record) => /(?:TB\s*2-|k6\s+ei|H7\s+EI|toleranzklasse|passung)/i.test(record.content))
-    .map((record) => record.resourceId))];
-  if (lookupSourceIds.length === 0) return [];
-  const signed = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
-  const millimeters = (value: number) => value.toFixed(3).replace(".", ",");
-  return [{
-    origin: "derived",
-    learning_goal: "Eine H7/k6-Passung vollständig über TB 2-1 bis TB 2-3 nachschlagen und berechnen",
-    prompt: `Bestimme für N = ${nominal} mm und H7/k6 die Abmaße, Grenzmaße sowie Höchstpassung Po, Mindestpassung Pu und Passtoleranz PT.`,
-    steps: [
-      `1. Nennmaßbereich festlegen: N = ${nominal} mm wird in TB 2-1 dem Intervall „über 30 bis 50 mm“ zugeordnet; am Intervallrand ${nominal} mm gilt noch diese Zeile.`,
-      `2. Toleranzgrade in TB 2-1 lesen: Für IT7 ergibt sich TB = ES - EI = ${it7} µm; für IT6 ergibt sich TW = es - ei = ${it6} µm. Damit ist die Breite beider Toleranzfelder festgelegt.`,
-      `3. Bohrung H7 in TB 2-2 nachschlagen: Das Grundabmaß H liefert EI = ${signed(EI)} µm. Das zweite Abmaß folgt mit ES = EI + IT7 = ${signed(EI)} µm + ${it7} µm = ${signed(ES)} µm.`,
-      `4. Welle k6 in TB 2-3 nachschlagen: Für das k-Feld im Nennmaßintervall wird das Grundabmaß ei = ${signed(ei)} µm gelesen. Das zweite Abmaß folgt mit es = ei + IT6 = ${signed(ei)} µm + ${it6} µm = ${signed(es)} µm.`,
-      `5. Grenzmaße der Bohrung: GoB = N + ES = ${nominal} mm + ${ES / 1_000} mm = ${millimeters(goB)} mm; GuB = N + EI = ${millimeters(guB)} mm.`,
-      `6. Grenzmaße der Welle: GoW = N + es = ${millimeters(goW)} mm; GuW = N + ei = ${millimeters(guW)} mm.`,
-      `7. Passungskennwerte: Po = ES - ei = ${signed(ES)} µm - (${signed(ei)} µm) = ${signed(po)} µm; Pu = EI - es = ${signed(EI)} µm - (${signed(es)} µm) = ${signed(pu)} µm; PT = TB + TW = ${it7} µm + ${it6} µm = ${pt} µm.`,
-      `8. Plausibilitätsprüfung: PT = Po - Pu = ${signed(po)} µm - (${signed(pu)} µm) = ${pt} µm. Weil Po positiv und Pu negativ ist, kann je nach Istmaßen Spiel oder Übermaß auftreten: H7/k6 ist hier eine Übergangspassung.`,
-    ],
-    result: `H7: EI = ${signed(EI)} µm, ES = ${signed(ES)} µm; k6: ei = ${signed(ei)} µm, es = ${signed(es)} µm. Bohrung ${millimeters(guB)}…${millimeters(goB)} mm, Welle ${millimeters(guW)}…${millimeters(goW)} mm, Po = ${signed(po)} µm, Pu = ${signed(pu)} µm, PT = ${pt} µm.`,
-    source_ids: lookupSourceIds,
-  }];
-}
-
-function buildDeterministicChapterExamples(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  return [
-    ...buildDeterministicToleranceLookupExamples(state, focus),
-    ...buildDeterministicAdhesiveExample(state, focus),
-    ...buildDeterministicRivetExample(state, focus),
-    ...buildDeterministicSolderingExample(state, focus),
-    ...buildDeterministicHertzExample(state, focus),
-  ];
-}
-
-function buildDeterministicAdhesiveExample(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  if (!/(?:kleb|klebstoff)/i.test(focus.title)) return [];
-  const records = state.evidence_package.records.filter((record) =>
-    focus.resourceIds.includes(record.resourceId)
-  );
-  const sourceIds = [...new Set(records
-    .filter((record) => /(?:Kleb|Überlapp|Ueberlapp|Schubspannung)/i.test(record.content))
-    .map((record) => record.resourceId))];
-  if (sourceIds.length === 0) return [];
-  const force = 15_000;
-  const width = 50;
-  const overlap = 60;
-  const allowableStress = 8;
-  const stress = force / (width * overlap);
-  const safety = allowableStress / stress;
-  return [{
-    origin: "derived",
-    learning_goal: "Eine einfach überlappte Klebverbindung mit einem ausdrücklich vorgegebenen Übungskennwert prüfen",
-    prompt: "Selbst erstelltes Übungsbeispiel: Eine einfach überlappte Klebung mit b = 50 mm und lÜ = 60 mm überträgt F = 15 kN. Für diese Übung gilt tau_zul = 8 N/mm². Prüfe die mittlere Klebschubspannung und den Sicherheitsquotienten.",
-    steps: [
-      "1. Modellgrenze festhalten: gleichmäßige mittlere Schubspannung in einer einfach überlappten Klebfläche; Randspannungsspitzen werden in dieser Vorbemessung nicht aufgelöst.",
-      `2. Klebfläche: AK = b·lÜ = ${width}·${overlap} = ${width * overlap} mm². Die beiden Fügeteile liegen im Kraftfluss in Reihe; die Klebfläche wird daher nicht verdoppelt.`,
-      `3. Kraft umrechnen und Spannung berechnen: F = 15 kN = ${force} N; tauK = F/AK = ${force}/${width * overlap} = ${stress.toFixed(1).replace(".", ",")} N/mm².`,
-      `4. Nachweis mit dem ausdrücklich vorgegebenen Übungskennwert: tauK = ${stress.toFixed(1).replace(".", ",")} N/mm² < tau_zul = ${allowableStress} N/mm².`,
-      `5. Sicherheitsquotient: S = tau_zul/tauK = ${allowableStress}/${stress.toFixed(1)} = ${safety.toFixed(2).replace(".", ",")}. Für eine reale Bemessung müssen Kennwert, Temperatur, Alterung, Schichtdicke und Lastkollektiv aus den Aufgabendaten stammen.`,
-    ],
-    result: `AK = ${width * overlap} mm², tauK = ${stress.toFixed(1).replace(".", ",")} N/mm² und S = ${safety.toFixed(2).replace(".", ",")}; der vorgegebene Übungskennwert wird eingehalten.`,
-    source_ids: sourceIds,
-  }];
-}
-
-function buildDeterministicRivetExample(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  if (!/(?:niet|niete)/i.test(focus.title)) return [];
-  const records = state.evidence_package.records.filter((record) =>
-    focus.resourceIds.includes(record.resourceId)
-  );
-  const sourceIds = [...new Set(records
-    .filter((record) => /(?:Niet|Lochleib|Abscher|Scher)/i.test(record.content))
-    .map((record) => record.resourceId))];
-  if (sourceIds.length === 0) return [];
-  const force = 40_000;
-  const rivets = 4;
-  const diameter = 12;
-  const thickness = 8;
-  const shearArea = Math.PI * diameter ** 2 / 4;
-  const shearStress = force / (rivets * shearArea);
-  const bearingStress = force / (rivets * diameter * thickness);
-  return [{
-    origin: "derived",
-    learning_goal: "Eine symmetrisch belastete einschnittige Nietgruppe gegen Abscheren und Lochleibung vorbemessen",
-    prompt: "Selbst erstelltes Übungsbeispiel: Vier gleichmäßig belastete Niete mit d = 12 mm verbinden Bleche der maßgebenden Dicke t = 8 mm und übertragen F = 40 kN. Bestimme Schub- und Lochleibungsspannung; für die Übung gelten tau_zul = 120 N/mm² und p_zul = 160 N/mm².",
-    steps: [
-      "1. Annahmen festhalten: vier gleichmäßig tragende Niete, je eine Scherfuge, keine Exzentrizität; F = 40 kN = 40000 N.",
-      `2. Scherfläche je Niet: AS = pi·d²/4 = pi·12²/4 = ${shearArea.toFixed(1).replace(".", ",")} mm².`,
-      `3. Abscherspannung: tau = F/(n·AS) = 40000/(4·${shearArea.toFixed(1)}) = ${shearStress.toFixed(1).replace(".", ",")} N/mm² < 120 N/mm².`,
-      `4. Projizierte Lochleibungsfläche: AL = n·d·t = 4·12·8 = ${rivets * diameter * thickness} mm².`,
-      `5. Lochleibungsspannung: p = F/(n·d·t) = 40000/${rivets * diameter * thickness} = ${bearingStress.toFixed(1).replace(".", ",")} N/mm² < 160 N/mm².`,
-      "6. Beide Einzelnachweise sind erfüllt. In einer vollständigen Bemessung folgen zusätzlich Rand-/Lochabstände, Nettoquerschnitt, Blockversagen und gegebenenfalls exzentrische Lastverteilung.",
-    ],
-    result: `tau = ${shearStress.toFixed(1).replace(".", ",")} N/mm² und p = ${bearingStress.toFixed(1).replace(".", ",")} N/mm²; beide Übungsgrenzen werden eingehalten.`,
-    source_ids: sourceIds,
-  }];
-}
-
-function buildDeterministicHertzExample(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  if (!/(?:hertz|tribolog)/i.test(focus.title)) return [];
-  const records = state.evidence_package.records.filter((record) =>
-    focus.resourceIds.includes(record.resourceId)
-  );
-  const sourceIds = [...new Set(records
-    .filter((record) => /(?:Hertz|Ersatzradius|Ersatz-Elastiz|Pressung)/i.test(record.content))
-    .map((record) => record.resourceId))];
-  if (sourceIds.length === 0) return [];
-
-  const radius1 = 10;
-  const radius2 = 20;
-  const diameterParameter = 2 * radius1 * radius2 / (radius1 + radius2);
-  const youngsModulus = 200_000;
-  const poissonRatio = 0.3;
-  const effectiveModulus = 2 * youngsModulus ** 2 /
-    (2 * (1 - poissonRatio ** 2) * youngsModulus);
-  const normalForce = 1_000;
-  const contactLength = 20;
-  const pressure = Math.sqrt(
-    normalForce * effectiveModulus /
-    (2 * Math.PI * diameterParameter * contactLength),
-  );
-  const de = (value: number, digits = 3) => value.toFixed(digits).replace(".", ",");
-
-  return [{
-    origin: "derived",
-    learning_goal: "Ersatzradius, durchmesserbasierten Ersatzparameter und Hertzsche Pressung ohne Faktor-2- oder Einheitenfehler berechnen",
-    prompt: "Selbst erstelltes Übungsbeispiel: Zwei parallele Zylinder mit r1 = 10 mm und r2 = 20 mm, E1 = E2 = 200000 N/mm² und v1 = v2 = 0,30 werden mit FN = 1000 N über l = 20 mm belastet. Bestimme Ersatzradius rho, D, E und pH.",
-    steps: [
-      "1. Geltungsfall prüfen: idealisierte Hertzsche Linienberührung, homogene isotrope Körper, reine Normalkraft und kleine Kontaktzone.",
-      `2. Ersatzradius: rho = r1·r2/(r1+r2) = 10·20/(10+20) = ${de(diameterParameter / 2)} mm.`,
-      `3. Die verwendete Pressungsformel ist durchmesserbasiert; daher D = 2·rho = ${de(diameterParameter)} mm. Gleichwertige Kontrolle: D = d1·d2/(d1+d2) = 20·40/(20+40) = ${de(diameterParameter)} mm.`,
-      `4. Ersatz-Elastizitätsmodul nach der hier verwendeten Faktor-2-Konvention: E = 2·E1·E2/((1-v1²)·E2+(1-v2²)·E1) = ${de(effectiveModulus, 0)} N/mm².`,
-      `5. Pressung: pH = sqrt(FN·E/(2·pi·D·l)) = sqrt(1000·${de(effectiveModulus, 0)}/(2·pi·${de(diameterParameter)}·20)) = ${de(pressure, 1)} N/mm² = ${de(pressure, 1)} MPa.`,
-      `6. Plausibilitätskontrolle: Der Radikand beträgt rund ${de(pressure ** 2, 0)} N²/mm⁴; seine Wurzel liegt daher bei ${de(pressure, 1)} N/mm² und nicht im einstelligen Bereich.`,
-    ],
-    result: `rho = ${de(diameterParameter / 2)} mm, D = ${de(diameterParameter)} mm, E = ${de(effectiveModulus, 0)} N/mm² und pH = ${de(pressure, 1)} MPa.`,
-    source_ids: sourceIds,
-  }];
-}
-
-function buildDeterministicSolderingExample(
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): ChapterFragment["worked_examples"] {
-  if (!/(?:löt|loet|lotverbindung)/i.test(focus.title)) return [];
-  const records = state.evidence_package.records.filter((record) =>
-    focus.resourceIds.includes(record.resourceId)
-  );
-  const evidenceText = records.map((record) => record.content).join("\n");
-  if (!/(?:Torsionsmoment|Überlappungslänge|Ueberlappungslaenge)/i.test(evidenceText)) return [];
-  const sourceIds = [...new Set(records
-    .filter((record) => /(?:Torsionsmoment|Überlappungslänge|Überlappstoß|Scherspannung)/i.test(record.content))
-    .map((record) => record.resourceId))];
-  if (sourceIds.length === 0) return [];
-
-  const torqueNewtonMillimeters = 7_000;
-  const impactFactor = 1.3;
-  const diameter = 10;
-  const allowableShearStress = 35;
-  const requiredOverlap = 2 * impactFactor * torqueNewtonMillimeters /
-    (Math.PI * diameter ** 2 * allowableShearStress);
-  const selectedOverlap = 2;
-  const actualShearStress = 2 * impactFactor * torqueNewtonMillimeters /
-    (Math.PI * diameter ** 2 * selectedOverlap);
-
-  return [{
-    origin: "derived",
-    learning_goal: "Eine zylindrische Löt-Überlappung unter Torsion nachvollziehbar dimensionieren",
-    prompt: "Selbst erstelltes Übungsbeispiel: Eine Welle mit d = 10 mm überträgt T = 7 N·m bei Stoßfaktor K = 1,3. Für die Lötverbindung wird tau_zul = 35 N/mm² als Übungsannahme vorgegeben. Bestimme die erforderliche Überlappungslänge und prüfe eine gewählte Länge von 2,0 mm.",
-    steps: [
-      "1. Modell und Annahmen festhalten: zylindrischer Überlappstoß, gleichmäßig verteilte Schubspannung; d = 10 mm, T = 7 N·m, K = 1,3 und tau_zul = 35 N/mm². Der Spannungswert ist eine ausdrücklich vorgegebene Übungsannahme und kein aus der unvollständigen Quelllösung übernommener Tabellenwert.",
-      "2. Einheiten vereinheitlichen: T = 7 N·m = 7000 N·mm; das Bemessungsmoment ist K·T = 1,3·7000 = 9100 N·mm.",
-      "3. Für den zylindrischen Überlappstoß gilt tau = 2·K·T/(pi·d²·l_ü). Nach der gesuchten Länge umstellen: l_ü,erf = 2·K·T/(pi·d²·tau_zul).",
-      `4. Einsetzen: l_ü,erf = 2·1,3·7000/(pi·10²·35) = ${requiredOverlap.toFixed(2).replace(".", ",")} mm.`,
-      `5. Konstruktiv l_ü = ${selectedOverlap.toFixed(1).replace(".", ",")} mm wählen und rückrechnen: tau = 2·1,3·7000/(pi·10²·2,0) = ${actualShearStress.toFixed(1).replace(".", ",")} N/mm².`,
-      `6. Plausibilitätsprüfung: ${actualShearStress.toFixed(1).replace(".", ",")} N/mm² < ${allowableShearStress} N/mm²; die gewählte Überlappung erfüllt die Übungsannahme. In einer realen Aufgabe ist tau_zul aus dem vorgegebenen Lot-, Werkstoff- und Belastungsfall zu entnehmen.`,
-    ],
-    result: `Erforderlich sind rechnerisch ${requiredOverlap.toFixed(2).replace(".", ",")} mm; gewählt werden 2,0 mm. Die Rückrechnung ergibt tau = ${actualShearStress.toFixed(1).replace(".", ",")} N/mm² und damit eine eingehaltene zulässige Schubspannung.`,
-    source_ids: sourceIds,
-  }];
 }
 
 async function enrichCachedChapterHandoff(
@@ -1759,13 +1701,9 @@ async function enrichCachedChapterHandoff(
     readVisualManifest(config.runDir),
     readVisualRetrievalRequests(config.runDir),
   ]);
-  const derivedLookupAsset = await ensureToleranceLookupExcerpt(config, state, focus);
   const figures = mergeFigures(
     cached.figures,
-    [
-      ...requiredLookupFigures(focus, visualManifest, retrievalRequests),
-      ...(derivedLookupAsset ? [derivedLookupAsset.figure] : []),
-    ],
+    requiredLookupFigures(focus, visualManifest, retrievalRequests),
   );
   const selectedAssetIds = new Set(figures.map((figure) => figure.asset_id));
   const existingAssetIds = new Set(cached.visual_assets.map((asset) => asset.id));
@@ -1788,37 +1726,27 @@ async function enrichCachedChapterHandoff(
       relevance_reason: candidate.relevance_reason,
       generation_prompt: candidate.generation_prompt,
     }));
-  const deterministicExamples = buildDeterministicChapterExamples(state, focus);
-  const compatibleCachedExamples = deterministicExamples.length > 0
-    ? []
-    : cached.worked_examples;
-
   return validateExtractedData({
     ...cached,
+    // Persisted handoffs can predate a deterministic syntax repair. Reapply
+    // the cheap normalizer on every reuse so zero-crawl recovery does not
+    // preserve a known-invalid model spelling indefinitely.
+    formulas: cached.formulas.map((formula) => ({
+      ...formula,
+      typst: normalizeAnalyzerFormulaSyntax(formula.typst),
+      variables: formula.variables.map(normalizeAnalyzerFormulaSyntax),
+      units: formula.units.map(normalizeAnalyzerFormulaSyntax),
+    })),
     learning_modules: cached.learning_modules.length > 0
       ? cached.learning_modules
       : [focusLearningModule(focus, focus.resourceIds)],
-    worked_examples: uniqueBy(
-      [...deterministicExamples, ...compatibleCachedExamples],
-      (example) => example.prompt.toLowerCase().replace(/\s+/g, " ").trim(),
-    ),
-    sections: cached.sections.map((section) => ({
-      ...section,
-      key_concepts: section.key_concepts.map((concept) => concept.replace(
-        /TB 2-1 bis TB 2-3 sind notwendige Nachschlagequellen; ihr Zahleninhalt ist in der bereitgestellten Evidenz nicht lesbar enthalten/i,
-        "TB 2-1 wird als Originalausschnitt gezeigt; der gekennzeichnete TB-2-2/2-3-Lernausschnitt ordnet die in Lösung A belegten H7/k6-Werte dem vollständigen Tabellenweg zu",
-      )),
-    })),
+    worked_examples: cached.worked_examples,
     visual_assets: uniqueBy([
       ...cached.visual_assets,
       ...requiredAssets,
-      ...(derivedLookupAsset ? [derivedLookupAsset.asset] : []),
     ], (asset) => asset.id),
     figures,
-    warnings: cached.warnings.filter((warning) => !(
-      /(?:TB 2-[123]|H7\/k6|Lösung A)/i.test(warning) &&
-      /(?:nicht lesbar|keine[^.]{0,50}Tabellenwerte|fehlen|ausschließlich Endergebnisse|kein(?:e|en)?[^.]{0,30}numerisch|erfordert den tatsächlichen Nachschlag|nicht vollständig)/i.test(warning)
-    )),
+    warnings: cached.warnings,
   });
 }
 
@@ -1982,66 +1910,6 @@ function focusLearningModule(focus: ChapterFocus, resourceIds: string[]) {
     learning_objectives: focus.learningObjectives ?? [],
     assessment_signals: focus.assessmentSignals ?? [],
     resource_ids: resourceIds,
-  };
-}
-
-async function ensureToleranceLookupExcerpt(
-  config: MoodleRuntimeConfig,
-  state: LangGraphAgentState,
-  focus: ChapterFocus,
-): Promise<{
-  asset: ReturnType<typeof validateExtractedData>["visual_assets"][number];
-  figure: ChapterFragment["figures"][number];
-} | null> {
-  const examples = buildDeterministicToleranceLookupExamples(state, focus);
-  if (examples.length === 0) return null;
-  const assetId = "derived-tb2-h7-k6-learning-excerpt";
-  const relativePath = path.posix.join("assets", "visuals", `${assetId}.svg`);
-  const absolutePath = path.join(config.runDir, ...relativePath.split("/"));
-  await mkdir(path.dirname(absolutePath), { recursive: true });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
-  <rect width="1200" height="520" rx="24" fill="#f7f8fa"/>
-  <text x="48" y="58" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#17202a">H7/k6 bei N = 50 mm — Prüfungs-Lernausschnitt</text>
-  <text x="48" y="94" font-family="Arial, sans-serif" font-size="18" fill="#4b5563">Leserichtung: Nennmaßbereich → Toleranzgrad → Grundabmaß → zweites Abmaß</text>
-  <g font-family="Arial, sans-serif" font-size="19" fill="#17202a">
-    <rect x="48" y="128" width="1104" height="58" rx="10" fill="#dde7f3"/>
-    <text x="68" y="164" font-weight="700">Tabellenblatt</text><text x="270" y="164" font-weight="700">Bereich / Feld</text><text x="540" y="164" font-weight="700">ablesen</text><text x="770" y="164" font-weight="700">zweites Abmaß</text>
-    <rect x="48" y="194" width="1104" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-    <text x="68" y="228" font-weight="700">TB 2-1</text><text x="270" y="228">über 30 bis 50 mm</text><text x="540" y="218">IT6 = 16 µm</text><text x="540" y="248">IT7 = 25 µm</text><text x="770" y="232">Toleranzbreiten für k6 / H7</text>
-    <rect x="48" y="278" width="1104" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-    <text x="68" y="322" font-weight="700">TB 2-2</text><text x="270" y="322">Bohrung H</text><text x="540" y="322">EI = 0 µm</text><text x="770" y="322">ES = EI + IT7 = +25 µm</text>
-    <rect x="48" y="362" width="1104" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-    <text x="68" y="406" font-weight="700">TB 2-3</text><text x="270" y="406">Welle k</text><text x="540" y="406">ei = +2 µm</text><text x="770" y="406">es = ei + IT6 = +18 µm</text>
-  </g>
-  <text x="48" y="474" font-family="Arial, sans-serif" font-size="16" fill="#6b4f00">Didaktischer Lernausschnitt, keine vollständige Normtabelle.</text>
-  <text x="48" y="500" font-family="Arial, sans-serif" font-size="16" fill="#6b4f00">TB 2-1 ist zusätzlich als Originalausschnitt abgebildet; H7/k6-Werte sind durch Lösung A belegt.</text>
-</svg>`;
-  await writeFile(absolutePath, svg, "utf8");
-  const sourceIds = examples[0].source_ids;
-  return {
-    asset: {
-      id: assetId,
-      kind: "typst_diagram",
-      title: "TB 2-1 bis TB 2-3: H7/k6-Lernausschnitt",
-      relative_path: relativePath,
-      mime_type: "image/svg+xml",
-      width_px: 1200,
-      height_px: 520,
-      source_id: sourceIds[0] ?? null,
-      source_url: null,
-      source_path: null,
-      source_page: null,
-      confidence: 1,
-      caption_hint: "Prüfungs-Lernausschnitt für den vollständigen H7/k6-Tabellenweg bei N = 50 mm.",
-      relevance_reason: "Macht Nennmaßbereich, IT6/IT7, Grundabmaße EI/ei und die Herleitung von ES/es in einem lesbaren Tabellenblock sichtbar.",
-      generation_prompt: null,
-    },
-    figure: {
-      asset_id: assetId,
-      caption: "TB 2-1 bis TB 2-3 als gekennzeichneter Prüfungs-Lernausschnitt: Nennmaßbereich, IT6/IT7, EI/ei und Herleitung von ES/es für H7/k6 bei 50 mm.",
-      placement_hint: "Direkt vor dem vollständig gerechneten H7/k6-Nachschlagebeispiel; zusammen mit dem Originalausschnitt aus TB 2-1 verwenden.",
-      source_ids: sourceIds,
-    },
   };
 }
 
@@ -2222,10 +2090,17 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
       const matchingSupport = rankedSupport
         // A broad formula/reference PDF is not chapter evidence merely because
         // the chapter is quantitative. Require at least two semantic matches
-        // so direct lecture/practice material cannot be displaced by generic
-        // support with one word such as "calculus" or "formula".
-        .filter((entry) => entry.resourceIds.length > 0 && entry.score >= 2)
-        .sort((left, right) => right.score - left.score)
+        // against either its metadata or its extracted evidence. Generic files
+        // such as "Formelsammlung" or "Appendix" often have weak titles even
+        // when their actual contents directly cover a learning objective.
+        .filter((entry) =>
+          entry.resourceIds.length > 0 &&
+          Math.max(entry.score, entry.evidenceScore) >= 2
+        )
+        .sort((left, right) =>
+          Math.max(right.score, right.evidenceScore) -
+          Math.max(left.score, left.evidenceScore)
+        )
         .slice(0, 2)
         .flatMap((entry) => entry.resourceIds.slice(0, 1));
       const sparseFallbackSupport = directEvidenceCharacters < 1_200
@@ -2383,16 +2258,15 @@ export function focusMatchesError(focus: ChapterFocus, errorLog: string | null):
     term.length >= 5 && !/^(?:kapitel|grundlag|anwend|berechn|bestimm|erklär|präsenz|eigenstudium)$/.test(term)
   );
   if (titleTerms.some((term) => normalized.includes(term))) return true;
-  const topicSignals: Array<[RegExp, RegExp]> = [
-    [/(?:toleranz|passung|oberfläche)/i, /(?:\bH7\b|\bk6\b|\bg8\b|\bEI\b|\bES\b|\bei\b|\bes\b|TB\s*2-[123])/i],
-    [/(?:kleb)/i, /(?:kleb|adhäs|kohäs)/i],
-    [/(?:niet)/i, /(?:niet|TB\s*7-4|lochleib)/i],
-    [/(?:löt|loet)/i, /(?:löt|loet|l_ü|lue|hartlot)/i],
-    [/(?:tribolog)/i, /(?:tribolog|viskos|hertz|roloff|matek|schmier)/i],
-  ];
-  if (topicSignals.some(([focusPattern, errorPattern]) =>
-    focusPattern.test(focus.title) && errorPattern.test(errorLog)
-  )) return true;
+  const errorTerms = matchTerms(errorLog).filter((term) => term.length >= 5);
+  if (titleTerms.some((titleTerm) => errorTerms.some((errorTerm) => {
+    const sharedLength = Math.min(titleTerm.length, errorTerm.length);
+    let prefixLength = 0;
+    while (prefixLength < sharedLength && titleTerm[prefixLength] === errorTerm[prefixLength]) {
+      prefixLength += 1;
+    }
+    return prefixLength >= 5;
+  }))) return true;
   const chapterNumber = /eigenstudium\s+(\d+)/i.exec(focus.title)?.[1];
   if (!chapterNumber) return false;
   const chapterLetter = String.fromCharCode(64 + Number(chapterNumber)).toLowerCase();
@@ -2476,9 +2350,6 @@ function assertChapterHandoff(
   if (data.sections.length === 0) {
     throw new Error(`Chapter analyzer returned no subject sections for ${focus.title}.`);
   }
-  if (focus.contentMode !== "conceptual" && data.worked_examples.length === 0) {
-    throw new Error(`Chapter analyzer returned no applied example, case, or procedure for ${focus.title}.`);
-  }
   const expectedTopicNumbers = [...new Set(
     (focus.learningObjectives ?? []).flatMap((objective) =>
       [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)].map((match) => Number(match[1]))
@@ -2507,15 +2378,6 @@ function assertChapterHandoff(
   ) {
     throw new Error(
       `Chapter analyzer merged distinct Moodle topic labels into one section for ${focus.title}.`,
-    );
-  }
-  if (
-    focus.contentMode !== "conceptual" &&
-    expectedTopicNumbers.length > 0 &&
-    data.worked_examples.length < 1
-  ) {
-    throw new Error(
-      `Chapter analyzer returned no representative example for ${focus.title}.`,
     );
   }
 }
@@ -2691,9 +2553,9 @@ export async function buildAnalyzerPrompt(
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
     "Keep official titles and identifiers traceable. Calendar is primary for dates/times/exams/rooms; CIS is the fallback and the source for attendance or administrative LV facts.",
-    "A study guide must teach the material: preserve Moodle chapter order, explain relationships, method choice and conditions, and include one representative self-contained application per covered technical chapter when evidence supports it.",
+    "Use the evaluated request contract to decide which subject components belong in each deliverable. Preserve Moodle hierarchy and explain only the requested or evidence-supported material; never add a conventional study-guide component merely to satisfy a template.",
     "When learning objectives contain official labels such as 'Thema 2' or 'Topic 2', create a distinct subject section for every listed number and retain that label in its heading. Related official topics may share one broader learning module, but their mapping must remain visible.",
-    "For a quantitative grouped module, include two self-contained worked examples spanning different official Moodle topics (one example for a single-topic module). Retain each example's 'Thema N' or 'Topic N' label in its learning_goal. Examples should teach method selection, ordered steps, and a quick result check rather than merely state an answer.",
+    "worked_examples, figures, questions, derivations, and other optional components may be empty. Include them only when required by the evaluated contract or justified by its evidence-derived strategy, and make every included item source-grounded and pedagogically complete.",
     "Use source-backed exercise/solution pairs when reproducible. Otherwise use origin='derived' with declared values, ordered reasoning, units, result, and plausibility check. Never copy lookup values without teaching the table/diagram selection path.",
     "Use Typst math syntax. Every formula needs variables, units (or explicit dimensionless status), context, and valid source_ids.",
     figureLimit > 0
@@ -2703,6 +2565,7 @@ export async function buildAnalyzerPrompt(
       ? "Set quiz_style_questions to an empty array. These profiles use one learning checklist and no practice bank."
       : "Practice questions must test subject knowledge, have a concrete learning purpose, and cite subject evidence. Never ask about alias, date, time, room, teacher, or source-page metadata.",
     `Output language is ${languageName(config.outputLanguage)}.`,
+    `Evaluated request contract: ${JSON.stringify(state.request_contract, null, 2)}`,
     `Task context: ${JSON.stringify({
       artifactProfile: config.artifactIntent.profile,
       outputLanguage: languageName(config.outputLanguage),

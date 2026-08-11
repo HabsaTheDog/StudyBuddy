@@ -85,6 +85,37 @@ describe("Codex runtime preflight", () => {
     expect(runCanary).not.toHaveBeenCalled();
   });
 
+  it("lets the authenticated canary decide after a transient provider HTTP check failure", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
+    const runCanary = vi.fn(async () => undefined);
+
+    const report = await preflightCodexRuntime({
+      cacheDir: tempDir,
+      models: ["gpt-test"],
+      explicitModel: false,
+    }, healthyDependencies({
+      runCanary,
+      runProcess: healthyProcessRunner({
+        "auth.credentials": { status: "ok", summary: "auth is configured" },
+        "network.provider_reachability": {
+          status: "fail",
+          summary: "one or more required provider endpoints are unreachable over HTTP",
+        },
+        "network.websocket_reachability": {
+          status: "ok",
+          summary: "Responses WebSocket handshake succeeded",
+        },
+      }),
+    }));
+
+    expect(runCanary).toHaveBeenCalledTimes(1);
+    expect(report.status).toBe("warning");
+    expect(report.modelProbes).toEqual([
+      expect.objectContaining({ model: "gpt-test", status: "verified" }),
+    ]);
+    expect(report.warnings.join(" ")).toContain("transient provider HTTP reachability failure");
+  });
+
   it("reuses doctor and model checks for the same CLI and model", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
     let now = Date.UTC(2026, 6, 16, 12, 0, 0);
@@ -157,6 +188,28 @@ describe("Codex runtime preflight", () => {
       fallbackModel: "gpt-compatible",
     }, healthyDependencies({ runCanary }))).rejects.toBeInstanceOf(CodexRuntimePreflightError);
     expect(runCanary).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets bounded model-call recovery handle a transient canary timeout", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
+    const runCanary = vi.fn(async () => {
+      throw new Error("The operation was aborted");
+    });
+
+    const report = await preflightCodexRuntime({
+      cacheDir: tempDir,
+      models: ["gpt-policy"],
+      explicitModel: false,
+      fallbackModel: "gpt-compatible",
+    }, healthyDependencies({ runCanary }));
+
+    expect(report.status).toBe("warning");
+    expect(report.fallbackApplied).toBeNull();
+    expect(report.effectiveModels).toEqual(["gpt-policy"]);
+    expect(report.warnings.join(" ")).toContain("inconclusive");
+    expect(report.modelProbes).toEqual([
+      expect.objectContaining({ model: "gpt-policy", status: "failed" }),
+    ]);
   });
 });
 

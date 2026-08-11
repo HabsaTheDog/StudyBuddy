@@ -16,6 +16,10 @@ import {
   summarizeCodexToolUsage,
   type CodexToolUsage,
 } from "../moodle/codexClient.js";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../shared/childProcessSecurity.js";
 
 const LEAF_WORKER_BOUNDARY = [
   "Internal Study Buddy leaf-worker boundary:",
@@ -41,7 +45,11 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
   if (process.env.WEB_LAYOUT_TEST_CODEX === "1") {
     return createTestCodexClient(config);
   }
-  const codex = new Codex();
+  const codexEnvironment = buildCodexChildEnvironment();
+  const codex = new Codex({
+    env: codexEnvironment,
+    config: buildCodexShellEnvironmentConfig(codexEnvironment),
+  });
   const leafWorkspaceRoot = path.join(os.tmpdir(), "study-buddy-web-leaf-workers");
 
   return {

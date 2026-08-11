@@ -47,14 +47,6 @@ const PROFILE_LIMITS: Record<StudyBuddyExecutionProfile, number> = {
   custom: 16,
 };
 
-const EXAMPLES_PER_TOPIC: Record<StudyBuddyExecutionProfile, number> = {
-  auto: 1,
-  fast: 0,
-  balanced: 1,
-  quality: 2,
-  custom: 1,
-};
-
 const PROBE_LIMITS: Record<StudyBuddyExecutionProfile, number> = {
   auto: 5,
   fast: 3,
@@ -124,20 +116,6 @@ export function planCourseResources<T extends ResourcePlanningCandidate>(
     if (best) add(best, `Selected as the primary lecture source for ${topic}.`);
   }
 
-  const exampleQuota = EXAMPLES_PER_TOPIC[profile];
-  const exampleTopics = new Set(
-    classified
-      .filter((entry) => entry.role === "worked_example" && entry.topic)
-      .map((entry) => entry.topic!),
-  );
-  for (const topic of exampleTopics) {
-    for (const entry of classified
-      .filter((candidate) => candidate.role === "worked_example" && candidate.topic === topic)
-      .slice(0, exampleQuota)) {
-      add(entry, `Selected as a representative worked example for ${topic}.`);
-    }
-  }
-
   for (const entry of classified.filter(
     (candidate) =>
       candidate.role !== "external_reference" && candidate.role !== "worked_example",
@@ -147,8 +125,12 @@ export function planCourseResources<T extends ResourcePlanningCandidate>(
   }
   for (const entry of classified.filter((candidate) => candidate.role === "external_reference")) {
     if (selected.size >= limit) break;
-    const topicAlreadyCovered = entry.topic && [...selected].some((candidate) =>
-      candidate.topic === entry.topic && candidate.role !== "worked_example"
+    const topicAlreadyCovered = [...selected].some((candidate) =>
+      candidate.role !== "worked_example" &&
+      (
+        Boolean(entry.topic && candidate.topic === entry.topic) ||
+        resourceLabelsOverlap(entry.candidate.label, candidate.candidate.label)
+      )
     );
     if (!topicAlreadyCovered) add(entry, "Selected because no Moodle source covered this topic.");
   }
@@ -361,20 +343,8 @@ export function classifyResourceRole(candidate: Pick<ResourcePlanningCandidate, 
 }
 
 export function classifyResourceTopic(candidate: Pick<ResourcePlanningCandidate, "href" | "label" | "sectionTitle">): string | null {
-  const text = `${candidate.sectionTitle ?? ""} ${candidate.label} ${decodePath(candidate.href)}`.toLowerCase();
-  const topics: Array<[RegExp, string]> = [
-    [/toleranz|passung|oberfl[aä]chen|grundabma(?:ß|ss)|toleranzgrad/, "Toleranzen und Passungen"],
-    [/kleben|klebstoff|klebverbindung/, "Klebverbindungen"],
-    [/nieten|nietverbindung/, "Nietverbindungen"],
-    [/l[oö]ten|l[oö]tverbindung/, "Lötverbindungen"],
-    [/tribolog|viskosit[aä]t|hertz|reibung|schmierung/, "Tribologie"],
-    [/punktkinematik|schiefer.?wurf|bremsweg|schraubenlinie|h[uü]lse/, "Punktkinematik"],
-    [/vektorkinematik|kopplung|scheibe.?in.?zylinder|gerader.?stab/, "Vektorkinematik"],
-    [/schwerpunktsatz|schwerpunkt|flaschenzug|rohrkr[uü]mmer|gleitende.?bl[oö]cke/, "Schwerpunktsatz"],
-    [/drallsatz|drehimpuls|bandbremse|kegelbahn|kugel.?auf.?zylinder|initialbeschleunigung/, "Drallsatz"],
-    [/schwingung|pendel|metronom|feder|schwungscheibe|schaukel/, "Schwingungen"],
-  ];
-  return topics.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+  const sectionTitle = candidate.sectionTitle?.replace(/\s+/g, " ").trim();
+  return sectionTitle || null;
 }
 
 function rolePriority(role: ResourceRole): number {
@@ -400,4 +370,16 @@ function decodePath(value: string): string {
 
 function normalizeSection(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function resourceLabelsOverlap(left: string, right: string): boolean {
+  const tokens = (value: string) => new Set(
+    value.toLocaleLowerCase("de")
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .match(/[a-z0-9]{5,}/g) ?? [],
+  );
+  const leftTokens = tokens(left);
+  const rightTokens = tokens(right);
+  return [...leftTokens].some((token) => rightTokens.has(token));
 }

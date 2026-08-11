@@ -3,13 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { emptyStudyModel } from "../examNavigatorContracts.js";
-import { ModelCallTimeoutError } from "../codexClient.js";
+import {
+  ModelCallTimeoutError,
+  resolveModelPromptBodyCharacterBudget,
+} from "../codexClient.js";
 import {
   buildQualityReviewPrompt,
   createQualityReviewerNode,
+  qualityReviewSchema,
 } from "../nodes/qualityReviewerNode.js";
 import { readPendingExtractionRepairs } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
+import { RequestContractSchema } from "../../shared/requestContract.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 const chapters = [
@@ -117,6 +122,106 @@ describe("qualityReviewerNode", () => {
     expect(prompt).toContain("kontrolliertes Ergebnis.");
   });
 
+  it("compacts a large multi-chapter review below the hard reviewer budget", () => {
+    const long = "fachlich belegter Erklärungstext mit Formel, Einheit und Kontrolle ".repeat(30);
+    const courseChapters = Array.from({ length: 8 }, (_, index) => ({
+      id: `chapter-${index}`,
+      title: `Dynamik Kapitel ${index + 1}`,
+      subject: `Dynamik Kapitel ${index + 1}`,
+      order: index,
+      priority: "essential" as const,
+      contentMode: "quantitative" as const,
+      learningObjectives: Array.from({ length: 8 }, (__, topic) =>
+        `Thema ${topic + 1} – Lernziel ${index + 1}: ${long}`
+      ),
+      assessmentSignals: Array.from({ length: 8 }, () => long),
+      status: "covered" as const,
+      topicIds: [`topic-${index}`],
+      resourceIds: [`source-${index}`],
+    }));
+    const studyModel = {
+      ...emptyStudyModel(),
+      publicationStatus: "partial" as const,
+      courseChapters,
+      topics: courseChapters.flatMap((chapter, chapterIndex) =>
+        Array.from({ length: 8 }, (_, topicIndex) => ({
+          id: `topic-${chapterIndex}-${topicIndex}`,
+          chapterId: chapter.id,
+          title: `Topic ${topicIndex + 1} – Methode`,
+          summary: long,
+          priority: "essential" as const,
+          scopeStatus: "confirmed" as const,
+          learningGoals: [long, long, long, long],
+          sourceIds: [`source-${chapterIndex}`],
+        }))
+      ),
+      formulas: courseChapters.flatMap((chapter, chapterIndex) =>
+        Array.from({ length: 4 }, (_, formulaIndex) => ({
+          id: `formula-${chapterIndex}-${formulaIndex}`,
+          chapterId: chapter.id,
+          name: `Formel ${formulaIndex + 1}`,
+          expression: long,
+          variables: Array.from({ length: 10 }, () => long),
+          units: Array.from({ length: 10 }, () => long),
+          assumptions: long,
+          sourceIds: [`source-${chapterIndex}`],
+        }))
+      ),
+      workedExamples: courseChapters.flatMap((chapter, chapterIndex) =>
+        Array.from({ length: 2 }, (_, exampleIndex) => ({
+          id: `example-${chapterIndex}-${exampleIndex}`,
+          chapterId: chapter.id,
+          origin: "derived" as const,
+          learningGoal: long,
+          prompt: long,
+          steps: Array.from({ length: 8 }, () => long),
+          result: long,
+          sourceIds: [`source-${chapterIndex}`],
+        }))
+      ),
+      checklist: Array.from({ length: 12 }, () => long),
+      sources: courseChapters.map((chapter, index) => ({
+        id: `source-${index}`,
+        title: long,
+        originUrl: `https://moodle.example/course/${index}/${long}`,
+        localPath: null,
+        previewPath: null,
+        kind: "moodle_pdf",
+      })),
+    };
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({ study_model: studyModel }),
+    );
+    expect(prompt.length).toBeLessThanOrEqual(
+      resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512,
+    );
+    for (const chapter of courseChapters) {
+      expect(prompt).toContain(chapter.title);
+    }
+    for (let topic = 1; topic <= 8; topic += 1) {
+      expect(prompt).toContain(`Topic ${topic} – Methode`);
+    }
+  });
+
+  it("reviews every structured chapter even when a generated document preview is present", () => {
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        final_document: `Rendered prefix without later chapters. ${"x".repeat(40_000)}`,
+        study_model: {
+          ...emptyStudyModel(),
+          courseChapters: chapters,
+        },
+      }),
+    );
+
+    expect(prompt).toContain("Structured study model review view:");
+    expect(prompt).toContain("Toleranzen und Passungen");
+    expect(prompt).toContain("Tribologie und Viskosität");
+    expect(prompt).not.toContain("Rendered prefix without later chapters.");
+  });
+
   it("emits exact chapter tags so analyzer repair stays localized", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-localized-"));
     try {
@@ -128,7 +233,15 @@ describe("qualityReviewerNode", () => {
               ok: false,
               summary: "One contradiction",
               findings: [
-                "[chapter: Tribologie und Viskosität] Der Diagrammwert 30 widerspricht dem Textwert 40.",
+                {
+                  message: "Der Diagrammwert 30 widerspricht dem Textwert 40.",
+                  chapterTitle: "Tribologie und Viskosität",
+                  requirementId: null,
+                  deliverableId: null,
+                  owner: "content",
+                  severity: "blocking",
+                  repairTarget: "content_analyzer",
+                },
               ],
             });
           },
@@ -151,6 +264,106 @@ describe("qualityReviewerNode", () => {
     }
   });
 
+  it("preserves requirement and deliverable ownership in blocking PDF findings", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-contract-"));
+    try {
+      const result = await createQualityReviewerNode(
+        moodleTestConfig({ runDir }),
+        {
+          async run() {
+            return JSON.stringify({
+              ok: false,
+              summary: "Explicit requirement missing",
+              findings: [{
+                message: "Die ausdrücklich verlangte Herleitung fehlt.",
+                chapterTitle: "Toleranzen und Passungen",
+                requirementId: "original-request",
+                deliverableId: "deliverable-1",
+                owner: "content",
+                severity: "blocking",
+                repairTarget: "content_analyzer",
+              }],
+            });
+          },
+        },
+      )(moodleTestState({
+        study_model: { ...emptyStudyModel(), courseChapters: chapters },
+      }));
+
+      expect(result.error_log).toContain("[requirement: original-request]");
+      expect(result.error_log).toContain("[deliverable: deliverable-1]");
+      expect(result.error_log).toContain("[repair: content_analyzer]");
+      const review = JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8")) as {
+        blocking_findings: Array<Record<string, unknown>>;
+      };
+      expect(review.blocking_findings[0]).toMatchObject({
+        requirementId: "original-request",
+        deliverableId: "deliverable-1",
+        owner: "content",
+        severity: "blocking",
+        repairTarget: "content_analyzer",
+      });
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps evidence-derived should findings advisory even if the reviewer marks them blocking", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-should-"));
+    try {
+      const baseContract = moodleTestState().request_contract;
+      const requestContract = RequestContractSchema.parse({
+        ...baseContract,
+        requirements: [
+          ...baseContract.requirements,
+          {
+            id: "recommended-visual",
+            statement: "A source figure could improve orientation.",
+            origin: "evidence_derived",
+            priority: "should",
+            appliesTo: ["deliverable-1"],
+            acceptanceCheck: "Use it only when materially useful.",
+            evidenceRefs: [],
+          },
+        ],
+      });
+      const result = await createQualityReviewerNode(
+        moodleTestConfig({ runDir }),
+        {
+          async run() {
+            return JSON.stringify({
+              ok: false,
+              summary: "Optional visual absent",
+              findings: [{
+                message: "Die empfohlene Abbildung wurde nicht verwendet.",
+                chapterTitle: null,
+                requirementId: "recommended-visual",
+                deliverableId: "deliverable-1",
+                owner: "visual",
+                severity: "blocking",
+                repairTarget: "visual_pipeline",
+              }],
+            });
+          },
+        },
+      )(moodleTestState({
+        request_contract: requestContract,
+        study_model: { ...emptyStudyModel(), courseChapters: chapters },
+      }));
+
+      expect(result).toEqual({ error_log: null });
+      const review = JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8")) as {
+        advisory_findings: Array<Record<string, unknown>>;
+      };
+      expect(review.advisory_findings[0]).toMatchObject({
+        requirementId: "recommended-visual",
+        severity: "advisory",
+      });
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps renderer-owned global presentation feedback advisory", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-advisory-"));
     try {
@@ -161,7 +374,15 @@ describe("qualityReviewerNode", () => {
             return JSON.stringify({
               ok: false,
               summary: "Presentation request",
-              findings: ["Der konkrete Lernplan für die PDF fehlt."],
+              findings: [{
+                message: "Der konkrete Lernplan für die PDF fehlt.",
+                chapterTitle: null,
+                requirementId: null,
+                deliverableId: "deliverable-1",
+                owner: "technical",
+                severity: "advisory",
+                repairTarget: "formatter",
+              }],
             });
           },
         },

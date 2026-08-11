@@ -1,5 +1,9 @@
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../../shared/childProcessSecurity.js";
 
 export type CodexTask = "quiz_solver";
 
@@ -10,42 +14,16 @@ export interface CodexClient {
   ): Promise<string>;
 }
 
-const CODEX_ENV_ALLOWLIST = [
-  "PATH",
-  "HOME",
-  "CODEX_HOME",
-  "USER",
-  "LOGNAME",
-  "TMPDIR",
-  "TEMP",
-  "TMP",
-  "LANG",
-  "LC_ALL",
-  "SSL_CERT_FILE",
-  "SSL_CERT_DIR",
-] as const;
-
 /** The model subprocess receives operational values only, never Study Buddy secrets. */
 export function buildCodexProcessEnvironment(
   source: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  return Object.fromEntries(
-    CODEX_ENV_ALLOWLIST.flatMap((key) => {
-      const value = source[key];
-      return value ? [[key, value] as const] : [];
-    }),
-  );
+  return buildCodexChildEnvironment(source);
 }
 
 export function buildNestedCodexConfig(environment: Record<string, string>) {
   return {
-    shell_environment_policy: {
-      inherit: "none",
-      set: {
-        PATH: environment.PATH ?? "",
-        LANG: environment.LANG ?? "C.UTF-8",
-      },
-    },
+    ...buildCodexShellEnvironmentConfig(environment),
     web_search: "disabled",
   };
 }

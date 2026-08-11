@@ -191,4 +191,20 @@ describe("practice-corpus source links", () => {
     expect(rendered).toContain('aria-label="n = 1"');
     expect(rendered).not.toContain('aria-label="ab n = 1"');
   });
+
+  it("recognizes overlined vector variables in inline equations", () => {
+    const rendered = richMathText("Verwenden Sie v̄ = Δs/Δt.");
+
+    expect(rendered).toContain('class="math-expression"');
+    expect(rendered).toContain('aria-label="v̄ = Δs/Δt"');
+    expect(rendered).toContain('<mover accent="true"><mi>v</mi><mo>¯</mo></mover>');
+  });
+
+  it("recognizes named-quantity equations in explanatory prose", () => {
+    const rendered = richMathText("Verwenden Sie den Zusammenhang Weg = Geschwindigkeit × Zeit.");
+
+    expect(rendered).toContain('class="math-expression"');
+    expect(rendered).toContain('aria-label="Weg = Geschwindigkeit × Zeit"');
+    expect(rendered).toContain('class="math-expression__relation"');
+  });
 });

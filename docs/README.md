@@ -12,6 +12,7 @@
 - [Contributing](../CONTRIBUTING.md)
 - [Architecture and evaluation](model-orchestration-and-evals.md)
 - [Release process](releasing.md)
+- [Release readiness](release-readiness.md)
 - [GitHub launch checklist](github-launch.md)
 - [Study Builder charter](study-builder-vnext/implementation-charter.md)
 - [Study Builder product specification](study-builder-vnext/product-spec.md)

@@ -16,6 +16,10 @@ import {
 } from "./modelPolicy.js";
 import { invalidateCodexRuntimeCache } from "./codexRuntime.js";
 import { acquireModelCallAdmission } from "./modelCallScheduler.js";
+import {
+  buildCodexChildEnvironment,
+  buildCodexShellEnvironmentConfig,
+} from "../shared/childProcessSecurity.js";
 
 export interface CodexClient {
   run(prompt: string, options?: {
@@ -92,6 +96,28 @@ export function resolveModelPromptCharacterBudget(task: StudyBuddyModelTask): nu
   return MODEL_PROMPT_CHARACTER_BUDGETS[task];
 }
 
+/**
+ * Return the characters available to the caller-provided prompt after the
+ * Codex client has added its fixed leaf-worker boundary and output schema.
+ * Producers use this to compact evidence before calling `run`, instead of
+ * discovering the hard request limit only after assembling an oversized
+ * payload.
+ */
+export function resolveModelPromptBodyCharacterBudget(
+  task: StudyBuddyModelTask,
+  outputSchema?: unknown,
+): number {
+  const accessPolicy = resolveCodexTaskAccessPolicy(task);
+  const boundaryCharacters = accessPolicy.leafWorker
+    ? sanitizeUnicode(`${LEAF_WORKER_BOUNDARY}\n\n`).length
+    : 0;
+  const schemaCharacters = outputSchema ? JSON.stringify(outputSchema).length : 0;
+  return Math.max(
+    0,
+    resolveModelPromptCharacterBudget(task) - boundaryCharacters - schemaCharacters,
+  );
+}
+
 export function summarizeCodexToolUsage(items: ThreadItem[]): CodexToolUsage {
   const usage: CodexToolUsage = {
     toolCalls: 0,
@@ -119,6 +145,7 @@ export type CodexErrorCategory =
   | "model_unavailable"
   | "network"
   | "rate_limit"
+  | "usage_limit"
   | "unknown";
 
 export interface CodexErrorClassification {
@@ -161,7 +188,13 @@ export class ModelCallTimeoutError extends Error {
 
 export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const codexOptions = config.codexPath ? { codexPathOverride: config.codexPath } : {};
-  const codex = new Codex(codexOptions);
+  const codexEnvironment = buildCodexChildEnvironment();
+  const shellEnvironmentConfig = buildCodexShellEnvironmentConfig(codexEnvironment);
+  const codex = new Codex({
+    ...codexOptions,
+    env: codexEnvironment,
+    config: shellEnvironmentConfig,
+  });
   const studyBuddySkillPath = path.join(
     os.homedir(),
     ".agents",
@@ -171,18 +204,20 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   );
   const leafCodex = new Codex({
     ...codexOptions,
-    ...(existsSync(studyBuddySkillPath)
-      ? {
-          config: {
+    env: codexEnvironment,
+    config: {
+      ...shellEnvironmentConfig,
+      ...(existsSync(studyBuddySkillPath)
+        ? {
             skills: {
               config: [{
                 path: studyBuddySkillPath,
                 enabled: false,
               }],
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
   });
   // Keep leaf-worker CWDs stable across runs. The former run-directory hash
   // changed an otherwise identical SDK context every time and reduced the
@@ -673,6 +708,14 @@ export function classifyCodexError(error: unknown): CodexErrorClassification {
     hasHttpStatus(error, 404)
   ) {
     return { category: "invalid_request", retryable: false };
+  }
+  if (
+    details.includes("usage limit") ||
+    details.includes("purchase more credits") ||
+    details.includes("insufficient_quota") ||
+    details.includes("billing_hard_limit_reached")
+  ) {
+    return { category: "usage_limit", retryable: false };
   }
   if (details.includes("rate limit") || details.includes("rate_limit") || hasHttpStatus(error, 429)) {
     return { category: "rate_limit", retryable: true };

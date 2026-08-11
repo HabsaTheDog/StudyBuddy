@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-06.1-targeted-repair";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-09.1-balanced-terra-analysis";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -167,22 +167,27 @@ const PROFILE_POLICIES: Record<
       escalationTimeoutMs: 3 * 60_000,
     },
     content_analyzer: {
-      // A study guide is analyzed chapter-by-chapter with bounded evidence.
-      // Luna keeps the normal path inside the PDF workflow budget; a failed
-      // validation still escalates to Terra for the targeted chapter only.
-      model: "gpt-5.6-luna",
+      // Live cross-checks showed that Luna needed targeted repairs for half of
+      // the quantitative DYN2 chapter fragments and emitted surplus topics in
+      // both HTML batches. Starting bounded Balanced analysis on Terra avoids
+      // those duplicate calls while Sol remains reserved for true escalation.
+      model: "gpt-5.6-terra",
       reasoningEffort: "medium",
-      timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      timeoutMs: 120_000,
+      escalationModel: "gpt-5.6-sol",
       escalationEffort: "medium",
-      escalationTimeoutMs: 90_000,
+      escalationTimeoutMs: 180_000,
     },
     content_repair: {
-      model: "gpt-5.6-sol",
+      // One bounded Terra worker is the validated repair path for compact,
+      // structured chapter batches. Sol high/xhigh repeatedly exhausted the
+      // 180-second leaf-worker window without tokens; keep Sol medium as the
+      // second escalation instead of making the first repair slower.
+      model: "gpt-5.6-terra",
       reasoningEffort: "high",
       timeoutMs: 150_000,
       escalationModel: "gpt-5.6-sol",
-      escalationEffort: "xhigh",
+      escalationEffort: "medium",
       escalationTimeoutMs: 180_000,
     },
     quiz_solver: {

@@ -9,7 +9,7 @@ installCliBrokenPipeGuard();
 
 const program = new Command()
   .name("interactive-study-guide")
-  .description("Run the canonical Moodle extraction-to-interactive-HTML Study Buddy workflow.")
+  .description("Run the canonical Moodle extraction-to-requested-study-artifacts workflow.")
   .argument("<prompt>", "Operational Study Buddy request")
   .option("--original-user-prompt <prompt>", "Exact untranslated latest user request")
   .option("--url <url>", "Moodle URL used for evidence discovery", process.env.STUDY_BUDDY_MOODLE_URL ?? "https://moodle.technikum-wien.at/my/")
@@ -75,6 +75,7 @@ else if (result.ok) {
   console.log(`Workflow directory: ${result.runDir}`);
   console.log(`Extraction handoff: ${result.sourceRunDir}`);
   console.log(`Canonical HTML: ${result.outputPath}`);
+  if (result.pdfPath) console.log(`Canonical PDF: ${result.pdfPath}`);
   for (const deliverable of result.publishedDeliverables) console.log(`Published deliverable: ${deliverable.publishedPath}`);
   console.log(`Workflow summary: ${result.summaryPath}`);
 } else {

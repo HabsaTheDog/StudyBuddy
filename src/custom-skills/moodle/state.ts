@@ -16,6 +16,10 @@ import {
   emptySourceArchitectDecision,
   type SourceArchitectDecision,
 } from "./sourceArchitect.js";
+import {
+  minimalRequestContract,
+  type RequestContract,
+} from "../shared/requestContract.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
@@ -37,6 +41,8 @@ export interface AgentState {
   review_report: ReviewReport;
   artifact_bundle: ArtifactBundle | null;
   source_architect_decision: SourceArchitectDecision;
+  request_contract: RequestContract;
+  request_contract_hash: string | null;
 }
 
 export const initialAgentState: AgentState = {
@@ -52,6 +58,8 @@ export const initialAgentState: AgentState = {
   review_report: emptyReviewReport(),
   artifact_bundle: null,
   source_architect_decision: emptySourceArchitectDecision(),
+  request_contract: minimalRequestContract("Create the requested Study Buddy artifact.", ["artifact"]),
+  request_contract_hash: null,
 };
 
 export const AgentStateAnnotation = Annotation.Root({
@@ -102,6 +110,14 @@ export const AgentStateAnnotation = Annotation.Root({
   source_architect_decision: Annotation<SourceArchitectDecision>({
     reducer: (_current, update) => update,
     default: emptySourceArchitectDecision,
+  }),
+  request_contract: Annotation<RequestContract>({
+    reducer: (_current, update) => update,
+    default: () => minimalRequestContract("Create the requested Study Buddy artifact.", ["artifact"]),
+  }),
+  request_contract_hash: Annotation<string | null>({
+    reducer: (_current, update) => update,
+    default: () => null,
   }),
 });
 

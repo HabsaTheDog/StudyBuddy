@@ -38,7 +38,7 @@ export function createEvidenceHandoffNode(config: MoodleRuntimeConfig) {
 
 export function buildEvidenceHandoff(
   config: MoodleRuntimeConfig,
-  state: Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package">,
+  state: Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package" | "request_contract">,
 ) {
   const records = state.evidence_package.records;
   const evidencedIds = new Set(records.map((record) => record.resourceId));
@@ -57,13 +57,19 @@ export function buildEvidenceHandoff(
   }));
   const sourceIds = new Set(sources.map((source) => source.id));
   const buckets = new Map<string, ModuleBucket>();
+  const selectedTopicModules = deriveSelectedTopicModules(
+    resources,
+    state.moodle_raw_text,
+  );
   const hierarchyModules = deriveCourseHierarchyModules(
     state.moodle_raw_text,
     state.resource_manifest.resources,
     sourceIds,
   );
   const moduleResources = resources.filter((resource) => resource.selection?.selected === true);
-  if (hierarchyModules.length >= 2) {
+  if (selectedTopicModules.length >= 2) {
+    for (const module of selectedTopicModules) buckets.set(module.id, module);
+  } else if (hierarchyModules.length >= 2) {
     for (const module of hierarchyModules) buckets.set(module.id, module);
   } else {
     for (const resource of moduleResources) {
@@ -82,8 +88,7 @@ export function buildEvidenceHandoff(
     });
   }
   const modules = [...buckets.values()]
-    .filter((bucket) => bucket.resourceIds.length > 0)
-    .slice(0, 10);
+    .filter((bucket) => bucket.resourceIds.length > 0);
   const sections = modules.map((module) => {
     const moduleRecords = records.filter((record) =>
       module.resourceIds.includes(record.resourceId) &&
@@ -109,23 +114,31 @@ export function buildEvidenceHandoff(
       source_ids: module.resourceIds,
     };
   });
-  const learningModules = modules.map((module, index) => {
+  const learningModules = modules.map((module) => {
     const moduleRecords = records.filter((record) =>
       module.resourceIds.includes(record.resourceId) &&
       record.resourceId !== module.courseSourceId
     );
-    const contentMode = inferEvidenceContentMode(moduleRecords, module.summary);
+    const evidencedObjectives = state.request_contract.requirements
+      .filter((requirement) =>
+        requirement.origin === "evidence_derived" &&
+        requirement.evidenceRefs.some((resourceId) => module.resourceIds.includes(resourceId))
+      )
+      .map((requirement) => requirement.statement);
+    const evidencedTasks = moduleRecords
+      .filter((record) => record.kind === "exercise" || record.kind === "solution")
+      .map((record) => firstSentence(record.content))
+      .filter(Boolean);
     return {
       id: module.id,
       title: module.title,
-      priority: index < 6 ? "essential" as const : "important" as const,
-      content_mode: contentMode,
-      learning_objectives: [config.outputLanguage === "de"
-        ? `${module.title} anhand der belegten Kursunterlagen erklären und anwenden.`
-        : `Explain and apply ${module.title} using the cited course evidence.`],
-      assessment_signals: [config.outputLanguage === "de"
-        ? `Repräsentative Aufgaben zu ${module.title} mit nachvollziehbarem Lösungsweg bearbeiten.`
-        : `Solve representative ${module.title} tasks with a traceable method.`],
+      priority: "important" as const,
+      // This field remains for schema compatibility. The downstream learning
+      // architect selects actual block types from the request contract and
+      // evidence instead of a subject-name classifier.
+      content_mode: "mixed" as const,
+      learning_objectives: unique(evidencedObjectives),
+      assessment_signals: unique(evidencedTasks),
       resource_ids: module.resourceIds,
     };
   });
@@ -157,24 +170,44 @@ export function buildEvidenceHandoff(
   });
 }
 
-function inferEvidenceContentMode(
-  records: LangGraphAgentState["evidence_package"]["records"],
-  supplementalText = "",
-): "quantitative" | "conceptual" | "procedural" | "case_based" | "mixed" {
-  const text = `${supplementalText} ${records.map((record) => record.content).join(" ")}`;
-  const quantitative = records.some((record) => record.kind === "formula") ||
-    /\b(?:calculate|equation|formula|numeric|berechn|gleichung|formel)\b/i.test(text);
-  const procedural = /\b(?:procedure|protocol|workflow|step|perform|practice|write|speak|prozess|verfahren|protokoll|schritt|durchführen|durchfuehren|schreiben|sprechen)\b/i.test(text);
-  const caseBased = /\b(?:case|scenario|debate|source\s+analysis|fallstudie|szenario|debatte|quellenanalyse)\b/i.test(text);
-  const conceptual = records.some((record) => record.kind === "definition") ||
-    /\b(?:concept|theory|compare|interpret|history|literature|grammar|konzept|theorie|vergleichen|interpretieren|geschichte|literatur|grammatik)\b/i.test(text);
-  const signals = [quantitative, procedural, caseBased, conceptual].filter(Boolean).length;
-  if (signals > 1) return "mixed";
-  if (quantitative) return "quantitative";
-  if (procedural) return "procedural";
-  if (caseBased) return "case_based";
-  return "conceptual";
+function deriveSelectedTopicModules(
+  resources: LangGraphAgentState["resource_manifest"]["resources"],
+  moodleRawText: string,
+): ModuleBucket[] {
+  const primary = resources.filter((resource) =>
+    resource.selection?.selected === true &&
+    resource.selection.role === "primary_lecture" &&
+    Boolean(resource.selection.topic?.trim())
+  );
+  const topicOrder = (topic: string): number => {
+    const positions = primary
+      .filter((resource) => resource.selection!.topic!.trim() === topic)
+      .flatMap((resource) => [
+        ...resource.sectionPath.map((part) => moodleRawText.indexOf(part)),
+        moodleRawText.indexOf(resource.title),
+        moodleRawText.indexOf(topic),
+      ])
+      .filter((position) => position >= 0);
+    return positions.length > 0 ? Math.min(...positions) : Number.MAX_SAFE_INTEGER;
+  };
+  const orderedTopics = unique(primary.map((resource) => resource.selection!.topic!.trim()))
+    .map((topic, index) => ({ topic, index, order: topicOrder(topic) }))
+    .sort((left, right) => left.order - right.order || left.index - right.index)
+    .map((entry) => entry.topic);
+  return orderedTopics.map((title) => {
+    const matching = resources.filter((resource) =>
+      resource.selection?.selected === true &&
+      resource.selection.topic?.trim().toLocaleLowerCase("de") === title.toLocaleLowerCase("de")
+    );
+    return {
+      id: moduleKey(title),
+      title,
+      resourceIds: unique(matching.map((resource) => resource.id)),
+      conceptTitles: unique(matching.map((resource) => resource.title)).slice(0, 12),
+    };
+  }).filter((module) => module.resourceIds.length > 0);
 }
+
 
 function deriveCourseHierarchyModules(
   moodleRawText: string,
@@ -220,7 +253,7 @@ function deriveCourseHierarchyModules(
     }
   }
 
-  return groups.slice(0, 10).map((group, index) => {
+  return groups.slice(0, 12).map((group, index) => {
     const first = group[0]!;
     const nextGroup = groups[index + 1];
     const start = first.rawIndex;

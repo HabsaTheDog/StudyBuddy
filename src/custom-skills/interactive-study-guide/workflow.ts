@@ -8,6 +8,13 @@ import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
 import type { StudyBuddyExecutionProfile, StudyBuddyModelPolicyOverrides } from "../shared/modelPolicy.js";
 import { acquireQueuedRunSlot, acquireRunLease } from "../shared/runLease.js";
 import { resolveOptionalConcurrency } from "../shared/concurrency.js";
+import { executeStudyWorkflowPlan, type StudyWorkflowModule } from "../shared/studyWorkflowPlan.js";
+import {
+  REQUEST_CONTRACT_FILE,
+  REQUEST_CONTRACT_INTEGRITY_FILE,
+  RequestContractSchema,
+  verifyRequestContractIntegrity,
+} from "../shared/requestContract.js";
 import { ensurePrivateDirectorySync, ensureStudyBuddyWorkspaceData, resolveStudyBuddyWorkspaceDataPaths, safePathSegment } from "../shared/workspaceData.js";
 import { runWebLayoutGraph } from "../web-layout/graph.js";
 import type { WebLayoutInput, WebLayoutResult } from "../web-layout/types.js";
@@ -38,7 +45,9 @@ export interface InteractiveStudyGuideResult {
   extractionRunDirs: string[];
   sourceRunDir?: string;
   webLayoutRunDir?: string;
+  pdfRenderRunDir?: string;
   outputPath?: string;
+  pdfPath?: string;
   publishedDeliverables: PublishedDeliverable[];
   summaryPath: string;
   error?: string;
@@ -47,6 +56,7 @@ export interface InteractiveStudyGuideResult {
 export interface InteractiveStudyGuideDependencies {
   runExtraction?: (input: MoodleGraphInput) => Promise<MoodleGraphResult>;
   runWebLayout?: (input: WebLayoutInput) => Promise<WebLayoutResult>;
+  runPdfRender?: (input: MoodleGraphInput) => Promise<MoodleGraphResult>;
   publish?: typeof publishStudyBuddyDeliverables;
   now?: () => Date;
   acquireWorkflowSlot?: (onWait: (activeSlots: number, totalSlots: number) => Promise<void>) => Promise<() => Promise<void>>;
@@ -88,7 +98,9 @@ export async function runInteractiveStudyGuideWorkflow(
   let releaseWorkflowSlot: () => Promise<void> = async () => undefined;
   let sourceRunDir: string | undefined;
   let webLayoutRunDir: string | undefined;
+  let pdfRenderRunDir: string | undefined;
   let outputPath: string | undefined;
+  let pdfPath: string | undefined;
 
   try {
     const acquireWorkflowSlot = dependencies.acquireWorkflowSlot ?? (
@@ -153,32 +165,97 @@ export async function runInteractiveStudyGuideWorkflow(
       await writeWorkflowSummary(summaryPath, failed, "failed", prompt);
       return failed;
     }
+    const validatedSourceRunDir = sourceRunDir;
 
+    const requestedBranches = await requestedArtifactBranches(validatedSourceRunDir);
+    const runPdfRender = dependencies.runPdfRender ?? runMoodleGraph;
     webLayoutRunDir = path.join(workflowDir, "web-layout");
-    const webResult = await runWebLayout({
-      prompt,
-      originalUserPrompt,
-      kind: "study-guide",
-      sourceRunDir,
-      runDir: webLayoutRunDir,
-      language: input.language ?? "auto",
-      browserHeaded: input.browserHeaded,
-      maxRuntimeMs: input.maxRuntimeMs,
-      idleTimeoutMs: input.idleTimeoutMs,
-      codexModel: input.codexModel,
-      codexReasoningEffort: input.codexReasoningEffort,
-      executionProfile: input.executionProfile ?? "balanced",
-      modelPolicyOverrides: input.modelPolicyOverrides,
-    });
-    webLayoutRunDir = webResult.runDir;
-    outputPath = webResult.outputPath;
-    if (!webResult.ok || !webResult.outputPath) {
+    pdfRenderRunDir = requestedBranches.pdf ? path.join(workflowDir, "pdf-render") : undefined;
+    const existingHtml = await validExistingHtml(webLayoutRunDir);
+    const existingPdf = pdfRenderRunDir ? await validExistingPdf(pdfRenderRunDir) : undefined;
+    const branchModules: StudyWorkflowModule[] = [
+      ...(!existingHtml ? [{
+        id: "artifact-html",
+        kind: "artifact.interactive_html",
+        dependsOn: [],
+        exclusiveResourceKeys: [path.join(workflowDir, "web-layout")],
+        required: true,
+      }] : []),
+      ...(requestedBranches.pdf && pdfRenderRunDir && !existingPdf ? [{
+        id: "artifact-pdf",
+        kind: "artifact.study_pdf",
+        dependsOn: [],
+        exclusiveResourceKeys: [path.join(workflowDir, "pdf-render")],
+        required: true,
+      }] : []),
+    ];
+    let webResult: WebLayoutResult | undefined;
+    let pdfResult: MoodleGraphResult | undefined;
+    const branchErrors: string[] = [];
+    if (branchModules.length > 0) {
+      const execution = await executeStudyWorkflowPlan<{
+        branch: "html" | "pdf";
+        result: WebLayoutResult | MoodleGraphResult;
+      }>({ schemaVersion: 1, modules: branchModules }, async (module) => {
+        if (module.kind === "artifact.interactive_html") {
+          const result = await runWebLayout({
+            prompt,
+            originalUserPrompt,
+            kind: "study-guide",
+            sourceRunDir: validatedSourceRunDir,
+            runDir: webLayoutRunDir!,
+            language: input.language ?? "auto",
+            browserHeaded: input.browserHeaded,
+            maxRuntimeMs: input.maxRuntimeMs,
+            idleTimeoutMs: input.idleTimeoutMs,
+            codexModel: input.codexModel,
+            codexReasoningEffort: input.codexReasoningEffort,
+            executionProfile: input.executionProfile ?? "balanced",
+            modelPolicyOverrides: input.modelPolicyOverrides,
+          });
+          return { branch: "html", result };
+        }
+        if (module.kind === "artifact.study_pdf" && pdfRenderRunDir) {
+          const result = await runPdfRender(pdfRenderInput(
+            input,
+            prompt,
+            originalUserPrompt,
+            validatedSourceRunDir,
+            pdfRenderRunDir,
+          ));
+          return { branch: "pdf", result };
+        }
+        throw new Error(`No workflow handler is registered for ${module.kind}.`);
+      });
+      for (const moduleResult of execution.results) {
+        if (moduleResult.status !== "success" || !moduleResult.value) {
+          branchErrors.push(`${moduleResult.moduleId}: ${moduleResult.error ?? "module failed"}`);
+          continue;
+        }
+        if (moduleResult.value.branch === "html") webResult = moduleResult.value.result as WebLayoutResult;
+        else pdfResult = moduleResult.value.result as MoodleGraphResult;
+      }
+    }
+    outputPath = existingHtml ?? webResult?.outputPath;
+    pdfPath = existingPdf ?? pdfResult?.pdfPath;
+    if (webResult && (!webResult.ok || !webResult.outputPath)) {
+      branchErrors.push(`HTML: ${webResult.error ?? "validated HTML was not produced."}`);
+    }
+    if (requestedBranches.pdf && pdfResult && (!pdfResult.ok || !pdfResult.pdfPath)) {
+      branchErrors.push(`PDF: ${pdfResult.error ?? "validated PDF was not produced."}`);
+    }
+    if (!outputPath) branchErrors.push("HTML: validated HTML was not produced.");
+    if (requestedBranches.pdf && !pdfPath) branchErrors.push("PDF: validated PDF was not produced.");
+    if (branchErrors.length > 0) {
       const failed = {
         ...baseResult,
         extractionRunDirs,
         sourceRunDir,
-        webLayoutRunDir: webResult.runDir,
-        error: `Interactive Study Guide rendering failed: ${webResult.error ?? "validated HTML was not produced."}`,
+        webLayoutRunDir,
+        pdfRenderRunDir,
+        outputPath,
+        pdfPath,
+        error: `Study artifact rendering failed: ${branchErrors.join(" | ")}`,
       };
       await writeWorkflowSummary(summaryPath, failed, "failed", prompt);
       return failed;
@@ -187,7 +264,7 @@ export async function runInteractiveStudyGuideWorkflow(
     const publishedDeliverables = await publish({
       prompt,
       runDir: workflowDir,
-      sourcePaths: [outputPath],
+      sourcePaths: [outputPath, pdfPath].filter((value): value is string => Boolean(value)),
       deliverTo: input.deliverTo,
     });
     const completed: InteractiveStudyGuideResult = {
@@ -196,7 +273,9 @@ export async function runInteractiveStudyGuideWorkflow(
       extractionRunDirs,
       sourceRunDir,
       webLayoutRunDir,
+      pdfRenderRunDir,
       outputPath,
+      pdfPath,
       publishedDeliverables,
       summaryPath,
     };
@@ -208,7 +287,9 @@ export async function runInteractiveStudyGuideWorkflow(
       extractionRunDirs,
       sourceRunDir,
       webLayoutRunDir,
+      pdfRenderRunDir,
       outputPath,
+      pdfPath,
       error: error instanceof Error ? error.message : String(error),
     };
     await writeWorkflowSummary(summaryPath, failed, "failed", prompt);
@@ -288,7 +369,7 @@ function extractionInput(
     includeCis: false,
     sourceMode: "moodle",
     artifactProfile: "interactive_learning",
-    formats: ["html"],
+    formats: explicitlyRequestedArtifactFormats(originalUserPrompt),
     visualsEnabled: false,
     visualMode: "off",
     outputLanguage: input.language ?? "auto",
@@ -300,6 +381,116 @@ function extractionInput(
     executionProfile: input.executionProfile ?? "balanced",
     modelPolicyOverrides: input.modelPolicyOverrides,
   };
+}
+
+function explicitlyRequestedArtifactFormats(prompt: string): Array<"html" | "pdf"> {
+  const normalized = prompt.toLocaleLowerCase("de");
+  const forbidsPdf = /\b(?:kein(?:e[snm]?)?|ohne|not|no)\s+(?:pdf|pdf-datei|pdf-dokument)\b/.test(normalized);
+  return !forbidsPdf && /\bpdf(?:-datei|-dokument)?\b/.test(normalized)
+    ? ["html", "pdf"]
+    : ["html"];
+}
+
+function pdfRenderInput(
+  input: InteractiveStudyGuideInput,
+  prompt: string,
+  originalUserPrompt: string,
+  sourceRunDir: string,
+  runDir: string,
+): MoodleGraphInput {
+  return {
+    prompt,
+    originalUserPrompt,
+    moodleUrl: input.moodleUrl ?? process.env.STUDY_BUDDY_MOODLE_URL ?? "https://moodle.technikum-wien.at/my/",
+    runDir,
+    maxDepth: 0,
+    maxPages: 0,
+    maxCisPages: 0,
+    allowFileDownloads: false,
+    stage: "render",
+    sourceRunDir,
+    includeCis: false,
+    sourceMode: "moodle",
+    artifactProfile: "study_guide",
+    formats: ["pdf"],
+    outputLanguage: input.language ?? "auto",
+    browserHeaded: input.browserHeaded,
+    maxRuntimeMs: input.maxRuntimeMs,
+    idleTimeoutMs: input.idleTimeoutMs,
+    codexModel: input.codexModel,
+    codexReasoningEffort: input.codexReasoningEffort,
+    executionProfile: input.executionProfile ?? "balanced",
+    modelPolicyOverrides: input.modelPolicyOverrides,
+  };
+}
+
+async function requestedArtifactBranches(sourceRunDir: string): Promise<{ html: true; pdf: boolean }> {
+  const contractPath = path.join(sourceRunDir, REQUEST_CONTRACT_FILE);
+  const integrityPath = path.join(sourceRunDir, REQUEST_CONTRACT_INTEGRITY_FILE);
+  const [contractText, integrityText] = await Promise.all([
+    readFile(contractPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    }),
+    readFile(integrityPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    }),
+  ]);
+  if (!contractText && !integrityText) {
+    // Legacy handoffs predate request contracts and remain HTML-only.
+    return { html: true, pdf: false };
+  }
+  if (!contractText || !integrityText) {
+    throw new Error("Artifact branch planning requires both request-contract.json and its integrity sidecar.");
+  }
+  try {
+    const contract = RequestContractSchema.parse(JSON.parse(contractText));
+    verifyRequestContractIntegrity(contract, JSON.parse(integrityText));
+    return {
+      html: true,
+      pdf: contract.deliverables.some((deliverable) => /(?:pdf|document|print)/i.test(deliverable.kind)),
+    };
+  } catch (error) {
+    throw new Error(
+      `Artifact branch planning rejected an invalid request contract: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function validExistingHtml(runDir: string): Promise<string | undefined> {
+  const output = path.join(runDir, "document.html");
+  const [summary, errorLog, qualityReview] = await Promise.all([
+    readFile(path.join(runDir, "run-summary.md"), "utf8").catch(() => ""),
+    readFile(path.join(runDir, "error.log"), "utf8").catch(() => "missing"),
+    readFile(path.join(runDir, "quality-review.json"), "utf8").catch(() => ""),
+  ]);
+  if (!/^Run status:\s*success$/m.test(summary) || errorLog.trim() || !await nonEmpty(output)) return undefined;
+  try {
+    if ((JSON.parse(qualityReview) as { ok?: boolean }).ok !== true) return undefined;
+  } catch {
+    return undefined;
+  }
+  return output;
+}
+
+async function validExistingPdf(runDir: string): Promise<string | undefined> {
+  const typst = path.join(runDir, "document.typ");
+  const pdf = path.join(runDir, "document.pdf");
+  const [summary, errorLog, postRenderReview] = await Promise.all([
+    readFile(path.join(runDir, "run-summary.md"), "utf8").catch(() => ""),
+    readFile(path.join(runDir, "error.log"), "utf8").catch(() => "missing"),
+    readFile(path.join(runDir, "pdf-post-render-review.json"), "utf8").catch(() => ""),
+  ]);
+  if (!/^Run status:\s*success$/m.test(summary) || errorLog.trim() || !await nonEmpty(typst) || !await nonEmpty(pdf)) {
+    return undefined;
+  }
+  try {
+    if ((JSON.parse(postRenderReview) as { ok?: boolean }).ok !== true) return undefined;
+  } catch {
+    return undefined;
+  }
+  return pdf;
 }
 
 export async function validateExtractionHandoff(runDir: string): Promise<{ ok: boolean; error?: string }> {
@@ -348,8 +539,10 @@ async function writeWorkflowSummary(
     `Extraction runs: ${result.extractionRunDirs.join(", ") || "pending"}`,
     `Successful extraction: ${result.sourceRunDir ?? "pending"}`,
     `Web layout run: ${result.webLayoutRunDir ?? "pending"}`,
+    `PDF render run: ${result.pdfRenderRunDir ?? "not requested"}`,
     `Canonical HTML: ${result.outputPath ?? "pending"}`,
-    `Published HTML: ${result.publishedDeliverables.map((item) => item.publishedPath).join(", ") || "pending"}`,
+    `Canonical PDF: ${result.pdfPath ?? "not requested"}`,
+    `Published deliverables: ${result.publishedDeliverables.map((item) => item.publishedPath).join(", ") || "pending"}`,
     result.error ? `Error: ${result.error}` : "Error: none",
     "",
   ];

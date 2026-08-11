@@ -12,6 +12,7 @@ import {
 import { emptySourceArchitectDecision } from "../../sourceArchitect.js";
 import { classifyArtifactIntent } from "../../studentFirstPolicy.js";
 import { DEFAULT_QUIZ_SAFETY_POLICY } from "../../interactive/quizSafetyPolicy.js";
+import { minimalRequestContract } from "../../../shared/requestContract.js";
 
 export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): MoodleRuntimeConfig {
   return {
@@ -89,6 +90,8 @@ export function moodleTestState(overrides: Partial<LangGraphAgentState> = {}): L
     review_report: emptyReviewReport(),
     artifact_bundle: null,
     source_architect_decision: emptySourceArchitectDecision(),
+    request_contract: minimalRequestContract("make compact notes", ["artifact"]),
+    request_contract_hash: null,
     ...overrides,
   };
 }

@@ -10,13 +10,14 @@ import {
 } from "../resourcePlanning.js";
 
 describe("resource planning", () => {
-  it("bounds the DYN2 incident catalog while covering every primary topic", () => {
+  it("bounds a dense catalog without injecting a per-topic worked-example quota", () => {
     const links = [
       candidate("Zentrale Aspekte in Anwendungen der Dynamik", "summary.pdf"),
       candidate("Formelsammlung", "formulas.pdf"),
       candidate("Musterprüfung", "exam.pdf"),
       candidate("1_Folien_Punktkinematik", "point-slides.pdf"),
       candidate("2_Folien_Vektorkinematik", "vector-slides.pdf"),
+      candidate("Wiederholung_Massengeometrie", "mass-geometry.pdf"),
       candidate("3_Folien_Schwerpunktsatz", "mass-slides.pdf"),
       candidate("4_Folien_Drallsatz", "angular-slides.pdf"),
       candidate("5_Folien_Schwingungen", "vibration-slides.pdf"),
@@ -27,17 +28,16 @@ describe("resource planning", () => {
     const plan = planCourseResources(links, "balanced", 24);
     const selected = plan.entries.filter((entry) => entry.selected);
 
-    expect(plan.discovered).toBe(42);
+    expect(plan.discovered).toBe(43);
     expect(plan.selected).toBeLessThanOrEqual(16);
-    expect(selected.filter((entry) => entry.role === "worked_example")).toHaveLength(5);
-    expect(new Set(selected
-      .filter((entry) => entry.role === "primary_lecture")
-      .map((entry) => entry.topic))).toEqual(new Set([
-      "Punktkinematik",
-      "Vektorkinematik",
-      "Schwerpunktsatz",
-      "Drallsatz",
-      "Schwingungen",
+    expect(selected.filter((entry) => entry.role === "worked_example")).toHaveLength(0);
+    expect(selected.map((entry) => entry.candidate.label)).toEqual(expect.arrayContaining([
+      "1_Folien_Punktkinematik",
+      "2_Folien_Vektorkinematik",
+      "Wiederholung_Massengeometrie",
+      "3_Folien_Schwerpunktsatz",
+      "4_Folien_Drallsatz",
+      "5_Folien_Schwingungen",
     ]));
   });
 

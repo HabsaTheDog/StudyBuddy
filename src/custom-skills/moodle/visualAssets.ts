@@ -82,6 +82,7 @@ export async function discoverVisualCandidates(
   const visualPlan = await readVisualRetrievalPlan(config.runDir);
   const plannedPages = plannedPagesByResource(visualPlan);
   const plannedPageCount = [...plannedPages.values()].reduce((sum, pages) => sum + pages.length, 0);
+  const visualRequiredIds = visualRequiredResourceIds(state);
   const visualBudget = await estimateVisualBudget(config, state, discoveredArtifacts, tooling);
   const artifacts = selectVisualSourceArtifacts(
     discoveredArtifacts,
@@ -181,8 +182,15 @@ export async function discoverVisualCandidates(
   const selected = candidates
     .map((candidate) => ({
       ...candidate,
-      confidence: scoreVisualCandidate(config.prompt, state.moodle_raw_text, candidate),
-      relevance_reason: candidate.relevance_reason || relevanceReason(config.prompt, candidate),
+      confidence: visualRequiredIds.has(candidate.source_id ?? "")
+        ? Math.max(
+            config.visualMinConfidence,
+            scoreVisualCandidate(config.prompt, state.moodle_raw_text, candidate),
+          )
+        : scoreVisualCandidate(config.prompt, state.moodle_raw_text, candidate),
+      relevance_reason: visualRequiredIds.has(candidate.source_id ?? "")
+        ? "Selected source has a sparse native text layer; retain its bounded page visual for evidence analysis."
+        : candidate.relevance_reason || relevanceReason(config.prompt, candidate),
     }))
     .filter((candidate) => candidate.confidence >= config.visualMinConfidence)
     .sort((left, right) => right.confidence - left.confidence);
@@ -196,6 +204,9 @@ export async function discoverVisualCandidates(
     candidates: diverseSelection,
     warnings: [
       ...warnings,
+      ...(visualRequiredIds.size > 0
+        ? [`Retained bounded page visuals for ${visualRequiredIds.size} selected source(s) with sparse native text.`]
+        : []),
       `Visual budget: ${visualBudget.mode}, candidateLimit=${Math.max(visualBudget.candidateLimit, plannedPageCount * 2)}, estimatedPdfPages=${visualBudget.estimatedPdfPages}, plannedPages=${plannedPageCount}. Final figure count is decided by usefulness, not by this candidate budget.`,
     ],
   };
@@ -209,6 +220,18 @@ export async function discoverVisualCandidates(
     "utf8",
   );
   return manifest;
+}
+
+export function visualRequiredResourceIds(
+  state: Pick<LangGraphAgentState, "resource_manifest">,
+): Set<string> {
+  return new Set(state.resource_manifest.resources
+    .filter((resource) =>
+      resource.selection?.selected === true &&
+      resource.extraction?.status === "partial" &&
+      resource.localPath?.toLocaleLowerCase("en").endsWith(".pdf")
+    )
+    .map((resource) => resource.id));
 }
 
 export function formatVisualCandidatesForAnalyzer(manifest: VisualManifest): string {
@@ -279,99 +302,11 @@ export async function hydrateExtractedVisualAssets(
       };
     })),
   };
-  return addMissingExampleVisuals(hydrated, manifest.candidates, cropMode);
-}
-
-function addMissingExampleVisuals(
-  data: ExtractedData,
-  candidates: VisualCandidate[],
-  cropMode: VisualCropMode,
-): ExtractedData {
-  const visualExamples = data.worked_examples.filter((example) =>
-    /(?:diagramm|skizze|zeichnung|kennlinie|tabelle|graph|abbildung)/i.test(
-      `${example.learning_goal} ${example.prompt} ${example.steps.join(" ")}`,
-    )
-  );
-  if (visualExamples.length === 0) return data;
-
-  const assets = [...data.visual_assets];
-  const figures = [...data.figures];
-  const sourcesById = new Map(data.sources.map((source) => [source.id, source]));
-  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
-  let additions = 0;
-  for (const example of visualExamples) {
-    if (additions >= 2) break;
-    const allExampleSources = example.source_ids
-      .map((sourceId) => sourcesById.get(sourceId))
-      .filter((source): source is NonNullable<typeof source> => Boolean(source));
-    const preferredSources = allExampleSources.filter((source) =>
-      /(?:lösung|loesung|solution|diagramm|kennlinie)/i.test(`${source.title} ${source.path ?? ""}`)
-    );
-    const exampleSources = preferredSources.length > 0 ? preferredSources : allExampleSources;
-    const preferredSourceIds = new Set(exampleSources.map((source) => source.id));
-    const alreadyCovered = figures.some((figure) =>
-      figure.source_ids.some((sourceId) => preferredSourceIds.has(sourceId)) ||
-      preferredSourceIds.has(assetsById.get(figure.asset_id)?.source_id ?? "")
-    );
-    if (alreadyCovered) continue;
-    const sourcePaths = new Set(
-      exampleSources
-        .map((source) => source.path ? path.basename(source.path).toLocaleLowerCase("de") : null)
-        .filter((value): value is string => Boolean(value)),
-    );
-    const sourceUrls = new Set(exampleSources.map((source) => source.url).filter(Boolean));
-    const sourceCandidates = candidates.filter((candidate) => {
-      const candidateFile = candidate.source_path
-        ? path.basename(candidate.source_path).toLocaleLowerCase("de")
-        : null;
-      return Boolean(
-        (candidateFile && sourcePaths.has(candidateFile)) ||
-        (candidate.source_url && sourceUrls.has(candidate.source_url))
-      );
-    });
-    if (sourceCandidates.length === 0) continue;
-
-    const syntheticAsset: ExtractedData["visual_assets"][number] = {
-      id: `auto-example-visual-${additions + 1}`,
-      kind: "moodle_pdf_page",
-      title: `Quellenabbildung zum Beispiel: ${example.learning_goal || example.prompt.slice(0, 80)}`,
-      relative_path: null,
-      mime_type: null,
-      width_px: null,
-      height_px: null,
-      source_id: example.source_ids[0] ?? null,
-      source_url: exampleSources.find((source) => source.url)?.url ?? null,
-      source_path: exampleSources.find((source) => source.path)?.path ?? null,
-      source_page: sourceCandidates.find((candidate) => candidate.source_page)?.source_page ?? null,
-      confidence: 0.9,
-      caption_hint: `${example.prompt} ${example.steps.join(" ")}`.slice(0, 900),
-      relevance_reason: "Das Beispiel verlangt ausdrücklich eine Diagramm-, Skizzen- oder Tabellenablesung.",
-      generation_prompt: null,
-    };
-    const match = bestVisualCandidate(syntheticAsset, sourceCandidates, cropMode);
-    if (!match) continue;
-    const asset = {
-      ...syntheticAsset,
-      kind: match.kind,
-      relative_path: match.relative_path,
-      mime_type: match.mime_type,
-      width_px: match.width_px,
-      height_px: match.height_px,
-      source_url: match.source_url ?? syntheticAsset.source_url,
-      source_path: match.source_path ?? syntheticAsset.source_path,
-      source_page: match.source_page ?? syntheticAsset.source_page,
-    };
-    assets.push(asset);
-    assetsById.set(asset.id, asset);
-    figures.push({
-      asset_id: asset.id,
-      caption: `Quellengrafik für das Beispiel „${example.learning_goal || "Diagrammablesung"}“.`,
-      placement_hint: "Direkt beim zugehörigen Rechen- oder Ablesebeispiel platzieren.",
-      source_ids: example.source_ids,
-    });
-    additions += 1;
-  }
-  return additions > 0 ? { ...data, visual_assets: assets, figures } : data;
+  // Hydration is intentionally lossless: it resolves only visuals already
+  // selected by the request/evidence planning and content-review lanes. It
+  // must not silently invent additional media because an example happens to
+  // contain a subject keyword.
+  return hydrated;
 }
 
 function bestVisualCandidate(
