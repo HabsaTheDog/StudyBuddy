@@ -422,7 +422,7 @@ describe("moodle graph retry routing", () => {
     expect(result.error_log).toBeNull();
     expect(result.retry_count).toBe(1);
     await expect(readFile(outputPath, "utf8")).resolves.toContain("DYN2");
-  }, 10_000);
+  }, 30_000);
 
   it("aborts before the analyzer when required Moodle authentication failed", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));

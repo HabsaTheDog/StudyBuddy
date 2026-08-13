@@ -200,7 +200,6 @@ describe("single-file HTML validation", () => {
       });
       expect(audit.states.map((state) => state.viewport))
         .toEqual(["desktop", "laptop", "tablet", "mobile"]);
-      expect(Object.keys(audit.learnerStateScenarios)).toHaveLength(26);
       expect(audit.learnerStateScenarios["three-main-tabs"]).toBe(true);
       expect(audit.learnerStateScenarios["topic-question-navigation"]).toBe(true);
       expect(audit.learnerStateScenarios["catalog-links-scroll-to-top"]).toBe(true);

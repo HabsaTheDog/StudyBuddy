@@ -92,8 +92,14 @@ export function dependencyRemediation(
       node: ["winget install --id OpenJS.NodeJS.LTS --exact"],
       playwright: ["npm ci", "npx playwright install chromium"],
       typst: ["winget install --id Typst.Typst --exact"],
-      pdftotext: ["winget install --id oschwartz10612.Poppler --exact"],
-      pdftoppm: ["winget install --id oschwartz10612.Poppler --exact"],
+      pdftotext: [
+        "scoop install poppler",
+        "Or download a pinned release from https://github.com/oschwartz10612/poppler-windows/releases and add Library\\bin to PATH",
+      ],
+      pdftoppm: [
+        "scoop install poppler",
+        "Or download a pinned release from https://github.com/oschwartz10612/poppler-windows/releases and add Library\\bin to PATH",
+      ],
       libreoffice: ["winget install --id TheDocumentFoundation.LibreOffice --exact"],
     };
     return commands[name];
