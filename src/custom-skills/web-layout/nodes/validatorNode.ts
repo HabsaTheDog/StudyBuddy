@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { inspectHtmlSource } from "../../../shared/htmlSource.js";
 import { prepareWebLayoutArtifact } from "../assetPipeline.js";
 import { validateWebLayoutFile, validationReportToJson } from "../validation.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
@@ -192,12 +193,18 @@ function isJsonObject(value: unknown): value is JsonObject {
 
 function isCompleteHtmlCandidate(html: string): boolean {
   const trimmed = html.trim();
-  return /^<!doctype html>/i.test(trimmed) &&
-    /<html\b/i.test(trimmed) &&
-    /<head\b/i.test(trimmed) &&
-    /<body\b/i.test(trimmed) &&
-    /<style\b[^>]*>[\s\S]*?<\/style>/i.test(trimmed) &&
-    /<script\b[^>]*>[\s\S]*?<\/script>/i.test(trimmed);
+  if (!trimmed.toLowerCase().startsWith("<!doctype html>")) return false;
+  const document = inspectHtmlSource(trimmed);
+  const hasExplicitElement = (tagName: string): boolean =>
+    document.elements.some((element) => element.tagName === tagName);
+  const hasCompleteElement = (tagName: string): boolean =>
+    document.elements.some((element) => element.tagName === tagName && element.hasEndTag);
+  return document.hasDoctype &&
+    hasExplicitElement("html") &&
+    hasExplicitElement("head") &&
+    hasExplicitElement("body") &&
+    hasCompleteElement("style") &&
+    hasCompleteElement("script");
 }
 
 async function backupExistingBuild(runDir: string): Promise<string | null> {

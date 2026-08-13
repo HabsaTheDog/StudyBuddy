@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
+import { inspectHtmlSource, replaceHtmlSourceRanges } from "../../shared/htmlSource.js";
 import type { AgentBrowserClient } from "./agentBrowserClient.js";
 import { formatCodexRuntimeSummary, type CodexRuntimeReport } from "./codexRuntime.js";
 
@@ -422,10 +423,32 @@ export class RunDiagnostics {
   }
 
   private sanitizeDiagnosticHtml(html: string): string {
-    return this.redactDiagnosticContent(html)
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "<!-- script removed from diagnostics -->")
-      .replace(/(<input\b[^>]*\bvalue\s*=\s*)(["'])[^"']*\2/gi, "$1$2[redacted]$2")
-      .replace(/(<textarea\b[^>]*>)[\s\S]*?(<\/textarea>)/gi, "$1[redacted]$2");
+    const redacted = this.redactDiagnosticContent(html);
+    const document = inspectHtmlSource(redacted);
+    return replaceHtmlSourceRanges(redacted, document.elements.flatMap((element) => {
+      if (element.tagName === "script") {
+        return [{
+          startOffset: element.startOffset,
+          endOffset: element.endOffset,
+          value: "<!-- script removed from diagnostics -->",
+        }];
+      }
+      if (element.tagName === "textarea") {
+        return [{
+          startOffset: element.contentStartOffset,
+          endOffset: element.contentEndOffset,
+          value: "[redacted]",
+        }];
+      }
+      const valueRange = element.tagName === "input" ? element.attributeRanges.get("value") : undefined;
+      if (valueRange) {
+        return [{
+          ...valueRange,
+          value: 'value="[redacted]"',
+        }];
+      }
+      return [];
+    }));
   }
 
   private enqueuePersistence(operation: () => Promise<void>): Promise<void> {

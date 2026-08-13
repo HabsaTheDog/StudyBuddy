@@ -57,7 +57,7 @@ describe("run diagnostic privacy", () => {
       url: () => "https://moodle.example/course?token=abc",
       locator: () => ({ innerText: async () => "Visible password-secret" }),
       content: async () =>
-        '<html><input value="password-secret"><textarea>private notes</textarea><script>const token="abc"</script></html>',
+        '<html><input value="password-secret"><textarea>private notes</textarea ignored><<script>const token="abc"</script data-bypass></html>',
       screenshot: vi.fn(),
     } as unknown as Page;
     const diagnostics = new RunDiagnostics({ runDir, secrets: ["password-secret"] });
@@ -71,6 +71,7 @@ describe("run diagnostic privacy", () => {
     expect(combined).not.toContain("password-secret");
     expect(combined).not.toContain("private notes");
     expect(combined).not.toContain("const token");
+    expect(combined).not.toContain("<script");
     expect(combined).toContain("[redacted]");
   });
 
