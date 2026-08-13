@@ -9,6 +9,12 @@ updates:
       time: "06:00"
       timezone: "Europe/Vienna"
     open-pull-requests-limit: 5
+    # Major upgrades can change the SDK/compiler contract and require a
+    # dedicated compatibility review instead of an automated maintenance PR.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       security-updates:
         applies-to: "security-updates"
