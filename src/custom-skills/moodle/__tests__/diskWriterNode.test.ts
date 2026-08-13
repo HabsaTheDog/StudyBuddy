@@ -154,7 +154,9 @@ describe("diskWriterNode", () => {
     });
     expect(review.pages).toHaveLength(2);
     expect(review.pages.every((page) => page.wordCount > 0)).toBe(true);
-    expect(review.pages.every((page) => /^pdf-review\/pages\/page-\d+\.png$/.test(page.rasterPath ?? ""))).toBe(true);
+    expect(review.pages.every((page) =>
+      /^pdf-review\/pages\/page-\d+\.png$/.test((page.rasterPath ?? "").replaceAll("\\", "/"))
+    )).toBe(true);
     expect(review.findings).toContainEqual(expect.objectContaining({
       page: 2,
       code: "dense-footer",
