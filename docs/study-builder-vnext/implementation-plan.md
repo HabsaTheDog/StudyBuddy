@@ -112,6 +112,14 @@ pending
   PDFs may omit examples unless the evaluated request contract requires them.
 - The detailed active-path audit and regression matrix are recorded in
   [`open-adaptive-pipeline-audit.md`](./open-adaptive-pipeline-audit.md).
+- A clean-clone synthetic `--source-file` acceptance round exposed that the
+  independent Question Bank reviewer could resolve only Moodle extraction
+  sections. Local Markdown headings and model-chosen source aliases are now
+  deterministically rebound to one canonical file/heading source identity
+  before item hashes and reviews are sealed; missing or ambiguous matches still
+  fail closed. The repeated README round completed with a terminal success,
+  empty error log, one validated offline HTML file, and all desktop/laptop/
+  tablet/mobile interaction scenarios passing.
 - Final acceptance requires two fresh standalone Study Buddy desktop threads,
   Balanced profile, one natural prompt each, no follow-up repair prompts, and
   terminal validated PDF plus HTML outputs with token/retry/runtime accounting.

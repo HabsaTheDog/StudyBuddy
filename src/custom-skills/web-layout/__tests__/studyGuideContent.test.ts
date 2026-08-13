@@ -88,6 +88,61 @@ describe("study-guide canonical content bank", () => {
     });
   });
 
+  it("canonicalizes a model source alias against a uniquely headed local source file", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 2/4"));
+    content.sources = [{
+      id: "source-1",
+      label: "Unit 2",
+      url: "",
+      coverage: "Second unit evidence",
+    }];
+    const refs = [
+      ...(content.topics[0]!.evidenceRefs ?? []),
+      ...content.topics[0]!.exercises.flatMap((exercise) => exercise.evidenceRefs ?? []),
+      ...content.topics[0]!.retrieval.flatMap((retrieval) => retrieval.evidenceRefs ?? []),
+    ];
+    for (const ref of refs) {
+      ref.sectionIndex = 0;
+      ref.sourceIds = ["source-1"];
+    }
+    const sourceText = [
+      "# User prompt",
+      "Build a study guide.",
+      "",
+      "---",
+      "",
+      "# Source file: /tmp/synthetic-notes.md",
+      "# Unit 2",
+      "Second unit evidence.",
+    ].join("\n");
+
+    expect(bindStudyGuideEvidenceRefs(content, sourceText)).toBeGreaterThan(0);
+    expect(content.sources[0]?.id).toBe("synthetic-notes");
+    expect(refs.every((ref) => ref.sectionIndex === 0 && ref.sourceIds[0] === "synthetic-notes")).toBe(true);
+  });
+
+  it("does not rebind an unrelated source alias merely because a local heading matches", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 2/4"));
+    const ref = content.topics[0]!.evidenceRefs![0]!;
+    ref.sectionIndex = 0;
+    ref.sourceIds = ["remote-reader"];
+    content.sources = [{
+      id: "remote-reader",
+      label: "Remote Reader",
+      url: "https://learn.example.edu/moodle/mod/resource/view.php?id=2",
+      coverage: "Unit 2",
+    }];
+    const sourceText = [
+      "# Source file: /tmp/synthetic-notes.md",
+      "# Unit 2",
+      "Local evidence with the same heading.",
+    ].join("\n");
+
+    expect(bindStudyGuideEvidenceRefs(content, sourceText)).toBe(0);
+    expect(ref.sourceIds).toEqual(["remote-reader"]);
+    expect(content.sources[0]?.id).toBe("remote-reader");
+  });
+
   it("rejects chapter evidence refs that use aggregate goal indexes instead of topic-local indexes", () => {
     const malformed = modelChapter("Chapter 1/12");
     const topic = (malformed.topics as Array<Record<string, unknown>>)[0]!;

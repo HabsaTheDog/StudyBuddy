@@ -48,10 +48,20 @@ result as proof for a later commit.
 - The root release gate passes 883 tests (four skipped), 418 public-path policy
   checks, Markdown-link validation, production-license policy, a 29-component
   CycloneDX SBOM check, and a zero-finding npm audit.
+- The interface fork now exposes the reviewed `study-buddy` branch as its
+  default, uses squash-only merges with automatic branch cleanup, disables its
+  unused wiki, and has private vulnerability reporting, secret scanning/push
+  protection, and Dependabot alerts/security updates enabled.
 - An unsigned Linux x64 AppImage was built from the pinned interface workspace,
   started with the Alpha identity, bound its backend to loopback, reached
   `backend ready`, and created its main window. Signed and clean-machine
   platform installation remain separate gates.
+- A clean recursive clone of root `18e3acda86209a63e6f00e57465e01b114a9f761`
+  and interface `0637829b60ba4d425184a72032431604249158be` passed the
+  full root release gate. The README synthetic no-portal workflow then exposed
+  and verified a fix for local-source evidence identity: its repeated run
+  finished successfully with an empty error log, 817,857-byte offline HTML,
+  semantic review, and all four required browser viewports passing.
 
 ## Remaining release blockers
 
@@ -62,11 +72,12 @@ result as proof for a later commit.
    cookie, or calendar feed ever shared outside protected local storage.
 3. Repeat manual synthetic smoke tests on every platform claimed in the
    prerelease notes and install the exact draft artifacts on clean machines.
-4. Configure the `alpha-release` environment and the Apple/Windows signing
-   credentials before authorizing a multi-platform binary prerelease.
-5. Enable and verify the GitHub ruleset, private vulnerability reporting,
-   Dependabot security updates, automatic branch cleanup, and other owner
-   settings described in [github-launch.md](github-launch.md).
+4. The reviewer-gated `alpha-release` environment is configured for `master`
+   and `v*` sources. Add the Apple/Windows signing credentials before
+   authorizing a multi-platform binary prerelease.
+5. Private vulnerability reporting, Dependabot alerts/security updates, secret
+   scanning/push protection, squash-only merges, and automatic branch cleanup
+   are enabled. Add the permanent `master` ruleset after the privacy rewrite.
 6. The disabled upstream mobile, marketing, and relay directories are excluded
    from the default pnpm workspace, frozen lockfile, audits, artifacts, and
    deployments. Reintroduce them only with an explicit product decision, public
