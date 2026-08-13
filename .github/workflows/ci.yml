@@ -48,10 +48,17 @@ jobs:
       - name: Install Windows document and browser tooling
         if: runner.os == 'Windows'
         run: |
-          choco install poppler -y --no-progress
-          $popplerBin = Get-ChildItem "$env:ChocolateyInstall\lib\poppler\tools" -Recurse -Filter pdfinfo.exe |
+          $popplerVersion = "26.02.0-0"
+          $popplerArchive = Join-Path $env:RUNNER_TEMP "poppler-$popplerVersion.zip"
+          $popplerRoot = Join-Path $env:RUNNER_TEMP "poppler-$popplerVersion"
+          Invoke-WebRequest -Uri "https://github.com/oschwartz10612/poppler-windows/releases/download/v$popplerVersion/Release-$popplerVersion.zip" -OutFile $popplerArchive
+          $expectedSha256 = "993e4a94376ed712fafc7058d724ea0b943d118bbd2305cd9ed55174eb85cda5"
+          $actualSha256 = (Get-FileHash $popplerArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) { throw "Downloaded Poppler archive checksum mismatch." }
+          Expand-Archive -Path $popplerArchive -DestinationPath $popplerRoot
+          $popplerBin = Get-ChildItem $popplerRoot -Recurse -Filter pdfinfo.exe |
             Select-Object -First 1 -ExpandProperty DirectoryName
-          if (-not $popplerBin) { throw "Chocolatey installed Poppler but pdfinfo.exe was not found." }
+          if (-not $popplerBin) { throw "The verified Poppler archive did not contain pdfinfo.exe." }
           $popplerBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:PATH = "$popplerBin;$env:PATH"
           pdfinfo -v
