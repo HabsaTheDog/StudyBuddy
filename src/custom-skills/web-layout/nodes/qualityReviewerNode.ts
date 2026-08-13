@@ -211,10 +211,101 @@ function keepHtmlFindingsOnly(
 }
 
 function compactQualityReviewHtml(html: string): string {
-  const visibleArtifact = html
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "<style>[stylesheet omitted]</style>")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "<script>[runtime omitted]</script>");
+  const visibleArtifact = redactRawTextElements(html);
   return compactHtmlForModel(visibleArtifact, 12_000);
+}
+
+type RawTextElementName = "script" | "style";
+
+/**
+ * Remove executable/style raw text before model ingestion without trying to
+ * parse HTML with a filtering regexp. In particular, HTML permits whitespace
+ * before an end-tag's closing `>`, and `>` may occur inside quoted attributes.
+ */
+function redactRawTextElements(html: string): string {
+  let cursor = 0;
+  let redacted = "";
+  while (cursor < html.length) {
+    const opening = findRawTextOpeningTag(html, cursor);
+    if (!opening) {
+      redacted += html.slice(cursor);
+      break;
+    }
+    redacted += html.slice(cursor, opening.start);
+    const closingEnd = findRawTextClosingTagEnd(html, opening.name, opening.end);
+    redacted += `<${opening.name}>[${opening.name === "script" ? "runtime" : "stylesheet"} omitted]</${opening.name}>`;
+    if (closingEnd === null) break;
+    cursor = closingEnd;
+  }
+  return redacted;
+}
+
+function findRawTextOpeningTag(
+  html: string,
+  from: number,
+): { name: RawTextElementName; start: number; end: number } | null {
+  let candidate = html.indexOf("<", from);
+  while (candidate >= 0) {
+    for (const name of ["script", "style"] as const) {
+      const nameStart = candidate + 1;
+      const nameEnd = nameStart + name.length;
+      if (
+        html.slice(nameStart, nameEnd).toLowerCase() === name &&
+        isHtmlTagBoundary(html[nameEnd])
+      ) {
+        const end = findTagEnd(html, nameEnd);
+        return { name, start: candidate, end: end ?? html.length };
+      }
+    }
+    candidate = html.indexOf("<", candidate + 1);
+  }
+  return null;
+}
+
+function findRawTextClosingTagEnd(
+  html: string,
+  name: RawTextElementName,
+  from: number,
+): number | null {
+  let candidate = html.indexOf("</", from);
+  while (candidate >= 0) {
+    const nameStart = candidate + 2;
+    const nameEnd = nameStart + name.length;
+    if (html.slice(nameStart, nameEnd).toLowerCase() === name) {
+      let cursor = nameEnd;
+      while (isHtmlWhitespace(html[cursor])) cursor += 1;
+      if (html[cursor] === "/") {
+        cursor += 1;
+        while (isHtmlWhitespace(html[cursor])) cursor += 1;
+      }
+      if (html[cursor] === ">") return cursor + 1;
+    }
+    candidate = html.indexOf("</", candidate + 2);
+  }
+  return null;
+}
+
+function findTagEnd(html: string, from: number): number | null {
+  let quote: "\"" | "'" | null = null;
+  for (let cursor = from; cursor < html.length; cursor += 1) {
+    const character = html[cursor];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === "\"" || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return cursor + 1;
+    }
+  }
+  return null;
+}
+
+function isHtmlTagBoundary(character: string | undefined): boolean {
+  return character === undefined || character === ">" || character === "/" || isHtmlWhitespace(character);
+}
+
+function isHtmlWhitespace(character: string | undefined): boolean {
+  return character !== undefined && /[\t\n\f\r ]/.test(character);
 }
 
 export interface WebQualityFinding {

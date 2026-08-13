@@ -48,14 +48,27 @@ jobs:
       - name: Install Windows document and browser tooling
         if: runner.os == 'Windows'
         run: |
-          choco install poppler -y --no-progress
+          $popplerVersion = "26.02.0-0"
+          $popplerArchive = Join-Path $env:RUNNER_TEMP "poppler-$popplerVersion.zip"
+          $popplerRoot = Join-Path $env:RUNNER_TEMP "poppler-$popplerVersion"
+          Invoke-WebRequest -Uri "https://github.com/oschwartz10612/poppler-windows/releases/download/v$popplerVersion/Release-$popplerVersion.zip" -OutFile $popplerArchive
+          $expectedSha256 = "993e4a94376ed712fafc7058d724ea0b943d118bbd2305cd9ed55174eb85cda5"
+          $actualSha256 = (Get-FileHash $popplerArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) { throw "Downloaded Poppler archive checksum mismatch." }
+          Expand-Archive -Path $popplerArchive -DestinationPath $popplerRoot
+          $popplerBin = Get-ChildItem $popplerRoot -Recurse -Filter pdfinfo.exe |
+            Select-Object -First 1 -ExpandProperty DirectoryName
+          if (-not $popplerBin) { throw "The verified Poppler archive did not contain pdfinfo.exe." }
+          $popplerBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$popplerBin;$env:PATH"
+          pdfinfo -v
           npx playwright install chromium
       - run: npm run typecheck
       - run: npm test
         env:
           WEB_LAYOUT_BROWSER_TESTS: "1"
       - name: Verify SDK and bundled CLI pairing
-        run: npm run moodle:doctor -- --version-only --json
+        run: npm run moodle:doctor:version
 
   repository-policy:
     name: Repository policy
@@ -93,7 +106,7 @@ jobs:
       - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
         with:
           working-directory: t3code-fork
-          node-version-file: t3code-fork/package.json
+          node-version-file: package.json
           cache: true
           run-install: true
       - name: Check UI formatting and lint

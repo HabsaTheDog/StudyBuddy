@@ -216,6 +216,44 @@ describe("web layout semantic quality input", () => {
     expect(receivedPrompt).toContain("[runtime omitted]");
     expect(receivedPrompt).not.toContain("window.x=1");
   });
+
+  it("redacts raw-text elements with quoted delimiters and whitespace in mixed-case end tags", async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "web-layout-quality-redaction-"));
+    tempDirs.push(workspace);
+    process.env.STUDY_BUDDY_WORKSPACE = workspace;
+    const config = createWebLayoutRuntimeConfig({
+      prompt: "Review the offline guide",
+      kind: "study-guide",
+      requestName: "raw-text-redaction-test",
+      skipBrowserValidation: true,
+    });
+    await mkdir(path.join(config.runDir, ".build"), { recursive: true });
+    await writeFile(
+      path.join(config.runDir, ".build", "document.html"),
+      '<!doctype html><html><head><style data-label=">">PRIVATE_STYLES</StYlE   ></head><body><h1>VISIBLE CONTENT</h1><script data-label=">">PRIVATE_RUNTIME</ScRiPt ></body></html>',
+      "utf8",
+    );
+    let receivedPrompt = "";
+
+    await createQualityReviewerNode(config, {
+      run: async (prompt: string) => {
+        receivedPrompt = prompt;
+        return JSON.stringify({ ok: true, summary: "ok", findings: [] });
+      },
+    })({
+      source_text: "source",
+      html_document: "",
+      validation_report: { ok: true },
+      retry_count: 0,
+      quality_retry_count: 0,
+    } as never);
+
+    expect(receivedPrompt).toContain("VISIBLE CONTENT");
+    expect(receivedPrompt).toContain("[stylesheet omitted]");
+    expect(receivedPrompt).toContain("[runtime omitted]");
+    expect(receivedPrompt).not.toContain("PRIVATE_STYLES");
+    expect(receivedPrompt).not.toContain("PRIVATE_RUNTIME");
+  });
 });
 
 function combinedContract(): RequestContract {

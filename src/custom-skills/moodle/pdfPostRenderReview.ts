@@ -1,4 +1,4 @@
-import { open, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { open, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "./codexClient.js";
 import { runBoundedProcess, type BoundedProcessResult } from "../shared/boundedProcess.js";
@@ -113,12 +113,14 @@ export async function reviewRenderedPdf(
   const run = input.processRunner ?? runBoundedProcess;
   const reviewDir = path.join(input.runDir, "pdf-review");
   const pageDir = path.join(reviewDir, "pages");
+  const metricDir = path.join(reviewDir, "metrics");
   const sheetDir = path.join(reviewDir, "sheets");
   // A formatter repair may compile a different page count in the same run.
   // Never mix old raster pages or contact sheets into the new review.
   await rm(reviewDir, { recursive: true, force: true });
   await Promise.all([
     mkdir(pageDir, { recursive: true }),
+    mkdir(metricDir, { recursive: true }),
     mkdir(sheetDir, { recursive: true }),
   ]);
 
@@ -159,13 +161,42 @@ export async function reviewRenderedPdf(
   }
   rasterPaths = rasterPaths.slice(0, pageCount || rasterPaths.length);
 
+  const metricResult = pageCount > 0
+    ? await safeProcess(
+      run,
+      "pdftoppm",
+      ["-r", "36", "-gray", input.pdfPath, path.join(metricDir, "page")],
+      input.signal,
+      4 * 1024 * 1024,
+    )
+    : failedProcess("Skipped because the PDF has no readable page count.");
+  let metricPaths = metricResult.code === 0 ? await numberedGraymapPaths(metricDir) : [];
+  if (pageCount > 0 && metricResult.code !== 0) {
+    findings.push(finding(
+      null,
+      "visual",
+      "warning",
+      "pdf-raster-metrics-unavailable",
+      processFailure("pdftoppm", metricResult),
+    ));
+  } else if (pageCount > 0 && metricPaths.length !== pageCount) {
+    findings.push(finding(
+      null,
+      "visual",
+      "warning",
+      "pdf-raster-metrics-incomplete",
+      `Inspected ${metricPaths.length} of ${pageCount} PDF pages for blank-page metrics.`,
+    ));
+  }
+  metricPaths = metricPaths.slice(0, pageCount || metricPaths.length);
+
   const pages: PdfPostRenderPageReport[] = [];
   for (let index = 0; index < pageCount; index += 1) {
     const page = index + 1;
     const textPage = textPages.find((entry) => entry.page === page);
     const rasterPath = rasterPaths[index] ?? null;
-    const raster = rasterPath
-      ? await inspectRaster(run, rasterPath, input.signal)
+    const raster = metricPaths[index]
+      ? await inspectPortableGraymap(metricPaths[index])
       : null;
     const duplicateWordBoxes = textPage ? countDuplicateWordBoxes(textPage.words) : 0;
     const medianWordHeightPoints = textPage
@@ -354,7 +385,7 @@ export function parsePdfTextPages(xml: string): PdfTextPage[] {
         yMin: Number(wordMatch[2]),
         xMax: Number(wordMatch[3]),
         yMax: Number(wordMatch[4]),
-        text: decodeXml(wordMatch[5].replace(/<[^>]+>/g, "")),
+        text: xmlTextContent(wordMatch[5]),
       });
     }
     pages.push({
@@ -424,21 +455,59 @@ function countDuplicateWordBoxes(words: PdfWordBox[]): number {
   return duplicates;
 }
 
-async function inspectRaster(
-  run: typeof runBoundedProcess,
-  rasterPath: string,
-  signal?: AbortSignal,
+async function inspectPortableGraymap(
+  graymapPath: string,
 ): Promise<{ width: number; height: number; inkRatio: number | null } | null> {
-  const result = await safeProcess(
-    run,
-    "magick",
-    [rasterPath, "-colorspace", "Gray", "-threshold", "98%", "-format", "%w %h %[fx:1-mean]", "info:"],
-    signal,
-  );
-  if (result.code !== 0) return null;
-  const match = /^(\d+)\s+(\d+)\s+([\d.eE+-]+)\s*$/.exec(result.stdout.trim());
-  if (!match) return null;
-  return { width: Number(match[1]), height: Number(match[2]), inkRatio: Number(match[3]) };
+  const data = await readFile(graymapPath).catch(() => null);
+  if (!data) return null;
+  const magic = readPnmToken(data, 0);
+  const width = magic ? readPnmToken(data, magic.offset) : null;
+  const height = width ? readPnmToken(data, width.offset) : null;
+  const maximum = height ? readPnmToken(data, height.offset) : null;
+  if (!magic || !width || !height || !maximum || magic.value !== "P5") return null;
+  const pixelWidth = Number(width.value);
+  const pixelHeight = Number(height.value);
+  const maximumValue = Number(maximum.value);
+  if (
+    !Number.isSafeInteger(pixelWidth) || pixelWidth < 1 ||
+    !Number.isSafeInteger(pixelHeight) || pixelHeight < 1 ||
+    !Number.isSafeInteger(maximumValue) || maximumValue < 1 || maximumValue > 255
+  ) return null;
+  const pixelOffset = skipPnmRasterSeparator(data, maximum.offset);
+  const pixelCount = pixelWidth * pixelHeight;
+  if (pixelOffset === null || data.length - pixelOffset < pixelCount) return null;
+  const nearWhite = Math.floor(maximumValue * 0.98);
+  let inkPixels = 0;
+  for (let index = pixelOffset; index < pixelOffset + pixelCount; index += 1) {
+    if (data[index] <= nearWhite) inkPixels += 1;
+  }
+  return { width: pixelWidth, height: pixelHeight, inkRatio: inkPixels / pixelCount };
+}
+
+function readPnmToken(data: Buffer, from: number): { value: string; offset: number } | null {
+  let cursor = from;
+  while (cursor < data.length) {
+    if (data[cursor] === 35) {
+      while (cursor < data.length && data[cursor] !== 10 && data[cursor] !== 13) cursor += 1;
+    } else if (isAsciiWhitespace(data[cursor])) {
+      cursor += 1;
+    } else {
+      break;
+    }
+  }
+  const start = cursor;
+  while (cursor < data.length && !isAsciiWhitespace(data[cursor]) && data[cursor] !== 35) cursor += 1;
+  if (cursor === start) return null;
+  return { value: data.toString("ascii", start, cursor), offset: cursor };
+}
+
+function skipPnmRasterSeparator(data: Buffer, from: number): number | null {
+  if (!isAsciiWhitespace(data[from])) return null;
+  return data[from] === 13 && data[from + 1] === 10 ? from + 2 : from + 1;
+}
+
+function isAsciiWhitespace(value: number | undefined): boolean {
+  return value === 9 || value === 10 || value === 11 || value === 12 || value === 13 || value === 32;
 }
 
 async function numberedRasterPaths(directory: string): Promise<string[]> {
@@ -448,8 +517,15 @@ async function numberedRasterPaths(directory: string): Promise<string[]> {
   return names.map((name) => path.join(directory, name));
 }
 
+async function numberedGraymapPaths(directory: string): Promise<string[]> {
+  const names = (await readdir(directory))
+    .filter((name) => /^page-\d+\.pgm$/i.test(name))
+    .sort((left, right) => rasterNumber(left) - rasterNumber(right));
+  return names.map((name) => path.join(directory, name));
+}
+
 function rasterNumber(name: string): number {
-  return Number(/(\d+)(?=\.png$)/i.exec(name)?.[1] ?? Number.MAX_SAFE_INTEGER);
+  return Number(/(\d+)(?=\.(?:png|pgm)$)/i.exec(name)?.[1] ?? Number.MAX_SAFE_INTEGER);
 }
 
 function selectModelReviewPages(pageCount: number, findings: PdfPostRenderFinding[]): number[] {
@@ -612,4 +688,49 @@ function decodeXml(value: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, "&");
+}
+
+function xmlTextContent(value: string): string {
+  let cursor = 0;
+  let text = "";
+  while (cursor < value.length) {
+    const markupStart = value.indexOf("<", cursor);
+    if (markupStart < 0) {
+      text += decodeXml(value.slice(cursor));
+      break;
+    }
+    text += decodeXml(value.slice(cursor, markupStart));
+    if (value.startsWith("<![CDATA[", markupStart)) {
+      const cdataEnd = value.indexOf("]]>", markupStart + 9);
+      if (cdataEnd < 0) {
+        text += value.slice(markupStart + 9);
+        break;
+      }
+      text += value.slice(markupStart + 9, cdataEnd);
+      cursor = cdataEnd + 3;
+      continue;
+    }
+    const markupEnd = findXmlMarkupEnd(value, markupStart + 1);
+    if (markupEnd === null) {
+      text += decodeXml(value.slice(markupStart));
+      break;
+    }
+    cursor = markupEnd;
+  }
+  return text;
+}
+
+function findXmlMarkupEnd(value: string, from: number): number | null {
+  let quote: "\"" | "'" | null = null;
+  for (let cursor = from; cursor < value.length; cursor += 1) {
+    const character = value[cursor];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === "\"" || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return cursor + 1;
+    }
+  }
+  return null;
 }

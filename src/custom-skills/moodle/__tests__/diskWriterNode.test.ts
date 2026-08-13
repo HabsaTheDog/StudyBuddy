@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDiskWriterNode } from "../nodes/diskWriterNode.js";
 import type { CodexClient } from "../codexClient.js";
+import { parsePdfTextPages } from "../pdfPostRenderReview.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 let runDir: string | null = null;
@@ -96,7 +97,7 @@ describe("diskWriterNode", () => {
     expect(review.findings).toContainEqual(expect.objectContaining({ page: 1, code: "raw-typesetting-markup" }));
   });
 
-  it("attaches rendered page sheets to an injected visual reviewer and persists page-local findings", async () => {
+  it("attaches portable rendered page input to an injected visual reviewer and persists page-local findings", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
     const run = vi.fn<CodexClient["run"]>().mockResolvedValue(JSON.stringify({
       ok: true,
@@ -127,10 +128,16 @@ describe("diskWriterNode", () => {
 
     expect(result.error_log).toBeNull();
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run.mock.calls[0]?.[1]).toMatchObject({
-      task: "quality_reviewer",
-      localImages: [expect.stringMatching(/pdf-review\/sheets\/sheet-01\.png$/)],
-    });
+    const reviewOptions = run.mock.calls[0]?.[1];
+    expect(reviewOptions).toMatchObject({ task: "quality_reviewer" });
+    const reviewImagePaths = (reviewOptions?.localImages ?? []).map((imagePath) =>
+      path.relative(runDir!, imagePath).split(path.sep).join("/")
+    );
+    expect(reviewImagePaths.length).toBeGreaterThan(0);
+    expect(reviewImagePaths.length).toBeLessThanOrEqual(2);
+    expect(reviewImagePaths.every((imagePath) =>
+      /^pdf-review\/(?:sheets\/sheet-|pages\/page-)\d+\.png$/.test(imagePath)
+    )).toBe(true);
     const review = JSON.parse(
       await readFile(path.join(runDir, "pdf-post-render-review.json"), "utf8"),
     ) as {
@@ -147,12 +154,28 @@ describe("diskWriterNode", () => {
     });
     expect(review.pages).toHaveLength(2);
     expect(review.pages.every((page) => page.wordCount > 0)).toBe(true);
-    expect(review.pages.every((page) => /^pdf-review\/pages\/page-\d+\.png$/.test(page.rasterPath ?? ""))).toBe(true);
+    expect(review.pages.every((page) =>
+      /^pdf-review\/pages\/page-\d+\.png$/.test((page.rasterPath ?? "").replaceAll("\\", "/"))
+    )).toBe(true);
     expect(review.findings).toContainEqual(expect.objectContaining({
       page: 2,
       code: "dense-footer",
       repairTarget: "formatter",
     }));
+  });
+
+  it("extracts encoded XML text without confusing decoded text with markup", () => {
+    const pages = parsePdfTextPages([
+      '<page width="100" height="100">',
+      '<word xMin="1" yMin="2" xMax="20" yMax="5">&lt;script&gt;safe &amp; sound</word>',
+      '<word xMin="1" yMin="6" xMax="20" yMax="9"><b>Nested</b> text</word>',
+      "</page>",
+    ].join(""));
+
+    expect(pages[0]?.words.map((word) => word.text)).toEqual([
+      "<script>safe & sound",
+      "Nested text",
+    ]);
   });
 
   it("returns a formatter repair target for a blocking page-local visual finding", async () => {

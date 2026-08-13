@@ -120,7 +120,7 @@ describe("open assessment architecture planning", () => {
       run: async (modelPrompt, options) => {
         calls += 1;
         expect(options.task).toBe("artifact_planner");
-        expect(modelPrompt).toContain(prompt);
+        expect(modelPrompt).toContain(JSON.stringify(prompt).slice(1, -1));
         expect(modelPrompt).toContain(evidence);
         expect(modelPrompt).toContain("documented-assessment");
         return JSON.stringify({
