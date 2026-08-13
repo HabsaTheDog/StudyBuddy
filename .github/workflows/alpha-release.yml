@@ -1,0 +1,282 @@
+name: Alpha desktop artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer prerelease without the v prefix
+        required: true
+        default: 0.1.0-alpha.1
+        type: string
+      signed:
+        description: Require macOS notarization and Windows code signing
+        required: true
+        default: false
+        type: boolean
+      publish_draft:
+        description: Publish a draft GitHub prerelease from an existing matching tag
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: alpha-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.16
+          cache: npm
+      - name: Validate release contract
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          PUBLISH_DRAFT: ${{ inputs.publish_draft }}
+          SIGNED: ${{ inputs.signed }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node --input-type=module -e '
+            const version = process.env.RELEASE_VERSION ?? "";
+            if (!/^0\.1\.0-alpha\.[1-9][0-9]*$/.test(version)) {
+              throw new Error(`Expected an alpha version such as 0.1.0-alpha.1, received: ${version}`);
+            }
+            if (process.env.PUBLISH_DRAFT === "true") {
+              const expectedRef = `refs/tags/v${version}`;
+              if (process.env.RELEASE_REF !== expectedRef) {
+                throw new Error(`Draft publication must run from ${expectedRef}.`);
+              }
+              if (process.env.SIGNED !== "true") {
+                throw new Error("Draft publication requires signed=true for the advertised desktop matrix.");
+              }
+            }
+          '
+      - run: npm ci
+      - run: npm run check:release
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-latest
+            platform: linux
+            target: AppImage
+            arch: x64
+          - label: macOS arm64
+            os: macos-latest
+            platform: mac
+            target: dmg
+            arch: arm64
+          - label: macOS x64
+            os: macos-latest
+            platform: mac
+            target: dmg
+            arch: x64
+          - label: Windows x64
+            os: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    environment: alpha-release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.16
+      - name: Install pinned UI workspace
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.24.0 --activate
+          cd t3code-fork
+          pnpm install --frozen-lockfile
+      - name: Validate signing inputs
+        if: inputs.signed
+        shell: bash
+        env:
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          AZURE_TENANT_ID: ${{ matrix.platform == 'win' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ matrix.platform == 'win' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ matrix.platform == 'win' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_ENDPOINT || '' }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || '' }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME || '' }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME || '' }}
+        run: |
+          require_values() {
+            for value in "$@"; do
+              if [[ -z "$value" ]]; then
+                echo "A required signing secret is missing." >&2
+                exit 1
+              fi
+            done
+          }
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            require_values "$CSC_LINK" "$CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"
+          elif [[ "${{ matrix.platform }}" == "win" ]]; then
+            require_values \
+              "$AZURE_TENANT_ID" \
+              "$AZURE_CLIENT_ID" \
+              "$AZURE_CLIENT_SECRET" \
+              "$AZURE_TRUSTED_SIGNING_ENDPOINT" \
+              "$AZURE_TRUSTED_SIGNING_ACCOUNT_NAME" \
+              "$AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME" \
+              "$AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"
+          fi
+      - name: Build Study Buddy desktop artifact
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SIGNED: ${{ inputs.signed }}
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          AZURE_TENANT_ID: ${{ matrix.platform == 'win' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ matrix.platform == 'win' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ matrix.platform == 'win' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_ENDPOINT || '' }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || '' }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME || '' }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ matrix.platform == 'win' && secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME || '' }}
+        run: |
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "$RELEASE_VERSION"
+            --output-dir "$RUNNER_TEMP/study-buddy-release"
+          )
+          if [[ "$RELEASE_SIGNED" == "true" && "${{ matrix.platform }}" != "linux" ]]; then
+            if [[ "${{ matrix.platform }}" == "mac" ]]; then
+              key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+              printf '%s' "$APPLE_API_KEY" > "$key_path"
+              chmod 600 "$key_path"
+              export APPLE_API_KEY="$key_path"
+            fi
+            args+=(--signed)
+          fi
+          cd t3code-fork
+          pnpm dist:desktop:artifact "${args[@]}"
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/study-buddy-release/*.AppImage
+            ${{ runner.temp }}/study-buddy-release/*.dmg
+            ${{ runner.temp }}/study-buddy-release/*.zip
+            ${{ runner.temp }}/study-buddy-release/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Assemble release evidence
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.16
+          cache: npm
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+      - run: npm ci
+      - name: Generate production SBOM and immutable release manifest
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SIGNED: ${{ inputs.signed }}
+          ROOT_SHA: ${{ github.sha }}
+        run: |
+          npm sbom --omit=dev --sbom-format=cyclonedx > release-assets/study-buddy-root.cdx.json
+          UI_SHA="$(git ls-tree HEAD t3code-fork | awk '{print $3}')"
+          export UI_SHA
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const manifest = {
+              schemaVersion: 1,
+              product: "Study Buddy",
+              version: process.env.RELEASE_VERSION,
+              rootCommit: process.env.ROOT_SHA,
+              uiCommit: process.env.UI_SHA,
+              signed: process.env.RELEASE_SIGNED === "true",
+              generatedBy: "GitHub Actions",
+            };
+            writeFileSync("release-assets/release-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+          '
+          node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync("release-assets/study-buddy-root.cdx.json", "utf8")); if(value.bomFormat!=="CycloneDX" || !value.components?.length) process.exit(1)'
+          cd release-assets
+          sha256sum -- * > SHA256SUMS
+      - name: Upload complete release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: study-buddy-${{ inputs.version }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-draft:
+    name: Publish draft prerelease
+    if: inputs.publish_draft
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: alpha-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: study-buddy-${{ inputs.version }}
+          path: release-assets
+      - name: Publish reviewed draft from the exact existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          notes="docs/releases/v${RELEASE_VERSION}.md"
+          test -s "$notes"
+          gh release create "v${RELEASE_VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "Study Buddy v${RELEASE_VERSION}" \
+            --notes-file "$notes" \
+            --draft \
+            --prerelease \
+            release-assets/*
