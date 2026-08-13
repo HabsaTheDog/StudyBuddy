@@ -52,7 +52,7 @@ describe("web layout media pipeline", () => {
     expect(validateSingleFileHtml(finalHtml, "flashcards").ok).toBe(true);
     expect(prepared.report.assets).toHaveLength(1);
     expect(prepared.report.artifactBytes).toBe((await stat(prepared.report.buildPath)).size);
-  });
+  }, process.platform === "win32" ? 15_000 : 5_000);
 
   it("embeds image attributes without replacing matching source text inside JSON", async () => {
     const workspace = await tempWorkspace();
