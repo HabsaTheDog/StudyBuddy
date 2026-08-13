@@ -12,6 +12,7 @@ import {
 import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { inspectHtmlSource, replaceHtmlSourceRanges } from "../../shared/htmlSource.js";
 import { applyOfflineSecurityPolicy } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 
@@ -370,30 +371,43 @@ async function imageDimensions(filePath: string): Promise<{ width: number; heigh
 }
 
 function splitEditableSource(html: string): { html: string; css: string; js: string } {
-  const styles: string[] = [];
-  let styleInserted = false;
-  let sourceHtml = html.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_match, content: string) => {
-    styles.push(content.trim());
-    if (styleInserted) return "";
-    styleInserted = true;
-    return '<link rel="stylesheet" href="styles.css">';
-  });
-  const scripts: string[] = [];
-  let scriptInserted = false;
-  sourceHtml = sourceHtml.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (match, attributes: string, content: string) => {
-    if (/\bsrc\s*=|\btype\s*=\s*["'](?:application\/(?:json|ld\+json)|text\/plain)/i.test(attributes)) {
-      return match;
-    }
-    scripts.push(content.trim());
-    if (scriptInserted) return "";
-    scriptInserted = true;
-    return '<script src="app.js"></script>';
-  });
+  const document = inspectHtmlSource(html);
+  const styleElements = document.elements.filter((element) => element.tagName === "style");
+  const scriptElements = document.elements.filter((element) =>
+    element.tagName === "script" && isEditableInlineScript(element.attributes)
+  );
+  const incomplete = [...styleElements, ...scriptElements].find((element) => !element.hasEndTag);
+  if (incomplete) throw new Error(`Incomplete <${incomplete.tagName}> element cannot be bundled safely.`);
+
+  const styles = styleElements.map((element) =>
+    html.slice(element.contentStartOffset, element.contentEndOffset).trim()
+  );
+  const scripts = scriptElements.map((element) =>
+    html.slice(element.contentStartOffset, element.contentEndOffset).trim()
+  );
+  const sourceHtml = replaceHtmlSourceRanges(html, [
+    ...styleElements.map((element, index) => ({
+      startOffset: element.startOffset,
+      endOffset: element.endOffset,
+      value: index === 0 ? '<link rel="stylesheet" href="styles.css">' : "",
+    })),
+    ...scriptElements.map((element, index) => ({
+      startOffset: element.startOffset,
+      endOffset: element.endOffset,
+      value: index === 0 ? '<script src="app.js"></script>' : "",
+    })),
+  ]);
   return {
     html: `${sourceHtml.trim()}\n`,
     css: styles.length ? `${styles.join("\n\n")}\n` : "",
     js: scripts.length ? `${scripts.join("\n\n")}\n` : "",
   };
+}
+
+function isEditableInlineScript(attributes: ReadonlyMap<string, string>): boolean {
+  if (attributes.has("src")) return false;
+  const type = attributes.get("type")?.trim().toLowerCase() ?? "";
+  return !/^(?:application\/(?:json|ld\+json)|text\/plain)(?:\s*;|$)/.test(type);
 }
 
 function inlineEditableSource(indexHtml: string, css: string, js: string): string {

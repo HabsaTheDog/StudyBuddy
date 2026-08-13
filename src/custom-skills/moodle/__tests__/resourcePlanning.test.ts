@@ -50,7 +50,7 @@ describe("resource planning", () => {
       },
     ], "fast", 8);
 
-    expect(plan.entries.find((entry) => entry.candidate.href.includes("example.org"))?.selected)
+    expect(plan.entries.find((entry) => new URL(entry.candidate.href).hostname === "example.org")?.selected)
       .toBe(false);
   });
 
