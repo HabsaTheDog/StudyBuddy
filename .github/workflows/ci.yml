@@ -87,7 +87,7 @@ jobs:
       - run: npm run check:public-tree
       - run: npm run check:licenses
       - run: npm run check:sbom
-      - run: npm run audit:production
+      - run: npm run audit:all
       - name: Verify pinned submodule commit is public
         run: |
           commit="$(git ls-tree HEAD t3code-fork | awk '{print $3}')"
