@@ -93,7 +93,7 @@ jobs:
       - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
         with:
           working-directory: t3code-fork
-          node-version-file: t3code-fork/package.json
+          node-version-file: package.json
           cache: true
           run-install: true
       - name: Check UI formatting and lint
