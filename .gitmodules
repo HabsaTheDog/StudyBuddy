@@ -1,4 +1,4 @@
 [submodule "t3code-fork"]
 	path = t3code-fork
 	url = https://github.com/HabsaTheDog/t3code.git
-	branch = agent/study-buddy-t3-integration
+	branch = study-buddy

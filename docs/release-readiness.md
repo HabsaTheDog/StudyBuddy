@@ -48,6 +48,10 @@ result as proof for a later commit.
 - The root release gate passes 883 tests (four skipped), 418 public-path policy
   checks, Markdown-link validation, production-license policy, a 29-component
   CycloneDX SBOM check, and a zero-finding npm audit.
+- The interface fork now exposes the reviewed `study-buddy` branch as its
+  default, uses squash-only merges with automatic branch cleanup, disables its
+  unused wiki, and has private vulnerability reporting, secret scanning/push
+  protection, and Dependabot alerts/security updates enabled.
 - An unsigned Linux x64 AppImage was built from the pinned interface workspace,
   started with the Alpha identity, bound its backend to loopback, reached
   `backend ready`, and created its main window. Signed and clean-machine
