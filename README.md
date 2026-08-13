@@ -82,8 +82,8 @@ pnpm study-buddy:dev
 ```
 
 The browser UI defaults to `http://localhost:5853` and its local server to
-`http://localhost:13893`. The current UI work must be committed and pinned in the
-submodule before the first release candidate; see the
+`http://localhost:13893`. The root repository pins the reviewed public interface
+commit. Release builds must preserve that exact gitlink; see the
 [release process](docs/releasing.md).
 
 ## Development
