@@ -39,6 +39,8 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   draft-prerelease publication.
 - Added explicit Quick Chat workspace, deliverables, and thread environment
   isolation so concurrent builder runs cannot share an output root.
+- Bound plain local Markdown source headings and model source aliases to a
+  deterministic evidence identity before independent Question Bank review.
 
 ### Interface
 
