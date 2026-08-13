@@ -130,11 +130,14 @@ describe("diskWriterNode", () => {
     expect(run).toHaveBeenCalledTimes(1);
     const reviewOptions = run.mock.calls[0]?.[1];
     expect(reviewOptions).toMatchObject({ task: "quality_reviewer" });
-    expect(reviewOptions?.localImages).toEqual(expect.arrayContaining([
-      expect.stringMatching(/pdf-review\/(?:sheets\/sheet-|pages\/page-)\d+\.png$/),
-    ]));
-    expect(reviewOptions?.localImages?.length).toBeGreaterThan(0);
-    expect(reviewOptions?.localImages?.length).toBeLessThanOrEqual(2);
+    const reviewImagePaths = (reviewOptions?.localImages ?? []).map((imagePath) =>
+      path.relative(runDir!, imagePath).split(path.sep).join("/")
+    );
+    expect(reviewImagePaths.length).toBeGreaterThan(0);
+    expect(reviewImagePaths.length).toBeLessThanOrEqual(2);
+    expect(reviewImagePaths.every((imagePath) =>
+      /^pdf-review\/(?:sheets\/sheet-|pages\/page-)\d+\.png$/.test(imagePath)
+    )).toBe(true);
     const review = JSON.parse(
       await readFile(path.join(runDir, "pdf-post-render-review.json"), "utf8"),
     ) as {
