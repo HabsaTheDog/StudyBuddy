@@ -32,6 +32,7 @@
     "setup:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
     "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
     "moodle:doctor": "tsx src/custom-skills/moodle/doctorCli.ts",
+    "moodle:doctor:version": "tsx src/custom-skills/moodle/doctorCli.ts --version-only --json",
     "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
     "moodle:benchmark": "tsx src/custom-skills/moodle/evals/cli.ts",
     "moodle:watchdog": "tsx src/custom-skills/moodle/runWatchdogCli.ts",
