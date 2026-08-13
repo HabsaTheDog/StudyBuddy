@@ -40,6 +40,9 @@ jobs:
         with:
           node-version: 22.16
           cache: npm
+      - uses: typst-community/setup-typst@63ac138db421d586de61f7f5ac3bcef6a2e6c78c # v5
+        with:
+          typst-version: 0.15.0
       - name: Validate release contract
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -63,6 +66,11 @@ jobs:
             }
           '
       - run: npm ci
+      - name: Install release-validation tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          npx playwright install --with-deps chromium
       - run: npm run check:release
 
   build:
