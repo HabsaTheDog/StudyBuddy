@@ -947,7 +947,8 @@ describe("student-centric exam navigator contracts", () => {
           { runDir },
         );
         expect(report.ok).toBe(true);
-        expect(report.screenshotPaths).toHaveLength(2);
+        expect(report.screenshotPaths.map((screenshotPath) => path.basename(screenshotPath)))
+          .toEqual(["desktop.png", "laptop.png", "tablet.png", "mobile.png"]);
       } finally {
         await rm(runDir, { recursive: true, force: true });
       }
