@@ -148,6 +148,13 @@ interface QuestionEvidenceRef {
   exactSpan?: { start: number; end: number; sha256: string };
 }
 
+export interface ResolvedEvidenceSection {
+  sectionIndex: number;
+  heading: string;
+  summary: string;
+  sourceIds: string[];
+}
+
 export interface QuestionEvidenceCapsule {
   itemId: string;
   refs: QuestionEvidenceRef[];
@@ -226,30 +233,37 @@ export function buildQuestionEvidenceCapsule(
     };
   }
 
-  const sections = handoff?.sections;
+  const handoffSections = Array.isArray(handoff?.sections)
+    ? handoff.sections.map((section, sectionIndex): ResolvedEvidenceSection => ({
+        sectionIndex,
+        heading: section && typeof section.heading === "string" ? section.heading.trim() : "",
+        summary: section && typeof section.summary === "string" ? section.summary : "",
+        sourceIds: section && Array.isArray(section.source_ids) ? section.source_ids.map(String) : [],
+      }))
+    : [];
+  const plainSourceSections = resolvePlainSourceFileSections(sourceText);
   const passages: QuestionEvidenceCapsule["passages"] = [];
   for (const ref of refs) {
-    const section = Array.isArray(sections) ? sections[ref.sectionIndex] : undefined;
-    const heading = section && typeof section.heading === "string" ? section.heading.trim() : "";
-    const summary = section && typeof section.summary === "string" ? section.summary : "";
-    const sourceIds = section && Array.isArray(section.source_ids) ? section.source_ids.map(String) : [];
-    if (
-      !section ||
-      !summary.trim() ||
-      heading !== ref.sectionHeading.trim() ||
-      !ref.sourceIds.every((sourceId) => sourceIds.includes(sourceId))
-    ) {
+    const expectedHeading = ref.sectionHeading.trim();
+    const indexedHandoffSection = handoffSections[ref.sectionIndex];
+    const section = indexedHandoffSection &&
+        indexedHandoffSection.heading === expectedHeading &&
+        ref.sourceIds.every((sourceId) => indexedHandoffSection.sourceIds.includes(sourceId))
+      ? indexedHandoffSection
+      : uniquePlainSourceSection(plainSourceSections, expectedHeading, ref.sourceIds);
+    if (!section || !section.summary.trim() || section.heading !== expectedHeading ||
+      !ref.sourceIds.every((sourceId) => section.sourceIds.includes(sourceId))) {
       return {
         status: "evidence_unavailable",
         evidenceHash,
         sourceHandoffHash,
-        reason: `Stable evidence reference for section ${ref.sectionIndex} (${ref.sectionHeading}) does not resolve in this handoff.`,
+        reason: `Stable evidence reference for section ${ref.sectionIndex} (${ref.sectionHeading}) does not resolve in this source input.`,
       };
     }
-    let text = summary;
+    let text = section.summary;
     if (ref.exactSpan) {
       const { start, end } = ref.exactSpan;
-      if (start < 0 || end <= start || end > summary.length) {
+      if (start < 0 || end <= start || end > section.summary.length) {
         return {
           status: "evidence_unavailable",
           evidenceHash,
@@ -257,7 +271,7 @@ export function buildQuestionEvidenceCapsule(
           reason: `Evidence span for section ${ref.sectionIndex} is outside the resolved section summary.`,
         };
       }
-      text = summary.slice(start, end);
+      text = section.summary.slice(start, end);
       if (sha256(text) !== ref.exactSpan.sha256) {
         return {
           status: "evidence_unavailable",
@@ -268,8 +282,8 @@ export function buildQuestionEvidenceCapsule(
       }
     }
     passages.push({
-      sectionIndex: ref.sectionIndex,
-      sectionHeading: heading,
+      sectionIndex: section.sectionIndex,
+      sectionHeading: section.heading,
       sourceIds: [...ref.sourceIds],
       text,
     });
@@ -287,6 +301,77 @@ export function buildQuestionEvidenceCapsule(
     capsuleHash: sha256(JSON.stringify(capsule)),
     sourceHandoffHash,
   };
+}
+
+function uniquePlainSourceSection(
+  sections: ResolvedEvidenceSection[],
+  heading: string,
+  sourceIds: string[],
+): ResolvedEvidenceSection | undefined {
+  const matches = sections.filter((section) =>
+    section.heading === heading && sourceIds.every((sourceId) => section.sourceIds.includes(sourceId))
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function resolvePlainSourceFileSections(sourceText: string): ResolvedEvidenceSection[] {
+  const fileHeader = /^# Source file:\s*(.+)\s*$/gm;
+  const files = [...sourceText.matchAll(fileHeader)];
+  const sections: ResolvedEvidenceSection[] = [];
+  for (const [fileIndex, match] of files.entries()) {
+    const filePath = match[1]?.trim() ?? "";
+    const bodyStart = (match.index ?? 0) + match[0].length;
+    const nextFileStart = files[fileIndex + 1]?.index ?? sourceText.length;
+    const approvedAssetsBoundary = sourceText.indexOf(
+      "\n\n---\n\n# Approved local image assets",
+      bodyStart,
+    );
+    const bodyEnd = approvedAssetsBoundary >= 0
+      ? Math.min(nextFileStart, approvedAssetsBoundary)
+      : nextFileStart;
+    const body = sourceText.slice(bodyStart, bodyEnd)
+      .replace(/\n\s*---\s*$/s, "")
+      .trim();
+    if (!body) continue;
+    const basename = filePath.split(/[\\/]/).at(-1) ?? filePath;
+    const fileSourceId = stableSourceId(basename.replace(/\.[^.]+$/, ""));
+    const headings = [...body.matchAll(/^(#{1,6})\s+(.+?)\s*$/gm)];
+    if (headings.length === 0) {
+      sections.push({
+        sectionIndex: sections.length,
+        heading: basename.replace(/\.[^.]+$/, "").trim(),
+        summary: body,
+        sourceIds: [fileSourceId],
+      });
+      continue;
+    }
+    for (const [headingIndex, headingMatch] of headings.entries()) {
+      const level = headingMatch[1]!.length;
+      const nextBoundary = headings.slice(headingIndex + 1).find((candidate) =>
+        candidate[1]!.length <= level
+      );
+      const start = headingMatch.index ?? 0;
+      const end = nextBoundary?.index ?? body.length;
+      const heading = headingMatch[2]!.trim();
+      const sourceIds = [...new Set([fileSourceId, stableSourceId(heading)])];
+      sections.push({
+        sectionIndex: sections.length,
+        heading,
+        summary: body.slice(start + headingMatch[0].length, end).trim(),
+        sourceIds,
+      });
+    }
+  }
+  return sections;
+}
+
+function stableSourceId(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "source-file";
 }
 
 export function matchingApprovedQuestionReview(

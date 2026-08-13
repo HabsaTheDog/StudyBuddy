@@ -343,6 +343,39 @@ describe("independent question-bank item review", () => {
     });
   });
 
+  it("resolves a stable evidence capsule from a wrapped local source file", () => {
+    const content = contentFixture();
+    content.sources[0] = {
+      id: "synthetic-notes",
+      label: "Course Reader",
+      url: "",
+      coverage: "Force and acceleration",
+    };
+    const sourceText = [
+      "# User prompt",
+      "Build an interactive study guide from these notes.",
+      "",
+      "---",
+      "",
+      "# Source file: /tmp/synthetic-notes.md",
+      "# Forces",
+      "AUTHORIZED_PLAIN_SOURCE_CLAIM: net force and acceleration are related.",
+    ].join("\n");
+    const draft = buildAdaptiveStudyModel(content, sourceText, "en");
+
+    const binding = buildQuestionEvidenceCapsule(sourceText, draft.questionBank.items[0]!);
+
+    expect(binding.status).toBe("available");
+    if (binding.status !== "available") throw new Error(binding.reason);
+    expect(binding.capsule.passages).toEqual([
+      expect.objectContaining({
+        sectionHeading: "Forces",
+        sourceIds: ["synthetic-notes"],
+        text: expect.stringContaining("AUTHORIZED_PLAIN_SOURCE_CLAIM"),
+      }),
+    ]);
+  });
+
   it("invalidates a cached approval when the resolved evidence or source handoff changes", async () => {
     const runDir = await temporaryRunDir();
     const prompt = "Review this evidence-bound question.";

@@ -11,7 +11,7 @@ import { buildAdaptiveStudyModel, buildCourseBlueprint } from "../adaptiveStudyM
 import { resolveAssessmentArchitecturePlan } from "../assessmentArchitecturePlan.js";
 import { resolveAssessmentSolutions } from "../assessmentSolutions.js";
 import { resolveLearningVisuals } from "../learningVisuals.js";
-import { buildQuestionEvidenceCapsule, rejectedQuestionBankItems, resolveQuestionBankReviews } from "../questionBankReview.js";
+import { buildQuestionEvidenceCapsule, rejectedQuestionBankItems, resolvePlainSourceFileSections, resolveQuestionBankReviews } from "../questionBankReview.js";
 import { hashRequestContract } from "../../shared/requestContract.js";
 import { resolveLearningProgressionPlan } from "../learningProgressionPlan.js";
 import { applyQuestionBankDrops, planQuestionBankDispositions } from "../questionBankDisposition.js";
@@ -494,24 +494,50 @@ async function buildChunkedModelContent(
  */
 export function bindStudyGuideEvidenceRefs(content: StudyGuideContent, sourceText: string): number {
   const sections = readExtractionHandoff(sourceText)?.sections ?? [];
-  if (sections.length === 0) return 0;
+  const plainSourceSections = resolvePlainSourceFileSections(sourceText);
+  if (sections.length === 0 && plainSourceSections.length === 0) return 0;
   let rebound = 0;
   const referencedSourceCoverage = new Map<string, Set<string>>();
+  const plainSourceAliases = new Map<string, string>();
   const bind = (ref: StudyGuideEvidenceRef): void => {
     for (const sourceId of ref.sourceIds) {
       const coverage = referencedSourceCoverage.get(sourceId) ?? new Set<string>();
       coverage.add(ref.sectionHeading.trim());
       referencedSourceCoverage.set(sourceId, coverage);
     }
-    const matches = sections.flatMap((section, sectionIndex) => {
+    const handoffMatches = sections.flatMap((section, sectionIndex) => {
       const heading = typeof section.heading === "string" ? section.heading.trim() : "";
       const sourceIds = Array.isArray(section.source_ids) ? section.source_ids.map(String) : [];
       return heading === ref.sectionHeading.trim() && ref.sourceIds.every((id) => sourceIds.includes(id))
         ? [sectionIndex]
         : [];
     });
-    if (matches.length === 1 && ref.sectionIndex !== matches[0]) {
-      ref.sectionIndex = matches[0]!;
+    if (handoffMatches.length === 1) {
+      if (ref.sectionIndex !== handoffMatches[0]) {
+        ref.sectionIndex = handoffMatches[0]!;
+        rebound += 1;
+      }
+      return;
+    }
+    const plainMatches = plainSourceSections.filter((section) =>
+      section.heading === ref.sectionHeading.trim()
+    );
+    const refSources = ref.sourceIds.map((sourceId) =>
+      content.sources.find((source) => source.id === sourceId)
+    );
+    const refsDescribePlainHeading = refSources.length > 0 && refSources.every((source) =>
+      source && !source.url && source.label.trim() === ref.sectionHeading.trim()
+    );
+    if (plainMatches.length !== 1 || !refsDescribePlainHeading) return;
+    const match = plainMatches[0]!;
+    const canonicalSourceId = match.sourceIds[0];
+    if (!canonicalSourceId) return;
+    const priorSourceIds = [...ref.sourceIds];
+    priorSourceIds.forEach((sourceId) => plainSourceAliases.set(sourceId, canonicalSourceId));
+    if (ref.sectionIndex !== match.sectionIndex ||
+      ref.sourceIds.length !== 1 || ref.sourceIds[0] !== canonicalSourceId) {
+      ref.sectionIndex = match.sectionIndex;
+      ref.sourceIds = [canonicalSourceId];
       rebound += 1;
     }
   };
@@ -522,6 +548,13 @@ export function bindStudyGuideEvidenceRefs(content: StudyGuideContent, sourceTex
     }
     for (const retrieval of topic.retrieval) {
       for (const ref of retrieval.evidenceRefs ?? []) bind(ref);
+    }
+  }
+  for (const source of content.sources) {
+    const canonicalSourceId = plainSourceAliases.get(source.id);
+    if (canonicalSourceId && source.id !== canonicalSourceId) {
+      source.id = canonicalSourceId;
+      rebound += 1;
     }
   }
   const presentSourceIds = new Set(content.sources.map((source) => source.id));
