@@ -68,7 +68,7 @@ jobs:
         env:
           WEB_LAYOUT_BROWSER_TESTS: "1"
       - name: Verify SDK and bundled CLI pairing
-        run: npm run moodle:doctor -- --version-only --json
+        run: npm run moodle:doctor:version
 
   repository-policy:
     name: Repository policy
