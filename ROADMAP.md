@@ -8,22 +8,27 @@ not promised; safety and reproducibility gates take priority.
 - Rotate or revoke every credential previously disclosed outside protected
   storage. Automated full-history scans of both repositories are now in place;
   the remaining rotation confirmation is a maintainer action.
+- Remove the confirmed historical health document from reachable public Git
+  history through a coordinated rewrite. Current-tree deletion alone is not a
+  sufficient privacy response.
 - Real-looking portal resource IDs in current test fixtures have been replaced
   with synthetic IDs and the public-tree gate enforces this boundary.
-- Review, split, test, commit, and publish the current `t3code-fork` work; then
-  pin its public commit from the root repository.
+- Keep the reviewed public `t3code-fork` commit pinned from the root repository;
+  updates must continue through a separately reviewed interface PR first.
 - Inherited T3 deployment/release automation is disabled and CI now uses
   GitHub-hosted runners. A dedicated signed Study Buddy artifact workflow is
   still required before binary publication.
 - Root CI recursively checks out, audits, formats, typechecks, and tests the
-  pinned UI submodule. A final clean-clone run is still required after the new
-  fork commit and root gitlink are public.
+  pinned UI submodule. Final release candidates still require a clean-machine
+  artifact installation round in addition to CI.
 - License and SBOM generation gates are implemented, and the fork now installs
   from a clean frozen-lockfile checkout without private registry access.
   Complete final SBOM review and clean-machine installation on each claimed
   platform.
-- Remove the course-specific production template shortcut or convert it to
-  validated evidence-derived bank content.
+- The active publication path no longer uses fixed subject templates and is
+  protected by cross-course contract regressions. Complete fresh standalone
+  Balanced rounds for DYN2 and Business English before claiming broader generic
+  course support.
 
 ## Alpha goals
 

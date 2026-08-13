@@ -5,7 +5,7 @@ repository state without containing credentials, private portal identifiers, or
 local artifact paths. Update it when a gate changes; do not treat an old green
 result as proof for a later commit.
 
-## Verified locally on 2026-08-11
+## Verified locally and on GitHub on 2026-08-13
 
 - Root history: all 798 reachable commits/refs scanned with Gitleaks, with no
   findings. Exact configured local secret values were not present in the public
@@ -37,33 +37,49 @@ result as proof for a later commit.
   and vouch workflows are inert in the fork. Fork CI uses GitHub-hosted runners;
   checkout/setup/secret-scan actions used by active Study Buddy automation are
   commit-pinned.
+- Root `master` pins the reviewed public interface commit. Root CI revalidated
+  repository policy, the interface workspace, CodeQL, and secret scanning on
+  Linux, macOS, and Windows after that pin was merged.
+- The source-tree desktop app starts with Study Buddy identity and dedicated
+  state, and binds its development frontend and backend to loopback only.
+- Quick Chats use unique thread-named workspaces, unique deliverables roots, and
+  thread-scoped provider environment values. A concurrent-workspace regression
+  test protects this output-isolation boundary.
+- The root release gate passes 883 tests (four skipped), 418 public-path policy
+  checks, Markdown-link validation, production-license policy, a 29-component
+  CycloneDX SBOM check, and a zero-finding npm audit.
+- An unsigned Linux x64 AppImage was built from the pinned interface workspace,
+  started with the Alpha identity, bound its backend to loopback, reached
+  `backend ready`, and created its main window. Signed and clean-machine
+  platform installation remain separate gates.
 
 ## Remaining release blockers
 
-1. The maintainer must confirm rotation/revocation of any password, token,
+1. Rewrite the public root history to remove the confirmed historical health
+   document, then force-update only the explicitly reviewed public branches.
+   Treat the affected personal and insurance details as already disclosed.
+2. The maintainer must confirm rotation/revocation of any password, token,
    cookie, or calendar feed ever shared outside protected local storage.
-2. Push the locally reviewed interface-fork source-freeze commits to the public
-   fork, then update the root gitlink to that exact reachable SHA. Do not push
-   local checkpoint refs or unrelated application work in progress.
-3. Run the root CI/security gates from a clean recursive clone of those exact
-   commits. Repeat manual synthetic smoke tests on every platform claimed in the
-   prerelease notes.
-4. Create a dedicated Study Buddy artifact workflow with Study Buddy identity,
-   signing/notarization, checksums, SBOM attachment, draft-prerelease review, and
-   no upstream T3 publication endpoints.
-5. Enable the GitHub ruleset, required checks, private vulnerability reporting,
-   Dependabot/security updates, secret scanning/push protection, and automatic
-   branch cleanup described in [github-launch.md](github-launch.md).
+3. Repeat manual synthetic smoke tests on every platform claimed in the
+   prerelease notes and install the exact draft artifacts on clean machines.
+4. Configure the `alpha-release` environment and the Apple/Windows signing
+   credentials before authorizing a multi-platform binary prerelease.
+5. Enable and verify the GitHub ruleset, private vulnerability reporting,
+   Dependabot security updates, automatic branch cleanup, and other owner
+   settings described in [github-launch.md](github-launch.md).
 6. The disabled upstream mobile, marketing, and relay directories are excluded
    from the default pnpm workspace, frozen lockfile, audits, artifacts, and
    deployments. Reintroduce them only with an explicit product decision, public
    dependency resolution, and their own clean security review.
-7. Resolve the remaining course-specific production-template shortcut before
-   claiming generic production readiness for all course domains.
+7. The active adaptive path is free of fixed subject-template decisions and its
+   contract/portability regressions pass. Complete the two documented fresh
+   standalone Balanced rounds for DYN2 and Business English before claiming
+   broader generic course support.
 
 ## Release decision
 
-The source tree is suitable for continued public alpha hardening, but a binary
-release is **not yet authorized**. Publication requires the public fork pin,
-clean-clone verification, owner-controlled GitHub settings, credential-rotation
-confirmation, and a Study Buddy-specific signed artifact path.
+The source tree is suitable for continued public alpha hardening. A binary
+release is **not yet authorized**. Publication requires removal of the confirmed
+health document from reachable history, owner credential-rotation confirmation,
+owner-controlled GitHub settings, clean-machine platform validation, and the
+signed Study Buddy artifact path.

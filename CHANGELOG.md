@@ -34,3 +34,15 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   dependency-audit, and release verification commands.
 - Restricted accidental npm tarballs to public policy/license documents; npm is
   not a supported product distribution channel.
+- Added a dedicated, manually dispatched Study Buddy desktop artifact workflow
+  with immutable root/UI metadata, checksums, SBOM evidence, signing gates, and
+  draft-prerelease publication.
+- Added explicit Quick Chat workspace, deliverables, and thread environment
+  isolation so concurrent builder runs cannot share an output root.
+
+### Interface
+
+- Added Fast, Balanced, and Quality execution profiles with direct keyboard
+  selection while retaining the existing model-picker shortcut contract.
+- Hardened Quick Chat creation, draft promotion, file opening, timeline controls,
+  browser startup, and settings persistence regressions.
