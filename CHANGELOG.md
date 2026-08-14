@@ -37,6 +37,8 @@ releases. It is currently unreleased and may make breaking changes during alpha.
 - Added a dedicated, manually dispatched Study Buddy desktop artifact workflow
   with immutable root/UI metadata, checksums, SBOM evidence, signing gates, and
   draft-prerelease publication.
+- Scoped the initial binary matrix to Linux x64 and Windows x64 and made signed
+  publication fail closed until the reviewed SignPath path is operational.
 - Added explicit Quick Chat workspace, deliverables, and thread environment
   isolation so concurrent builder runs cannot share an output root.
 - Bound plain local Markdown source headings and model source aliases to a

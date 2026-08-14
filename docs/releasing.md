@@ -40,28 +40,27 @@ archives omit submodule contents, so release notes must explain recursive clone
 setup and attach deliberate binaries separately.
 
 Use the manually dispatched **Alpha desktop artifacts** workflow. A branch run
-with `publish_draft=false` produces review-only unsigned artifacts. Publishing
+with `publish_draft=false` produces review-only unsigned Linux x64 and Windows
+x64 artifacts. macOS binaries are outside the current release matrix. Publishing
 is accepted only when all of the following are true:
 
 - the workflow runs from an existing `v<version>` tag;
 - `signed=true` is selected;
-- the `alpha-release` environment controls artifact builds, signing secrets,
-  and publication approval;
-- Apple notarization and Windows signing secrets are complete;
+- the `alpha-release` environment controls signing secrets and publication
+  approval;
+- the Windows artifact has been signed through the reviewed SignPath path;
 - every platform build and the release-evidence assembly succeeds.
 
 The assembled bundle contains the platform artifacts, `SHA256SUMS`, the root
 CycloneDX SBOM, and `release-manifest.json` with the exact root and interface
 commits. Do not repurpose the disabled upstream T3 release workflow.
 
-Store signing material only as `alpha-release` environment secrets. macOS needs
-`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY` (the private `.p8` contents),
-`APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`. Windows needs `AZURE_TENANT_ID`,
-`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
-`AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`,
-`AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, and
-`AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`. Restrict the environment to reviewed
-tags and required maintainers before adding these values.
+The workflow fails closed when `signed=true` until SignPath Foundation
+onboarding, origin verification, signing policy, and the pinned integration are
+complete. Store any eventual SignPath token only as an `alpha-release`
+environment secret, restrict that environment to reviewed tags and required
+maintainers, and require a separate signing approval. Do not add Apple or Azure
+signing credentials to this release path.
 
 ## 5. Publish a draft prerelease
 

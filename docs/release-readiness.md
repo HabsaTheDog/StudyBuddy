@@ -5,7 +5,17 @@ repository state without containing credentials, private portal identifiers, or
 local artifact paths. Update it when a gate changes; do not treat an old green
 result as proof for a later commit.
 
-## Verified locally and on GitHub on 2026-08-13
+## Verified locally and on GitHub on 2026-08-14
+
+- The public root history was rewritten, every reviewed writable branch and tag
+  now points only to the cleaned history, and the old local root object database
+  was removed after a verified fresh migration. GitHub Support has been asked to
+  dereference the affected pull-request refs and purge cached views.
+- The maintainer confirmed rotation of the previously disclosed credentials.
+  No signing credentials are currently stored in the release environment.
+- The permanent `master` ruleset requires pull requests, the seven release and
+  security checks, resolved review conversations, CodeQL high/critical blocking,
+  and prevents deletion and non-fast-forward updates without a bypass.
 
 - Root history: all 798 reachable commits/refs scanned with Gitleaks, with no
   findings. Exact configured local secret values were not present in the public
@@ -45,8 +55,8 @@ result as proof for a later commit.
 - Quick Chats use unique thread-named workspaces, unique deliverables roots, and
   thread-scoped provider environment values. A concurrent-workspace regression
   test protects this output-isolation boundary.
-- The root release gate passes 883 tests (four skipped), 418 public-path policy
-  checks, Markdown-link validation, production-license policy, a 29-component
+- The root release gate passes 886 tests (four skipped), 420 public-path policy
+  checks, Markdown-link validation, production-license policy, a 31-component
   CycloneDX SBOM check, and a zero-finding npm audit.
 - The interface fork now exposes the reviewed `study-buddy` branch as its
   default, uses squash-only merges with automatic branch cleanup, disables its
@@ -65,24 +75,18 @@ result as proof for a later commit.
 
 ## Remaining release blockers
 
-1. Rewrite the public root history to remove the confirmed historical health
-   document, then force-update only the explicitly reviewed public branches.
-   Treat the affected personal and insurance details as already disclosed.
-2. The maintainer must confirm rotation/revocation of any password, token,
-   cookie, or calendar feed ever shared outside protected local storage.
+1. Confirm that GitHub Support has dereferenced the affected pull-request refs
+   and removed cached views containing the historical personal data.
+2. Produce and inspect the unsigned Linux x64 and Windows x64 alpha artifacts,
+   then complete SignPath Foundation onboarding and the reviewed Windows signing
+   integration before binary publication. macOS is not part of this alpha.
 3. Repeat manual synthetic smoke tests on every platform claimed in the
    prerelease notes and install the exact draft artifacts on clean machines.
-4. The reviewer-gated `alpha-release` environment is configured for `master`
-   and `v*` sources. Add the Apple/Windows signing credentials before
-   authorizing a multi-platform binary prerelease.
-5. Private vulnerability reporting, Dependabot alerts/security updates, secret
-   scanning/push protection, squash-only merges, and automatic branch cleanup
-   are enabled. Add the permanent `master` ruleset after the privacy rewrite.
-6. The disabled upstream mobile, marketing, and relay directories are excluded
+4. The disabled upstream mobile, marketing, and relay directories are excluded
    from the default pnpm workspace, frozen lockfile, audits, artifacts, and
    deployments. Reintroduce them only with an explicit product decision, public
    dependency resolution, and their own clean security review.
-7. The active adaptive path is free of fixed subject-template decisions and its
+5. The active adaptive path is free of fixed subject-template decisions and its
    contract/portability regressions pass. Complete the two documented fresh
    standalone Balanced rounds for DYN2 and Business English before claiming
    broader generic course support.
@@ -90,7 +94,6 @@ result as proof for a later commit.
 ## Release decision
 
 The source tree is suitable for continued public alpha hardening. A binary
-release is **not yet authorized**. Publication requires removal of the confirmed
-health document from reachable history, owner credential-rotation confirmation,
-owner-controlled GitHub settings, clean-machine platform validation, and the
-signed Study Buddy artifact path.
+release is **not yet authorized**. Publication requires GitHub Support cache
+closure, clean-machine Linux/Windows validation, and the signed Windows artifact
+path.
