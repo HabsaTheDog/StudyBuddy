@@ -46,8 +46,8 @@ is accepted only when all of the following are true:
 
 - the workflow runs from an existing `v<version>` tag;
 - `signed=true` is selected;
-- the `alpha-release` environment controls artifact builds, signing secrets,
-  and publication approval;
+- the `alpha-release` environment controls signing secrets and publication
+  approval;
 - the Windows artifact has been signed through the reviewed SignPath path;
 - every platform build and the release-evidence assembly succeeds.
 
