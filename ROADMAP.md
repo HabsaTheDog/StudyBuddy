@@ -5,19 +5,17 @@ not promised; safety and reproducibility gates take priority.
 
 ## Release blockers
 
-- Rotate or revoke every credential previously disclosed outside protected
-  storage. Automated full-history scans of both repositories are now in place;
-  the remaining rotation confirmation is a maintainer action.
-- Remove the confirmed historical health document from reachable public Git
-  history through a coordinated rewrite. Current-tree deletion alone is not a
-  sufficient privacy response.
+- Credential rotation and the coordinated public-history rewrite are complete.
+  Await GitHub Support confirmation that affected pull-request refs and cached
+  views have been purged.
 - Real-looking portal resource IDs in current test fixtures have been replaced
   with synthetic IDs and the public-tree gate enforces this boundary.
 - Keep the reviewed public `t3code-fork` commit pinned from the root repository;
   updates must continue through a separately reviewed interface PR first.
 - Inherited T3 deployment/release automation is disabled and CI now uses
-  GitHub-hosted runners. A dedicated signed Study Buddy artifact workflow is
-  still required before binary publication.
+  GitHub-hosted runners. The dedicated artifact workflow targets Linux x64 and
+  Windows x64; SignPath Foundation onboarding and reviewed Windows signing are
+  still required before binary publication. macOS is deferred.
 - Root CI recursively checks out, audits, formats, typechecks, and tests the
   pinned UI submodule. Final release candidates still require a clean-machine
   artifact installation round in addition to CI.

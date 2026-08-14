@@ -1,20 +1,19 @@
 # GitHub launch checklist
 
-The repository is already public. As of 2026-08-13, private vulnerability
+The repository is already public. As of 2026-08-14, private vulnerability
 reporting, Dependabot alerts/security updates, secret scanning, push protection,
 and automatic merged-branch deletion are enabled. The unused wiki is disabled.
-`master` remains temporarily unprotected until the confirmed privacy incident
-is remediated; no tag or release exists. Treat the next announcement as a
-controlled alpha launch, not the first moment of source exposure.
+The privacy rewrite and credential rotation are complete, and `master` is
+protected by the permanent release ruleset. No tag or release exists. Treat the
+next announcement as a controlled alpha launch, not the first moment of source
+exposure.
 
-## Containment before announcement
+## Completed containment
 
-- Rotate or revoke the previously disclosed portal password/calendar feed and
-  the credential-like Cloudflare browser session material found in local-only
-  checkpoint refs.
-- Remove the confirmed historical health document from every reachable public
-  root ref through a coordinated rewrite. Current-tree deletion is insufficient;
-  previous disclosure cannot be undone.
+- The previously disclosed credentials were rotated by the maintainer.
+- The confirmed historical health document was removed from every reviewed
+  writable public root ref. GitHub Support cache and pull-request-ref cleanup is
+  still awaiting confirmation; previous disclosure cannot be undone.
 - Confirm `git ls-remote origin 'refs/t3/*'` remains empty.
 - Never push `refs/t3/**`, `--all`, or `--mirror`; push only a reviewed branch
   and later an explicit release tag.
@@ -29,9 +28,9 @@ controlled alpha launch, not the first moment of source exposure.
 2. Open a root pull request and require CI, repository policy, UI submodule,
    CodeQL, and secret scan to pass.
 3. Review the complete file manifest and diff from public `master` before merge.
-4. Perform the one authorized privacy rewrite before enabling the permanent
-   `master` ruleset; never use this exception for ordinary development.
-5. Afterward, merge all changes through the protected pull-request path.
+4. Merge all changes through the protected pull-request path. The completed
+   privacy rewrite remains a one-time exception and must not become precedent
+   for ordinary development.
 
 The reviewed public root history produced no confirmed production-secret match,
 but it did expose a real health document containing personal, insurance, and
@@ -40,11 +39,10 @@ history rewrite. Rewriting has high coordination cost and cannot undo clones or
 previous disclosure. Follow the applicable privacy-incident response and notify
 existing clone owners after the force update.
 
-## GitHub settings after the workflows are pushed
+## GitHub settings
 
-- Add a `master` ruleset requiring pull requests, the new CI/security checks,
-  conversation resolution, and no force pushes or deletions. Include the
-  maintainer rather than creating an unreviewed bypass.
+- Keep the active `master` ruleset requiring pull requests, CI/security checks,
+  conversation resolution, and no force pushes or deletions.
 - Private vulnerability reporting and security-alert subscription are enabled.
 - Dependabot alerts and security updates are enabled. Keep npm and GitHub
   Actions update configuration in `.github/dependabot.yml`.
@@ -61,6 +59,8 @@ existing clone owners after the force update.
 
 - Prepare several bounded `good first issue` and `help wanted` items before the
   announcement.
+- Publish desktop binaries for Linux x64 and Windows x64 only. macOS remains
+  outside the first alpha matrix.
 - Draft `v0.1.0-alpha.1` from the exact verified root and submodule commits.
 - Attach release notes, known limitations, checksums, and the reviewed SBOM.
 - Verify the draft artifacts on a clean machine and mark the release as a
