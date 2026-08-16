@@ -160,7 +160,7 @@ describe("independent question-bank item review", () => {
                 scope: true,
                 answer: item.id !== rejectedId,
                 provenance: true,
-                rendering: true,
+                rendering: true, selfContained: true, feedback: true,
               },
               findings: item.id === rejectedId
                 ? [{
@@ -218,7 +218,7 @@ describe("independent question-bank item review", () => {
               itemId: item.id,
               contentHash: item.contentHash,
               verdict: "approved",
-              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: [],
             })),
           });
@@ -280,7 +280,7 @@ describe("independent question-bank item review", () => {
               itemId: item.id,
               contentHash: item.contentHash,
               verdict: "approved",
-              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: [],
             })),
           });
@@ -476,7 +476,7 @@ describe("independent question-bank item review", () => {
               itemId: item.id,
               contentHash: "0".repeat(64),
               verdict: "approved",
-              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: [],
             })),
           });
@@ -504,13 +504,16 @@ function approvingReviewer(
       expect(options.task).toBe("quality_reviewer");
       expect(prompt).toContain("Exact original request");
       expect(prompt).toContain("Evaluated request contract");
+      expect(prompt).toContain("visible card alone");
+      expect(prompt).toContain("Reject deictic references to a chapter, summary, example, list, file, video, or prior question");
+      expect(prompt).toContain("without merely repeating all option texts");
       const batch = items.filter((item) => prompt.includes(`\"itemId\":\"${item.id}\"`));
       return JSON.stringify({
         records: batch.map((item) => ({
           itemId: item.id,
           contentHash: item.contentHash,
           verdict: "approved",
-          checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+          checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
           findings: [],
         })),
       });
@@ -579,7 +582,7 @@ function approvedBatch(
       itemId: item.id,
       contentHash: item.contentHash,
       verdict: "approved",
-      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: [],
     })),
   });

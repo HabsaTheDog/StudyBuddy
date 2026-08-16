@@ -1,0 +1,11 @@
+{
+  "duration": 31,
+  "maxStaticSec": 2.2,
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#el-01-questions-held-v03", "bySec": 0.1 },
+    { "kind": "appearsBy", "selector": "#el-02-continuous-studybuddy-v03", "bySec": 5.5 },
+    { "kind": "appearsBy", "selector": "#el-03-final-lockup-v03", "bySec": 27.5 },
+    { "kind": "before", "a": "#el-01-questions-held-v03", "b": "#el-03-final-lockup-v03" },
+    { "kind": "keepsMoving", "withinSelector": "#root" }
+  ]
+}

@@ -293,4 +293,132 @@ describe("interactive evidence handoff", () => {
     expect(result.learning_modules.every((module) => module.assessment_signals.length === 0)).toBe(true);
     expect(result.learning_modules.at(-1)?.title).toBe("Schwingungen");
   });
+
+  it("binds selected visual practice sources to the evaluated architecture and exposes honest method evidence", () => {
+    const courseUrl = "https://moodle.example/course/view.php?id=44";
+    const lectureUrl = "https://moodle.example/pluginfile.php/44/lecture.pdf";
+    const exampleUrl = "https://moodle.example/pluginfile.php/44/example.pdf";
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      courseUrl,
+      resources: [{
+        id: "lecture",
+        parentId: null,
+        sectionPath: ["Self-study 1A: Kinematics"],
+        activityType: "resource",
+        title: "Unit A lecture",
+        originUrl: lectureUrl,
+        resolvedUrl: lectureUrl,
+        localPath: "/tmp/lecture.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: "lecture",
+        verifiedAt: "2026-08-16T00:00:00.000Z",
+        examRelevance: "confirmed",
+        failureReason: null,
+        contentType: "application/pdf",
+        selection: { selected: true, role: "primary_lecture", topic: null, priority: 900, reason: "core" },
+        extraction: { status: "usable", method: "native_pdf_text", characterCount: 1000, pageCount: 8, warnings: [] },
+      }, {
+        id: "example",
+        parentId: null,
+        sectionPath: ["Class 1B: Kinematics"],
+        activityType: "resource",
+        title: "Worked method sheet",
+        originUrl: exampleUrl,
+        resolvedUrl: exampleUrl,
+        localPath: "/tmp/example.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: "example",
+        verifiedAt: "2026-08-16T00:00:00.000Z",
+        examRelevance: "confirmed",
+        failureReason: null,
+        contentType: "application/pdf",
+        selection: { selected: true, role: "worked_example", topic: null, priority: 600, reason: "depth" },
+        extraction: { status: "partial", method: "native_pdf_text", characterCount: 20, pageCount: 2, warnings: ["visual-required"] },
+      }],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      warnings: [],
+      records: [{
+        id: "ev-unit-a",
+        resourceId: "lecture",
+        kind: "formula",
+        locator: { page: 2 },
+        content: "The lecture establishes the governing relation.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: lectureUrl,
+        localPath: "/tmp/lecture.pdf",
+      }],
+    });
+    const state = moodleTestState({
+      resource_manifest: manifest,
+      evidence_package: evidence,
+      source_architect_decision: {
+        round: 2,
+        status: "sufficient",
+        coverageSummary: "Unit A is grounded.",
+        requestedUrls: [],
+        reasons: [],
+        remainingAvailable: 0,
+        learningArchitecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "unit-a",
+            title: "Kinematics",
+            priority: "essential",
+            contentMode: "mixed",
+            learningObjectives: ["Apply the governing relation."],
+            assessmentSignals: [],
+            resourceUrls: [lectureUrl],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      },
+    });
+    const result = buildEvidenceHandoff(moodleTestConfig({
+      prompt: "Create an interactive guide",
+      outputLanguage: "en",
+      moodleUrl: courseUrl,
+      evidenceHandoffOnly: true,
+    }), state, {
+      schemaVersion: 1,
+      resources: [{
+        sourceId: "example",
+        sourceTitle: "Worked method sheet",
+        sourceRole: "worked_example",
+        sourcePath: "/tmp/example.pdf",
+        sourceHash: "a".repeat(64),
+        pageCount: 2,
+        examples: [{
+          pages: [2],
+          evidenceStatus: "method_only",
+          learningGoal: "Rearrange and check the governing relation.",
+          taskPrompt: "",
+          givens: [],
+          targets: [],
+          solutionSteps: ["Write the governing relation.", "Check dimensions."],
+          result: "",
+          diagramDescription: "A labelled system sketch is visible.",
+          confidence: 0.8,
+          warnings: ["The original prompt is not visible."],
+        }],
+        warnings: [],
+      }],
+    });
+
+    expect(result.sections).toHaveLength(1);
+    expect(result.sections[0]?.source_ids).toEqual(["lecture", "example"]);
+    expect(result.sections[0]?.summary).toContain("status method_only");
+    expect(result.sections[0]?.summary).toContain("original prompt is not visible");
+    expect(result.worked_examples).toHaveLength(1);
+    expect(result.worked_examples[0]?.origin).toBe("derived");
+    expect(result.worked_examples[0]?.source_ids).toEqual(["example"]);
+  });
 });

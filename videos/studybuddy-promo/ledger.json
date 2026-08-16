@@ -1,0 +1,20 @@
+{
+  "fps": 30,
+  "seams": [
+    {
+      "id": "questions-to-product",
+      "cut": 5,
+      "technique": "zoom-through",
+      "blur": 12,
+      "exit": { "selector": "#el-01-questions-held-v03", "axis": "z", "dir": 1, "dur": 0.42 },
+      "entry": { "selector": "#el-02-continuous-studybuddy-v03", "axis": "z", "dir": 1, "dur": 0.48, "scanRoot": "#el-02-continuous-studybuddy-v03" }
+    },
+    {
+      "id": "product-to-lockup",
+      "cut": 27,
+      "technique": "cut-the-curve LEFT",
+      "exit": { "selector": "#el-02-continuous-studybuddy-v03", "axis": "x", "dir": -1, "dur": 0.42 },
+      "entry": { "selector": "#el-03-final-lockup-v03", "axis": "x", "dir": -1, "dur": 0.42, "travel": 8 }
+    }
+  ]
+}

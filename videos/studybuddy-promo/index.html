@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1920px;height:1080px;overflow:hidden;background:#000}
+      #root{position:relative;width:1920px;height:1080px;overflow:hidden;background:#19254b}
+      .scene{position:absolute;inset:0;width:100%;height:100%;will-change:transform,opacity,filter}
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-0xju" id="root" data-composition-id="main" data-start="0" data-duration="31" data-width="1920" data-height="1080">
+      <div data-hf-id="hf-wc59" id="el-01-questions-held-v03" class="scene" data-composition-id="01-questions-held-v03" data-composition-src="compositions/frames/01-questions-held-v03.html" data-start="0" data-duration="5" data-track-index="0"></div>
+      <div data-hf-id="hf-w2i9" id="el-02-continuous-studybuddy-v03" class="scene" data-composition-id="02-continuous-studybuddy-v03" data-composition-src="compositions/frames/02-continuous-studybuddy-v03.html" data-start="5" data-duration="22" data-track-index="1"></div>
+      <div data-hf-id="hf-pkkl" id="el-03-final-lockup-v03" class="scene" data-composition-id="03-final-lockup-v03" data-composition-src="compositions/frames/03-final-lockup-v03.html" data-start="27" data-duration="4" data-track-index="0"></div>
+      <audio data-hf-id="hf-f8yu" id="el-bgm" src=".media/audio/bgm/bgm_006.mp3" data-start="0" data-duration="31" data-track-index="11" data-volume="0.9"></audio>
+    </div>
+    <script>
+      window.__timelines=window.__timelines||{};
+      const tl=gsap.timeline({paused:true});
+      window.__timelines["main"]=tl;
+      gsap.set("#el-01-questions-held-v03",{autoAlpha:1,xPercent:0,scale:1,filter:"blur(0px)",transformOrigin:"50% 50%"});
+      gsap.set("#el-02-continuous-studybuddy-v03",{autoAlpha:0,xPercent:0,scale:.78,filter:"blur(12px)",transformOrigin:"50% 50%"});
+      gsap.set("#el-03-final-lockup-v03",{autoAlpha:0,xPercent:8,scale:1,filter:"blur(0px)",transformOrigin:"50% 50%"});
+
+      // SEAM 1 — the four questions become the product reveal on the music drop.
+      tl.to("#el-01-questions-held-v03",{scale:1.18,filter:"blur(12px)",autoAlpha:0,duration:.42,ease:"power3.in"},4.58)
+        .set("#el-01-questions-held-v03",{autoAlpha:0},5)
+        .fromTo("#el-02-continuous-studybuddy-v03",{autoAlpha:.15,scale:.78,filter:"blur(12px)"},{autoAlpha:1,scale:1,filter:"blur(0px)",duration:.48,ease:"expo.out",immediateRender:false},5)
+
+      // SEAM 2 — the persistent product surface releases its gold carrier into the lockup.
+        .to("#el-02-continuous-studybuddy-v03",{xPercent:-12,autoAlpha:0,duration:.42,ease:"power3.in"},26.58)
+        .set("#el-02-continuous-studybuddy-v03",{autoAlpha:0},27)
+        .fromTo("#el-03-final-lockup-v03",{xPercent:8,autoAlpha:.28},{xPercent:0,autoAlpha:1,duration:.42,ease:"power4.out",immediateRender:false},27)
+        .to({}, {duration:31}, 0);
+    </script>
+  </body>
+</html>

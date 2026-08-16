@@ -1,0 +1,137 @@
+<template>
+  <style>
+    @font-face{font-family:"Montserrat";font-weight:500;src:url("assets/fonts/Montserrat-Medium.otf") format("opentype")}
+    @font-face{font-family:"Montserrat";font-weight:800;src:url("assets/fonts/Montserrat-ExtraBold.otf") format("opentype")}
+    *{box-sizing:border-box}
+    #root{position:absolute;inset:0;width:1920px;height:1080px;overflow:hidden;font-family:"Montserrat",sans-serif;color:#f7f6f1;container-type:size}
+    .frame03-bg{position:absolute;inset:0;background:radial-gradient(circle at 50% 57%,rgba(223,187,99,.2),transparent 24%),radial-gradient(circle at 16% 22%,rgba(73,85,142,.5),transparent 34%),radial-gradient(circle at 90% 82%,rgba(50,58,97,.7),transparent 38%),linear-gradient(145deg,#091027,#19254b 55%,#111a39)}
+    .frame03-bg::after{content:"";position:absolute;inset:0;opacity:.11;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.3'/%3E%3C/svg%3E");mix-blend-mode:soft-light}
+    .frame03-stage{position:absolute;inset:0}
+    .frame03-title{position:absolute;left:108px;top:76px;font-size:72px;line-height:1.06;font-weight:800;letter-spacing:-.03em;z-index:8}
+    .frame03-title span{color:#dfbb63}
+    .frame03-map{position:absolute;left:150px;right:150px;top:185px;height:705px}
+    .frame03-lines{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 0 10px rgba(223,187,99,.22));z-index:1}
+    .frame03-lines path{fill:none;stroke:rgba(223,187,99,.72);stroke-width:4;stroke-linecap:round;stroke-dasharray:620;stroke-dashoffset:620}
+    .frame03-node{position:absolute;width:330px;height:145px;border:1.5px solid rgba(247,246,241,.17);border-radius:34px;background:linear-gradient(135deg,rgba(247,246,241,.13),rgba(247,246,241,.045));box-shadow:0 26px 70px rgba(2,5,18,.36),inset 0 1px rgba(255,255,255,.1);padding:27px 34px;font-size:42px;line-height:1;font-weight:800;backdrop-filter:blur(18px);z-index:5;overflow:hidden}
+    .frame03-node::before{content:"";position:absolute;right:27px;top:31px;width:12px;height:12px;border-radius:50%;background:#dfbb63;box-shadow:0 0 18px rgba(223,187,99,.7)}
+    .frame03-node-status{position:relative;height:35px;margin-top:14px;color:rgba(247,246,241,.74);font-size:25px;line-height:35px;font-weight:500;letter-spacing:.01em}
+    .frame03-status-word{position:absolute;left:0;top:0;white-space:nowrap;opacity:0}
+    .frame03-status-word.frame03-ready{color:#e4c57a}
+    .frame03-moodle{left:0;top:50px}
+    .frame03-cis{right:0;top:50px}
+    .frame03-calendar{left:0;bottom:50px}
+    .frame03-mail{right:0;bottom:50px}
+    .frame03-mail .frame03-node-status{font-size:21px}
+    .frame03-hub-ring{position:absolute;left:635px;top:217px;width:350px;height:350px;border:2px solid rgba(223,187,99,.48);border-radius:50%;z-index:2}
+    .frame03-hub{position:absolute;left:660px;top:242px;width:300px;height:300px;border:1.5px solid rgba(223,187,99,.75);border-radius:50%;background:radial-gradient(circle,rgba(247,246,241,.15),rgba(247,246,241,.045));box-shadow:0 0 0 18px rgba(223,187,99,.035),0 0 84px rgba(223,187,99,.18),0 32px 90px rgba(2,5,18,.45);display:grid;place-items:center;backdrop-filter:blur(20px);z-index:6}
+    .frame03-hub img{width:160px;height:160px;object-fit:contain}
+    .frame03-hub-status{position:absolute;left:50%;bottom:28px;width:220px;height:21px;margin-left:-110px;color:#dfbb63;font-size:17px;font-weight:800;line-height:21px;letter-spacing:.14em;text-align:center;text-transform:uppercase;white-space:nowrap}
+    .frame03-hub-status-word{position:absolute;inset:0;opacity:0}
+    .frame03-request{position:absolute;left:690px;top:164px;width:240px;height:58px;border:1.5px solid rgba(223,187,99,.72);border-radius:9999px;background:linear-gradient(135deg,rgba(223,187,99,.22),rgba(223,187,99,.07));box-shadow:0 18px 48px rgba(2,5,18,.36);display:grid;place-items:center;color:#f7f6f1;font-size:17px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;z-index:7}
+    .frame03-receipt{position:absolute;width:218px;height:68px;border:1.5px solid rgba(247,246,241,.2);border-radius:23px;background:linear-gradient(135deg,rgba(247,246,241,.16),rgba(247,246,241,.075));box-shadow:0 18px 44px rgba(2,5,18,.32);display:flex;align-items:center;gap:13px;padding:0 18px;color:#f7f6f1;font-size:14px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;backdrop-filter:blur(16px);z-index:3}
+    .frame03-receipt::before{content:"";width:10px;height:10px;flex:0 0 auto;border-radius:50%;background:#dfbb63;box-shadow:0 0 14px rgba(223,187,99,.7)}
+    .frame03-receipt-material{left:560px;top:280px;transform:rotate(-5deg)}
+    .frame03-receipt-timetable{left:842px;top:287px;transform:rotate(4deg)}
+    .frame03-receipt-deadline{left:565px;top:445px;transform:rotate(4deg)}
+    .frame03-receipt-message{left:840px;top:450px;transform:rotate(-4deg)}
+    .frame03-packet{position:absolute;left:630px;top:316px;width:360px;height:152px;border:1.5px solid rgba(223,187,99,.78);border-radius:42px;background:linear-gradient(135deg,rgba(223,187,99,.29),rgba(247,246,241,.09));box-shadow:0 28px 80px rgba(2,5,18,.48),0 0 42px rgba(223,187,99,.15);display:flex;align-items:center;justify-content:center;gap:18px;color:#f7f6f1;font-size:23px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;backdrop-filter:blur(22px);z-index:9}
+    .frame03-packet-mark{width:18px;height:18px;border-radius:50%;background:#dfbb63;box-shadow:0 0 22px rgba(223,187,99,.82)}
+  </style>
+  <div data-hf-id="hf-g4jo" id="root" data-composition-id="03-context-connected" data-start="0" data-width="1920" data-height="1080" data-duration="5.9">
+    <div data-hf-id="hf-uqto" id="context-background" class="frame03-bg clip" data-start="0" data-duration="5.9" data-track-index="0"></div>
+    <section data-hf-id="hf-yvlp" id="context-stage" class="frame03-stage clip" data-start="0" data-duration="5.9" data-track-index="1">
+      <div data-hf-id="hf-5srr" class="frame03-title">Your study context. <span data-hf-id="hf-85w6">Connected.</span></div>
+      <div data-hf-id="hf-znxm" class="frame03-map">
+        <svg data-hf-id="hf-sz73" class="frame03-lines" viewBox="0 0 1620 705" preserveAspectRatio="none" aria-hidden="true">
+          <path data-hf-id="hf-ba3e" class="frame03-path" d="M660 352 C520 315 500 122 330 122" />
+          <path data-hf-id="hf-rpf5" class="frame03-path" d="M960 352 C1100 315 1120 122 1290 122" />
+          <path data-hf-id="hf-md79" class="frame03-path" d="M660 352 C520 389 500 583 330 583" />
+          <path data-hf-id="hf-eboo" class="frame03-path" d="M960 352 C1100 389 1120 583 1290 583" />
+        </svg>
+        <div data-hf-id="hf-67ld" class="frame03-hub-ring"></div>
+        <div data-hf-id="hf-py4l" class="frame03-hub">
+          <img data-hf-id="hf-86ot" src="assets/studybuddy-logo-highlight.png" alt="StudyBuddy mark">
+          <div data-hf-id="hf-ozge" class="frame03-hub-status" data-layout-allow-overlap><span data-hf-id="hf-6hy2" class="frame03-hub-status-word">finding</span><span data-hf-id="hf-9on1" class="frame03-hub-status-word">checking</span><span data-hf-id="hf-9vu6" class="frame03-hub-status-word">matching</span><span data-hf-id="hf-tuts" class="frame03-hub-status-word">ready</span></div>
+        </div>
+        <div data-hf-id="hf-vo22" class="frame03-request">student request</div>
+        <div data-hf-id="hf-974s" class="frame03-node frame03-moodle">
+          Moodle
+          <div data-hf-id="hf-17mj" class="frame03-node-status" data-layout-allow-overlap><span data-hf-id="hf-sb30" class="frame03-status-word frame03-finding">finding</span><span data-hf-id="hf-oqkw" class="frame03-status-word frame03-checking">checking</span><span data-hf-id="hf-rm0i" class="frame03-status-word frame03-matching">matching</span><span data-hf-id="hf-nttr" class="frame03-status-word frame03-ready">material ready</span></div>
+        </div>
+        <div data-hf-id="hf-1y44" class="frame03-node frame03-cis">
+          CIS
+          <div data-hf-id="hf-izrv" class="frame03-node-status" data-layout-allow-overlap><span data-hf-id="hf-rnkk" class="frame03-status-word frame03-finding">finding</span><span data-hf-id="hf-emi0" class="frame03-status-word frame03-checking">checking</span><span data-hf-id="hf-696e" class="frame03-status-word frame03-matching">matching</span><span data-hf-id="hf-lvo7" class="frame03-status-word frame03-ready">timetable ready</span></div>
+        </div>
+        <div data-hf-id="hf-jc2g" class="frame03-node frame03-calendar">
+          Calendar
+          <div data-hf-id="hf-hj75" class="frame03-node-status" data-layout-allow-overlap><span data-hf-id="hf-qgnh" class="frame03-status-word frame03-finding">finding</span><span data-hf-id="hf-dfkx" class="frame03-status-word frame03-checking">checking</span><span data-hf-id="hf-6nhf" class="frame03-status-word frame03-matching">matching</span><span data-hf-id="hf-nrpp" class="frame03-status-word frame03-ready">deadlines ready</span></div>
+        </div>
+        <div data-hf-id="hf-m1fm" class="frame03-node frame03-mail">
+          Mail
+          <div data-hf-id="hf-ue28" class="frame03-node-status" data-layout-allow-overlap><span data-hf-id="hf-quyi" class="frame03-status-word frame03-finding">finding</span><span data-hf-id="hf-dtvy" class="frame03-status-word frame03-checking">checking</span><span data-hf-id="hf-71sg" class="frame03-status-word frame03-matching">matching</span><span data-hf-id="hf-4gms" class="frame03-status-word frame03-ready">message context ready</span></div>
+        </div>
+        <div data-hf-id="hf-6150" class="frame03-receipt frame03-receipt-material">course material</div>
+        <div data-hf-id="hf-jdgt" class="frame03-receipt frame03-receipt-timetable">timetable</div>
+        <div data-hf-id="hf-9nrh" class="frame03-receipt frame03-receipt-deadline">deadline</div>
+        <div data-hf-id="hf-m9qu" class="frame03-receipt frame03-receipt-message">message context</div>
+        <div data-hf-id="hf-5ypf" class="frame03-packet"><span data-hf-id="hf-023a" class="frame03-packet-mark"></span>context ready</div>
+      </div>
+    </section>
+  </div>
+  <script>
+    window.__timelines=window.__timelines||{};
+    (function(){
+      var tl=gsap.timeline({paused:true});
+      var nodes=gsap.utils.toArray(".frame03-node");
+      var paths=gsap.utils.toArray(".frame03-path");
+      var receipts=gsap.utils.toArray(".frame03-receipt");
+      var statusSets=nodes.map(function(node){return gsap.utils.toArray(node.querySelectorAll(".frame03-status-word"));});
+      var hubStatuses=[".frame03-hub-status-word:nth-child(1)",".frame03-hub-status-word:nth-child(2)",".frame03-hub-status-word:nth-child(3)",".frame03-hub-status-word:nth-child(4)"];
+      gsap.set(nodes,{opacity:0,scale:.9});
+      gsap.set(paths,{strokeDashoffset:620});
+      gsap.set(receipts,{opacity:0,scale:.84});
+      gsap.set(".frame03-packet",{opacity:0,scale:.28});
+      gsap.set(".frame03-hub-status-word",{opacity:0,y:7});
+      tl.fromTo(".frame03-title",{opacity:0,y:-18},{opacity:1,y:0,duration:.52,ease:"power3.out"},0)
+        .fromTo(".frame03-hub",{opacity:.15,scale:.78,filter:"blur(10px)"},{opacity:1,scale:1,filter:"blur(0px)",duration:.62,ease:"power3.out"},0)
+        .fromTo(".frame03-request",{opacity:0,y:-70,scale:.92},{opacity:1,y:0,scale:1,duration:.42,ease:"power3.out"},.04)
+        .to(".frame03-request",{y:87,scale:.22,opacity:0,duration:.28,ease:"power3.in"},.46)
+        .fromTo(".frame03-hub-ring",{opacity:.76,scale:.8},{opacity:0,scale:1.15,duration:.38,ease:"power2.out"},.32)
+        .to(hubStatuses[0],{opacity:1,y:0,duration:.16},.56)
+        .to(hubStatuses[0],{opacity:0,y:-6,duration:.1},1.22)
+        .to(hubStatuses[1],{opacity:1,y:0,duration:.12},1.24)
+        .to(hubStatuses[1],{opacity:0,y:-6,duration:.1},1.9)
+        .to(hubStatuses[2],{opacity:1,y:0,duration:.12},1.92)
+        .to(hubStatuses[2],{opacity:0,y:-6,duration:.1},3.18)
+        .to(hubStatuses[3],{opacity:1,y:0,duration:.12},3.2);
+
+      var starts=[.75,1.41,2.07,2.73];
+      nodes.forEach(function(node,i){
+        var start=starts[i];
+        var xFrom=i%2===0?-34:34;
+        tl.to(paths[i],{strokeDashoffset:0,duration:.5,ease:"power2.inOut"},start)
+          .fromTo(node,{opacity:0,scale:.9,x:xFrom},{opacity:1,scale:1,x:0,duration:.42,ease:"power3.out"},start+.08)
+          .set(statusSets[i],{opacity:0,y:7},start+.09)
+          .to(statusSets[i][0],{opacity:1,y:0,duration:.12},start+.14)
+          .to(statusSets[i][0],{opacity:0,y:-6,duration:.09},start+.28)
+          .to(statusSets[i][1],{opacity:1,y:0,duration:.1},start+.3)
+          .to(statusSets[i][1],{opacity:0,y:-6,duration:.08},start+.42)
+          .to(statusSets[i][2],{opacity:1,y:0,duration:.1},start+.44)
+          .to(statusSets[i][2],{opacity:0,y:-6,duration:.08},start+.55)
+          .to(statusSets[i][3],{opacity:1,y:0,duration:.12},start+.57)
+          .fromTo(".frame03-hub-ring",{opacity:.5,scale:.9},{opacity:0,scale:1.12,duration:.36,ease:"power2.out"},start+.42);
+      });
+
+      var receiptFrom=[{x:-520,y:-210},{x:350,y:-218},{x:-520,y:138},{x:350,y:133}];
+      receipts.forEach(function(receipt,i){
+        tl.fromTo(receipt,{opacity:0,scale:.82,x:receiptFrom[i].x,y:receiptFrom[i].y},{opacity:1,scale:1,x:0,y:0,duration:.5,ease:"power3.out"},3.4+i*.2);
+      });
+      tl.to(hubStatuses[3],{opacity:0,duration:.18},4.34)
+        .to(receipts,{x:function(i){return i%2===0?210:-210;},y:function(i){return i<2?112:-55;},scale:.18,opacity:0,duration:.34,stagger:.035,ease:"power3.in"},4.62)
+        .to(".frame03-hub",{scale:.78,opacity:.28,filter:"blur(7px)",duration:.3,ease:"power2.in"},4.68)
+        .fromTo(".frame03-packet",{opacity:0,scale:.28},{opacity:1,scale:1,duration:.34,ease:"power3.out"},4.72)
+        .to(".frame03-packet",{x:-1080,scale:.9,duration:.45,ease:"power3.in"},5.06);
+      window.__timelines["03-context-connected"]=tl;
+    })();
+  </script>
+</template>

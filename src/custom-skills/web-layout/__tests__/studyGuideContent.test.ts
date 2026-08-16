@@ -373,6 +373,9 @@ describe("study-guide canonical content bank", () => {
     expect(second.error_log).toBeNull();
     expect(contentPrompts).toHaveLength(1);
     expect(contentPrompts[0]).toContain("Chapter 2/4");
+    expect(contentPrompts[0]).toContain("self-contained on its visible learner card");
+    expect(contentPrompts[0]).toContain("estimatedMinutes");
+    expect(contentPrompts[0]).toContain("One item per objective is not automatically sufficient");
     const repaired = JSON.parse(await readFile(chunkPath, "utf8")) as StudyGuideContent;
     expect(validateStudyGuideChapterQuality(repaired)).toEqual([]);
   });
@@ -466,7 +469,7 @@ describe("study-guide canonical content bank", () => {
             return {
               itemId: item.itemId, contentHash: item.contentHash,
               verdict: reject ? "rejected" : "approved",
-              checks: { schema: true, scope: true, answer: !reject, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: !reject, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: reject ? [{ code: "answer", severity: "blocking", message: "The explanation is incomplete.", repairInstruction: "Repair only this explanation." }] : [],
             };
           }) });
@@ -523,8 +526,8 @@ describe("study-guide canonical content bank", () => {
               itemId: item.itemId, contentHash: item.contentHash,
               verdict: unavailable ? "evidence_unavailable" : "approved",
               checks: unavailable
-                ? { schema: false, scope: false, answer: false, provenance: false, rendering: false }
-                : { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+                ? { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false }
+                : { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: unavailable ? [{ code: "evidence-unavailable", severity: "blocking", message: "Capsule could not establish the cited claim.", repairInstruction: "Rebuild the unchanged item capsule." }] : [],
             };
           }) });
@@ -587,7 +590,7 @@ describe("study-guide canonical content bank", () => {
             else if (rejectedHashes.has(item.itemId) && rejectedHashes.get(item.itemId) !== item.contentHash) rereviewed.push(item);
             return {
               itemId: item.itemId, contentHash: item.contentHash, verdict: original ? "rejected" : "approved",
-              checks: { schema: true, scope: true, answer: !original, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: !original, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: original ? [{ code: "answer", severity: "blocking", message: "Incomplete.", repairInstruction: "Complete only this answer." }] : [],
             };
           }) });
@@ -889,7 +892,7 @@ function modelOrReviewResponse(prompt: string): string {
       itemId: item.itemId,
       contentHash: item.contentHash,
       verdict: "approved",
-      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: [],
     })),
   });

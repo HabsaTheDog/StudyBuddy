@@ -642,6 +642,10 @@ describe("source architect", () => {
       status: "request_more",
       requestedUrls: [lectureUrl, exampleUrl],
     });
+    const architectPrompt = codex.run.mock.calls[0]?.[0] as string;
+    expect(architectPrompt).toContain("lecture-only coverage is not sufficient");
+    expect(architectPrompt).toContain("smallest nonredundant set of those practice sources");
+    expect(architectPrompt).toContain("Do not impose a universal task count");
   });
 
   it("preserves first-round module boundaries while deterministically acquiring remaining assignments", async () => {

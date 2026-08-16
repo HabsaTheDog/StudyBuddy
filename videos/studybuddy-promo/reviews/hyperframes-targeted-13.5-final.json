@@ -1,0 +1,390 @@
+{
+  "ok": true,
+  "strict": true,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 20,
+    "findings": [
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f01v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f01v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/01-questions-held-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f01-routes` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f01-routes",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/01-the-questions.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02v3-aura` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02v3-aura",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-ground::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-ground::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-ground::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-ground::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-impact` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-impact",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-impact-core` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-impact-core",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-streak` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-streak",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-shell::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-shell::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.frame03-bg::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".frame03-bg::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/03-context-connected.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f03v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f03v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/03-final-lockup-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-background::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-background::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-answer::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-answer::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-focus-glow` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-focus-glow",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage:after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage:after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/05-more-than-an-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.hero-glow` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".hero-glow",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/05-more-than-an-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.residuals` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".residuals",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      }
+    ],
+    "filesScanned": 10
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "duration": 31,
+    "samples": [
+      13.5
+    ],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 0,
+    "truncated": false
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "specPath": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/index.motion.json",
+    "samples": 300
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "samples": [
+      13.5
+    ],
+    "checked": 32,
+    "passed": 32
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  },
+  "_meta": {
+    "version": "0.7.108",
+    "latestVersion": "0.7.108",
+    "updateAvailable": false
+  }
+}

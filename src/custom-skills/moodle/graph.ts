@@ -22,6 +22,7 @@ import { createCourseResolverNode } from "./nodes/courseResolverNode.js";
 import { createVisualAssetResolverNode } from "./nodes/visualAssetResolverNode.js";
 import { createVisualDiscoveryNode } from "./nodes/visualDiscoveryNode.js";
 import { createVisualPlannerNode } from "./nodes/visualPlannerNode.js";
+import { createPracticeVisualEvidenceNode } from "./practiceVisualEvidence.js";
 import { createResourceManifestNode } from "./nodes/resourceManifestNode.js";
 import { createEvidenceNode } from "./nodes/evidenceNode.js";
 import { createEvidenceHandoffNode } from "./nodes/evidenceHandoffNode.js";
@@ -774,8 +775,9 @@ export function buildExtractionGraph(
 /**
  * Source-only extraction for interactive Study Guides. It retains the real
  * Moodle resolver, browser, downloader, resource manifest, evidence package,
- * and coverage gate, but deliberately performs no teaching synthesis. The
- * web-layout graph is the single owner of that work.
+ * request-bound source architecture, targeted acquisition, and coverage gate,
+ * but deliberately performs no teaching synthesis. The web-layout graph is
+ * the single owner of that work.
  */
 export function buildEvidenceHandoffExtractionGraph(
   config: MoodleRuntimeConfig,
@@ -790,8 +792,11 @@ export function buildEvidenceHandoffExtractionGraph(
     .addNode("evidence", createEvidenceNode(config))
     .addNode("requestEvaluator", createRequestEvaluatorNode(config, codex))
     .addNode("requestContractCheckpoint", createRequestContractCheckpointNode(config))
+    .addNode("sourceArchitect", createSourceArchitectNode(config, codex))
+    .addNode("targetedAcquisition", createTargetedAcquisitionNode(config))
     .addNode("coverage", createCoverageNode(config))
     .addNode("sourceGate", createSourceGateNode(config))
+    .addNode("practiceVisualEvidence", createPracticeVisualEvidenceNode(config, codex))
     .addNode("evidenceHandoff", createEvidenceHandoffNode(config))
     .addEdge(START, "sourcePlanner")
     .addEdge("sourcePlanner", "courseResolver")
@@ -803,15 +808,22 @@ export function buildEvidenceHandoffExtractionGraph(
     .addEdge("resourceManifest", "evidence")
     .addEdge("evidence", "requestEvaluator")
     .addEdge("requestEvaluator", "requestContractCheckpoint")
-    .addEdge("requestContractCheckpoint", "coverage")
+    .addEdge("requestContractCheckpoint", "sourceArchitect")
+    .addConditionalEdges("sourceArchitect", routeAfterSourceArchitect, {
+      targetedAcquisition: "targetedAcquisition",
+      coverage: "coverage",
+      abort: END,
+    })
+    .addEdge("targetedAcquisition", "resourceManifest")
     .addConditionalEdges("coverage", routeAfterCoverage, {
       sourceGate: "sourceGate",
       abort: END,
     })
     .addConditionalEdges("sourceGate", routeAfterSourceGate, {
-      analyzer: "evidenceHandoff",
+      analyzer: "practiceVisualEvidence",
       abort: END,
     })
+    .addEdge("practiceVisualEvidence", "evidenceHandoff")
     .addEdge("evidenceHandoff", END)
     .compile();
 }

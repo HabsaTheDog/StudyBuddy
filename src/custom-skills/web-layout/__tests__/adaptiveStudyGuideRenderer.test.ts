@@ -16,7 +16,7 @@ describe("adaptive study-guide renderer contracts", () => {
     const pending = fixture();
     pending.model.questionBank.items[0]!.review = {
       status: "pending",
-      checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false },
+      checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false },
       findings: [],
     };
     expect(() => renderAdaptiveStudyGuide(pending.content, pending.model, "en"))
@@ -155,6 +155,20 @@ describe("adaptive study-guide renderer contracts", () => {
 
     expect(html).toContain(".answer-options label>span{display:grid");
     expect(html).not.toContain(".answer-options label span{display:grid");
+  });
+
+  it("keeps mobile question navigation viewport-near, adds guarded swipe, and renders concise selection feedback", () => {
+    const { content, model } = fixture();
+    const html = renderAdaptiveStudyGuide(content, model, "de");
+
+    expect(html.match(/data-question-navigation/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).toContain(".focus-toolbar[data-question-navigation]{position:sticky;top:66px");
+    expect(html).toContain("[data-learning-question-host]{touch-action:pan-y}");
+    expect(html).toContain("target.closest?.('input,textarea,select,button,label,a,details,summary,[contenteditable=\"true\"]')");
+    expect(html).toContain("Math.abs(dx)<72||Math.abs(dx)<Math.abs(dy)*1.5");
+    expect(html).toContain("function selectionFeedback(item,chosen,correct,ok)");
+    expect(html).toContain("Richtige Antwort:");
+    expect(html).not.toContain("item.exercise.options.map((option,index)=>'<li><strong>'");
   });
 
   it("wraps unbroken source labels instead of widening tablet layouts", () => {

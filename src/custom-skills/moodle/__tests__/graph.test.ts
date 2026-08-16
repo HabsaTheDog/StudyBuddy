@@ -627,6 +627,26 @@ describe("moodle graph retry routing", () => {
           config.originalUserPrompt,
           config.artifactIntent.formats,
         )),
+        JSON.stringify({
+          status: "sufficient",
+          coverage_summary: "The authorized course page grounds the requested interactive overview.",
+          requested_urls: [],
+          reasons: ["No additional source is required for this fixture."],
+          learning_architecture: {
+            schemaVersion: 1,
+            modules: [{
+              id: "course-overview",
+              title: "Course overview",
+              priority: "essential",
+              contentMode: "mixed",
+              learningObjectives: ["Explain the evidenced course overview."],
+              assessmentSignals: [],
+              resourceUrls: [config.moodleUrl],
+            }],
+            supportResources: [],
+            excludedResourceUrls: [],
+          },
+        }),
       ]),
       scraperNode: async () => {
         await diagnostics.markSuccess("moodle", {
@@ -652,6 +672,8 @@ describe("moodle graph retry routing", () => {
     const result = await graph.invoke(initialAgentState);
 
     expect(result.request_contract_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.source_architect_decision.round).toBe(1);
+    expect(result.source_architect_decision.status).toBe("sufficient");
     await expect(readFile(path.join(runDir, REQUEST_CONTRACT_FILE), "utf8"))
       .resolves.toContain(config.originalUserPrompt);
     await expect(readFile(path.join(runDir, REQUEST_CONTRACT_INTEGRITY_FILE), "utf8"))

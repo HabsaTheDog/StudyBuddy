@@ -1,0 +1,13 @@
+{
+  "kind": "music-edit-report",
+  "schema_version": 1,
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "metrics": {
+    "segments": 1,
+    "timeline_duration_s": 31.0,
+    "discontinuous_edit": false,
+    "ending_type": "fade"
+  }
+}

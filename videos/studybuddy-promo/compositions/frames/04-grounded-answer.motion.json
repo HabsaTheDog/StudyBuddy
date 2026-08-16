@@ -1,0 +1,12 @@
+{
+  "duration": 5.35,
+  "maxStaticSec": 1.5,
+  "assertions": [
+    { "kind": "appearsBy", "selector": ".f04-context-packet", "bySec": 0.65 },
+    { "kind": "appearsBy", "selector": ".f04-headline", "bySec": 1.5 },
+    { "kind": "appearsBy", "selector": ".f04-action", "bySec": 2.3 },
+    { "kind": "appearsBy", "selector": ".f04-artifact-seed", "bySec": 4.6 },
+    { "kind": "staysInFrame", "selector": ".f04-stage" },
+    { "kind": "keepsMoving", "withinSelector": ".f04-content" }
+  ]
+}

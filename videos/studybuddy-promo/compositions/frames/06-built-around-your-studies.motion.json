@@ -1,0 +1,11 @@
+{
+  "duration": 4.8,
+  "maxStaticSec": 1.9,
+  "assertions": [
+    { "kind": "appearsBy", "selector": ".lockup-shell", "bySec": 1.0 },
+    { "kind": "appearsBy", "selector": ".tagline", "bySec": 1.65 },
+    { "kind": "before", "a": ".lockup-shell", "b": ".tagline" },
+    { "kind": "staysInFrame", "selector": ".lockup-shell" },
+    { "kind": "keepsMoving", "withinSelector": ".content" }
+  ]
+}

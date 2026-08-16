@@ -81,6 +81,53 @@ Status: deterministic fixes verified; fresh live DYN2 retest pending
   that the transient HTTP failure produces a warning and a verified canary
   instead of an empty workflow.
 
+## DYN2 mobile question quality and adaptive depth
+
+Status: implementation and local regression verification complete on
+2026-08-16; one fresh Balanced desktop-app acceptance run pending
+
+- Topic and catalogue question workspaces expose a mobile sticky navigation
+  toolbar below the global hotbar. A deliberate horizontal swipe changes the
+  active question, while vertical gestures and gestures beginning on inputs,
+  textareas, controls, links, disclosures, or editable content remain untouched.
+- Content generation, item repair, and independent review now require every
+  published question to be answerable from its visible card. Hidden references
+  to a chapter, summary, example, list, file, video, or prior question are
+  blocking unless the referenced stimulus is embedded in that item.
+- Selection feedback renders the correct option letter and the decisive
+  explanation once. It may add one short misconception-specific note for the
+  learner's selected wrong option, but no longer repeats every full option and
+  then repeats the conclusion.
+- Exercise contracts preserve a realistic `estimatedMinutes` value through
+  generation, item-local repair, semantic hashing, and learning-progression
+  planning. The progression planner treats effort as evidence: short foundation
+  tasks can lead into fewer substantial calculations or transfers without fixed
+  type, chapter, difficulty, or count quotas.
+- For interactive learning or exam preparation, source architecture no longer
+  treats lecture-only coverage as sufficient while relevant authorized worked
+  examples, task/solution pairs, sample-exam tasks, or completed-attempt reviews
+  remain available. It selects a nonredundant practice set by evidenced methods,
+  subskills, response modes, transfer demand, and effort.
+- The active evidence-handoff graph now consumes the evaluated learning
+  architecture instead of silently truncating the visible Moodle hierarchy
+  after twelve sections. Selected practice files that share an architecture
+  section with its lecture are bound to that module, so later course units and
+  their examples cannot disappear merely because they occur near the end of a
+  large course page.
+- Selected worked-example and sample-assessment PDFs with sparse or absent text
+  layers receive a cached visual source-evidence pass before HTML authoring.
+  It distinguishes a complete visible task from a diagram or worked method
+  whose original prompt is missing. Complete tasks may remain course originals;
+  method-only evidence can support only an explicitly adapted, self-contained
+  variant. Per-source failures remain transparent evidence gaps instead of
+  aborting unrelated course content.
+- Local proof: the full web-layout suite plus Source Architect regression has
+  235 passing tests and 3 browser-gated skips; the focused Moodle/Web matrix has
+  55 passing tests. TypeScript typecheck and diff whitespace validation pass.
+  Live DYN2 quality, bank depth, token/call metrics, mobile interaction, and
+  final publication remain intentionally unclaimed until the clean First-Try
+  run completes.
+
 ## Open request-contract architecture
 
 Status: implementation and local regression verification complete on

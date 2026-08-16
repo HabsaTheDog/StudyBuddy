@@ -1,0 +1,66 @@
+<template>
+  <style>
+    @font-face{font-family:"Montserrat";font-weight:500;font-style:normal;font-display:block;src:url("assets/fonts/Montserrat-Medium.otf") format("opentype")}
+    @font-face{font-family:"Montserrat";font-weight:800;font-style:normal;font-display:block;src:url("assets/fonts/Montserrat-ExtraBold.otf") format("opentype")}
+    *{box-sizing:border-box}
+    #root{position:absolute;inset:0;width:1920px;height:1080px;overflow:hidden;font-family:"Montserrat",sans-serif;color:#f7f6f1}
+    .f01v3-stage{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 52% 54%,rgba(223,187,99,.16),transparent 27%),radial-gradient(circle at 8% 8%,rgba(73,85,142,.7),transparent 39%),radial-gradient(circle at 92% 86%,rgba(50,58,97,.55),transparent 40%),#101936}
+    .f01v3-stage::after{content:"";position:absolute;inset:0;opacity:.12;background-image:radial-gradient(rgba(247,246,241,.5) .7px,transparent .7px);background-size:7px 7px;mix-blend-mode:soft-light;pointer-events:none}
+    .f01v3-kicker{position:absolute;z-index:5;left:120px;top:82px;font-size:25px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:rgba(247,246,241,.62)}
+    .f01v3-question{position:absolute;z-index:4;display:flex;align-items:center;min-height:126px;padding:27px 82px 27px 38px;border:1.5px solid rgba(247,246,241,.19);border-radius:36px;background:linear-gradient(145deg,rgba(247,246,241,.14),rgba(247,246,241,.045));box-shadow:0 28px 88px rgba(2,5,18,.4),inset 0 1px rgba(255,255,255,.12);font-size:36px;font-weight:500;line-height:1.22;letter-spacing:-.015em;backdrop-filter:blur(18px);transform-origin:center center;will-change:transform,opacity,filter}
+    .f01v3-question::after{content:"\2197";position:absolute;right:30px;top:29px;color:#dfbb63;font-size:32px;font-weight:500}
+    .f01v3-q1{left:120px;top:220px;width:610px;transform:rotate(-1.6deg)}
+    .f01v3-q2{right:122px;top:148px;width:690px;transform:rotate(1.2deg)}
+    .f01v3-q3{left:270px;top:610px;width:680px;transform:rotate(.8deg)}
+    .f01v3-q4{right:105px;top:675px;width:650px;transform:rotate(-1.2deg)}
+    .f01v3-index{position:absolute;left:26px;top:-18px;display:grid;place-items:center;width:52px;height:52px;border:1px solid rgba(223,187,99,.52);border-radius:50%;background:#19254b;color:#dfbb63;font:800 17px/1 "Montserrat",sans-serif;box-shadow:0 12px 30px rgba(2,5,18,.35)}
+    .f01v3-line{position:absolute;z-index:2;left:50%;top:50%;width:170px;height:10px;margin-left:-85px;margin-top:-5px;border-radius:9999px;background:#dfbb63;box-shadow:0 0 46px rgba(223,187,99,.7);transform-origin:center center}
+    .f01v3-ring{position:absolute;z-index:1;left:50%;top:50%;width:170px;height:170px;margin-left:-85px;margin-top:-85px;border:2px solid rgba(223,187,99,.58);border-radius:50%}
+    .f01v3-label{position:absolute;z-index:3;left:50%;top:calc(50% + 42px);width:320px;margin-left:-160px;text-align:center;font-size:18px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:#dfbb63}
+  </style>
+  <div data-hf-id="hf-6kdz" id="root" data-composition-id="01-questions-held-v03" data-start="0" data-width="1920" data-height="1080" data-duration="5">
+    <section data-hf-id="hf-ws26" id="f01v3-stage" class="clip f01v3-stage" data-start="0" data-duration="5" data-track-index="1">
+      <div data-hf-id="hf-kr1j" class="f01v3-kicker">Your week</div>
+      <div data-hf-id="hf-9wht" class="f01v3-question f01v3-q1" data-layout-allow-overlap><span data-hf-id="hf-nbcd" class="f01v3-index" data-layout-allow-overlap>01</span>What’s due this week?</div>
+      <div data-hf-id="hf-lkrr" class="f01v3-question f01v3-q2" data-layout-allow-overlap><span data-hf-id="hf-oi9g" class="f01v3-index" data-layout-allow-overlap>02</span>Help me prepare for my exam.</div>
+      <div data-hf-id="hf-gi6j" class="f01v3-question f01v3-q3" data-layout-allow-overlap><span data-hf-id="hf-o3yf" class="f01v3-index" data-layout-allow-overlap>03</span>Draft an email to my lecturer.</div>
+      <div data-hf-id="hf-6uqq" class="f01v3-question f01v3-q4" data-layout-allow-overlap><span data-hf-id="hf-pavi" class="f01v3-index" data-layout-allow-overlap>04</span>Quiz me on today’s lecture.</div>
+      <div data-hf-id="hf-cs9o" class="f01v3-ring" aria-hidden="true"></div>
+      <div data-hf-id="hf-r3mc" class="f01v3-line" aria-hidden="true"></div>
+      <div data-hf-id="hf-3dnp" class="f01v3-label">one request, fully understood</div>
+    </section>
+  </div>
+  <script>
+    window.__timelines=window.__timelines||{};
+    (()=>{
+      const tl=gsap.timeline({paused:true});
+      const cards=[".f01v3-q1",".f01v3-q2",".f01v3-q3",".f01v3-q4"];
+      const arrivals=[.22,.97,2.32,3.17];
+      const entries=[{x:-70,y:26,r:-1.6},{x:70,y:-18,r:1.2},{x:-58,y:36,r:.8},{x:62,y:28,r:-1.2}];
+      gsap.set(".f01v3-kicker",{opacity:0,y:16});
+      gsap.set(cards,{opacity:0,filter:"blur(12px)",scale:.94});
+      gsap.set(".f01v3-line",{opacity:0,scaleX:.08,scaleY:.7});
+      gsap.set(".f01v3-ring",{opacity:0,scale:.25});
+      gsap.set(".f01v3-label",{opacity:0,y:10});
+      tl.fromTo(".f01v3-kicker",{opacity:0,y:16},{opacity:1,y:0,duration:.42,ease:"power3.out"},.05);
+      cards.forEach((card,i)=>{
+        tl.fromTo(card,
+          {opacity:0,x:entries[i].x,y:entries[i].y,rotation:entries[i].r,scale:.94,filter:"blur(12px)"},
+          {opacity:1,x:0,y:0,rotation:entries[i].r,scale:1,filter:"blur(0px)",duration:.48,ease:"power4.out",immediateRender:false},
+          arrivals[i]
+        );
+      });
+      tl.to(".f01v3-kicker",{opacity:.34,y:-10,duration:.28,ease:"power2.in"},4.42)
+        .to(".f01v3-q1",{x:710,y:260,rotation:0,scale:.1,opacity:.18,filter:"blur(7px)",duration:.46,ease:"power4.in"},4.46)
+        .to(".f01v3-q2",{x:-615,y:332,rotation:0,scale:.1,opacity:.18,filter:"blur(7px)",duration:.46,ease:"power4.in"},4.46)
+        .to(".f01v3-q3",{x:350,y:-70,rotation:0,scale:.1,opacity:.18,filter:"blur(7px)",duration:.46,ease:"power4.in"},4.46)
+        .to(".f01v3-q4",{x:-535,y:-135,rotation:0,scale:.1,opacity:.18,filter:"blur(7px)",duration:.46,ease:"power4.in"},4.46)
+        .fromTo(".f01v3-ring",{opacity:.62,scale:.24},{opacity:0,scale:1.25,duration:.48,ease:"power3.out",immediateRender:false},4.48)
+        .to(".f01v3-line",{opacity:1,scaleX:1,scaleY:1,duration:.30,ease:"expo.out"},4.62)
+        .to(".f01v3-label",{opacity:1,y:0,duration:.24,ease:"power3.out"},4.64)
+        .to(".f01v3-line",{scaleX:1.28,boxShadow:"0 0 70px rgba(223,187,99,.88)",duration:.08,ease:"power3.out"},4.92)
+        .to({}, {duration:5}, 0);
+      window.__timelines["01-questions-held-v03"]=tl;
+    })();
+  </script>
+</template>

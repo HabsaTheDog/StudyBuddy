@@ -1,0 +1,11 @@
+{
+  "bgm": {
+    "path": ".media/audio/bgm/bgm_006.mp3",
+    "volume": 0.9,
+    "query": "Technology Future Innovation Pulse — approved resolved-ending edit",
+    "duration_s": 31.0
+  },
+  "bgm_pending": false,
+  "voices": [],
+  "sfx": []
+}

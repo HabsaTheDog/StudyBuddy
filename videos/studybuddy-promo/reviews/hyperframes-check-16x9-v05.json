@@ -1,0 +1,5474 @@
+{
+  "ok": false,
+  "strict": true,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 20,
+    "findings": [
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f01v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f01v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/01-questions-held-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f01-routes` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f01-routes",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/01-the-questions.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02v3-aura` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02v3-aura",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-ground::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-ground::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-ground::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-ground::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-impact` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-impact",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-impact-core` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-impact-core",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-streak` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-streak",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f02-shell::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f02-shell::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/02-meet-studybuddy.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.frame03-bg::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".frame03-bg::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/03-context-connected.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f03v3-stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f03v3-stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/03-final-lockup-v03.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-background::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-background::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-answer::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-answer::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.f04-focus-glow` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".f04-focus-glow",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/04-grounded-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage:after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage:after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/05-more-than-an-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.hero-glow` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".hero-glow",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/05-more-than-an-answer.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage::before` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage::before",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.stage::after` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".stage::after",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      },
+      {
+        "code": "pointer_events_none",
+        "severity": "info",
+        "message": "`.residuals` sets `pointer-events: none`. Elements matching this selector are harder to select in the Studio preview.",
+        "selector": ".residuals",
+        "dataAttributes": {},
+        "sourceFile": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/compositions/frames/06-built-around-your-studies.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "If these elements should be selectable in the Studio, remove `pointer-events: none` or move it to a wrapper that doesn't contain editable content."
+      }
+    ],
+    "filesScanned": 10
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": false,
+    "errorCount": 8,
+    "warningCount": 18,
+    "infoCount": 54,
+    "findings": [
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 6.4,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1134.98,
+          "top": 724.93,
+          "right": 1210.86,
+          "bottom": 759.17,
+          "width": 75.87,
+          "height": 34.24
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 76px x 34px inside 56px x 56px and overflows by up to 20px; widen the container to at least ~76px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1134.98,
+          "top": 714.03,
+          "right": 1191.02,
+          "bottom": 770.06,
+          "width": 56.03,
+          "height": 56.03
+        },
+        "overflow": {
+          "right": 19.84
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1134.98,
+          "y": 724.93,
+          "width": 75.87,
+          "height": 34.24
+        },
+        "firstSeen": 6.4,
+        "lastSeen": 6.43,
+        "occurrences": 3
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 6.445,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1134.95,
+          "top": 724.91,
+          "right": 1210.92,
+          "bottom": 759.19,
+          "width": 75.97,
+          "height": 34.28
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 76px x 34px inside 56px x 56px and overflows by up to 20px; widen the container to at least ~76px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1134.95,
+          "top": 714,
+          "right": 1191.05,
+          "bottom": 770.1,
+          "width": 56.1,
+          "height": 56.1
+        },
+        "overflow": {
+          "right": 19.87
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1134.95,
+          "y": 724.91,
+          "width": 75.97,
+          "height": 34.28
+        },
+        "firstSeen": 6.445,
+        "lastSeen": 6.46,
+        "occurrences": 2
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 6.5,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1135.58,
+          "top": 725.29,
+          "right": 1209.84,
+          "bottom": 758.8,
+          "width": 74.27,
+          "height": 33.51
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 74px x 34px inside 55px x 55px and overflows by up to 19px; widen the container to at least ~74px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1135.58,
+          "top": 714.63,
+          "right": 1190.42,
+          "bottom": 769.47,
+          "width": 54.84,
+          "height": 54.84
+        },
+        "overflow": {
+          "right": 19.42
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1135.58,
+          "y": 725.29,
+          "width": 74.27,
+          "height": 33.51
+        },
+        "firstSeen": 6.5,
+        "lastSeen": 6.53,
+        "occurrences": 2
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 6.75,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1136,
+          "top": 725.55,
+          "right": 1209.13,
+          "bottom": 758.55,
+          "width": 73.13,
+          "height": 33
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 73px x 33px inside 54px x 54px and overflows by up to 19px; widen the container to at least ~73px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1136,
+          "top": 715.05,
+          "right": 1190,
+          "bottom": 769.05,
+          "width": 54,
+          "height": 54
+        },
+        "overflow": {
+          "right": 19.13
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1136,
+          "y": 725.55,
+          "width": 73.13,
+          "height": 33
+        },
+        "firstSeen": 6.75,
+        "lastSeen": 7.48,
+        "occurrences": 10
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 7.55,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1136.28,
+          "top": 725.72,
+          "right": 1208.64,
+          "bottom": 758.37,
+          "width": 72.36,
+          "height": 32.65
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 72px x 33px inside 53px x 53px and overflows by up to 19px; widen the container to at least ~72px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1136.28,
+          "top": 715.33,
+          "right": 1189.72,
+          "bottom": 768.76,
+          "width": 53.43,
+          "height": 53.43
+        },
+        "overflow": {
+          "right": 18.92
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1136.28,
+          "y": 725.72,
+          "width": 72.36,
+          "height": 32.65
+        },
+        "firstSeen": 7.55,
+        "lastSeen": 7.56,
+        "occurrences": 2
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 7.57,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1137.22,
+          "top": 726.29,
+          "right": 1207.04,
+          "bottom": 757.8,
+          "width": 69.82,
+          "height": 31.51
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 70px x 32px inside 52px x 52px and overflows by up to 18px; widen the container to at least ~70px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1137.22,
+          "top": 716.27,
+          "right": 1188.78,
+          "bottom": 767.83,
+          "width": 51.56,
+          "height": 51.56
+        },
+        "overflow": {
+          "right": 18.26
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1137.22,
+          "y": 726.29,
+          "width": 69.82,
+          "height": 31.51
+        },
+        "firstSeen": 7.57,
+        "lastSeen": 7.585,
+        "occurrences": 2
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 7.6,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1139.24,
+          "top": 727.53,
+          "right": 1203.59,
+          "bottom": 756.57,
+          "width": 64.35,
+          "height": 29.04
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 64px x 29px inside 48px x 48px and overflows by up to 17px; widen the container to at least ~64px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1139.24,
+          "top": 718.29,
+          "right": 1186.76,
+          "bottom": 765.81,
+          "width": 47.52,
+          "height": 47.52
+        },
+        "overflow": {
+          "right": 16.83
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1139.24,
+          "y": 727.53,
+          "width": 64.35,
+          "height": 29.04
+        },
+        "firstSeen": 7.6,
+        "lastSeen": 7.63,
+        "occurrences": 3
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "error",
+        "time": 7.77,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1134.65,
+          "top": 724.72,
+          "right": 1211.43,
+          "bottom": 759.37,
+          "width": 76.78,
+          "height": 34.65
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 77px x 35px inside 57px x 57px and overflows by up to 20px; widen the container to at least ~77px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1134.65,
+          "top": 713.7,
+          "right": 1191.35,
+          "bottom": 770.4,
+          "width": 56.7,
+          "height": 56.7
+        },
+        "overflow": {
+          "right": 20.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1134.65,
+          "y": 724.72,
+          "width": 76.78,
+          "height": 34.65
+        },
+        "firstSeen": 7.77,
+        "lastSeen": 8.07,
+        "occurrences": 7
+      },
+      {
+        "code": "content_overlap",
+        "severity": "warning",
+        "time": 4.9,
+        "selector": "span.f01v3-index",
+        "message": "Two text blocks overlap and may render unreadable.",
+        "rect": {
+          "left": 918.18,
+          "top": 469.51,
+          "right": 923.35,
+          "bottom": 475.46,
+          "width": 5.17,
+          "height": 5.96
+        },
+        "containerSelector": "div.f01v3-question.f01v3-q2",
+        "text": "01",
+        "fixHint": "Give each block its own zone, or mark intentional layering with data-layout-allow-overlap.",
+        "dataAttributes": {
+          "data-hf-id": "hf-nbcd"
+        },
+        "sourceFile": "compositions/frames/01-questions-held-v03.html",
+        "bbox": {
+          "x": 918.18,
+          "y": 469.51,
+          "width": 5.17,
+          "height": 5.96
+        },
+        "firstSeen": 4.9,
+        "lastSeen": 4.92,
+        "occurrences": 2
+      },
+      {
+        "code": "content_overlap",
+        "severity": "warning",
+        "time": 4.9,
+        "selector": "div.f01v3-question.f01v3-q3",
+        "message": "Two text blocks overlap and may render unreadable.",
+        "rect": {
+          "left": 796.79,
+          "top": 614.57,
+          "right": 950.29,
+          "bottom": 628.04,
+          "width": 153.5,
+          "height": 13.47
+        },
+        "containerSelector": "div.f01v3-label",
+        "text": "03 Draft an email to my lecturer.",
+        "fixHint": "Give each block its own zone, or mark intentional layering with data-layout-allow-overlap.",
+        "dataAttributes": {
+          "data-hf-id": "hf-gi6j"
+        },
+        "sourceFile": "compositions/frames/01-questions-held-v03.html",
+        "bbox": {
+          "x": 796.79,
+          "y": 614.57,
+          "width": 153.5,
+          "height": 13.47
+        },
+        "firstSeen": 4.9,
+        "lastSeen": 4.92,
+        "occurrences": 2
+      },
+      {
+        "code": "content_overlap",
+        "severity": "warning",
+        "time": 4.9,
+        "selector": "span.f01v3-index",
+        "message": "Two text blocks overlap and may render unreadable.",
+        "rect": {
+          "left": 983.77,
+          "top": 616.57,
+          "right": 990.45,
+          "bottom": 622.52,
+          "width": 6.68,
+          "height": 5.95
+        },
+        "containerSelector": "div.f01v3-label",
+        "text": "04",
+        "fixHint": "Give each block its own zone, or mark intentional layering with data-layout-allow-overlap.",
+        "dataAttributes": {
+          "data-hf-id": "hf-nbcd"
+        },
+        "sourceFile": "compositions/frames/01-questions-held-v03.html",
+        "bbox": {
+          "x": 983.77,
+          "y": 616.57,
+          "width": 6.68,
+          "height": 5.95
+        },
+        "firstSeen": 4.9,
+        "lastSeen": 4.92,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 8.28,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 422.5,
+          "top": 165,
+          "right": 1878.5,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 49.5
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 422.5,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.28,
+        "lastSeen": 8.29,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 8.3,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 401.15,
+          "top": 165,
+          "right": 1857.15,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 28.15
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 401.15,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.3,
+        "lastSeen": 8.32,
+        "occurrences": 3
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 8.335,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 387.59,
+          "top": 165,
+          "right": 1843.59,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 14.59
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 387.59,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.335,
+        "lastSeen": 8.365,
+        "occurrences": 3
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 13.74,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 369.83,
+          "top": 165,
+          "right": 1825.83,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 3.17
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 369.83,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 13.74,
+        "lastSeen": 13.758,
+        "occurrences": 3
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 14.1,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 401.15,
+          "top": 165,
+          "right": 1857.15,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 28.15
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 401.15,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 14.1,
+        "lastSeen": 14.12,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 14.14,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 387.59,
+          "top": 165,
+          "right": 1843.59,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 14.59
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 387.59,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 14.14,
+        "lastSeen": 14.16,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 19.64,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 333.23,
+          "top": 165,
+          "right": 1789.23,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 39.77
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 333.23,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.64,
+        "lastSeen": 19.655,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 19.67,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 301.92,
+          "top": 165,
+          "right": 1757.92,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 71.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 301.92,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.67,
+        "lastSeen": 19.695,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 19.8,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 488.08,
+          "top": 165,
+          "right": 1944.08,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 115.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 488.08,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.8,
+        "lastSeen": 19.83,
+        "occurrences": 4
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 19.9,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 401.15,
+          "top": 165,
+          "right": 1857.15,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 28.15
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 401.15,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.9,
+        "lastSeen": 19.92,
+        "occurrences": 3
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 21.74,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 722.61,
+          "top": 366,
+          "right": 1766.61,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 2.39
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 722.61,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.74,
+        "lastSeen": 21.75,
+        "occurrences": 3
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 22,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 773.19,
+          "top": 366,
+          "right": 1817.19,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 46.19
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 773.19,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 22,
+        "lastSeen": 22.02,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 22.04,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 751.95,
+          "top": 366,
+          "right": 1795.95,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 24.95
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 751.95,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 22.04,
+        "lastSeen": 22.06,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 24.24,
+        "selector": "section.f02v3-screen.f02v3-quiz",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 736.98,
+          "top": 366,
+          "right": 1780.98,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 9.98
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-6dkj"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 736.98,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 24.24,
+        "lastSeen": 24.25,
+        "occurrences": 2
+      },
+      {
+        "code": "container_overflow",
+        "severity": "warning",
+        "time": 28.7,
+        "selector": "div.f03v3-claim",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 460,
+          "top": 597.8,
+          "right": 1460,
+          "bottom": 711.8,
+          "width": 1000,
+          "height": 114
+        },
+        "containerSelector": "div.f03v3-claim-wrap",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 460,
+          "top": 600,
+          "right": 1460,
+          "bottom": 714,
+          "width": 1000,
+          "height": 114
+        },
+        "overflow": {
+          "top": 2.2
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-cqz1"
+        },
+        "sourceFile": "compositions/frames/03-final-lockup-v03.html",
+        "bbox": {
+          "x": 460,
+          "y": 597.8,
+          "width": 1000,
+          "height": 114
+        },
+        "firstSeen": 28.7,
+        "lastSeen": 28.72,
+        "occurrences": 2
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 6.25,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1145.56,
+          "top": 731.41,
+          "right": 1192.8,
+          "bottom": 752.73,
+          "width": 47.25,
+          "height": 21.32
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 47px x 21px inside 35px x 35px and overflows by up to 12px; widen the container to at least ~47px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1145.56,
+          "top": 724.62,
+          "right": 1180.44,
+          "bottom": 759.51,
+          "width": 34.89,
+          "height": 34.89
+        },
+        "overflow": {
+          "right": 12.36
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1145.56,
+          "y": 731.41,
+          "width": 47.25,
+          "height": 21.32
+        },
+        "firstSeen": 6.25,
+        "lastSeen": 6.25,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 6.32,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1138.56,
+          "top": 727.11,
+          "right": 1204.75,
+          "bottom": 756.98,
+          "width": 66.19,
+          "height": 29.87
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 66px x 30px inside 49px x 49px and overflows by up to 17px; widen the container to at least ~66px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1138.56,
+          "top": 717.61,
+          "right": 1187.44,
+          "bottom": 766.48,
+          "width": 48.88,
+          "height": 48.88
+        },
+        "overflow": {
+          "right": 17.31
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1138.56,
+          "y": 727.11,
+          "width": 66.19,
+          "height": 29.87
+        },
+        "firstSeen": 6.32,
+        "lastSeen": 6.32,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 6.36,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1136.62,
+          "top": 725.92,
+          "right": 1208.07,
+          "bottom": 758.17,
+          "width": 71.45,
+          "height": 32.24
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 71px x 32px inside 53px x 53px and overflows by up to 19px; widen the container to at least ~71px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1136.62,
+          "top": 715.67,
+          "right": 1189.38,
+          "bottom": 768.43,
+          "width": 52.76,
+          "height": 52.76
+        },
+        "overflow": {
+          "right": 18.69
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1136.62,
+          "y": 725.92,
+          "width": 71.45,
+          "height": 32.24
+        },
+        "firstSeen": 6.36,
+        "lastSeen": 6.36,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 6.48,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1135.21,
+          "top": 725.06,
+          "right": 1210.48,
+          "bottom": 759.03,
+          "width": 75.27,
+          "height": 33.97
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 75px x 34px inside 56px x 56px and overflows by up to 20px; widen the container to at least ~75px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1135.21,
+          "top": 714.25,
+          "right": 1190.79,
+          "bottom": 769.84,
+          "width": 55.59,
+          "height": 55.59
+        },
+        "overflow": {
+          "right": 19.69
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1135.21,
+          "y": 725.06,
+          "width": 75.27,
+          "height": 33.97
+        },
+        "firstSeen": 6.48,
+        "lastSeen": 6.48,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 6.56,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1135.9,
+          "top": 725.48,
+          "right": 1209.3,
+          "bottom": 758.61,
+          "width": 73.4,
+          "height": 33.13
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 73px x 33px inside 54px x 54px and overflows by up to 19px; widen the container to at least ~73px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1135.9,
+          "top": 714.94,
+          "right": 1190.1,
+          "bottom": 769.15,
+          "width": 54.21,
+          "height": 54.21
+        },
+        "overflow": {
+          "right": 19.2
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1135.9,
+          "y": 725.48,
+          "width": 73.4,
+          "height": 33.13
+        },
+        "firstSeen": 6.56,
+        "lastSeen": 6.56,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 7.515,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1136.02,
+          "top": 725.56,
+          "right": 1209.1,
+          "bottom": 758.54,
+          "width": 73.08,
+          "height": 32.98
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 73px x 33px inside 54px x 54px and overflows by up to 19px; widen the container to at least ~73px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1136.02,
+          "top": 715.06,
+          "right": 1189.98,
+          "bottom": 769.03,
+          "width": 53.97,
+          "height": 53.97
+        },
+        "overflow": {
+          "right": 19.12
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1136.02,
+          "y": 725.56,
+          "width": 73.08,
+          "height": 32.98
+        },
+        "firstSeen": 7.515,
+        "lastSeen": 7.515,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 7.65,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1136.57,
+          "top": 725.89,
+          "right": 1208.16,
+          "bottom": 758.2,
+          "width": 71.59,
+          "height": 32.31
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 72px x 32px inside 53px x 53px and overflows by up to 19px; widen the container to at least ~72px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1136.57,
+          "top": 715.61,
+          "right": 1189.43,
+          "bottom": 768.48,
+          "width": 52.87,
+          "height": 52.87
+        },
+        "overflow": {
+          "right": 18.73
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1136.57,
+          "y": 725.89,
+          "width": 71.59,
+          "height": 32.31
+        },
+        "firstSeen": 7.65,
+        "lastSeen": 7.65,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 7.67,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1135.28,
+          "top": 725.1,
+          "right": 1210.36,
+          "bottom": 758.99,
+          "width": 75.08,
+          "height": 33.88
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 75px x 34px inside 55px x 55px and overflows by up to 20px; widen the container to at least ~75px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1135.28,
+          "top": 714.32,
+          "right": 1190.72,
+          "bottom": 769.77,
+          "width": 55.45,
+          "height": 55.45
+        },
+        "overflow": {
+          "right": 19.64
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1135.28,
+          "y": 725.1,
+          "width": 75.08,
+          "height": 33.88
+        },
+        "firstSeen": 7.67,
+        "lastSeen": 7.67,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 7.72,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1134.78,
+          "top": 724.8,
+          "right": 1211.21,
+          "bottom": 759.29,
+          "width": 76.42,
+          "height": 34.49
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 76px x 34px inside 56px x 56px and overflows by up to 20px; widen the container to at least ~76px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1134.78,
+          "top": 713.83,
+          "right": 1191.22,
+          "bottom": 770.26,
+          "width": 56.44,
+          "height": 56.44
+        },
+        "overflow": {
+          "right": 19.99
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1134.78,
+          "y": 724.8,
+          "width": 76.42,
+          "height": 34.49
+        },
+        "firstSeen": 7.72,
+        "lastSeen": 7.72,
+        "occurrences": 1
+      },
+      {
+        "code": "text_box_overflow",
+        "severity": "info",
+        "time": 7.75,
+        "selector": "div.f02v3-send",
+        "message": "Text extends outside its nearest visual/container box.",
+        "rect": {
+          "left": 1134.66,
+          "top": 724.73,
+          "right": 1211.41,
+          "bottom": 759.37,
+          "width": 76.75,
+          "height": 34.64
+        },
+        "containerSelector": "div.f02v3-send",
+        "text": "\\2197",
+        "fixHint": "Text is 77px x 35px inside 57px x 57px and overflows by up to 20px; widen the container to at least ~77px or shrink font-size from 27px to ~20px, or allow wrapping with max-width/fitTextFontSize.",
+        "containerRect": {
+          "left": 1134.66,
+          "top": 713.71,
+          "right": 1191.34,
+          "bottom": 770.39,
+          "width": 56.68,
+          "height": 56.68
+        },
+        "overflow": {
+          "right": 20.07
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-d6gx"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1134.66,
+          "y": 724.73,
+          "width": 76.75,
+          "height": 34.64
+        },
+        "firstSeen": 7.75,
+        "lastSeen": 7.75,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 7.94,
+        "selector": "section.f02v3-panel.f02v3-intro",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 369.27,
+          "top": 165,
+          "right": 1825.27,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 3.73
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-xla8"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 369.27,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 7.94,
+        "lastSeen": 7.94,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 8.005,
+        "selector": "section.f02v3-panel.f02v3-intro",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 349.27,
+          "top": 165,
+          "right": 1805.27,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 23.73
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-xla8"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 349.27,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.005,
+        "lastSeen": 8.005,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 8.07,
+        "selector": "section.f02v3-panel.f02v3-intro",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 290.01,
+          "top": 165,
+          "right": 1746.01,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 82.99
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-xla8"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 290.01,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.07,
+        "lastSeen": 8.07,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 8.22,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 488.08,
+          "top": 165,
+          "right": 1944.08,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 115.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 488.08,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.22,
+        "lastSeen": 8.22,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 8.25,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 454.16,
+          "top": 165,
+          "right": 1910.16,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 81.16
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 454.16,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.25,
+        "lastSeen": 8.25,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 8.38,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 379.64,
+          "top": 165,
+          "right": 1835.64,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 6.64
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 379.64,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 8.38,
+        "lastSeen": 8.38,
+        "occurrences": 1
+      },
+      {
+        "code": "text_occluded",
+        "severity": "info",
+        "time": 13.65,
+        "selector": "div.f02v3-receipt.f02v3-r1",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 952.29,
+          "top": 636.22,
+          "right": 990.65,
+          "bottom": 643.11,
+          "width": 38.36,
+          "height": 6.89
+        },
+        "containerSelector": "div.f02v3-context-ready > i:nth-of-type(1)",
+        "text": "materials",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 0.33,
+        "dataAttributes": {
+          "data-hf-id": "hf-1vjj"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 952.29,
+          "y": 636.22,
+          "width": 38.36,
+          "height": 6.89
+        },
+        "firstSeen": 13.65,
+        "lastSeen": 13.65,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 13.775,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 364.12,
+          "top": 165,
+          "right": 1820.12,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 8.88
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 364.12,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 13.775,
+        "lastSeen": 13.775,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 13.823,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 352.84,
+          "top": 165,
+          "right": 1808.84,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 20.16
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 352.84,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 13.823,
+        "lastSeen": 13.823,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 13.87,
+        "selector": "section.f02v3-panel.f02v3-sources",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 301.92,
+          "top": 165,
+          "right": 1757.92,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 71.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-gh4o"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 301.92,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 13.87,
+        "lastSeen": 13.87,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 14.01,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 488.08,
+          "top": 165,
+          "right": 1944.08,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 115.08
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 488.08,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 14.01,
+        "lastSeen": 14.01,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 14.045,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 454.16,
+          "top": 165,
+          "right": 1910.16,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 81.16
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 454.16,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 14.045,
+        "lastSeen": 14.045,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 14.08,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 422.5,
+          "top": 165,
+          "right": 1878.5,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 49.5
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 422.5,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 14.08,
+        "lastSeen": 14.08,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.54,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 369.83,
+          "top": 165,
+          "right": 1825.83,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 3.17
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 369.83,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.54,
+        "lastSeen": 19.54,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.59,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 364.12,
+          "top": 165,
+          "right": 1820.12,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 8.88
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 364.12,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.59,
+        "lastSeen": 19.59,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.72,
+        "selector": "section.f02v3-panel.f02v3-answer",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 267.98,
+          "top": 165,
+          "right": 1723.98,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "left": 105.02
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-svjc"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 267.98,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.72,
+        "lastSeen": 19.72,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.84,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 454.16,
+          "top": 165,
+          "right": 1910.16,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 81.16
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 454.16,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.84,
+        "lastSeen": 19.84,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.87,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 422.5,
+          "top": 165,
+          "right": 1878.5,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 49.5
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 422.5,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.87,
+        "lastSeen": 19.87,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 19.97,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 379.64,
+          "top": 165,
+          "right": 1835.64,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 6.64
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 379.64,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 19.97,
+        "lastSeen": 19.97,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 20.02,
+        "selector": "section.f02v3-panel.f02v3-outputs",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 375.49,
+          "top": 165,
+          "right": 1831.49,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "containerSelector": "main.f02v3-main",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 373,
+          "top": 165,
+          "right": 1829,
+          "bottom": 997,
+          "width": 1456,
+          "height": 832
+        },
+        "overflow": {
+          "right": 2.49
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-f844"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 375.49,
+          "y": 165,
+          "width": 1456,
+          "height": 832
+        },
+        "firstSeen": 20.02,
+        "lastSeen": 20.02,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 20.07,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 805.4,
+          "top": 366,
+          "right": 1849.4,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 739.21,
+          "top": 310,
+          "right": 1785.21,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 64.19
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 805.4,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 20.07,
+        "lastSeen": 20.07,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 20.12,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 782.48,
+          "top": 366,
+          "right": 1826.48,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 734.91,
+          "top": 310,
+          "right": 1780.91,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 45.57
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 782.48,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 20.12,
+        "lastSeen": 20.12,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 20.21,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 742.42,
+          "top": 366,
+          "right": 1786.42,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 727.7,
+          "top": 310,
+          "right": 1773.7,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 12.72
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 742.42,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 20.21,
+        "lastSeen": 20.21,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 20.25,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 735.82,
+          "top": 366,
+          "right": 1779.82,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 726.56,
+          "top": 310,
+          "right": 1772.56,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 7.26
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 735.82,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 20.25,
+        "lastSeen": 20.25,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 21.775,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 716.49,
+          "top": 366,
+          "right": 1760.49,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 8.51
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 716.49,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.775,
+        "lastSeen": 21.775,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 21.8,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 704.43,
+          "top": 366,
+          "right": 1748.43,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 20.57
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 704.43,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.8,
+        "lastSeen": 21.8,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 21.835,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 683.44,
+          "top": 366,
+          "right": 1727.44,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 41.56
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 683.44,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.835,
+        "lastSeen": 21.835,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 21.87,
+        "selector": "section.f02v3-screen.f02v3-pdf",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 653.56,
+          "top": 366,
+          "right": 1697.56,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 71.44
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-wfde"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 653.56,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.87,
+        "lastSeen": 21.87,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 21.935,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 826.54,
+          "top": 366,
+          "right": 1870.54,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 99.54
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 826.54,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 21.935,
+        "lastSeen": 21.935,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 22.08,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 738.84,
+          "top": 366,
+          "right": 1782.84,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 11.84
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 738.84,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 22.08,
+        "lastSeen": 22.08,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 22.13,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 731.46,
+          "top": 366,
+          "right": 1775.46,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 4.46
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 731.46,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 22.13,
+        "lastSeen": 22.13,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 23.955,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 714.64,
+          "top": 366,
+          "right": 1758.64,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 10.36
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 714.64,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 23.955,
+        "lastSeen": 23.955,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 24.03,
+        "selector": "section.f02v3-screen.f02v3-guide",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 677.87,
+          "top": 366,
+          "right": 1721.87,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "left": 47.13
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-iflk"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 677.87,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 24.03,
+        "lastSeen": 24.03,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 24.135,
+        "selector": "section.f02v3-screen.f02v3-quiz",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 797.41,
+          "top": 366,
+          "right": 1841.41,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 70.41
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-6dkj"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 797.41,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 24.135,
+        "lastSeen": 24.135,
+        "occurrences": 1
+      },
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 24.27,
+        "selector": "section.f02v3-screen.f02v3-quiz",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 730.5,
+          "top": 366,
+          "right": 1774.5,
+          "bottom": 954,
+          "width": 1044,
+          "height": 588
+        },
+        "containerSelector": "div.f02v3-output-surface",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 725,
+          "top": 310,
+          "right": 1771,
+          "bottom": 955,
+          "width": 1046,
+          "height": 645
+        },
+        "overflow": {
+          "right": 3.5
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-6dkj"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 730.5,
+          "y": 366,
+          "width": 1044,
+          "height": 588
+        },
+        "firstSeen": 24.27,
+        "lastSeen": 24.27,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-brand > span:nth-of-type(1)",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -5.24,
+          "top": 143.48,
+          "right": 61.1,
+          "bottom": 170.16,
+          "width": 66.34,
+          "height": 26.68
+        },
+        "containerSelector": "#root",
+        "text": "Study",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 5.24
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-dkqy"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -5.24,
+          "y": 143.48,
+          "width": 66.34,
+          "height": 26.68
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-side-label",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -47.56,
+          "top": 226.28,
+          "right": 61.16,
+          "bottom": 242.84,
+          "width": 108.72,
+          "height": 16.56
+        },
+        "containerSelector": "#root",
+        "text": "Workspace",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 47.56
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-zecr"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -47.56,
+          "y": 226.28,
+          "width": 108.72,
+          "height": 16.56
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-side-item.f02v3-active",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -21.11,
+          "top": 273.2,
+          "right": 94.93,
+          "bottom": 317.36,
+          "width": 116.03,
+          "height": 44.16
+        },
+        "containerSelector": "#root",
+        "text": "Ask StudyBuddy",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 21.11
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-1kwc",
+          "data-side": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -21.11,
+          "y": 273.2,
+          "width": 116.03,
+          "height": 44.16
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-side-item",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -21.89,
+          "top": 352.32,
+          "right": 80.58,
+          "bottom": 396.48,
+          "width": 102.47,
+          "height": 44.16
+        },
+        "containerSelector": "#root",
+        "text": "Connected context",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 21.89
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-1kwc",
+          "data-side": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -21.89,
+          "y": 352.32,
+          "width": 102.47,
+          "height": 44.16
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-side-item",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -21.55,
+          "top": 431.44,
+          "right": 73,
+          "bottom": 475.6,
+          "width": 94.56,
+          "height": 44.16
+        },
+        "containerSelector": "#root",
+        "text": "Grounded answer",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 21.55
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-1kwc",
+          "data-side": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -21.55,
+          "y": 431.44,
+          "width": 94.56,
+          "height": 44.16
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-side-item",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -20.88,
+          "top": 513.32,
+          "right": 89.87,
+          "bottom": 535.4,
+          "width": 110.74,
+          "height": 22.08
+        },
+        "containerSelector": "#root",
+        "text": "Study tools",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 20.88
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-1kwc",
+          "data-side": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -20.88,
+          "y": 513.32,
+          "width": 110.74,
+          "height": 22.08
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-source-chip",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -31.92,
+          "top": 756.2,
+          "right": 20.51,
+          "bottom": 773.68,
+          "width": 52.43,
+          "height": 17.48
+        },
+        "containerSelector": "#root",
+        "text": "Moodle",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 31.92
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-nwxd",
+          "data-source": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -31.92,
+          "y": 756.2,
+          "width": 52.43,
+          "height": 17.48
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-source-chip",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -31.92,
+          "top": 804.96,
+          "right": -9.22,
+          "bottom": 822.44,
+          "width": 22.7,
+          "height": 17.48
+        },
+        "containerSelector": "#root",
+        "text": "CIS",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 31.92
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-nwxd",
+          "data-source": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -31.92,
+          "y": 804.96,
+          "width": 22.7,
+          "height": 17.48
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      },
+      {
+        "code": "canvas_overflow",
+        "severity": "info",
+        "time": 26.9,
+        "selector": "div.f02v3-source-chip",
+        "message": "Text extends outside the composition canvas.",
+        "rect": {
+          "left": -31.92,
+          "top": 853.72,
+          "right": 31.1,
+          "bottom": 871.2,
+          "width": 63.02,
+          "height": 17.48
+        },
+        "containerSelector": "#root",
+        "text": "Calendar",
+        "fixHint": "Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "overflow": {
+          "left": 31.92
+        },
+        "dataAttributes": {
+          "data-hf-id": "hf-nwxd",
+          "data-source": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": -31.92,
+          "y": 853.72,
+          "width": 63.02,
+          "height": 17.48
+        },
+        "firstSeen": 26.9,
+        "lastSeen": 26.9,
+        "occurrences": 1
+      }
+    ],
+    "duration": 31,
+    "samples": [
+      0,
+      0.02,
+      0.04,
+      0.045,
+      0.05,
+      0.115,
+      0.18,
+      0.2,
+      0.22,
+      0.25,
+      0.28,
+      0.35,
+      0.42,
+      0.445,
+      0.47,
+      0.485,
+      0.5,
+      0.6,
+      0.7,
+      0.72,
+      0.74,
+      0.75,
+      0.78,
+      0.82,
+      0.84,
+      0.86,
+      0.89,
+      0.92,
+      0.945,
+      0.97,
+      0.995,
+      1.02,
+      1.07,
+      1.12,
+      1.15,
+      1.18,
+      1.24,
+      1.25,
+      1.3,
+      1.31,
+      1.32,
+      1.36,
+      1.4,
+      1.425,
+      1.45,
+      1.505,
+      1.56,
+      1.59,
+      1.62,
+      1.65,
+      1.68,
+      1.7,
+      1.72,
+      1.75,
+      1.87,
+      2.02,
+      2.06,
+      2.1,
+      2.15,
+      2.2,
+      2.25,
+      2.26,
+      2.32,
+      2.4,
+      2.48,
+      2.54,
+      2.6,
+      2.685,
+      2.75,
+      2.77,
+      2.785,
+      2.8,
+      2.81,
+      2.82,
+      2.88,
+      2.94,
+      3.005,
+      3.07,
+      3.12,
+      3.17,
+      3.235,
+      3.25,
+      3.3,
+      3.34,
+      3.38,
+      3.44,
+      3.5,
+      3.51,
+      3.52,
+      3.585,
+      3.65,
+      3.715,
+      3.75,
+      3.78,
+      3.89,
+      4,
+      4.015,
+      4.03,
+      4.045,
+      4.06,
+      4.08,
+      4.1,
+      4.25,
+      4.26,
+      4.42,
+      4.44,
+      4.46,
+      4.47,
+      4.48,
+      4.515,
+      4.55,
+      4.565,
+      4.58,
+      4.6,
+      4.62,
+      4.63,
+      4.64,
+      4.655,
+      4.67,
+      4.685,
+      4.7,
+      4.75,
+      4.79,
+      4.88,
+      4.9,
+      4.92,
+      4.935,
+      4.95,
+      4.955,
+      4.96,
+      4.98,
+      5,
+      5.02,
+      5.04,
+      5.105,
+      5.17,
+      5.185,
+      5.2,
+      5.215,
+      5.23,
+      5.25,
+      5.27,
+      5.275,
+      5.28,
+      5.35,
+      5.42,
+      5.45,
+      5.48,
+      5.59,
+      5.7,
+      5.74,
+      5.75,
+      5.78,
+      5.8,
+      5.82,
+      5.84,
+      5.86,
+      5.88,
+      5.9,
+      6.01,
+      6.12,
+      6.15,
+      6.18,
+      6.25,
+      6.32,
+      6.36,
+      6.4,
+      6.415,
+      6.43,
+      6.445,
+      6.46,
+      6.48,
+      6.5,
+      6.53,
+      6.56,
+      6.75,
+      6.755,
+      6.95,
+      7.01,
+      7.07,
+      7.21,
+      7.25,
+      7.35,
+      7.415,
+      7.48,
+      7.515,
+      7.55,
+      7.56,
+      7.57,
+      7.585,
+      7.6,
+      7.615,
+      7.63,
+      7.65,
+      7.67,
+      7.72,
+      7.75,
+      7.77,
+      7.795,
+      7.82,
+      7.88,
+      7.94,
+      8.005,
+      8.07,
+      8.145,
+      8.22,
+      8.25,
+      8.28,
+      8.29,
+      8.3,
+      8.31,
+      8.32,
+      8.335,
+      8.35,
+      8.365,
+      8.38,
+      8.44,
+      8.5,
+      8.51,
+      8.52,
+      8.57,
+      8.62,
+      8.65,
+      8.68,
+      8.71,
+      8.74,
+      8.75,
+      8.758,
+      8.775,
+      8.778,
+      8.78,
+      8.825,
+      8.87,
+      8.935,
+      9,
+      9.015,
+      9.03,
+      9.045,
+      9.06,
+      9.07,
+      9.08,
+      9.09,
+      9.1,
+      9.11,
+      9.12,
+      9.14,
+      9.16,
+      9.24,
+      9.25,
+      9.32,
+      9.435,
+      9.55,
+      9.565,
+      9.58,
+      9.625,
+      9.67,
+      9.685,
+      9.7,
+      9.74,
+      9.75,
+      9.78,
+      9.865,
+      9.95,
+      10.06,
+      10.17,
+      10.185,
+      10.2,
+      10.215,
+      10.23,
+      10.245,
+      10.25,
+      10.26,
+      10.265,
+      10.27,
+      10.525,
+      10.75,
+      10.78,
+      10.84,
+      10.9,
+      11.04,
+      11.18,
+      11.22,
+      11.25,
+      11.26,
+      11.33,
+      11.4,
+      11.415,
+      11.43,
+      11.445,
+      11.46,
+      11.48,
+      11.5,
+      11.64,
+      11.75,
+      11.78,
+      11.865,
+      11.95,
+      12.01,
+      12.07,
+      12.165,
+      12.25,
+      12.26,
+      12.305,
+      12.35,
+      12.45,
+      12.55,
+      12.56,
+      12.57,
+      12.585,
+      12.6,
+      12.615,
+      12.63,
+      12.65,
+      12.67,
+      12.75,
+      12.77,
+      12.87,
+      12.995,
+      13.12,
+      13.17,
+      13.22,
+      13.25,
+      13.28,
+      13.3,
+      13.32,
+      13.335,
+      13.35,
+      13.395,
+      13.44,
+      13.53,
+      13.62,
+      13.65,
+      13.68,
+      13.685,
+      13.69,
+      13.715,
+      13.74,
+      13.75,
+      13.758,
+      13.775,
+      13.823,
+      13.87,
+      13.94,
+      14.01,
+      14.045,
+      14.08,
+      14.1,
+      14.12,
+      14.14,
+      14.16,
+      14.24,
+      14.25,
+      14.32,
+      14.37,
+      14.42,
+      14.48,
+      14.54,
+      14.56,
+      14.58,
+      14.625,
+      14.67,
+      14.685,
+      14.7,
+      14.74,
+      14.75,
+      14.78,
+      14.81,
+      14.84,
+      14.87,
+      14.9,
+      14.91,
+      14.92,
+      14.97,
+      15.02,
+      15.07,
+      15.12,
+      15.19,
+      15.25,
+      15.26,
+      15.29,
+      15.32,
+      15.33,
+      15.34,
+      15.4,
+      15.46,
+      15.47,
+      15.48,
+      15.5,
+      15.63,
+      15.75,
+      15.78,
+      15.98,
+      16.18,
+      16.22,
+      16.25,
+      16.26,
+      16.44,
+      16.62,
+      16.67,
+      16.72,
+      16.75,
+      16.78,
+      16.825,
+      16.87,
+      16.955,
+      17.04,
+      17.06,
+      17.08,
+      17.13,
+      17.18,
+      17.21,
+      17.24,
+      17.25,
+      17.26,
+      17.405,
+      17.55,
+      17.71,
+      17.75,
+      17.87,
+      17.9,
+      17.93,
+      17.955,
+      17.98,
+      18.05,
+      18.12,
+      18.25,
+      18.28,
+      18.44,
+      18.565,
+      18.69,
+      18.735,
+      18.75,
+      18.78,
+      18.83,
+      18.88,
+      18.945,
+      19.01,
+      19.02,
+      19.03,
+      19.135,
+      19.24,
+      19.25,
+      19.27,
+      19.3,
+      19.35,
+      19.4,
+      19.41,
+      19.42,
+      19.45,
+      19.48,
+      19.51,
+      19.54,
+      19.59,
+      19.64,
+      19.655,
+      19.67,
+      19.695,
+      19.72,
+      19.75,
+      19.76,
+      19.8,
+      19.81,
+      19.82,
+      19.83,
+      19.84,
+      19.87,
+      19.9,
+      19.91,
+      19.92,
+      19.97,
+      20.02,
+      20.07,
+      20.12,
+      20.21,
+      20.25,
+      20.3,
+      20.31,
+      20.32,
+      20.33,
+      20.34,
+      20.4,
+      20.46,
+      20.47,
+      20.48,
+      20.61,
+      20.74,
+      20.75,
+      20.96,
+      21.18,
+      21.23,
+      21.25,
+      21.28,
+      21.35,
+      21.42,
+      21.52,
+      21.62,
+      21.67,
+      21.72,
+      21.73,
+      21.74,
+      21.745,
+      21.75,
+      21.775,
+      21.8,
+      21.835,
+      21.87,
+      21.935,
+      22,
+      22.02,
+      22.04,
+      22.06,
+      22.08,
+      22.13,
+      22.18,
+      22.21,
+      22.24,
+      22.25,
+      22.585,
+      22.75,
+      22.93,
+      22.955,
+      22.98,
+      23.25,
+      23.38,
+      23.75,
+      23.78,
+      23.83,
+      23.88,
+      23.955,
+      24.03,
+      24.135,
+      24.24,
+      24.25,
+      24.27,
+      24.3,
+      24.35,
+      24.4,
+      24.44,
+      24.48,
+      24.56,
+      24.64,
+      24.68,
+      24.72,
+      24.75,
+      24.76,
+      24.8,
+      24.81,
+      24.82,
+      25.06,
+      25.25,
+      25.3,
+      25.32,
+      25.34,
+      25.54,
+      25.74,
+      25.75,
+      26.01,
+      26.25,
+      26.28,
+      26.35,
+      26.42,
+      26.5,
+      26.58,
+      26.66,
+      26.74,
+      26.745,
+      26.75,
+      26.775,
+      26.8,
+      26.9,
+      27,
+      27.09,
+      27.18,
+      27.2,
+      27.22,
+      27.25,
+      27.32,
+      27.42,
+      27.46,
+      27.5,
+      27.6,
+      27.7,
+      27.72,
+      27.74,
+      27.75,
+      27.83,
+      27.92,
+      27.97,
+      28.02,
+      28.16,
+      28.25,
+      28.3,
+      28.35,
+      28.4,
+      28.51,
+      28.62,
+      28.65,
+      28.68,
+      28.7,
+      28.72,
+      28.75,
+      28.87,
+      29.02,
+      29.06,
+      29.1,
+      29.15,
+      29.2,
+      29.25,
+      29.75,
+      30.1,
+      30.25,
+      30.75,
+      31
+    ],
+    "transitionSamples": [
+      0,
+      0.02,
+      0.04,
+      0.045,
+      0.05,
+      0.115,
+      0.18,
+      0.2,
+      0.22,
+      0.25,
+      0.28,
+      0.35,
+      0.42,
+      0.445,
+      0.47,
+      0.485,
+      0.5,
+      0.6,
+      0.7,
+      0.72,
+      0.74,
+      0.78,
+      0.82,
+      0.84,
+      0.86,
+      0.89,
+      0.92,
+      0.945,
+      0.97,
+      0.995,
+      1.02,
+      1.07,
+      1.12,
+      1.15,
+      1.18,
+      1.24,
+      1.3,
+      1.31,
+      1.32,
+      1.36,
+      1.4,
+      1.425,
+      1.45,
+      1.505,
+      1.56,
+      1.59,
+      1.62,
+      1.65,
+      1.68,
+      1.7,
+      1.72,
+      1.87,
+      2.02,
+      2.06,
+      2.1,
+      2.15,
+      2.2,
+      2.26,
+      2.32,
+      2.4,
+      2.48,
+      2.54,
+      2.6,
+      2.685,
+      2.77,
+      2.785,
+      2.8,
+      2.81,
+      2.82,
+      2.88,
+      2.94,
+      3.005,
+      3.07,
+      3.12,
+      3.17,
+      3.235,
+      3.3,
+      3.34,
+      3.38,
+      3.44,
+      3.5,
+      3.51,
+      3.52,
+      3.585,
+      3.65,
+      3.715,
+      3.78,
+      3.89,
+      4,
+      4.015,
+      4.03,
+      4.045,
+      4.06,
+      4.08,
+      4.1,
+      4.26,
+      4.42,
+      4.44,
+      4.46,
+      4.47,
+      4.48,
+      4.515,
+      4.55,
+      4.565,
+      4.58,
+      4.6,
+      4.62,
+      4.63,
+      4.64,
+      4.655,
+      4.67,
+      4.685,
+      4.7,
+      4.79,
+      4.88,
+      4.9,
+      4.92,
+      4.935,
+      4.95,
+      4.955,
+      4.96,
+      4.98,
+      5,
+      5.02,
+      5.04,
+      5.105,
+      5.17,
+      5.185,
+      5.2,
+      5.215,
+      5.23,
+      5.25,
+      5.27,
+      5.275,
+      5.28,
+      5.35,
+      5.42,
+      5.45,
+      5.48,
+      5.59,
+      5.7,
+      5.74,
+      5.78,
+      5.8,
+      5.82,
+      5.84,
+      5.86,
+      5.88,
+      5.9,
+      6.01,
+      6.12,
+      6.15,
+      6.18,
+      6.25,
+      6.32,
+      6.36,
+      6.4,
+      6.415,
+      6.43,
+      6.445,
+      6.46,
+      6.48,
+      6.5,
+      6.53,
+      6.56,
+      6.755,
+      6.95,
+      7.01,
+      7.07,
+      7.21,
+      7.35,
+      7.415,
+      7.48,
+      7.515,
+      7.55,
+      7.56,
+      7.57,
+      7.585,
+      7.6,
+      7.615,
+      7.63,
+      7.65,
+      7.67,
+      7.72,
+      7.77,
+      7.795,
+      7.82,
+      7.88,
+      7.94,
+      8.005,
+      8.07,
+      8.145,
+      8.22,
+      8.25,
+      8.28,
+      8.29,
+      8.3,
+      8.31,
+      8.32,
+      8.335,
+      8.35,
+      8.365,
+      8.38,
+      8.44,
+      8.5,
+      8.51,
+      8.52,
+      8.57,
+      8.62,
+      8.65,
+      8.68,
+      8.71,
+      8.74,
+      8.758,
+      8.775,
+      8.778,
+      8.78,
+      8.825,
+      8.87,
+      8.935,
+      9,
+      9.015,
+      9.03,
+      9.045,
+      9.06,
+      9.07,
+      9.08,
+      9.09,
+      9.1,
+      9.11,
+      9.12,
+      9.14,
+      9.16,
+      9.24,
+      9.32,
+      9.435,
+      9.55,
+      9.565,
+      9.58,
+      9.625,
+      9.67,
+      9.685,
+      9.7,
+      9.74,
+      9.78,
+      9.865,
+      9.95,
+      10.06,
+      10.17,
+      10.185,
+      10.2,
+      10.215,
+      10.23,
+      10.245,
+      10.26,
+      10.265,
+      10.27,
+      10.525,
+      10.78,
+      10.84,
+      10.9,
+      11.04,
+      11.18,
+      11.22,
+      11.26,
+      11.33,
+      11.4,
+      11.415,
+      11.43,
+      11.445,
+      11.46,
+      11.48,
+      11.5,
+      11.64,
+      11.78,
+      11.865,
+      11.95,
+      12.01,
+      12.07,
+      12.165,
+      12.26,
+      12.305,
+      12.35,
+      12.45,
+      12.55,
+      12.56,
+      12.57,
+      12.585,
+      12.6,
+      12.615,
+      12.63,
+      12.65,
+      12.67,
+      12.77,
+      12.87,
+      12.995,
+      13.12,
+      13.17,
+      13.22,
+      13.25,
+      13.28,
+      13.3,
+      13.32,
+      13.335,
+      13.35,
+      13.395,
+      13.44,
+      13.53,
+      13.62,
+      13.65,
+      13.68,
+      13.685,
+      13.69,
+      13.715,
+      13.74,
+      13.758,
+      13.775,
+      13.823,
+      13.87,
+      13.94,
+      14.01,
+      14.045,
+      14.08,
+      14.1,
+      14.12,
+      14.14,
+      14.16,
+      14.24,
+      14.32,
+      14.37,
+      14.42,
+      14.48,
+      14.54,
+      14.56,
+      14.58,
+      14.625,
+      14.67,
+      14.685,
+      14.7,
+      14.74,
+      14.78,
+      14.81,
+      14.84,
+      14.87,
+      14.9,
+      14.91,
+      14.92,
+      14.97,
+      15.02,
+      15.07,
+      15.12,
+      15.19,
+      15.26,
+      15.29,
+      15.32,
+      15.33,
+      15.34,
+      15.4,
+      15.46,
+      15.47,
+      15.48,
+      15.63,
+      15.78,
+      15.98,
+      16.18,
+      16.22,
+      16.26,
+      16.44,
+      16.62,
+      16.67,
+      16.72,
+      16.75,
+      16.78,
+      16.825,
+      16.87,
+      16.955,
+      17.04,
+      17.06,
+      17.08,
+      17.13,
+      17.18,
+      17.21,
+      17.24,
+      17.25,
+      17.26,
+      17.405,
+      17.55,
+      17.71,
+      17.87,
+      17.9,
+      17.93,
+      17.955,
+      17.98,
+      18.05,
+      18.12,
+      18.28,
+      18.44,
+      18.565,
+      18.69,
+      18.735,
+      18.78,
+      18.83,
+      18.88,
+      18.945,
+      19.01,
+      19.02,
+      19.03,
+      19.135,
+      19.24,
+      19.27,
+      19.3,
+      19.35,
+      19.4,
+      19.41,
+      19.42,
+      19.45,
+      19.48,
+      19.51,
+      19.54,
+      19.59,
+      19.64,
+      19.655,
+      19.67,
+      19.695,
+      19.72,
+      19.76,
+      19.8,
+      19.81,
+      19.82,
+      19.83,
+      19.84,
+      19.87,
+      19.9,
+      19.91,
+      19.92,
+      19.97,
+      20.02,
+      20.07,
+      20.12,
+      20.21,
+      20.3,
+      20.31,
+      20.32,
+      20.33,
+      20.34,
+      20.4,
+      20.46,
+      20.47,
+      20.48,
+      20.61,
+      20.74,
+      20.96,
+      21.18,
+      21.23,
+      21.28,
+      21.35,
+      21.42,
+      21.52,
+      21.62,
+      21.67,
+      21.72,
+      21.73,
+      21.74,
+      21.745,
+      21.75,
+      21.775,
+      21.8,
+      21.835,
+      21.87,
+      21.935,
+      22,
+      22.02,
+      22.04,
+      22.06,
+      22.08,
+      22.13,
+      22.18,
+      22.21,
+      22.24,
+      22.585,
+      22.93,
+      22.955,
+      22.98,
+      23.38,
+      23.78,
+      23.83,
+      23.88,
+      23.955,
+      24.03,
+      24.135,
+      24.24,
+      24.27,
+      24.3,
+      24.35,
+      24.4,
+      24.44,
+      24.48,
+      24.56,
+      24.64,
+      24.68,
+      24.72,
+      24.76,
+      24.8,
+      24.81,
+      24.82,
+      25.06,
+      25.3,
+      25.32,
+      25.34,
+      25.54,
+      25.74,
+      26.01,
+      26.28,
+      26.35,
+      26.42,
+      26.5,
+      26.58,
+      26.66,
+      26.74,
+      26.745,
+      26.75,
+      26.775,
+      26.8,
+      26.9,
+      27,
+      27.09,
+      27.18,
+      27.2,
+      27.22,
+      27.32,
+      27.42,
+      27.46,
+      27.5,
+      27.6,
+      27.7,
+      27.72,
+      27.74,
+      27.83,
+      27.92,
+      27.97,
+      28.02,
+      28.16,
+      28.3,
+      28.35,
+      28.4,
+      28.51,
+      28.62,
+      28.65,
+      28.68,
+      28.7,
+      28.72,
+      28.87,
+      29.02,
+      29.06,
+      29.1,
+      29.15,
+      29.2,
+      30.1,
+      31
+    ],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 89,
+    "truncated": true
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "specPath": "/home/alvaroschroll/Dokumente/Development/Study Buddy Project/Study Buddy/videos/studybuddy-promo/index.motion.json",
+    "samples": 300
+  },
+  "contrast": {
+    "ok": false,
+    "errorCount": 17,
+    "warningCount": 7,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.97:1; WCAG AA requires 4.5:1.",
+        "text": "Connect",
+        "fg": "rgb(135,137,143)",
+        "bg": "rgb(40,44,59)",
+        "ratio": 3.97,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(145,147,152)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(2)",
+        "dataAttributes": {
+          "data-hf-id": "hf-rrox",
+          "data-step": "1"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1397.859375,
+          "y": 103,
+          "width": 137.328125,
+          "height": 41
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.02:1; WCAG AA requires 4.5:1.",
+        "text": "Answer",
+        "fg": "rgb(134,136,143)",
+        "bg": "rgb(38,42,59)",
+        "ratio": 4.02,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(143,145,151)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(3)",
+        "dataAttributes": {
+          "data-hf-id": "hf-nbiw",
+          "data-step": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1547.1875,
+          "y": 103,
+          "width": 130.3125,
+          "height": 41
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.12:1; WCAG AA requires 4.5:1.",
+        "text": "Study",
+        "fg": "rgb(131,134,141)",
+        "bg": "rgb(33,38,56)",
+        "ratio": 4.12,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(138,141,147)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-1syw",
+          "data-step": "3"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1689.5,
+          "y": 103,
+          "width": 109.5,
+          "height": 41
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.99:1; WCAG AA requires 4.5:1.",
+        "text": "Workspace",
+        "fg": "rgb(136,140,150)",
+        "bg": "rgb(38,46,70)",
+        "ratio": 3.99,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(146,150,159)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-zecr"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 134,
+          "y": 199,
+          "width": 195,
+          "height": 18
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.41:1; WCAG AA requires 4.5:1.",
+        "text": "Grounded answer",
+        "fg": "rgb(152,155,165)",
+        "bg": "rgb(44,52,80)",
+        "ratio": 4.41,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(154,157,166)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-yjm0",
+          "data-side": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 407,
+          "width": 225,
+          "height": 78
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.35:1; WCAG AA requires 4.5:1.",
+        "text": "Study tools",
+        "fg": "rgb(153,155,166)",
+        "bg": "rgb(46,53,82)",
+        "ratio": 4.35,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(156,158,168)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(5)",
+        "dataAttributes": {
+          "data-hf-id": "hf-fo7t",
+          "data-side": "3"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 493,
+          "width": 225,
+          "height": 60
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.14:1; WCAG AA requires 4.5:1.",
+        "text": "Moodle",
+        "fg": "rgb(133,138,155)",
+        "bg": "rgb(51,60,93)",
+        "ratio": 3.14,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(164,167,180)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(6) > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-nwxd",
+          "data-source": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 763,
+          "width": 225,
+          "height": 43
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.14:1; WCAG AA requires 4.5:1.",
+        "text": "CIS",
+        "fg": "rgb(134,138,156)",
+        "bg": "rgb(52,60,94)",
+        "ratio": 3.14,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(165,168,181)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(6) > div:nth-of-type(2)",
+        "dataAttributes": {
+          "data-hf-id": "hf-gcj9",
+          "data-source": "1"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 816,
+          "width": 225,
+          "height": 43
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.14:1; WCAG AA requires 4.5:1.",
+        "text": "Calendar",
+        "fg": "rgb(134,138,156)",
+        "bg": "rgb(52,60,94)",
+        "ratio": 3.14,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(165,168,181)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(6) > div:nth-of-type(3)",
+        "dataAttributes": {
+          "data-hf-id": "hf-cjrx",
+          "data-source": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 869,
+          "width": 225,
+          "height": 43
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.18:1; WCAG AA requires 4.5:1.",
+        "text": "Mail",
+        "fg": "rgb(133,138,155)",
+        "bg": "rgb(50,59,93)",
+        "ratio": 3.18,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(162,166,179)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(6) > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-o6hp",
+          "data-source": "3"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 922,
+          "width": 225,
+          "height": 43
+        },
+        "time": 5.78
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.98:1; WCAG AA requires 4.5:1.",
+        "text": "Ask",
+        "fg": "rgb(134,136,143)",
+        "bg": "rgb(38,43,59)",
+        "ratio": 3.98,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(144,146,152)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-ywkl",
+          "data-step": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1299.578125,
+          "y": 103,
+          "width": 86.28125,
+          "height": 41
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.02:1; WCAG AA requires 4.5:1.",
+        "text": "Answer",
+        "fg": "rgb(134,136,143)",
+        "bg": "rgb(38,42,59)",
+        "ratio": 4.02,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(143,145,151)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(3)",
+        "dataAttributes": {
+          "data-hf-id": "hf-nbiw",
+          "data-step": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1547.1875,
+          "y": 103,
+          "width": 130.3125,
+          "height": 41
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.12:1; WCAG AA requires 4.5:1.",
+        "text": "Study",
+        "fg": "rgb(131,134,141)",
+        "bg": "rgb(33,38,56)",
+        "ratio": 4.12,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(138,141,147)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-1syw",
+          "data-step": "3"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1689.5,
+          "y": 103,
+          "width": 109.5,
+          "height": 41
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.99:1; WCAG AA requires 4.5:1.",
+        "text": "Workspace",
+        "fg": "rgb(136,140,150)",
+        "bg": "rgb(38,46,70)",
+        "ratio": 3.99,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(146,150,159)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-zecr"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 134,
+          "y": 199,
+          "width": 195,
+          "height": 18
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.41:1; WCAG AA requires 4.5:1.",
+        "text": "Grounded answer",
+        "fg": "rgb(152,155,165)",
+        "bg": "rgb(44,52,80)",
+        "ratio": 4.41,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(154,157,166)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-yjm0",
+          "data-side": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 407,
+          "width": 225,
+          "height": 78
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.35:1; WCAG AA requires 4.5:1.",
+        "text": "Study tools",
+        "fg": "rgb(153,155,166)",
+        "bg": "rgb(46,53,82)",
+        "ratio": 4.35,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(156,158,168)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(5)",
+        "dataAttributes": {
+          "data-hf-id": "hf-fo7t",
+          "data-side": "3"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 493,
+          "width": 225,
+          "height": 60
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.97:1; WCAG AA requires 4.5:1.",
+        "text": "course material ready",
+        "fg": "rgb(163,166,174)",
+        "bg": "rgb(60,68,92)",
+        "ratio": 3.97,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(175,177,184)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > main > section:nth-of-type(2) > div > div:nth-of-type(1) > small",
+        "dataAttributes": {
+          "data-hf-id": "hf-rubh"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 468,
+          "y": 429,
+          "width": 242,
+          "height": 19
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.96:1; WCAG AA requires 4.5:1.",
+        "text": "timetable ready",
+        "fg": "rgb(165,166,171)",
+        "bg": "rgb(65,68,85)",
+        "ratio": 3.96,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(177,178,182)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > main > section:nth-of-type(2) > div > div:nth-of-type(2) > small",
+        "dataAttributes": {
+          "data-hf-id": "hf-j7i4"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1492,
+          "y": 429,
+          "width": 242,
+          "height": 19
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.89:1; WCAG AA requires 4.5:1.",
+        "text": "deadlines ready",
+        "fg": "rgb(163,166,176)",
+        "bg": "rgb(61,69,97)",
+        "ratio": 3.89,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(176,179,187)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > main > section:nth-of-type(2) > div > div:nth-of-type(3) > small",
+        "dataAttributes": {
+          "data-hf-id": "hf-9e5m"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 468,
+          "y": 880,
+          "width": 242,
+          "height": 19
+        },
+        "time": 12.55
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.98:1; WCAG AA requires 4.5:1.",
+        "text": "Ask",
+        "fg": "rgb(134,136,143)",
+        "bg": "rgb(38,43,59)",
+        "ratio": 3.98,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(144,146,152)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-ywkl",
+          "data-step": "0"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1299.578125,
+          "y": 103,
+          "width": 86.28125,
+          "height": 41
+        },
+        "time": 19.76
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.97:1; WCAG AA requires 4.5:1.",
+        "text": "Connect",
+        "fg": "rgb(135,137,143)",
+        "bg": "rgb(40,44,59)",
+        "ratio": 3.97,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(145,147,152)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(2)",
+        "dataAttributes": {
+          "data-hf-id": "hf-rrox",
+          "data-step": "1"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1397.859375,
+          "y": 103,
+          "width": 137.328125,
+          "height": 41
+        },
+        "time": 19.76
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.02:1; WCAG AA requires 4.5:1.",
+        "text": "Answer",
+        "fg": "rgb(134,136,143)",
+        "bg": "rgb(38,42,59)",
+        "ratio": 4.02,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(143,145,151)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > header > div:nth-of-type(2) > div:nth-of-type(3)",
+        "dataAttributes": {
+          "data-hf-id": "hf-nbiw",
+          "data-step": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 1547.1875,
+          "y": 103,
+          "width": 130.3125,
+          "height": 41
+        },
+        "time": 19.76
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 3.99:1; WCAG AA requires 4.5:1.",
+        "text": "Workspace",
+        "fg": "rgb(136,140,150)",
+        "bg": "rgb(38,46,70)",
+        "ratio": 3.99,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(146,150,159)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(1)",
+        "dataAttributes": {
+          "data-hf-id": "hf-zecr"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 134,
+          "y": 199,
+          "width": 195,
+          "height": 18
+        },
+        "time": 19.76
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "error",
+        "message": "Contrast is 4.41:1; WCAG AA requires 4.5:1.",
+        "text": "Grounded answer",
+        "fg": "rgb(152,155,165)",
+        "bg": "rgb(44,52,80)",
+        "ratio": 4.41,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(154,157,166)",
+        "large": false,
+        "selector": "div > div:nth-of-type(2) > div > section > div:nth-of-type(3) > aside > div:nth-of-type(4)",
+        "dataAttributes": {
+          "data-hf-id": "hf-yjm0",
+          "data-side": "2"
+        },
+        "sourceFile": "compositions/frames/02-continuous-studybuddy-v03.html",
+        "bbox": {
+          "x": 119,
+          "y": 407,
+          "width": 225,
+          "height": 78
+        },
+        "time": 19.76
+      }
+    ],
+    "enabled": true,
+    "samples": [
+      0,
+      5.78,
+      12.55,
+      19.76,
+      31
+    ],
+    "checked": 85,
+    "passed": 61
+  },
+  "snapshots": {
+    "enabled": true,
+    "files": [
+      "snapshots/frame-00-at-0.0s.png",
+      "snapshots/frame-01-at-5.8s.png",
+      "snapshots/frame-02-at-12.6s.png",
+      "snapshots/frame-03-at-19.8s.png",
+      "snapshots/frame-04-at-31.0s.png"
+    ],
+    "times": [
+      0,
+      5.78,
+      12.55,
+      19.76,
+      31
+    ],
+    "findingFiles": [
+      "snapshots/finding-00-text_box_overflow.png",
+      "snapshots/finding-01-text_box_overflow.png",
+      "snapshots/finding-02-text_box_overflow.png",
+      "snapshots/finding-03-text_box_overflow.png",
+      "snapshots/finding-04-text_box_overflow.png",
+      "snapshots/finding-05-text_box_overflow.png",
+      "snapshots/finding-06-text_box_overflow.png",
+      "snapshots/finding-07-text_box_overflow.png",
+      "snapshots/finding-08-contrast_aa_failure.png",
+      "snapshots/finding-09-contrast_aa_failure.png",
+      "snapshots/finding-10-contrast_aa_failure.png",
+      "snapshots/finding-11-contrast_aa_failure.png"
+    ]
+  },
+  "_meta": {
+    "version": "0.7.108",
+    "latestVersion": "0.7.108",
+    "updateAvailable": false
+  },
+  "quality_gate": {
+    "schema_version": 1,
+    "required_samples": 62,
+    "actual_samples": 613,
+    "samples_per_second": 2.0,
+    "all_transition_samples_required": true,
+    "errors": [
+      "layout contains errors or warnings",
+      "contrast contains errors or warnings",
+      "HyperFrames strict check exited 1"
+    ]
+  }
+}

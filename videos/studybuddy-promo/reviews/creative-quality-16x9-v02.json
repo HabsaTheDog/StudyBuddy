@@ -1,0 +1,17 @@
+{
+  "kind": "creative-quality-report",
+  "schema_version": 2,
+  "strict": true,
+  "ok": false,
+  "errors": [
+    "16:9: at least five quality-gate snapshots are required"
+  ],
+  "warnings": [],
+  "metrics": {
+    "variants": 1,
+    "scenes": 6,
+    "max_simultaneous_words": 12,
+    "smallest_essential_font_px": 32.0,
+    "latest_first_meaningful_frame_s": 0.1
+  }
+}

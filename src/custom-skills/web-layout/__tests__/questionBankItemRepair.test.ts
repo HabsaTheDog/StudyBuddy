@@ -35,7 +35,7 @@ describe("item-local question repair", () => {
       itemId: item.id, contentHash: item.contentHash,
       contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
       reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict: "rejected" as const },
-      checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true },
+      checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: [{ code: "answer", severity: "blocking" as const, message: "Incomplete answer.", repairInstruction: "Complete only this comparison answer." }],
     };
     const record = { schemaVersion: 1 as const, recordId: questionBankItemReviewRecordId(unsigned), ...unsigned };
@@ -84,7 +84,7 @@ describe("item-local question repair", () => {
       itemId: item.id, contentHash: item.contentHash,
       contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
       reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict: "rejected" as const },
-      checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true },
+      checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: [{ code: "answer", severity: "blocking" as const, message: "Incomplete.", repairInstruction: "Repair at the assessment owner." }],
     };
     const record = { schemaVersion: 1 as const, recordId: questionBankItemReviewRecordId(unsigned), ...unsigned };
@@ -112,7 +112,7 @@ describe("item-local question repair", () => {
         itemId: item.id, contentHash: item.contentHash,
         contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
         reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict: "rejected" as const },
-        checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true },
+        checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true, selfContained: true, feedback: true },
         findings: [{ code: "answer", severity: "blocking" as const, message: "Incomplete.", repairInstruction: "Complete this answer." }],
       };
       return { item, review: { schemaVersion: 1 as const, recordId: questionBankItemReviewRecordId(unsigned), ...unsigned } };
@@ -170,7 +170,7 @@ describe("item-local question repair", () => {
         itemId: item.id, contentHash: item.contentHash,
         contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
         reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict: "rejected" as const },
-        checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true },
+        checks: { schema: true, scope: true, answer: false, provenance: true, rendering: true, selfContained: true, feedback: true },
         findings: [{ code: "answer", severity: "blocking" as const, message: "Incomplete.", repairInstruction: "Complete this answer." }],
       };
       return { item, review: { schemaVersion: 1 as const, recordId: questionBankItemReviewRecordId(unsigned), ...unsigned } };

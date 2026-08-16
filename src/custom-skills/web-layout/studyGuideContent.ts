@@ -58,6 +58,7 @@ const crossExerciseSchema = z.object({
   selectionMode: z.enum(["single", "multiple", "true-false", "dropdown"]),
   options: z.array(optionSchema).min(2),
   explanation: z.string().min(12),
+  estimatedMinutes: z.number().int().positive().optional(),
   source: studyGuideSourceRefSchema,
   evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
@@ -71,6 +72,7 @@ const calculationExerciseSchema = z.object({
   unit: z.string(),
   steps: z.array(z.string().min(1)).min(2),
   commonMistake: z.string().min(8),
+  estimatedMinutes: z.number().int().positive().optional(),
   source: studyGuideSourceRefSchema,
   evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
@@ -82,6 +84,7 @@ const applicationExerciseSchema = z.object({
   instructions: z.array(z.string().min(1)).min(2),
   sampleAnswer: z.string().min(12),
   selfCheck: z.array(z.string().min(1)).min(2),
+  estimatedMinutes: z.number().int().positive().optional(),
   source: studyGuideSourceRefSchema,
   evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
@@ -95,6 +98,7 @@ const vocabularyExerciseSchema = z.object({
   acceptedAnswers: z.array(z.string().min(1)).min(1),
   context: z.string().min(1),
   explanation: z.string().min(8),
+  estimatedMinutes: z.number().int().positive().optional(),
   source: studyGuideSourceRefSchema,
   evidenceRefs: z.array(studyGuideEvidenceRefSchema).min(1).optional(),
 });
@@ -209,11 +213,12 @@ export const studyGuideContentJsonSchema = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "instructions", "sampleAnswer", "selfCheck", "direction", "term", "context", "source", "evidenceRefs"],
+              required: ["id", "type", "prompt", "estimatedMinutes", "selectionMode", "options", "explanation", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "instructions", "sampleAnswer", "selfCheck", "direction", "term", "context", "source", "evidenceRefs"],
               properties: {
                 id: { type: "string" },
                 type: { enum: ["cross", "calculation", "application", "vocabulary"] },
                 prompt: { type: "string" },
+                estimatedMinutes: { type: "integer", minimum: 1 },
                 selectionMode: { enum: ["single", "multiple", "true-false", "dropdown", "none"] },
                 options: { type: "array", items: { $ref: "#/$defs/option" } },
                 explanation: { type: "string" },
@@ -255,10 +260,10 @@ export const studyGuideContentJsonSchema = {
     evidenceRef: { type: "object", additionalProperties: false, required: ["sourceIds", "sectionIndex", "sectionHeading", "learningGoalIndexes", "exactSpan"], properties: { sourceIds: { type: "array", minItems: 1, items: { type: "string" } }, sectionIndex: { type: "integer", minimum: 0 }, sectionHeading: { type: "string" }, learningGoalIndexes: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } }, exactSpan: { anyOf: [{ type: "object", additionalProperties: false, required: ["start", "end", "sha256"], properties: { start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" } } }, { type: "null" }] } } },
     sourceRef: { type: "object", additionalProperties: false, required: ["label", "sourceTask", "provenance"], properties: { label: { type: "string" }, sourceTask: { type: "string" }, provenance: { enum: ["source", "adapted", "derived"] } } },
     option: { type: "object", additionalProperties: false, required: ["text", "correct", "feedback"], properties: { text: { type: "string" }, correct: { type: "boolean" }, feedback: { type: "string" } } },
-    crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "selectionMode", "options", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
-    calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
-    applicationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "instructions", "sampleAnswer", "selfCheck", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "application" }, prompt: { type: "string" }, instructions: { type: "array", items: { type: "string" } }, sampleAnswer: { type: "string" }, selfCheck: { type: "array", items: { type: "string" } }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
-    vocabularyExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "direction", "term", "acceptedAnswers", "context", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "vocabulary" }, prompt: { type: "string" }, direction: { enum: ["term-to-meaning", "meaning-to-term", "context-gap"] }, term: { type: "string" }, acceptedAnswers: { type: "array", items: { type: "string" } }, context: { type: "string" }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    crossExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "estimatedMinutes", "selectionMode", "options", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "cross" }, prompt: { type: "string" }, estimatedMinutes: { type: "integer", minimum: 1 }, selectionMode: { enum: ["single", "multiple", "true-false", "dropdown"] }, options: { type: "array", items: { $ref: "#/$defs/option" } }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    calculationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "estimatedMinutes", "givens", "acceptedAnswers", "unit", "steps", "commonMistake", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "calculation" }, prompt: { type: "string" }, estimatedMinutes: { type: "integer", minimum: 1 }, givens: { type: "array", items: { type: "string" } }, acceptedAnswers: { type: "array", items: { type: "string" } }, unit: { type: "string" }, steps: { type: "array", items: { type: "string" } }, commonMistake: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    applicationExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "estimatedMinutes", "instructions", "sampleAnswer", "selfCheck", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "application" }, prompt: { type: "string" }, estimatedMinutes: { type: "integer", minimum: 1 }, instructions: { type: "array", items: { type: "string" } }, sampleAnswer: { type: "string" }, selfCheck: { type: "array", items: { type: "string" } }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
+    vocabularyExercise: { type: "object", additionalProperties: false, required: ["id", "type", "prompt", "estimatedMinutes", "direction", "term", "acceptedAnswers", "context", "explanation", "source", "evidenceRefs"], properties: { id: { type: "string" }, type: { type: "string", const: "vocabulary" }, prompt: { type: "string" }, estimatedMinutes: { type: "integer", minimum: 1 }, direction: { enum: ["term-to-meaning", "meaning-to-term", "context-gap"] }, term: { type: "string" }, acceptedAnswers: { type: "array", items: { type: "string" } }, context: { type: "string" }, explanation: { type: "string" }, source: { $ref: "#/$defs/sourceRef" }, evidenceRefs: { type: "array", minItems: 1, items: { $ref: "#/$defs/evidenceRef" } } } },
     workedExample: { type: "object", additionalProperties: false, required: ["title", "prompt", "steps", "answer", "source"], properties: { title: { type: "string" }, prompt: { type: "string" }, steps: { type: "array", items: { type: "string" } }, answer: { type: "string" }, source: { $ref: "#/$defs/sourceRef" } } },
   },
 } as const;

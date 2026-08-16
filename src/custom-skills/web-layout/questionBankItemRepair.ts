@@ -206,9 +206,9 @@ function buildRepairPrompt(
   return [
     "QUESTION_BANK_ITEM_LOCAL_REPAIR",
     `Repair exactly ${targets.length} supplied rejected learning item(s) and return JSON only with repairs[]. Do not create a chapter, additional items, quotas, or neighboring subject tasks. Return exactly one repair for every supplied identity and no others.`,
-    "Keep itemId, previousContentHash, exercise.id, exercise.type, and each complete source object exact. Preserve objectives and response modes. Change only fields required by each independent finding. Every result must be fully answerable and internally correct.",
-    "For cross return a truthful selection contract and targeted feedback; calculation needs complete givens/units/derivation; application needs an executable prompt, useful comparison answer and explicit rubric; vocabulary needs a meaningful in-scope term/context/answer contract. Do not add calculation fields to another mode.",
-    "The flat Structured Output exercise object requires every field. Fill fields for exercise.type and use selectionMode=none, direction=none, empty arrays, and empty strings for irrelevant fields; the orchestrator removes those sentinels before strict validation.",
+    "Keep itemId, previousContentHash, exercise.id, exercise.type, and each complete source object exact. Preserve objectives and response modes. Change only fields required by each independent finding. Every result must be fully answerable and internally correct from its visible card alone; embed all needed situation, data, assumptions, target, options, diagrams, and instructions instead of referring to an unseen chapter, summary, example, list, file, or video.",
+    "For cross return a truthful selection contract, a concise explanation of the correct choice, and short misconception-specific option feedback without repeating all option texts; calculation needs complete givens/units/derivation; application needs an executable prompt, useful comparison answer and explicit rubric; vocabulary needs a meaningful in-scope term/context/answer contract. Do not add calculation fields to another mode.",
+    "Preserve or revise estimatedMinutes to the realistic focused solving effort of the repaired task. The flat Structured Output exercise object requires every field. Fill fields for exercise.type and use selectionMode=none, direction=none, empty arrays, and empty strings for irrelevant fields; the orchestrator removes those sentinels before strict validation.",
     `Exact original request:\n${input.config.originalUserPrompt}`,
     `Evaluated request contract:\n${JSON.stringify(input.requestContract)}`,
     ...itemBlocks,
@@ -297,6 +297,7 @@ function normalizeModelExercise(value: unknown): unknown {
     id: item.id,
     type: item.type,
     prompt: item.prompt,
+    estimatedMinutes: item.estimatedMinutes,
     source: item.source,
     evidenceRefs: item.evidenceRefs,
   };

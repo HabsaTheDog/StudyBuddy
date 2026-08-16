@@ -1,0 +1,248 @@
+{
+  "schema_version": 6,
+  "title": "StudyBuddy Advertisement",
+  "created_at": "2026-08-14T11:58:18+00:00",
+  "updated_at": "2026-08-14T16:20:12+00:00",
+  "review_mode": "milestone",
+  "stage_order": [
+    "brief",
+    "music-selection",
+    "storyboard",
+    "capture-plan",
+    "clips",
+    "animatic",
+    "audio",
+    "final"
+  ],
+  "current_stage": "animatic",
+  "formats": [
+    "1920x1080"
+  ],
+  "stages": {
+    "brief": {
+      "status": "approved",
+      "reviews": [
+        {
+          "at": "2026-08-14T11:58:18+00:00",
+          "decision": "approved",
+          "note": "User approved the music-led connected-academic-context direction, 16:9 master, 9:16 adaptation, and live storyboard/wireframe review.",
+          "evidence": [
+            "BRIEF.md"
+          ]
+        }
+      ],
+      "evidence": [
+        "BRIEF.md"
+      ]
+    },
+    "music-selection": {
+      "status": "approved",
+      "reviews": [
+        {
+          "at": "2026-08-14T12:33:34+00:00",
+          "decision": "approved",
+          "note": "User selected Technology Future Innovation Pulse and approved source 26.00-57.00s with the long fade through the quiet pocket.",
+          "evidence": [
+            "music-edit.json",
+            "reviews/music-edit-report.json"
+          ]
+        }
+      ],
+      "evidence": [
+        "music-edit.json",
+        "reviews/music-edit-report.json"
+      ]
+    },
+    "storyboard": {
+      "status": "in-progress",
+      "reviews": [],
+      "evidence": []
+    },
+    "capture-plan": {
+      "status": "pending",
+      "reviews": [],
+      "evidence": []
+    },
+    "clips": {
+      "status": "pending",
+      "reviews": [],
+      "evidence": []
+    },
+    "animatic": {
+      "status": "changes-requested",
+      "reviews": [
+        {
+          "at": "2026-08-14T16:20:12+00:00",
+          "decision": "changes-requested",
+          "note": "User says multiple sections are too fast to follow and the cut reads like a PowerPoint slideshow. Rebuild as four longer continuous sections; first prompts arrive at uneven 0.5-1.5s intervals, all remain visible, and collapse only into the StudyBuddy reveal; preserve UI between source, answer, and output states with smooth carrier-based morphs.",
+          "evidence": [
+            "reviews/exports/studybuddy-promo-16x9-review-v02.mp4"
+          ]
+        }
+      ],
+      "evidence": [
+        "reviews/exports/studybuddy-promo-16x9-review-v02.mp4"
+      ]
+    },
+    "audio": {
+      "status": "pending",
+      "reviews": [],
+      "evidence": []
+    },
+    "final": {
+      "status": "pending",
+      "reviews": [],
+      "evidence": []
+    }
+  },
+  "clips": [],
+  "capture": {
+    "targets": [
+      "desktop"
+    ],
+    "capabilities": []
+  },
+  "music": {
+    "budget_policy": "free-first",
+    "max_track_cost": 15.0,
+    "budget_currency": "EUR",
+    "candidates": [
+      {
+        "id": "pixabay-499580",
+        "title": "Technology - Tech Technology 91 Second",
+        "artist": "BombinSound",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/electronic-technology-tech-technology-91-second-499580/",
+        "preview_url": "https://pixabay.com/music/electronic-technology-tech-technology-91-second-499580/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "none",
+        "license_risk": "low",
+        "fit": "Immediate, clean electronic pulse for the prompt constellation and a long enough arc for the full trailer.",
+        "status": "candidate",
+        "updated_at": "2026-08-14T12:01:30+00:00"
+      },
+      {
+        "id": "pixabay-567322",
+        "title": "Corporate Future_60s",
+        "artist": "JonasBlakewood",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/corporate-corporate-future-60s-567322/",
+        "preview_url": "https://pixabay.com/music/corporate-corporate-future-60s-567322/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "registered",
+        "license_risk": "medium",
+        "fit": "Purpose-built 60-second structure with a resolved ending; safest editorial fit but more conventional and Content ID registered.",
+        "status": "shortlisted",
+        "updated_at": "2026-08-14T12:11:07+00:00",
+        "decision_note": "User favorite; requested an ad-length audition crop."
+      },
+      {
+        "id": "pixabay-573936",
+        "title": "Technology Future Innovation Pulse",
+        "artist": "alex-morgan",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/techno-trance-technology-future-innovation-pulse-573936/",
+        "preview_url": "https://pixabay.com/music/techno-trance-technology-future-innovation-pulse-573936/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "registered",
+        "license_risk": "medium",
+        "fit": "A sharper technology pulse that supports integrations firing in sequence, with a more synthetic and energetic tone.",
+        "status": "selected",
+        "updated_at": "2026-08-14T12:26:47+00:00",
+        "decision_note": "User selected this track, requested source start at 26s for prompt setup before the drop, and a shorter cut ending at a clean slate near the mid-track break."
+      },
+      {
+        "id": "pixabay-344320",
+        "title": "Future Design",
+        "artist": "penguinmusic",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/future-bass-future-design-344320/",
+        "preview_url": "https://pixabay.com/music/future-bass-future-design-344320/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "registered",
+        "license_risk": "medium",
+        "fit": "Stylish future-bass texture for a more premium, design-forward trailer; softer impact and Content ID registered.",
+        "status": "candidate",
+        "updated_at": "2026-08-14T12:01:30+00:00"
+      },
+      {
+        "id": "pixabay-241274",
+        "title": "Creative Technology Showreel",
+        "artist": "Pumpupthemind",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/beats-creative-technology-showreel-241274/",
+        "preview_url": "https://pixabay.com/music/beats-creative-technology-showreel-241274/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "none",
+        "license_risk": "low",
+        "fit": "Glitchy, creative showreel energy that suits interface transformations and gives the trailer more personality than stock corporate music.",
+        "status": "candidate",
+        "updated_at": "2026-08-14T12:01:30+00:00"
+      },
+      {
+        "id": "pixabay-474054",
+        "title": "Technology",
+        "artist": "Eliveta",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/electronic-technology-474054/",
+        "preview_url": "https://pixabay.com/music/electronic-technology-474054/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "none",
+        "license_risk": "low",
+        "fit": "Driving futuristic synths with enough momentum for rapid product outputs and a strong social-media cut.",
+        "status": "candidate",
+        "updated_at": "2026-08-14T12:01:30+00:00"
+      },
+      {
+        "id": "pixabay-568146",
+        "title": "Corporate Startup Promo",
+        "artist": "alex-morgan",
+        "provider": "Pixabay",
+        "source_url": "https://pixabay.com/music/corporate-corporate-startup-promo-568146/",
+        "preview_url": "https://pixabay.com/music/corporate-corporate-startup-promo-568146/",
+        "license": "Pixabay Content License",
+        "price": "Free",
+        "cost_amount": 0.0,
+        "currency": "EUR",
+        "source_type": "platform-free",
+        "attribution": "none",
+        "content_id": "none",
+        "license_risk": "medium",
+        "fit": "Clear product-launch arc and bright finish, though its AI-modified provenance makes it a less distinctive fallback.",
+        "status": "candidate",
+        "updated_at": "2026-08-14T12:01:30+00:00"
+      }
+    ]
+  },
+  "deliverables": []
+}

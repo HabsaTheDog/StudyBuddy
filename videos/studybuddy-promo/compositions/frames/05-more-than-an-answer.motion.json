@@ -1,0 +1,12 @@
+{
+  "duration": 8.05,
+  "maxStaticSec": 1.6,
+  "assertions": [
+    { "kind": "appearsBy", "selector": ".screen-pdf", "bySec": 0.85 },
+    { "kind": "appearsBy", "selector": ".screen-guide", "bySec": 2.0 },
+    { "kind": "appearsBy", "selector": ".screen-quiz", "bySec": 3.7 },
+    { "kind": "appearsBy", "selector": ".screen-moodle", "bySec": 5.4 },
+    { "kind": "before", "a": ".screen-pdf", "b": ".screen-moodle" },
+    { "kind": "keepsMoving", "withinSelector": ".stage" }
+  ]
+}

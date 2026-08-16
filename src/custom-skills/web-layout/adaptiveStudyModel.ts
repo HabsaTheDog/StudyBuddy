@@ -151,6 +151,8 @@ const questionReviewChecksSchema = z.object({
   answer: z.boolean(),
   provenance: z.boolean(),
   rendering: z.boolean(),
+  selfContained: z.boolean(),
+  feedback: z.boolean(),
 });
 
 const questionReviewSchema = z.discriminatedUnion("status", [
@@ -167,6 +169,8 @@ const questionReviewSchema = z.discriminatedUnion("status", [
       answer: z.literal(true),
       provenance: z.literal(true),
       rendering: z.literal(true),
+      selfContained: z.literal(true),
+      feedback: z.literal(true),
     }),
     findings: z.array(z.string()),
     record: questionBankItemReviewRecordSchema,
@@ -471,7 +475,7 @@ function buildQuestionBank(
         stageIntent: stage.intent,
         stageLabel: stage.label,
         difficulty: placement?.difficulty ?? "standard",
-        estimatedMinutes: exercise.type === "cross" || exercise.type === "vocabulary" ? 2 : exercise.type === "calculation" ? 8 : 10,
+        estimatedMinutes: exercise.estimatedMinutes ?? (exercise.type === "cross" || exercise.type === "vocabulary" ? 2 : exercise.type === "calculation" ? 8 : 10),
         origin,
         scopeBasis,
         review: resolvedQuestionReview(id, contentHash, questionReviews, reviewContract),
@@ -540,6 +544,8 @@ function resolvedQuestionReview(
           answer: true,
           provenance: true,
           rendering: true,
+          selfContained: true,
+          feedback: true,
         },
         findings: record.findings.map((finding) => finding.message),
         record,
@@ -554,6 +560,8 @@ function resolvedQuestionReview(
       answer: false,
       provenance: false,
       rendering: false,
+      selfContained: false,
+      feedback: false,
     },
     findings: [],
   };

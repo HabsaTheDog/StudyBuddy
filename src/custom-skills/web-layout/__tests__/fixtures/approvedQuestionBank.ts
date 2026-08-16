@@ -16,7 +16,7 @@ export function approveQuestionBankForRendering<T extends AdaptiveStudyModel>(mo
       scope: true,
       answer: true,
       provenance: true,
-      rendering: true,
+      rendering: true, selfContained: true, feedback: true,
     } as const;
     const capsule = buildQuestionEvidenceCapsule(syntheticEvidenceHandoff(item), item);
     if (capsule.status !== "available") {

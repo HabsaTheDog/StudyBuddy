@@ -1,0 +1,8 @@
+{
+  "at": "2026-08-14T16:20:12+00:00",
+  "decision": "changes-requested",
+  "note": "User says multiple sections are too fast to follow and the cut reads like a PowerPoint slideshow. Rebuild as four longer continuous sections; first prompts arrive at uneven 0.5-1.5s intervals, all remain visible, and collapse only into the StudyBuddy reveal; preserve UI between source, answer, and output states with smooth carrier-based morphs.",
+  "evidence": [
+    "reviews/exports/studybuddy-promo-16x9-review-v02.mp4"
+  ]
+}
