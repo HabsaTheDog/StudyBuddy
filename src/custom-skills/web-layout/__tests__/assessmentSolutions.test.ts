@@ -362,7 +362,7 @@ function solutionFixture(
     },
     review: {
       status: "pending",
-      checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false },
+      checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false },
       findings: [],
     },
     exercise,

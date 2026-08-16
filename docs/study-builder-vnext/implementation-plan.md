@@ -81,6 +81,53 @@ Status: deterministic fixes verified; fresh live DYN2 retest pending
   that the transient HTTP failure produces a warning and a verified canary
   instead of an empty workflow.
 
+## DYN2 mobile question quality and adaptive depth
+
+Status: implementation and local regression verification complete on
+2026-08-16; one fresh Balanced desktop-app acceptance run pending
+
+- Topic and catalogue question workspaces expose a mobile sticky navigation
+  toolbar below the global hotbar. A deliberate horizontal swipe changes the
+  active question, while vertical gestures and gestures beginning on inputs,
+  textareas, controls, links, disclosures, or editable content remain untouched.
+- Content generation, item repair, and independent review now require every
+  published question to be answerable from its visible card. Hidden references
+  to a chapter, summary, example, list, file, video, or prior question are
+  blocking unless the referenced stimulus is embedded in that item.
+- Selection feedback renders the correct option letter and the decisive
+  explanation once. It may add one short misconception-specific note for the
+  learner's selected wrong option, but no longer repeats every full option and
+  then repeats the conclusion.
+- Exercise contracts preserve a realistic `estimatedMinutes` value through
+  generation, item-local repair, semantic hashing, and learning-progression
+  planning. The progression planner treats effort as evidence: short foundation
+  tasks can lead into fewer substantial calculations or transfers without fixed
+  type, chapter, difficulty, or count quotas.
+- For interactive learning or exam preparation, source architecture no longer
+  treats lecture-only coverage as sufficient while relevant authorized worked
+  examples, task/solution pairs, sample-exam tasks, or completed-attempt reviews
+  remain available. It selects a nonredundant practice set by evidenced methods,
+  subskills, response modes, transfer demand, and effort.
+- The active evidence-handoff graph now consumes the evaluated learning
+  architecture instead of silently truncating the visible Moodle hierarchy
+  after twelve sections. Selected practice files that share an architecture
+  section with its lecture are bound to that module, so later course units and
+  their examples cannot disappear merely because they occur near the end of a
+  large course page.
+- Selected worked-example and sample-assessment PDFs with sparse or absent text
+  layers receive a cached visual source-evidence pass before HTML authoring.
+  It distinguishes a complete visible task from a diagram or worked method
+  whose original prompt is missing. Complete tasks may remain course originals;
+  method-only evidence can support only an explicitly adapted, self-contained
+  variant. Per-source failures remain transparent evidence gaps instead of
+  aborting unrelated course content.
+- Local proof: the full web-layout suite plus Source Architect regression has
+  235 passing tests and 3 browser-gated skips; the focused Moodle/Web matrix has
+  55 passing tests. TypeScript typecheck and diff whitespace validation pass.
+  Live DYN2 quality, bank depth, token/call metrics, mobile interaction, and
+  final publication remain intentionally unclaimed until the clean First-Try
+  run completes.
+
 ## Open request-contract architecture
 
 Status: implementation and local regression verification complete on
@@ -1352,3 +1399,77 @@ Status: implemented and release-gate verified on 2026-08-10
 - Root release verification passes the complete question-bank and Moodle graph
   suites after the evidence-review regression repair and an explicit integration
   timeout for the I/O-heavy analyzer-retry/Typst graph case.
+
+## DYN2 mobile usability and evidence-adaptive practice depth
+
+Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-depth acceptance still in progress
+
+- The mobile question pager is viewport-sticky and supports a guarded horizontal
+  swipe gesture that ignores controls, text fields, vertical scrolling, and slow
+  drags. The actual Study Buddy desktop app was inspected at a 342×764 content
+  viewport.
+- Question authoring, independent review, and item-local repair require every
+  visible task to contain its complete stimulus, assumptions, quantities, target,
+  response instruction, and any required diagram. Selection feedback now names
+  the correct letter and core reason once, with only misconception-specific
+  feedback for the learner's selected distractor.
+- Image-only authorized worked-example PDFs are rasterized and converted into
+  cached, structured practice evidence. Complete tasks may be used as sourced
+  items; visible methods without a complete statement remain explicitly adapted
+  evidence and cannot masquerade as course originals.
+- The evidence handoff binds worked examples across differently named Moodle
+  phases to the evaluated learning module, preserves every course-derived module,
+  and no longer drops later modules through a fixed twelve-section fallback.
+- Successful Balanced desktop thread `804efaaf-937c-4b30-b846-27a6a13b91f1`
+  published a validated 12-item HTML guide with passing interaction, validation,
+  independent question-review, and quality gates. It is retained only as an
+  intermediate result: 61 estimated practice minutes and one task at or above
+  15 minutes do not meet the accepted DYN2 preparation-depth rubric.
+- Source architecture now asks for the complete nonredundant set of materially
+  different authorized practice methods, subskills, difficulty levels, and
+  transfer demands. It no longer minimizes practice to the smallest
+  representative set; acquisition-round bounds remain technical failure
+  containment rather than semantic quotas.
+- Independent review now distinguishes honest generated/adapted practice values
+  from invented official course facts. Safe self-contained numbers are judged by
+  method scope and internal correctness, and the renderer's structured origin
+  badge satisfies variant disclosure without duplicating that label in the task.
+- Chapter navigation labels must preserve a recognizable course-module concept;
+  a narrow example such as “Schiefer Wurf” cannot replace the hierarchy label
+  “Punktkinematik”, though it may appear alongside it.
+- Invalid navigation labels are now repaired deterministically from the already
+  validated course chapter title. Presentation metadata therefore cannot trigger
+  another full chapter-author model call or mutate the learning content.
+- The mobile question pager is an independently rounded segment with a small
+  white top mask, so content cannot visibly scroll through its upper edge. The
+  real desktop app confirms the 14 px radius, sticky position, and consecutive
+  `1/2 → 2/2 → 1/2` navigation at a 342×764 artifact viewport.
+- First-Try thread `62865702-28b3-4cfb-9b77-9f4ea800b033` expanded extraction
+  to 22 selected resources and 16 usable sources, but failed the final semantic
+  gate because ASCII `sqrt(1000)` was exposed in a MathML formula. The standard
+  math renderer now emits a real `<msqrt>` node; a zero-model deterministic
+  rerender of the persisted candidate passes browser validation.
+- Module handoff summaries now allocate their bounded text space fairly across
+  selected sources, prioritizing task/sample-exam evidence and redistributing
+  unused space. The prior `join().slice(0, 7000)` let a shared course overview
+  hide later lecture and worked-example content, which produced empty practice
+  chapters despite successful downloads.
+- Interactive source architecture no longer declares all unrequested catalog
+  entries optional immediately after one full acquisition batch. When unused
+  practice sources remain, another evidence-driven architect assessment may
+  select distinct examples such as another response mode or physical model;
+  PDF-only and non-interactive requests do not inherit this behavior.
+- A verified request contract is now immutable across targeted acquisition
+  loops. New course evidence cannot trigger another model interpretation of the
+  same user prompt or change its requirement IDs mid-run.
+- Selected architecture URLs are drained through finite, deduplicated download
+  batches until complete. The per-batch size isolates browser/download failure;
+  it is no longer a two-round semantic cap and a 25-source regression proves
+  that a third batch proceeds without another planning-model call.
+- Fresh First-Try thread `3daa0aa7-c6cd-438d-b805-f4e904c0080d` reached a
+  persisted 19-exercise, 173-minute DYN2 candidate before the external Codex
+  account quota terminated assessment planning. No artifact was published;
+  seven of its planner calls were attributable to repeated contract/architecture
+  lifecycle work that the immutable-contract and finite-queue fixes now remove.
+- Current affected regression gate: 269 tests passed, 3 browser-dependent tests
+  skipped, TypeScript type checking and diff whitespace checks clean.

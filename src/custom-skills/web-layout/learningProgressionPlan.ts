@@ -247,7 +247,7 @@ export function buildLearningProgressionPrompt(
     "LEARNING_PROGRESSION_PLANNER",
     "Create an evidence- and request-adaptive learning progression for the supplied validated question bank. Return JSON only.",
     "Choose between one and five coherent stages. Course-appropriate labels are welcome, but do not use a subject template, fixed stage count, question-type ladder, per-stage quota, or array position as pedagogy.",
-    "Place every numbered item exactly once. Base placement and difficulty on the original request, evaluated contract, evidenced objectives, source task, answer contract, prerequisite demand, transfer depth, and documented assessment role. Two items with the same type may belong to different stages; different types may belong to the same stage.",
+    "Place every numbered item exactly once. Base placement and difficulty on the original request, evaluated contract, evidenced objectives, source task, answer contract, prerequisite demand, transfer depth, realistic estimated solving time, and documented assessment role. Short foundation work should usually prepare learners for substantial applications, while a long difficult task may carry more preparation value than several short prompts. Do not turn estimated time into a fixed quota or deterministic type ladder. Two items with the same type may belong to different stages; different types may belong to the same stage.",
     "Use intent only as a portable semantic tag. Use assessment only when evidence and the contract support assessment-oriented practice. evidenceReason must explain the item-local decision.",
     "Return only semantic decisions. itemNumber and stageNumber are one-based positions from the supplied arrays. Never return item IDs, hashes, contract hashes, bank hashes, or learning-objective IDs; Study Buddy binds those trusted fields after your decision.",
     `Exact original request:\n${input.config.originalUserPrompt}`,
@@ -256,7 +256,7 @@ export function buildLearningProgressionPrompt(
   ].join("\n\n");
   const itemLegend = [
     "Validated item rows use this exact field order:",
-    '["itemNumber","type","origin","assessmentSectionId","assessmentQuestionTypes","topicTitle","scopeLearningObjectives","scopeSourceTask","prompt","responseContract"]',
+    '["itemNumber","type","origin","estimatedMinutes","assessmentSectionId","assessmentQuestionTypes","topicTitle","scopeLearningObjectives","scopeSourceTask","prompt","responseContract"]',
     'responseContract rows begin with "cross", "calculation", "application", or "vocabulary" and retain the complete type-specific answer-contract structure.',
   ].join("\n");
   const attempts = [320, 180, 96, 48, 24].map((textLimit) => {
@@ -323,6 +323,7 @@ function progressionPlannerItemView(
     index + 1,
     item.type,
     item.origin,
+    item.estimatedMinutes,
     item.assessmentSectionId ?? null,
     item.assessmentQuestionTypes ?? [],
     clip(item.scopeBasis.topicTitle),

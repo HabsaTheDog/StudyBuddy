@@ -530,6 +530,10 @@ function readDecoratedMathAtom(
     const radicand = readDecoratedMathAtom(tokens, start + 1, false);
     node = `<msqrt>${radicand.node}</msqrt>`;
     end = radicand.end;
+  } else if (tokens[start]?.toLocaleLowerCase() === "sqrt" && ["(", "{"].includes(tokens[start + 1] ?? "")) {
+    const radicand = readMathAtom(tokens, start + 1, false);
+    node = `<msqrt>${radicand.node}</msqrt>`;
+    end = radicand.end;
   } else {
     const atom = readMathAtom(tokens, start, preserveDelimiters);
     node = atom.node;

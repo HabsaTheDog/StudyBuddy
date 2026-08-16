@@ -252,7 +252,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       const localImages = [...new Set(options?.localImages ?? [])]
         .map((imagePath) => path.resolve(imagePath))
         .filter((imagePath) => existsSync(imagePath))
-        .slice(0, 2);
+        .slice(0, 4);
       if (accessPolicy.isolatedWorkingDirectory) {
         await mkdir(leafWorkspace, { recursive: true });
       }

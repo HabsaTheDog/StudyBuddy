@@ -744,7 +744,7 @@ async function createCandidate(
       text: text.trim(),
       score: rankPage(text, target.query, index),
     })).filter((page) => page.text.length > 20);
-    const selected = pages
+    const textSelected = pages
       .sort((left, right) => right.score - left.score)
       .find((page) =>
         !isDeterministicTitlePage(
@@ -753,9 +753,11 @@ async function createCandidate(
           Boolean(target.figureHint),
         )
       );
+    const selected = textSelected ?? await visualPageFallback(target);
     if (!selected) return null;
     if (
       target.targetKind === "question" &&
+      selected.text.length > 0 &&
       matchingQueryTokens(selected.text, target.query) < 2
     ) {
       return null;
@@ -789,6 +791,17 @@ async function createCandidate(
   } catch {
     return null;
   }
+}
+
+async function visualPageFallback(
+  target: VisualTarget,
+): Promise<{ page: number; text: string; score: number } | null> {
+  const info = await execFileAsync("pdfinfo", [target.source.pdfPath], { maxBuffer: 1_000_000 });
+  const pageCount = Number(/^Pages:\s*(\d+)/im.exec(info.stdout)?.[1] ?? 0);
+  if (!Number.isInteger(pageCount) || pageCount < 1) return null;
+  const pageHint = Number(/\b(?:page|seite)\s*(\d+)\b/i.exec(target.sourceTask)?.[1] ?? 1);
+  const page = Math.min(pageCount, Math.max(1, Number.isInteger(pageHint) ? pageHint : 1));
+  return { page, text: "", score: 0 };
 }
 
 export function isDeterministicTitlePage(

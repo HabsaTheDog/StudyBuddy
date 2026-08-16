@@ -235,7 +235,7 @@ function bankFixture(): QuestionBank {
         scope: false,
         answer: false,
         provenance: false,
-        rendering: false,
+        rendering: false, selfContained: false, feedback: false,
       },
       findings: [],
     },

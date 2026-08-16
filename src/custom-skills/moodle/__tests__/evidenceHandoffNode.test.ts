@@ -293,4 +293,241 @@ describe("interactive evidence handoff", () => {
     expect(result.learning_modules.every((module) => module.assessment_signals.length === 0)).toBe(true);
     expect(result.learning_modules.at(-1)?.title).toBe("Schwingungen");
   });
+
+  it("binds selected visual practice sources to the evaluated architecture and exposes honest method evidence", () => {
+    const courseUrl = "https://moodle.example/course/view.php?id=44";
+    const lectureUrl = "https://moodle.example/pluginfile.php/44/lecture.pdf";
+    const exampleUrl = "https://moodle.example/pluginfile.php/44/example.pdf";
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      courseUrl,
+      resources: [{
+        id: "lecture",
+        parentId: null,
+        sectionPath: ["Self-study 1A: Kinematics"],
+        activityType: "resource",
+        title: "Unit A lecture",
+        originUrl: lectureUrl,
+        resolvedUrl: lectureUrl,
+        localPath: "/tmp/lecture.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: "lecture",
+        verifiedAt: "2026-08-16T00:00:00.000Z",
+        examRelevance: "confirmed",
+        failureReason: null,
+        contentType: "application/pdf",
+        selection: { selected: true, role: "primary_lecture", topic: null, priority: 900, reason: "core" },
+        extraction: { status: "usable", method: "native_pdf_text", characterCount: 1000, pageCount: 8, warnings: [] },
+      }, {
+        id: "example",
+        parentId: null,
+        sectionPath: ["Class 1B: Kinematics"],
+        activityType: "resource",
+        title: "Worked method sheet",
+        originUrl: exampleUrl,
+        resolvedUrl: exampleUrl,
+        localPath: "/tmp/example.pdf",
+        previewPath: null,
+        status: "acquired",
+        checksum: "example",
+        verifiedAt: "2026-08-16T00:00:00.000Z",
+        examRelevance: "confirmed",
+        failureReason: null,
+        contentType: "application/pdf",
+        selection: { selected: true, role: "worked_example", topic: null, priority: 600, reason: "depth" },
+        extraction: { status: "partial", method: "native_pdf_text", characterCount: 20, pageCount: 2, warnings: ["visual-required"] },
+      }],
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      warnings: [],
+      records: [{
+        id: "ev-unit-a",
+        resourceId: "lecture",
+        kind: "formula",
+        locator: { page: 2 },
+        content: "The lecture establishes the governing relation.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: lectureUrl,
+        localPath: "/tmp/lecture.pdf",
+      }],
+    });
+    const state = moodleTestState({
+      resource_manifest: manifest,
+      evidence_package: evidence,
+      source_architect_decision: {
+        round: 2,
+        status: "sufficient",
+        coverageSummary: "Unit A is grounded.",
+        requestedUrls: [],
+        reasons: [],
+        remainingAvailable: 0,
+        learningArchitecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "unit-a",
+            title: "Kinematics",
+            priority: "essential",
+            contentMode: "mixed",
+            learningObjectives: ["Apply the governing relation."],
+            assessmentSignals: [],
+            resourceUrls: [lectureUrl],
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      },
+    });
+    const result = buildEvidenceHandoff(moodleTestConfig({
+      prompt: "Create an interactive guide",
+      outputLanguage: "en",
+      moodleUrl: courseUrl,
+      evidenceHandoffOnly: true,
+    }), state, {
+      schemaVersion: 1,
+      resources: [{
+        sourceId: "example",
+        sourceTitle: "Worked method sheet",
+        sourceRole: "worked_example",
+        sourcePath: "/tmp/example.pdf",
+        sourceHash: "a".repeat(64),
+        pageCount: 2,
+        examples: [{
+          pages: [2],
+          evidenceStatus: "method_only",
+          learningGoal: "Rearrange and check the governing relation.",
+          taskPrompt: "",
+          givens: [],
+          targets: [],
+          solutionSteps: ["Write the governing relation.", "Check dimensions."],
+          result: "",
+          diagramDescription: "A labelled system sketch is visible.",
+          confidence: 0.8,
+          warnings: ["The original prompt is not visible."],
+        }],
+        warnings: [],
+      }],
+    });
+
+    expect(result.sections).toHaveLength(1);
+    expect(result.sections[0]?.source_ids).toEqual(["lecture", "example"]);
+    expect(result.sections[0]?.summary).toContain("status method_only");
+    expect(result.sections[0]?.summary).toContain("original prompt is not visible");
+    expect(result.worked_examples).toHaveLength(1);
+    expect(result.worked_examples[0]?.origin).toBe("derived");
+    expect(result.worked_examples[0]?.source_ids).toEqual(["example"]);
+  });
+
+  it("balances long overview, lecture, and native practice evidence instead of truncating later sources", () => {
+    const courseUrl = "https://moodle.example/course/view.php?id=55";
+    const resources = [
+      { id: "overview", title: "Course overview", role: "overview" as const },
+      { id: "lecture", title: "Oscillations lecture", role: "primary_lecture" as const },
+      { id: "practice", title: "Physical pendulum worked example", role: "worked_example" as const },
+    ].map((entry, index) => ({
+      id: entry.id,
+      parentId: null,
+      sectionPath: ["Oscillations"],
+      activityType: "resource",
+      title: entry.title,
+      originUrl: `https://moodle.example/pluginfile.php/55/${entry.id}.pdf`,
+      resolvedUrl: `https://moodle.example/pluginfile.php/55/${entry.id}.pdf`,
+      localPath: `/tmp/${entry.id}.pdf`,
+      previewPath: null,
+      status: "acquired" as const,
+      checksum: entry.id,
+      verifiedAt: "2026-08-16T00:00:00.000Z",
+      examRelevance: "confirmed" as const,
+      failureReason: null,
+      contentType: "application/pdf",
+      selection: { selected: true, role: entry.role, topic: null, priority: 900 - index, reason: "coverage" },
+      extraction: { status: "usable" as const, method: "native_pdf_text", characterCount: 12_000, pageCount: 12, warnings: [] },
+    }));
+    const manifest = ResourceManifestSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      courseUrl,
+      resources,
+    });
+    const evidence = EvidencePackageSchema.parse({
+      schemaVersion: "1.0",
+      generatedAt: "2026-08-16T00:00:00.000Z",
+      warnings: [],
+      records: [{
+        id: "ev-overview",
+        resourceId: "overview",
+        kind: "claim",
+        locator: { section: "overview" },
+        content: `GENERAL-${"x".repeat(11_000)}`,
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resources[0]!.resolvedUrl,
+        localPath: resources[0]!.localPath,
+      }, {
+        id: "ev-lecture",
+        resourceId: "lecture",
+        kind: "formula",
+        locator: { page: 4 },
+        content: "LECTURE-SIGNAL: derive the oscillation equation from the physical model.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resources[1]!.resolvedUrl,
+        localPath: resources[1]!.localPath,
+      }, {
+        id: "ev-practice",
+        resourceId: "practice",
+        kind: "exercise",
+        locator: { page: 2 },
+        content: "PRACTICE-SIGNAL: determine the period of the physical pendulum from the complete task data.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resources[2]!.resolvedUrl,
+        localPath: resources[2]!.localPath,
+      }],
+    });
+    const state = moodleTestState({
+      resource_manifest: manifest,
+      evidence_package: evidence,
+      source_architect_decision: {
+        round: 2,
+        status: "sufficient",
+        coverageSummary: "Oscillations are grounded.",
+        requestedUrls: [],
+        reasons: [],
+        remainingAvailable: 0,
+        learningArchitecture: {
+          schemaVersion: 1,
+          modules: [{
+            id: "oscillations",
+            title: "Oscillations",
+            priority: "essential",
+            contentMode: "mixed",
+            learningObjectives: ["Model oscillations."],
+            assessmentSignals: [],
+            resourceUrls: resources.map((resource) => resource.resolvedUrl!),
+          }],
+          supportResources: [],
+          excludedResourceUrls: [],
+        },
+      },
+    });
+
+    const result = buildEvidenceHandoff(moodleTestConfig({
+      prompt: "Create an interactive exam guide",
+      outputLanguage: "en",
+      moodleUrl: courseUrl,
+      evidenceHandoffOnly: true,
+    }), state);
+
+    expect(result.sections[0]?.summary.length).toBeLessThanOrEqual(7_000);
+    expect(result.sections[0]?.summary).toContain("GENERAL-");
+    expect(result.sections[0]?.summary).toContain("LECTURE-SIGNAL");
+    expect(result.sections[0]?.summary).toContain("PRACTICE-SIGNAL");
+    expect(result.sections[0]?.summary.indexOf("PRACTICE-SIGNAL"))
+      .toBeLessThan(result.sections[0]?.summary.indexOf("GENERAL-"));
+  });
 });

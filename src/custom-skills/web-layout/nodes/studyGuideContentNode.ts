@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
-import { studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent, type StudyGuideEvidenceRef } from "../studyGuideContent.js";
+import { normalizeStudyGuideNavigationTitles, studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent, type StudyGuideEvidenceRef } from "../studyGuideContent.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import { deriveStudyGuideRequirements, handoffSourceRegistry, knownHandoffSourceUrls, readExtractionHandoff, type StudyGuideRequirements } from "../studyGuideProfile.js";
@@ -404,6 +404,14 @@ async function buildChunkedModelContent(
     const generated = normalizeDerivedSourceTasks(
       studyGuideContentSchema.parse(normalizeModelContent(JSON.parse(stripJsonFence(response)))),
     );
+    const repairedNavigationTitles = normalizeStudyGuideNavigationTitles(generated);
+    if (repairedNavigationTitles > 0) {
+      await config.diagnostics?.log(
+        "info",
+        "planner",
+        `Normalized ${repairedNavigationTitles} learner-facing navigation label(s) from their course-faithful chapter titles without regenerating content.`,
+      );
+    }
     bindStudyGuideEvidenceRefs(generated, state.source_text);
     normalizeSourceReferences(generated);
     const alignedTopics = alignGeneratedBatchTopics(
@@ -630,7 +638,7 @@ function sharedChunkCachePath(
   requestContract: LangGraphWebLayoutState["request_contract"],
 ): string {
   const fingerprint = createHash("sha256").update(JSON.stringify({
-    version: "study-guide-content-v6-request-contract",
+    version: "study-guide-content-v7-visual-practice-evidence",
     language: config.language,
     courseCode: requirements.courseCode,
     title: plan.chunk.title,
@@ -902,13 +910,17 @@ function buildStudyGuideBatchPrompt(
     "Let the evaluated request contract and chapter evidence determine theory depth, learning activities, examples, retrieval, formulas, and quantity. Do not pad a chapter or satisfy a fixed component/type quota. Optional arrays may be empty.",
     "Keep title exactly course-faithful. Also provide navigationTitle as a concise learner-facing label of 2–7 meaningful words and at most 64 characters. Remove scheduling wrappers such as chapter numbers, Self-Study, Class, Week, or Part, but retain the concepts that distinguish this module from its neighbors. It must work as a standalone navigation label; never truncate a word or add generic labels such as Topic or Module.",
     "Use cross exercises for concrete misconception, comparison, classification, or sequencing checks. Use calculation exercises only when the evidence supplies a real quantitative method and necessary quantities.",
+    "Every exercise must be self-contained on its visible learner card. Include the complete situation, stimulus, data, assumptions, target, options, and response instruction needed to answer it. Never refer to 'the example in the chapter', 'the summary above', a hidden list, an unseen video, or other context that is not embedded in that item. Longer task statements are preferable to missing information.",
     "Use application exercises for open case analysis, source interpretation, writing, speaking, laboratory procedures, design decisions, or other work that cannot be assessed honestly as multiple choice. Each application needs executable instructions, a useful sample answer, and specific self-check criteria.",
+    "Estimate realistic focused solving time for every exercise in estimatedMinutes. A recognition check may take only a few minutes, while a complete multi-step calculation or transfer task may take substantially longer. Use effort to represent depth; do not split one coherent long task into filler merely to inflate item count.",
+    "Inventory every distinct concrete exercise, quiz task, worked example, and sample-exam task present in this chapter evidence before creating variants. Preserve every useful nonredundant source task as an exercise when its complete statement can be represented. Then add Study Buddy variants only where evidenced objectives, subskills, misconceptions, response modes, or transfer demands remain under-practised. One item per objective is not automatically sufficient, and equal per-chapter or per-type counts are forbidden.",
+    "Visual practice evidence distinguishes complete_task from method_only. Only complete_task may become provenance=source. method_only proves a diagram, method, derivation, or difficulty pattern but not the missing original task; use it only to create an explicitly adapted, fully self-contained variant with safe complete values, or disclose that it could not support a useful item. Preserve its source page in sourceTask (for example 'Source title, Seite 2').",
     "Use vocabulary exercises only when terminology, expressions, a glossary, language functions, or a vocabulary assessment is evidenced. Each item must test one useful in-scope term or phrase through term-to-meaning, meaning-to-term, or a context gap. Give accepted answers, a natural course-relevant context sentence, and an explanation. Select productive vocabulary or terminology at the level and in the disciplinary context supported by the course. Do not turn chapter headings or generic placeholders into vocabulary items. When the evidence establishes a topic but does not expose a word list, Study Buddy may generate stable domain vocabulary inside that exact topic scope and must use provenance=derived.",
     "Use provenance=source for directly evidenced tasks, provenance=adapted for an evidenced parameter variation, and provenance=derived only for new practice synthesized from the named source concept. Every sourceTask must identify the concrete task, slide, script section, table procedure, formula, or worked example.",
     "For every topic, evidenceRefs.learningGoalIndexes are zero-based positions in that same topic's returned learningGoals array. This applies to topic, exercise, and retrieval refs; never use indexes from the source corpus, another chapter, or the aggregate course.",
     "Never invent course facts, constants, clinical/legal rules, exam scoring, or generic filler. A calculation prompt must contain complete givens, units, a derivable result, progressive solution steps, and a concrete common mistake.",
     "Formula expressions must be concise mathematical notation, never prose, HTML, MathML, TeX delimiters, or Typst markup. Leave formulas empty if this chapter has no meaningful formula.",
-    "The flat Structured Output exercise object requires every field. Cross exercises fill selectionMode/options/explanation; calculation exercises fill givens/acceptedAnswers/unit/steps/commonMistake; application exercises fill instructions/sampleAnswer/selfCheck; vocabulary exercises fill direction/term/acceptedAnswers/context/explanation. Use direction=none, selectionMode=none, empty arrays, or empty strings for every field irrelevant to that type. Irrelevant fields are removed before internal validation.",
+    "The flat Structured Output exercise object requires every field, including estimatedMinutes. Cross exercises fill selectionMode/options/explanation; calculation exercises fill givens/acceptedAnswers/unit/steps/commonMistake; application exercises fill instructions/sampleAnswer/selfCheck; vocabulary exercises fill direction/term/acceptedAnswers/context/explanation. Use direction=none, selectionMode=none, empty arrays, or empty strings for every field irrelevant to that type. Irrelevant fields are removed before internal validation.",
     "The sources array must include every source label cited by this chapter. Copy only HTTPS Moodle URLs present in the evidence; otherwise use an empty URL. Set courseCode and courseTitle exactly as stated above. scopeNote must be one concise, non-repetitive source-limit sentence for this chapter.",
     state.error_log?.startsWith("Study-guide content builder failed:") ? `Repair these prior validation findings where applicable:\n${state.error_log}` : "",
     `Return exactly ${batch.length} topics entries in the supplied chapter order. Do not merge or rename chapters.`,
@@ -1013,9 +1025,13 @@ export function buildStudyGuideContentPrompt(config: WebLayoutRuntimeConfig, sta
     "Every derived sourceTask must name the concrete source concept, for example 'Abgeleitet aus Skript Kapitel 3: Lagerauswahl' or 'Abgeleitet aus Folie 18: Marktformen'. The source label must correspond to an entry in the source register.",
     "For every topic, evidenceRefs.learningGoalIndexes are zero-based positions in that same topic's returned learningGoals array. This applies to topic, exercise, and retrieval refs; never use indexes from the source corpus, another chapter, or the aggregate course.",
     "Never manufacture generic prompts such as 'Welche Aussage trifft zu?', 'Wähle alle sinnvollen Schritte', or 'Berechne den Wert' without a complete mathematical statement.",
+    "Every exercise must be self-contained on its visible learner card. Include all stimulus text, situation, data, assumptions, targets, choices, and response instructions required to solve it; never depend on an unseen chapter, prior summary, external video, or missing list.",
     "Kreuzerl distractors must encode plausible course-specific misconceptions and each option needs targeted feedback.",
     "Calculation exercises must be fully specified, include accepted exact/decimal answers as needed, and include a real derivation plus a concrete common mistake. Do not force calculation exercises into a non-quantitative topic.",
     "Open application exercises must support cases, source analysis, writing, speaking, procedures, or design work with a sample response and an explicit self-check rubric.",
+    "Set estimatedMinutes to the realistic focused effort for each exercise. Use this workload signal when deciding breadth: short foundation checks can be numerous when useful; a few substantial advanced calculations or transfer tasks may represent much more practice. Do not stop after nominally touching an objective once, and do not use a fixed number per topic or type.",
+    "Inventory every distinct concrete quiz task, worksheet problem, worked example, and sample-exam task in the supplied evidence. Preserve useful nonredundant tasks when their complete statement is available, record why duplicates are adapted or omitted in scopeNote, and synthesize variants only for evidenced practice gaps.",
+    "Visual practice evidence distinguishes complete_task from method_only. Treat only a complete visible task as course_original. A visible diagram or worked solution without its original prompt is still useful method evidence, but any learner task reconstructed from it must be a fully specified course_variant with safe values and an exact source-page reference, never a fabricated Moodle original.",
     "Vocabulary exercises are a separate learning object, not generic language decoration. Select them only from evidenced terminology, expressions, glossary needs, or assessment requirements. They must test productive course-appropriate terminology or functional phrases in context. Reject chapter labels and generic placeholders; do not apply a fixed language level or a subject-name vocabulary recipe. Study Buddy knowledge may fill the vocabulary set only inside an established course topic.",
     "Keep each title course-faithful and add navigationTitle as a concise learner-facing label of 2–7 meaningful words and at most 64 characters. Remove scheduling wrappers such as chapter numbers, Self-Study, Class, Week, or Part, but keep the concepts that distinguish the module from its neighbors. Never truncate a word or use generic labels such as Topic or Module.",
     "The response schema uses one flat exercise object for Structured Output compatibility. Fill only the fields relevant to cross, calculation, application, or vocabulary, and use empty arrays, strings, or the none enum for all other required fields. Irrelevant empty fields are removed before strict internal validation.",
@@ -1114,6 +1130,7 @@ function normalizeModelContent(value: unknown): unknown {
               id: item.id,
               type: item.type,
               prompt: item.prompt,
+              estimatedMinutes: item.estimatedMinutes,
               selectionMode: item.selectionMode,
               options: item.options,
               explanation: item.explanation,
@@ -1126,6 +1143,7 @@ function normalizeModelContent(value: unknown): unknown {
               id: item.id,
               type: item.type,
               prompt: item.prompt,
+              estimatedMinutes: item.estimatedMinutes,
               givens: item.givens,
               acceptedAnswers: item.acceptedAnswers,
               unit: item.unit,
@@ -1140,6 +1158,7 @@ function normalizeModelContent(value: unknown): unknown {
               id: item.id,
               type: item.type,
               prompt: item.prompt,
+              estimatedMinutes: item.estimatedMinutes,
               instructions: item.instructions,
               sampleAnswer: item.sampleAnswer,
               selfCheck: item.selfCheck,
@@ -1152,6 +1171,7 @@ function normalizeModelContent(value: unknown): unknown {
               id: item.id,
               type: item.type,
               prompt: item.prompt,
+              estimatedMinutes: item.estimatedMinutes,
               direction: item.direction,
               term: item.term,
               acceptedAnswers: item.acceptedAnswers,

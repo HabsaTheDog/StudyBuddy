@@ -28,5 +28,8 @@ tmp/
 hackathon-submission-private/
 study-buddy-deliverables/
 study-buddy-data/
+/videos/
+/video-production/
+/t3code-file-viewer-refresh/
 .DS_Store
 Thumbs.db

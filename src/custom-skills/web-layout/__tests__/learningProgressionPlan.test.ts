@@ -146,6 +146,8 @@ describe("request-bound learning progression", () => {
     }
     expect(prompt).toContain("Validated item rows use this exact field order");
     expect(prompt).toContain('"itemNumber"');
+    expect(prompt).toContain('"estimatedMinutes"');
+    expect(prompt).toContain("a long difficult task may carry more preparation value than several short prompts");
     expect(prompt).toContain("[bounded]");
   });
 

@@ -15,6 +15,11 @@ archive.
 - `CIS_*`: FH Technikum CIS adapter equivalents.
 - `CIS_CALENDAR_URL`: private iCalendar bearer URL; revoke it if disclosed.
 
+The application treats a configured calendar URL as write-only: the server
+returns only whether one is configured. The plaintext environment value remains
+a legacy local configuration path pending migration to the source credential
+broker.
+
 The shipped portal URLs describe the initial FH Technikum adapter. Other Moodle
 sites should replace them and may require selectors or adapter work. CIS is not a
 generic student-information-system interface.

@@ -5,6 +5,49 @@ repository state without containing credentials, private portal identifiers, or
 local artifact paths. Update it when a gate changes; do not treat an old green
 result as proof for a later commit.
 
+## Current release-branch verification on 2026-08-16
+
+- The interface release branch integrates the governed source/email feature,
+  rejects private or loopback IMAP destinations, schema-validates persisted
+  source records, and keeps local source secrets owner-readable only. The
+  documented security boundary is operating-system account isolation plus
+  full-disk encryption; the project does not claim fake application encryption
+  with an adjacent key.
+- The desktop updater uses `HabsaTheDog/StudyBuddy` GitHub Releases for Stable,
+  Alpha, Beta, and Nightly tracks. It checks after startup, then every six hours,
+  and on demand; it notifies before download and requires an explicit restart.
+  Electron updater metadata binds downloads with SHA-512.
+- Real Electron first-run/settings acceptance passed. The Alpha track round-trip
+  reached the main-process updater state, and development builds correctly
+  disable install actions.
+- A full Node 22.16 Linux alpha build produced the branded AppImage and
+  `alpha-linux.yml`; the manifest SHA-512 matched the executable. The packaged
+  app started its bundled backend, created its main window, selected Alpha, and
+  performed the delayed GitHub check.
+- An isolated packaged `0.1.0-alpha.1` to `0.1.0-alpha.2` simulation fetched the
+  local Alpha manifest, detected the newer release, and remained notify-first
+  without auto-downloading.
+- The interface workspace passes all typechecks and tests: server 1,259 passing
+  (5 skipped), web 1,155 passing, desktop 118 passing, and all supporting
+  packages green. Release smoke, formatting/lint, Gitleaks, and local dependency
+  audits pass.
+- The public interface tree removes 3,438 tracked external reference files
+  (about 52 MB and 899,812 lines) that were never built or shipped. Optional
+  local clones are ignored. The remaining vulnerable development-only routing
+  dependency is overridden to patched `path-to-regexp` 6.3.0.
+- The root release branch removes generated promotional media, caches, bundled
+  binaries/fonts, and the foreign file-viewer gitlink. The root now passes
+  TypeScript and 123 test files: 902 tests pass and 4 are skipped.
+- The final evidence-adaptive pipeline review is integrated: finite authorized
+  source selections drain across operational batches, verified request
+  contracts remain immutable, evidence summaries allocate space across sources,
+  safe adapted practice is reviewed honestly, course hierarchy labels are
+  preserved, and mobile/math regressions are covered.
+- Interface pull request `HabsaTheDog/t3code#10` passed its build/typecheck,
+  dependency audit, Gitleaks, unit, and browser gates and was squash-merged as
+  `94d975a45d48cded9ef23cebf36dc48f4cd15583`. The root release branch pins that
+  exact public commit as the `t3code-fork` gitlink.
+
 ## Verified locally and on GitHub on 2026-08-14
 
 - The public root history was rewritten, every reviewed writable branch and tag
@@ -77,16 +120,19 @@ result as proof for a later commit.
 
 1. Confirm that GitHub Support has dereferenced the affected pull-request refs
    and removed cached views containing the historical personal data.
-2. Produce and inspect the unsigned Linux x64 and Windows x64 alpha artifacts,
-   then complete SignPath Foundation onboarding and the reviewed Windows signing
-   integration before binary publication. macOS is not part of this alpha.
-3. Repeat manual synthetic smoke tests on every platform claimed in the
+2. Let all root GitHub security/release checks pass from a recursive checkout.
+3. Complete SignPath Foundation onboarding and provide the organization ID,
+   project slug, signing-policy slug, artifact configuration, and protected
+   submitter token so the reviewed Windows signing job can replace the current
+   fail-closed gate. macOS is not part of this alpha.
+4. Build and inspect the unsigned Windows x64 alpha artifact, then repeat manual
+   synthetic smoke tests on every platform claimed in the
    prerelease notes and install the exact draft artifacts on clean machines.
-4. The disabled upstream mobile, marketing, and relay directories are excluded
+5. The disabled upstream mobile, marketing, and relay directories are excluded
    from the default pnpm workspace, frozen lockfile, audits, artifacts, and
    deployments. Reintroduce them only with an explicit product decision, public
    dependency resolution, and their own clean security review.
-5. The active adaptive path is free of fixed subject-template decisions and its
+6. The active adaptive path is free of fixed subject-template decisions and its
    contract/portability regressions pass. Complete the two documented fresh
    standalone Balanced rounds for DYN2 and Business English before claiming
    broader generic course support.

@@ -51,9 +51,12 @@ is accepted only when all of the following are true:
 - the Windows artifact has been signed through the reviewed SignPath path;
 - every platform build and the release-evidence assembly succeeds.
 
-The assembled bundle contains the platform artifacts, `SHA256SUMS`, the root
-CycloneDX SBOM, and `release-manifest.json` with the exact root and interface
-commits. Do not repurpose the disabled upstream T3 release workflow.
+The assembled bundle contains the platform artifacts, Electron updater channel
+metadata (`alpha.yml` and `alpha-linux.yml`, plus available blockmaps),
+`SHA256SUMS`, the root CycloneDX SBOM, and `release-manifest.json` with the exact
+root and interface commits. The YAML metadata binds each download with SHA-512;
+the website and in-app updater both use these GitHub Release assets. Do not
+repurpose the disabled upstream T3 release workflow.
 
 The workflow fails closed when `signed=true` until SignPath Foundation
 onboarding, origin verification, signing policy, and the pinned integration are
@@ -61,6 +64,32 @@ complete. Store any eventual SignPath token only as an `alpha-release`
 environment secret, restrict that environment to reviewed tags and required
 maintainers, and require a separate signing approval. Do not add Apple or Azure
 signing credentials to this release path.
+
+### SignPath Foundation owner handoff
+
+SignPath Foundation provides free code-signing certificates for accepted open
+source projects without requiring the maintainer to buy or personally hold a
+certificate. Apply at <https://signpath.org/>. After acceptance:
+
+1. install the SignPath GitHub App for this repository and link SignPath's
+   predefined GitHub.com trusted build system to the Study Buddy project;
+2. create or confirm the SignPath organization ID, project slug, signing policy
+   slug, and artifact configuration for the Windows NSIS payload;
+3. add the submitter token only as the `SIGNPATH_API_TOKEN` secret in the
+   protected `alpha-release` environment; keep the non-secret IDs/slugs as
+   environment variables;
+4. return those identifiers for the final workflow patch. The reviewed
+   integration must upload the unsigned workflow artifact first, submit its
+   GitHub artifact ID through
+   `signpath/github-action-submit-signing-request@v2`, wait for completion,
+   verify the returned executable's Authenticode signature, and pass only that
+   signed payload to release assembly;
+5. keep every build job leading to the signing request on GitHub-hosted runners,
+   as required for SignPath Foundation OSS origin verification.
+
+The current fail-closed workflow is intentional: SignPath project and artifact
+configuration are server-side contracts, so inserting guessed slugs or an
+unverified signing step would create a misleading release path.
 
 ## 5. Publish a draft prerelease
 

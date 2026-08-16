@@ -162,7 +162,7 @@ describe("interactive benchmark replay", () => {
     invalidBank.items[1]!.id = invalidBank.items[0]!.id;
     invalidBank.items[1]!.review = {
       ...(invalidBank.items[1]!.review as Record<string, unknown>),
-      checks: { schema: true, scope: false, answer: true, provenance: true, rendering: true },
+      checks: { schema: true, scope: false, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: ["outside scope"],
     };
     await Promise.all([
@@ -249,7 +249,7 @@ async function reviewedModel(
             itemId: item.id,
             contentHash: item.contentHash,
             verdict: "approved",
-            checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+            checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
             findings: [],
           })),
         });

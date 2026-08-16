@@ -7,7 +7,7 @@ import { alignGeneratedBatchTopics, bindStudyGuideEvidenceRefs, buildEvidenceChu
 import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { initialWebLayoutState } from "../state.js";
 import { minimalRequestContract } from "../../shared/requestContract.js";
-import { studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
+import { normalizeStudyGuideNavigationTitles, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
 
 const previousConcurrency = process.env.STUDY_BUDDY_WEB_CONTENT_CONCURRENCY;
 const tempDirs: string[] = [];
@@ -248,6 +248,31 @@ describe("study-guide canonical content bank", () => {
     expect(content.topics[0]?.workedExamples[0]?.source.label).toBe("1_Folien_Punktkinematik");
   });
 
+  it("rejects navigation labels that replace the course module with one narrow example", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 1/12"));
+    content.topics[0]!.title = "Eigenstudium 1A: Punktkinematik";
+    content.topics[0]!.navigationTitle = "Schiefer Wurf";
+
+    const findings = validateStudyGuideChapterQuality(content).join("\n");
+    expect(findings).toContain("does not preserve a recognizable concept");
+
+    content.topics[0]!.navigationTitle = "Punktkinematik · Schiefer Wurf";
+    expect(validateStudyGuideChapterQuality(content).join("\n")).not.toContain("does not preserve a recognizable concept");
+  });
+
+  it("repairs presentation-only navigation labels from the course title without changing chapter content", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 1/12"));
+    content.topics[0]!.title = "Punktkinematik";
+    content.topics[0]!.navigationTitle = "Schiefer Wurf";
+    const beforeExercises = JSON.stringify(content.topics[0]!.exercises);
+
+    expect(normalizeStudyGuideNavigationTitles(content)).toBe(1);
+    expect(content.topics[0]!.navigationTitle).toBe("Punktkinematik");
+    expect(JSON.stringify(content.topics[0]!.exercises)).toBe(beforeExercises);
+    expect(validateStudyGuideChapterQuality(content).join("\n"))
+      .not.toContain("does not preserve a recognizable concept");
+  });
+
   it("uses bounded parallel content-analyzer calls and preserves chapter order", async () => {
     process.env.STUDY_BUDDY_WEB_CONTENT_CONCURRENCY = "3";
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-content-parallel-"));
@@ -373,6 +398,9 @@ describe("study-guide canonical content bank", () => {
     expect(second.error_log).toBeNull();
     expect(contentPrompts).toHaveLength(1);
     expect(contentPrompts[0]).toContain("Chapter 2/4");
+    expect(contentPrompts[0]).toContain("self-contained on its visible learner card");
+    expect(contentPrompts[0]).toContain("estimatedMinutes");
+    expect(contentPrompts[0]).toContain("One item per objective is not automatically sufficient");
     const repaired = JSON.parse(await readFile(chunkPath, "utf8")) as StudyGuideContent;
     expect(validateStudyGuideChapterQuality(repaired)).toEqual([]);
   });
@@ -466,7 +494,7 @@ describe("study-guide canonical content bank", () => {
             return {
               itemId: item.itemId, contentHash: item.contentHash,
               verdict: reject ? "rejected" : "approved",
-              checks: { schema: true, scope: true, answer: !reject, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: !reject, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: reject ? [{ code: "answer", severity: "blocking", message: "The explanation is incomplete.", repairInstruction: "Repair only this explanation." }] : [],
             };
           }) });
@@ -523,8 +551,8 @@ describe("study-guide canonical content bank", () => {
               itemId: item.itemId, contentHash: item.contentHash,
               verdict: unavailable ? "evidence_unavailable" : "approved",
               checks: unavailable
-                ? { schema: false, scope: false, answer: false, provenance: false, rendering: false }
-                : { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+                ? { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false }
+                : { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: unavailable ? [{ code: "evidence-unavailable", severity: "blocking", message: "Capsule could not establish the cited claim.", repairInstruction: "Rebuild the unchanged item capsule." }] : [],
             };
           }) });
@@ -587,7 +615,7 @@ describe("study-guide canonical content bank", () => {
             else if (rejectedHashes.has(item.itemId) && rejectedHashes.get(item.itemId) !== item.contentHash) rereviewed.push(item);
             return {
               itemId: item.itemId, contentHash: item.contentHash, verdict: original ? "rejected" : "approved",
-              checks: { schema: true, scope: true, answer: !original, provenance: true, rendering: true },
+              checks: { schema: true, scope: true, answer: !original, provenance: true, rendering: true, selfContained: true, feedback: true },
               findings: original ? [{ code: "answer", severity: "blocking", message: "Incomplete.", repairInstruction: "Complete only this answer." }] : [],
             };
           }) });
@@ -889,7 +917,7 @@ function modelOrReviewResponse(prompt: string): string {
       itemId: item.itemId,
       contentHash: item.contentHash,
       verdict: "approved",
-      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true },
+      checks: { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true },
       findings: [],
     })),
   });

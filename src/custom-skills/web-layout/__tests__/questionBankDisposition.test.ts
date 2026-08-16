@@ -108,7 +108,7 @@ function item(id: string, objectiveId: string, type: "application" | "calculatio
     id: `question-${id}`, legacyExerciseId: id, contentHash, topicId: "topic", learningObjectiveIds: [objectiveId],
     type, stageIndex: 1, stageIntent: "minimum", stageLabel: "Neutral", difficulty: "standard", estimatedMinutes: 3,
     origin: "study_buddy_generated", scopeBasis: { topicTitle: "Topic", learningObjectives: [objectiveId], sourceLabel: source.label, sourceTask: source.sourceTask },
-    review: { status: "pending", checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false }, findings: [] },
+    review: { status: "pending", checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false }, findings: [] },
     exercise,
   };
 }
@@ -132,8 +132,8 @@ function record(
     contract: { contractHash: context.contractHash, originalPromptHash: context.originalPromptHash, requirementIds: context.requirementIds },
     reviewer: { kind: "independent_model" as const, task: "quality_reviewer" as const, verdict },
     checks: isApproved
-      ? { schema: true, scope: true, answer: true, provenance: true, rendering: true }
-      : { schema: false, scope: false, answer: false, provenance: false, rendering: false },
+      ? { schema: true, scope: true, answer: true, provenance: true, rendering: true, selfContained: true, feedback: true }
+      : { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false },
     findings: isApproved ? [] : [{
       code: approved === "evidence_unavailable" ? "evidence-unavailable" : "answer",
       severity: "blocking" as const,

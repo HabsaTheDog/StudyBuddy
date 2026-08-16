@@ -3,6 +3,12 @@ import type { LangGraphAgentState, JsonObject } from "../state.js";
 import { validateExtractedData } from "../validation.js";
 import { classifyResourceTopic } from "../resourcePlanning.js";
 import { extractResolvedCourseIdentity } from "../courseTargeting.js";
+import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
+import {
+  readPracticeVisualEvidence,
+  type PracticeVisualEvidence,
+  type PracticeVisualResource,
+} from "../practiceVisualEvidence.js";
 
 interface ModuleBucket {
   id: string;
@@ -23,7 +29,8 @@ export function createEvidenceHandoffNode(config: MoodleRuntimeConfig) {
   return async function evidenceHandoffNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
-    const extracted = buildEvidenceHandoff(config, state);
+    const practiceEvidence = await readPracticeVisualEvidence(config.runDir);
+    const extracted = buildEvidenceHandoff(config, state, practiceEvidence);
     await config.diagnostics?.log(
       "info",
       "analyzer",
@@ -38,7 +45,8 @@ export function createEvidenceHandoffNode(config: MoodleRuntimeConfig) {
 
 export function buildEvidenceHandoff(
   config: MoodleRuntimeConfig,
-  state: Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package" | "request_contract">,
+  state: Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package" | "request_contract" | "source_architect_decision">,
+  practiceEvidence: PracticeVisualEvidence = { schemaVersion: 1, resources: [] },
 ) {
   const records = state.evidence_package.records;
   const evidencedIds = new Set(records.map((record) => record.resourceId));
@@ -57,6 +65,11 @@ export function buildEvidenceHandoff(
   }));
   const sourceIds = new Set(sources.map((source) => source.id));
   const buckets = new Map<string, ModuleBucket>();
+  const architectureModules = deriveArchitectureModules(
+    state.source_architect_decision.learningArchitecture,
+    state.resource_manifest.resources,
+    sourceIds,
+  );
   const selectedTopicModules = deriveSelectedTopicModules(
     resources,
     state.moodle_raw_text,
@@ -67,7 +80,9 @@ export function buildEvidenceHandoff(
     sourceIds,
   );
   const moduleResources = resources.filter((resource) => resource.selection?.selected === true);
-  if (selectedTopicModules.length >= 2) {
+  if (architectureModules.length > 0) {
+    for (const module of architectureModules) buckets.set(module.id, module);
+  } else if (selectedTopicModules.length >= 2) {
     for (const module of selectedTopicModules) buckets.set(module.id, module);
   } else if (hierarchyModules.length >= 2) {
     for (const module of hierarchyModules) buckets.set(module.id, module);
@@ -94,13 +109,16 @@ export function buildEvidenceHandoff(
       module.resourceIds.includes(record.resourceId) &&
       record.resourceId !== module.courseSourceId
     );
-    const summary = unique([
-      module.summary?.trim() ?? "",
-      ...moduleRecords.map((record) => record.content.trim()).filter(Boolean),
-    ])
-      .join("\n\n")
-      .slice(0, 7_000)
-      .trim();
+    const modulePractice = practiceEvidence.resources.filter((resource) =>
+      module.resourceIds.includes(resource.sourceId)
+    );
+    const summary = balancedModuleEvidence({
+      module,
+      records: moduleRecords,
+      resources,
+      practice: modulePractice,
+      maxCharacters: 7_000,
+    });
     return {
       heading: module.title,
       summary: summary || (config.outputLanguage === "de"
@@ -129,6 +147,12 @@ export function buildEvidenceHandoff(
       .filter((record) => record.kind === "exercise" || record.kind === "solution")
       .map((record) => firstSentence(record.content))
       .filter(Boolean);
+    const visualPracticeSignals = practiceEvidence.resources
+      .filter((resource) => module.resourceIds.includes(resource.sourceId))
+      .flatMap((resource) => resource.examples
+        .filter((example) => example.evidenceStatus !== "unusable")
+        .map((example) => `${resource.sourceTitle}: ${example.learningGoal || example.taskPrompt}`))
+      .filter(Boolean);
     return {
       id: module.id,
       title: module.title,
@@ -138,7 +162,7 @@ export function buildEvidenceHandoff(
       // evidence instead of a subject-name classifier.
       content_mode: "mixed" as const,
       learning_objectives: unique(evidencedObjectives),
-      assessment_signals: unique(evidencedTasks),
+      assessment_signals: unique([...evidencedTasks, ...visualPracticeSignals]),
       resource_ids: module.resourceIds,
     };
   });
@@ -159,15 +183,192 @@ export function buildEvidenceHandoff(
     sources,
     sections,
     formulas: [],
-    worked_examples: [],
+    worked_examples: practiceEvidence.resources.flatMap((resource) =>
+      resource.examples.flatMap((example) => {
+        if (example.evidenceStatus === "unusable") return [];
+        return [{
+          origin: example.evidenceStatus === "complete_task" ? "source" as const : "derived" as const,
+          learning_goal: example.learningGoal,
+          prompt: example.evidenceStatus === "complete_task"
+            ? example.taskPrompt
+            : `Die visuelle Kursquelle ${resource.sourceTitle} zeigt einen Lösungsweg, aber keine vollständig rekonstruierbare Originalangabe. Belegt sind: ${example.learningGoal}. ${example.diagramDescription}`.trim(),
+          steps: example.solutionSteps,
+          result: example.result,
+          source_ids: [resource.sourceId],
+        }];
+      })
+    ),
     quiz_style_questions: [],
     visual_assets: [],
     figures: [],
     learning_modules: learningModules,
     warnings: [config.outputLanguage === "de"
       ? "Evidence-first-Handoff: Didaktische Synthese und Aufgaben werden einmalig im validierten Web-Layout erzeugt."
-      : "Evidence-first handoff: teaching synthesis and exercises are generated once in the validated web-layout stage."],
+      : "Evidence-first handoff: teaching synthesis and exercises are generated once in the validated web-layout stage.",
+      ...practiceEvidence.resources.flatMap((resource) => [
+        ...resource.warnings.map((warning) => `${resource.sourceTitle}: ${warning}`),
+        ...(resource.examples.some((example) => example.evidenceStatus === "method_only")
+          ? [`${resource.sourceTitle}: The visible source supports a method or solution path, but not a complete original learner prompt; any resulting practice must be labelled as a derived variant.`]
+          : []),
+      ]),
+    ],
   });
+}
+
+/**
+ * Keep every selected source visible within the bounded web handoff. A plain
+ * `join().slice()` let one long overview consume the complete chapter budget,
+ * so later lecture and practice sources were selected and extracted but never
+ * reached the content author. This allocator is deliberately source-agnostic:
+ * it gives each resource a fair initial share and redistributes unused space.
+ */
+export function balancedModuleEvidence(input: {
+  module: ModuleBucket;
+  records: LangGraphAgentState["evidence_package"]["records"];
+  resources: LangGraphAgentState["resource_manifest"]["resources"];
+  practice: PracticeVisualResource[];
+  maxCharacters: number;
+}): string {
+  const resourceById = new Map(input.resources.map((resource) => [resource.id, resource]));
+  const practiceById = new Map(input.practice.map((resource) => [resource.sourceId, resource]));
+  const grouped = new Map<string, string[]>();
+  for (const record of input.records) {
+    const content = record.content.trim();
+    if (!content) continue;
+    const bucket = grouped.get(record.resourceId) ?? [];
+    bucket.push(content);
+    grouped.set(record.resourceId, bucket);
+  }
+  for (const practice of input.practice) {
+    const texts = practice.examples
+      .filter((example) => example.evidenceStatus !== "unusable")
+      .map((example) => practiceEvidenceText(practice, example));
+    if (texts.length === 0) continue;
+    grouped.set(practice.sourceId, [
+      ...texts,
+      ...(grouped.get(practice.sourceId) ?? []),
+    ]);
+  }
+  if (input.module.summary?.trim()) {
+    grouped.set("__module_summary__", [input.module.summary.trim()]);
+  }
+
+  const blocks = [...grouped.entries()].map(([resourceId, contents], originalIndex) => {
+    const resource = resourceById.get(resourceId);
+    const practice = practiceById.get(resourceId);
+    const role = practice?.sourceRole ?? resource?.selection?.role ?? "module_context";
+    const title = practice?.sourceTitle ?? resource?.title ?? input.module.title;
+    const rank = role === "worked_example" || role === "sample_exam"
+      ? 0
+      : role === "primary_lecture"
+        ? 1
+        : role === "formula"
+          ? 2
+          : 3;
+    return {
+      originalIndex,
+      rank,
+      text: unique([
+        `[Source evidence: ${title}; role ${role}]`,
+        ...contents,
+      ]).join("\n\n"),
+    };
+  }).sort((left, right) => left.rank - right.rank || left.originalIndex - right.originalIndex);
+  if (blocks.length === 0 || input.maxCharacters <= 0) return "";
+
+  const allocations = new Array(blocks.length).fill(0) as number[];
+  let remaining = input.maxCharacters;
+  let open = blocks.map((_, index) => index);
+  while (remaining > 0 && open.length > 0) {
+    const share = Math.max(1, Math.floor(remaining / open.length));
+    let spent = 0;
+    const nextOpen: number[] = [];
+    for (const index of open) {
+      const capacity = blocks[index]!.text.length - allocations[index]!;
+      const amount = Math.min(capacity, share);
+      allocations[index] = allocations[index]! + amount;
+      spent += amount;
+      if (capacity > amount) nextOpen.push(index);
+    }
+    remaining -= spent;
+    if (spent === 0) break;
+    open = nextOpen;
+  }
+  return blocks
+    .map((block, index) => block.text.slice(0, allocations[index]))
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, input.maxCharacters)
+    .trim();
+}
+
+function deriveArchitectureModules(
+  architecture: LangGraphAgentState["source_architect_decision"]["learningArchitecture"],
+  allResources: LangGraphAgentState["resource_manifest"]["resources"],
+  availableSourceIds: Set<string>,
+): ModuleBucket[] {
+  if (!architecture || architecture.moduleLimit) return [];
+  const byUrl = new Map<string, typeof allResources[number]>();
+  for (const resource of allResources) {
+    for (const value of [resource.originUrl, resource.resolvedUrl, resource.canonicalUrl]) {
+      if (value) byUrl.set(canonicalizeResourceUrl(value), resource);
+    }
+  }
+  return architecture.modules.flatMap((module) => {
+    const directlyAssigned = module.resourceUrls
+      .map((url) => byUrl.get(canonicalizeResourceUrl(url)))
+      .filter((resource): resource is typeof allResources[number] => Boolean(resource));
+    const sectionKeys = new Set(directlyAssigned.flatMap((resource) =>
+      resource.sectionPath.map((part) => part.trim().toLocaleLowerCase("de")).filter(Boolean)
+    ));
+    const structurallyAssigned = allResources.filter((resource) =>
+      resource.selection?.selected === true &&
+      resource.sectionPath.some((part) =>
+        sectionKeys.has(part.trim().toLocaleLowerCase("de")) ||
+        structureLabelsOverlap(part, module.title)
+      )
+    );
+    const resourceIds = unique([...directlyAssigned, ...structurallyAssigned]
+      .map((resource) => resource.id)
+      .filter((id) => availableSourceIds.has(id)));
+    if (resourceIds.length === 0) return [];
+    return [{
+      id: module.id,
+      title: module.title,
+      resourceIds,
+      conceptTitles: unique([...directlyAssigned, ...structurallyAssigned].map((resource) => resource.title)).slice(0, 16),
+    }];
+  });
+}
+
+function structureLabelsOverlap(left: string, right: string): boolean {
+  const tokens = (value: string) => new Set(
+    value.normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase("de")
+      .match(/[a-z0-9]{3,}/g)
+      ?.filter((token) => !/^(?:eigenstudium|nachbearbeitung|vorbereitung|prasenz|phase|session|lesson|class|unit|week|chapter|module|topic|block)$/.test(token)) ?? [],
+  );
+  const leftTokens = tokens(left);
+  const rightTokens = tokens(right);
+  return rightTokens.size > 0 && [...rightTokens].some((token) => leftTokens.has(token));
+}
+
+function practiceEvidenceText(
+  resource: PracticeVisualResource,
+  example: PracticeVisualResource["examples"][number],
+): string {
+  return [
+    `[Visual practice evidence: ${resource.sourceTitle}; pages ${example.pages.join(", ")}; status ${example.evidenceStatus}]`,
+    example.learningGoal ? `Learning goal: ${example.learningGoal}` : "",
+    example.taskPrompt ? `Visible task: ${example.taskPrompt}` : "Visible task: incomplete in the source pages.",
+    example.givens.length > 0 ? `Visible givens: ${example.givens.join("; ")}` : "",
+    example.targets.length > 0 ? `Visible targets: ${example.targets.join("; ")}` : "",
+    example.diagramDescription ? `Diagram: ${example.diagramDescription}` : "",
+    example.solutionSteps.length > 0 ? `Visible solution path: ${example.solutionSteps.join(" -> ")}` : "",
+    example.result ? `Visible result: ${example.result}` : "",
+    example.warnings.length > 0 ? `Evidence limits: ${example.warnings.join("; ")}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function deriveSelectedTopicModules(
@@ -253,7 +454,7 @@ function deriveCourseHierarchyModules(
     }
   }
 
-  return groups.slice(0, 12).map((group, index) => {
+  return groups.map((group, index) => {
     const first = group[0]!;
     const nextGroup = groups[index + 1];
     const start = first.rawIndex;

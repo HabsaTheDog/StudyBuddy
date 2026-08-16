@@ -271,7 +271,7 @@ export function renderAdaptiveStudyGuide(
         </div>
         <div class="topic-question-strip" data-topic-question-index aria-label="${text("Fragen dieses Themas", "Questions in this topic")}"></div>
         <div class="topic-focus">
-          <div class="focus-toolbar">
+          <div class="focus-toolbar" data-question-navigation data-navigation-scope="topic">
             <button class="icon-button" type="button" data-topic-prev aria-label="${text("Vorherige Themenfrage", "Previous topic question")}">←</button>
             <div><span class="eyebrow">${text("Kapitelübung", "Topic practice")}</span><strong data-topic-position>0 / 0</strong></div>
             <button class="icon-button" type="button" data-topic-next aria-label="${text("Nächste Themenfrage", "Next topic question")}">→</button>
@@ -305,7 +305,7 @@ export function renderAdaptiveStudyGuide(
           <div class="question-index" data-question-index></div>
         </aside>
         <div class="focus-stage">
-          <div class="focus-toolbar">
+          <div class="focus-toolbar" data-question-navigation data-navigation-scope="catalog">
             <button class="icon-button" type="button" data-session-prev aria-label="${text("Vorherige Frage", "Previous question")}">←</button>
             <div><span class="eyebrow" data-current-topic>${text("Fragenkatalog", "Question catalogue")}</span><strong data-session-position>0 / 0</strong></div>
             <button class="icon-button" type="button" data-session-next aria-label="${text("Nächste Frage", "Next question")}">→</button>
@@ -610,6 +610,9 @@ function adaptiveController(storageNamespace: string, language: "de" | "en"): st
     learned: text("Gelernt", "Learned"),
     correct: text("Richtig.", "Correct."),
     wrong: text("Noch nicht. Die Frage wurde zum Wiederholen markiert.", "Not yet. The question was added to review."),
+    correctChoice: text("Richtige Antwort:", "Correct answer:"),
+    selectedChoice: text("Deine Auswahl:", "Your choice:"),
+    choiceJoin: text(" und ", " and "),
     compare: text("Vergleiche deinen Ansatz und markiere anschließend Gelernt oder Wiederholen.", "Compare your response, then mark Learned or Review."),
     learnedMarked: text("Als gelernt markiert.", "Marked as learned."),
     reviewMarked: text("Zum Wiederholen markiert.", "Marked for review."),
@@ -727,9 +730,17 @@ function parseCrossDraft(draft){try{const parsed=JSON.parse(draft);return Array.
 function readDraft(card,item){if(item.type!=='cross')return card.querySelector('[data-answer-input]')?.value||'';const selected=[...card.querySelectorAll('input:checked')].map(input=>Number(input.value));return selected.length?JSON.stringify(selected):''}
 function setDraft(qs,draft){if(draft.length>0&&draft.length<=20000)qs.draft=draft;else delete qs.draft}
 function feedback(card,html,good){const node=card.querySelector('[data-feedback]');node.hidden=false;node.className='question-feedback '+(good?'is-good':'is-bad');node.innerHTML=html}
+function optionLetters(indexes){return indexes.map(index=>String.fromCharCode(65+index)).join(COPY.choiceJoin)}
+function selectionFeedback(item,chosen,correct,ok){
+ const heading=(ok?COPY.correct:COPY.wrong)+' '+COPY.correctChoice+' '+optionLetters(correct)+'.';
+ const selectedWrong=chosen.find(index=>!correct.includes(index));
+ const selectedFeedback=selectedWrong===undefined?'':item.exercise.options[selectedWrong]?.feedback||'';
+ const detail=!ok&&selectedFeedback&&normalize(selectedFeedback)!==normalize(item.exercise.explanation)?'<p><strong>'+esc(COPY.selectedChoice+' '+optionLetters([selectedWrong]))+'</strong> '+esc(selectedFeedback)+'</p>':'';
+ return '<strong>'+esc(heading)+'</strong><p>'+esc(item.exercise.explanation)+'</p>'+detail;
+}
 function evaluate(card,item){
  const draft=readDraft(card,item),qs=qstate(item.id);qs.seen=true;setDraft(qs,draft);
- if(item.type==='cross'){const chosen=parseCrossDraft(draft),correct=item.exercise.options.map((option,index)=>option.correct?index:-1).filter(index=>index>=0),ok=chosen.length===correct.length&&chosen.every(index=>correct.includes(index));if(ok)delete qs.review;else{qs.review=true;delete qs.learned}const rows=item.exercise.options.map((option,index)=>'<li><strong>'+(option.correct?'✓':'×')+'</strong> '+esc(option.text)+' – '+esc(option.feedback)+'</li>').join('');feedback(card,'<strong>'+(ok?COPY.correct:COPY.wrong)+'</strong><ul>'+rows+'</ul><p>'+esc(item.exercise.explanation)+'</p>',ok);announce(ok?COPY.correct:COPY.wrong)}
+ if(item.type==='cross'){const chosen=parseCrossDraft(draft),correct=item.exercise.options.map((option,index)=>option.correct?index:-1).filter(index=>index>=0),ok=chosen.length===correct.length&&chosen.every(index=>correct.includes(index));if(ok)delete qs.review;else{qs.review=true;delete qs.learned}feedback(card,selectionFeedback(item,chosen,correct,ok),ok);announce(ok?COPY.correct:COPY.wrong)}
  else if(item.type==='vocabulary'){const ok=matches(item.exercise.acceptedAnswers,draft);if(ok)delete qs.review;else{qs.review=true;delete qs.learned}const solution=card.querySelector('[data-solution]').innerHTML;feedback(card,'<strong>'+(ok?COPY.correct:COPY.wrong)+'</strong>'+solution,ok);announce(ok?COPY.correct:COPY.wrong)}
  else if(item.type==='calculation'){const self=item.exercise.acceptedAnswers.includes('__self_check__'),ok=!self&&matches(item.exercise.acceptedAnswers,draft);if(!self){if(ok)delete qs.review;else{qs.review=true;delete qs.learned}}const solution=card.querySelector('[data-solution]').innerHTML;feedback(card,'<strong>'+(self?COPY.compare:ok?COPY.correct:COPY.wrong)+'</strong>'+solution,ok);announce(self?COPY.compare:ok?COPY.correct:COPY.wrong)}
  else{const solution=card.querySelector('[data-solution]').innerHTML;feedback(card,'<strong>'+COPY.compare+'</strong>'+solution,false);announce(COPY.compare)}
@@ -746,6 +757,12 @@ function renderTopicIndex(){
  const host=document.querySelector('[data-topic-question-index]');host.replaceChildren();
  topicSession.itemIds.forEach((id,index)=>{const item=byId.get(id),qs=state.questions[id]||{},button=document.createElement('button');button.type='button';button.dataset.topicQuestionSelect=id;button.className='topic-question-chip'+(index===topicSession.index?' is-active':'');button.setAttribute('aria-current',String(index===topicSession.index));const number=document.createElement('span');number.textContent=String(index+1).padStart(2,'0');const copy=document.createElement('span');const title=document.createElement('strong');title.textContent=item.exercise.prompt;const meta=document.createElement('small');const marks=[];if(qs.review)marks.push('↻');if(qs.starred)marks.push('★');if(qs.learned)marks.push('✓');meta.textContent=item.stageLabel+(marks.length?' · '+marks.join(' '):'');copy.append(title,meta);button.append(number,copy);host.append(button)})}
 function setFilters(next,scroll=true){filters={...filters,...next};document.querySelector('[data-filter-topic]').value=filters.topic;document.querySelector('[data-filter-stage]').value=filters.stage;document.querySelector('[data-filter-status]').value=filters.status;applyFilters(true,scroll)}
+function advanceCatalog(delta){const length=catalogSession.itemIds.length;if(!length)return;catalogSession.index=(catalogSession.index+delta+length)%length;renderCatalog()}
+function advanceTopic(delta){const length=topicSession.itemIds.length;if(!length)return;topicSession.index=(topicSession.index+delta+length)%length;renderTopicPractice()}
+let learningSwipe=null;
+document.addEventListener('touchstart',event=>{const target=event.target,host=target.closest?.('[data-learning-question-host]');if(!host||event.touches.length!==1||target.closest?.('input,textarea,select,button,label,a,details,summary,[contenteditable="true"]')){learningSwipe=null;return}const touch=event.touches[0];learningSwipe={host,x:touch.clientX,y:touch.clientY,started:performance.now()}},{passive:true});
+document.addEventListener('touchend',event=>{const swipe=learningSwipe;learningSwipe=null;if(!swipe||event.changedTouches.length!==1||!swipe.host.isConnected)return;const touch=event.changedTouches[0],dx=touch.clientX-swipe.x,dy=touch.clientY-swipe.y;if(performance.now()-swipe.started>1200||Math.abs(dx)<72||Math.abs(dx)<Math.abs(dy)*1.5)return;const delta=dx<0?1:-1;if(swipe.host.matches('[data-topic-question-host]'))advanceTopic(delta);else if(swipe.host.matches('[data-question-host]'))advanceCatalog(delta)},{passive:true});
+document.addEventListener('touchcancel',()=>{learningSwipe=null},{passive:true});
 function formatTime(seconds){if(!ASSESSMENT.durationMinutes)return '–';const safe=Math.max(0,seconds),minutes=Math.floor(safe/60),rest=safe%60;return String(minutes).padStart(2,'0')+':'+String(rest).padStart(2,'0')}
 function renderExam(){
  const shell=document.querySelector('[data-exam-shell]'),host=document.querySelector('[data-exam-question]'),result=document.querySelector('[data-exam-result]');
@@ -831,8 +848,8 @@ document.addEventListener('click',event=>{const b=event.target.closest('button')
  if(b.matches('[data-topic-open-catalog]')){selectMainView('catalog',true);setFilters({topic:topicSession.topicId},false);return}
  if(b.matches('[data-question-select]')){const index=catalogSession.itemIds.indexOf(b.dataset.questionSelect);if(index>=0){catalogSession.index=index;renderCatalog()}return}
  if(b.matches('[data-topic-question-select]')){const index=topicSession.itemIds.indexOf(b.dataset.topicQuestionSelect);if(index>=0){topicSession.index=index;renderTopicPractice()}return}
- if(b.matches('[data-session-prev],[data-session-next]')){const length=catalogSession.itemIds.length;if(!length)return;catalogSession.index=(catalogSession.index+(b.matches('[data-session-next]')?1:-1)+length)%length;renderCatalog();return}
- if(b.matches('[data-topic-prev],[data-topic-next]')){const length=topicSession.itemIds.length;if(!length)return;topicSession.index=(topicSession.index+(b.matches('[data-topic-next]')?1:-1)+length)%length;renderTopicPractice();return}
+ if(b.matches('[data-session-prev],[data-session-next]')){advanceCatalog(b.matches('[data-session-next]')?1:-1);return}
+ if(b.matches('[data-topic-prev],[data-topic-next]')){advanceTopic(b.matches('[data-topic-next]')?1:-1);return}
  if(b.matches('[data-start-assessment]')){startAssessment();return}
  if(b.matches('[data-exam-restart]')){startAssessment();return}
  if(b.matches('[data-exam-prev]')){saveExamDraft();examSession.index=Math.max(0,examSession.index-1);renderExam();return}
@@ -884,6 +901,11 @@ main,.module-tabs{min-width:0}.module-tabs{width:100%;max-width:100%}.module-tab
 @media(max-width:760px){html{scroll-padding-top:72px}.hotbar-inner{height:66px;padding:8px 12px}.brand img{width:35px;height:35px}.brand span,.progress-summary{display:none}.hotbar .button--quiet{margin-left:auto;padding:8px;font-size:.72rem}.course-hero{margin:18px 13px 10px}.hero-main{padding:26px 20px 23px}.course-hero h1{font-size:2.55rem}.learning-dial-panel{grid-template-columns:112px minmax(0,1fr);padding:18px}.progress-ring{width:112px}.progress-ring::before{inset:9px}.progress-ring strong{font-size:1.65rem}.main-tabs{margin:0 13px 22px;padding:5px;gap:4px}.main-tab{min-height:64px;padding:8px 6px;grid-template-columns:1fr;text-align:center}.main-tab>span{grid-row:auto;font-size:.7rem;padding:0}.main-tab strong{font-size:.76rem}.main-tab small{display:none}.module-tabs{margin:0 0 28px}.module-tabs[data-module-title-layout="rail"]{grid-auto-columns:min(78vw,270px)}.module-tab{flex-basis:142px}main{margin:0;padding:0 13px 62px}.topic-heading{align-items:flex-start}.module-outline ol{columns:1}.reading-card,.concept-card{padding:17px}.formula-grid{grid-template-columns:1fr}.vocabulary-deck{padding:16px}.vocabulary-deck__controls>small{max-width:180px}.vocabulary-deck--carousel .vocabulary-card{flex-basis:min(82vw,340px)}.worked-example summary{align-items:flex-start}.worked-example summary b{white-space:nowrap}.section-heading{display:block}.section-heading>p{margin-top:10px}.section-heading .button{margin-top:12px}.topic-practice{margin-top:38px;padding-top:26px}.topic-focus,.focus-stage{padding:9px}.catalog-filters{grid-template-columns:1fr}.catalog-filters .button{grid-column:auto}.catalog-workspace{grid-template-columns:1fr}.question-index{max-height:255px}.question-card{padding:16px}.assessment-task-visual__canvas{padding:9px}.assessment-task-visual img{width:auto;max-width:100%;max-height:430px}.assessment-task-visual figcaption{display:grid}.question-controls{display:grid;grid-template-columns:1fr 1fr}.question-controls button{width:100%}.assessment-card,.exam-shell{padding:17px}.exam-header{display:block}.exam-timing{text-align:left;margin-top:10px}.exam-actions{display:grid;grid-template-columns:1fr}.exam-actions .button{width:100%}.exam-result-summary{grid-template-columns:1fr;padding:18px}.exam-result-summary>.eyebrow{margin-bottom:-8px}.exam-review-card{padding:15px}.exam-review-card>header{grid-template-columns:30px 1fr}.exam-comparison{grid-template-columns:1fr}.reference-solution__heading{display:grid}.reference-solution__heading>span{text-align:left}.exam-rating-row,.exam-rating-buttons{display:grid;grid-template-columns:1fr;width:100%}.exam-rating-buttons .button,.exam-score-input{width:100%}.source-grid{grid-template-columns:1fr}.sources{padding-left:13px;padding-right:13px}}
 @media(max-width:420px){.course-hero h1{font-size:2.25rem}.topic-heading h2{font-size:1.6rem}.question-controls{grid-template-columns:1fr}.answer-options label{grid-template-columns:auto 26px minmax(0,1fr)}.question-meta{display:block}.question-meta>span{display:block;margin-top:6px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+[data-learning-question-host]{touch-action:pan-y}
+@media(max-width:760px){
+  html{scroll-padding-top:132px}
+  .focus-toolbar[data-question-navigation]{position:sticky;top:66px;z-index:28;margin:-9px 0 10px;padding:15px 9px 8px;background:linear-gradient(to bottom,#fff 0 7px,rgba(232,237,245,.97) 7px 100%);border:1px solid var(--line);border-radius:14px;box-shadow:0 7px 16px rgba(25,37,75,.11);backdrop-filter:blur(10px)}
+}
 `;
 }
 

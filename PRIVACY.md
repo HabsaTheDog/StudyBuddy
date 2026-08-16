@@ -13,6 +13,12 @@ Git, but Git ignore is not encryption. Protect the operating-system account,
 restrict file access, and delete obsolete run data with an appropriate local
 retention policy.
 
+Credentials saved through the desktop interface live in a user-restricted local
+secret directory and are excluded from the public source inventory. That store
+uses filesystem permissions, not application-level encryption or an operating-
+system keychain. Full-disk encryption and a protected OS login remain part of
+the security boundary.
+
 Model requests may send prompt and source context to the configured model
 provider. Users should review that provider's account terms, retention controls,
 and costs before using private course material.

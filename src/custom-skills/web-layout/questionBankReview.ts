@@ -19,6 +19,8 @@ const reviewCheckSchema = z.object({
   answer: z.boolean(),
   provenance: z.boolean(),
   rendering: z.boolean(),
+  selfContained: z.boolean(),
+  feedback: z.boolean(),
 });
 
 const reviewFindingSchema = z.object({
@@ -102,13 +104,15 @@ const modelReviewSetJsonSchema = {
           checks: {
             type: "object",
             additionalProperties: false,
-            required: ["schema", "scope", "answer", "provenance", "rendering"],
+            required: ["schema", "scope", "answer", "provenance", "rendering", "selfContained", "feedback"],
             properties: {
               schema: { type: "boolean" },
               scope: { type: "boolean" },
               answer: { type: "boolean" },
               provenance: { type: "boolean" },
               rendering: { type: "boolean" },
+              selfContained: { type: "boolean" },
+              feedback: { type: "boolean" },
             },
           },
           findings: {
@@ -600,7 +604,7 @@ function evidenceUnavailableRecord(
       task: "quality_reviewer",
       verdict: "evidence_unavailable",
     },
-    checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false },
+    checks: { schema: false, scope: false, answer: false, provenance: false, rendering: false, selfContained: false, feedback: false },
     findings: [{
       code: "evidence-unavailable",
       severity: "blocking",
@@ -689,7 +693,10 @@ export function buildQuestionReviewPrompt(
     "QUESTION_BANK_ITEM_REVIEWER",
     "Independently review each supplied adaptive Study Buddy question-bank item. Return JSON only and exactly one record per item.",
     "Judge each item on the exact original request, evaluated request contract, supplied course evidence, and its own response contract. Do not impose worked examples, calculations, retrieval, images, task counts, type ratios, or subject templates unless the contract requires them.",
-    "Approve only when the item is in scope, answerable as written, internally correct, source/provenance claims are honest, and the declared interaction can render and assess its answer or rubric. A generated variant may use stable disciplinary knowledge only inside an evidenced topic and must not invent official course or assessment facts. Treat each item-local evidence capsule as the complete authorized grounding context for that item; never use another item's capsule.",
+    "Approve only when the item is in scope, answerable as written, internally correct, source/provenance claims are honest, and the declared interaction can render and assess its answer or rubric. A generated or adapted practice variant may introduce safe, self-contained values that are not literal Moodle values when its evidenced method and topic remain in scope, its mathematics or answer contract is internally correct, and it does not present those values as official course or assessment facts. Do not reject such a variant merely because its exact numbers are absent from the evidence capsule. Treat each item-local evidence capsule as the complete authorized grounding context for the source method and course scope; never use another item's capsule.",
+    "The rendered interface already displays the structured origin badge from item.origin. Do not require the learner-facing prompt to repeat labels such as generated, adapted, or variant. Reject provenance only when the structured origin/source metadata itself is dishonest or the item makes unsupported official claims.",
+    "Set selfContained=true only when the learner can solve the item from the visible card alone: every needed situation, stimulus, quantity, unit, assumption, target, option, diagram, and response instruction is embedded. Reject deictic references to a chapter, summary, example, list, file, video, or prior question unless that exact material is embedded in the item. Longer complete statements are valid and preferable to missing context.",
+    "Set feedback=true only when the response contract teaches efficiently. For selection items, explanation must identify why the correct choice is correct without merely repeating all option texts; option feedback should be short and misconception-specific. For calculations and open responses, the solution or rubric must be usable for self-checking and proportionate to the task.",
     "Every included capsule has already passed the deterministic evidence resolver. You may return only approved or rejected. If the supplied capsule does not support an item's claim, return rejected with provenance=false and an unsupported-provenance finding; do not request an evidence rebuild. Only the orchestrator, before this model call, may classify structurally missing or tampered evidence as evidence_unavailable.",
     "Set every check independently. verdict=approved requires every check=true and no blocking finding. Otherwise verdict=rejected and give concise item-local findings with an executable repairInstruction; never request rebuilding unrelated items or changing global quantities.",
     "Return only each itemId, its exact contentHash, the verdict, checks, and findings. The pipeline binds and seals approved records to the already verified request contract; do not copy cryptographic contract or prompt hashes into the model output.",
@@ -910,12 +917,12 @@ function cachePath(
         "study-buddy-data",
         "cache",
         "web-layout",
-        "question-bank-reviews",
+        "question-bank-reviews-v2-safe-variant-contract",
       );
   return path.join(
     root,
     `${sha256(JSON.stringify({
-      version: "question-bank-item-review-v2-evidence-capsule",
+      version: "question-bank-item-review-v3-visible-task-feedback",
       itemId: item.id,
       contentHash: item.contentHash,
       evidenceHash: evidence.evidenceHash,

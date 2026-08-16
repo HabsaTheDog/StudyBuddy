@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  hashRequestContract,
   minimalRequestContract,
   requestContractJsonSchema,
   RequestContractSchema,
@@ -18,6 +19,22 @@ export function createRequestEvaluatorNode(config: MoodleRuntimeConfig, codex: C
   return async function requestEvaluatorNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
+    // Targeted acquisition loops enrich course evidence, but they do not
+    // change the user's request. Once the extraction graph has checkpointed a
+    // contract, preserve that exact semantic boundary instead of asking a
+    // model to reinterpret the same prompt after every download batch.
+    if (
+      state.request_contract_hash &&
+      state.request_contract.originalPrompt === config.originalUserPrompt &&
+      hashRequestContract(state.request_contract) === state.request_contract_hash
+    ) {
+      await config.diagnostics?.log(
+        "info",
+        "analyzer",
+        "Reused the verified request contract across the targeted acquisition loop.",
+      );
+      return { request_contract: state.request_contract, error_log: null };
+    }
     const cachePath = requestContractCachePath(config, state);
     const cached = await readContract(cachePath);
     if (cached) {
