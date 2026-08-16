@@ -170,6 +170,14 @@ describe("practice-corpus source links", () => {
     expect(rendered.match(/class="math-expression"/g)).toHaveLength(3);
   });
 
+  it("renders ASCII sqrt function notation as a semantic MathML root", () => {
+    const rendered = richMathText("Damit folgt ω = sqrt(1000)≈31,6 rad/s.");
+
+    expect(rendered).toContain('<msqrt><mrow><mn>1000</mn></mrow></msqrt>');
+    expect(rendered).not.toContain('<mi>sqrt</mi>');
+    expect(rendered).not.toContain('>sqrt(1000)<');
+  });
+
   it("keeps typographic scripts attached before building fractions", () => {
     const alternating = mathml("aₙ = (-1)ⁿ/n");
     const recurrence = mathml("hₙ₋₁ = ½(hₙ₋₁ + x/hₙ₋₁)");

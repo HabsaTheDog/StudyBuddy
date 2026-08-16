@@ -903,8 +903,8 @@ main,.module-tabs{min-width:0}.module-tabs{width:100%;max-width:100%}.module-tab
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
 [data-learning-question-host]{touch-action:pan-y}
 @media(max-width:760px){
-  html{scroll-padding-top:126px}
-  .focus-toolbar[data-question-navigation]{position:sticky;top:66px;z-index:28;margin:-9px -9px 10px;padding:8px 9px;background:rgba(232,237,245,.96);border-bottom:1px solid var(--line);box-shadow:0 7px 16px rgba(25,37,75,.11);backdrop-filter:blur(10px)}
+  html{scroll-padding-top:132px}
+  .focus-toolbar[data-question-navigation]{position:sticky;top:66px;z-index:28;margin:-9px 0 10px;padding:15px 9px 8px;background:linear-gradient(to bottom,#fff 0 7px,rgba(232,237,245,.97) 7px 100%);border:1px solid var(--line);border-radius:14px;box-shadow:0 7px 16px rgba(25,37,75,.11);backdrop-filter:blur(10px)}
 }
 `;
 }

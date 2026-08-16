@@ -54,6 +54,16 @@ export function deriveModuleContextLabel(fullTitle: string): string {
   return [...new Set(labels)].join(" · ");
 }
 
+export function moduleDisplayTitlePreservesHierarchy(fullTitle: string, displayTitle: string): boolean {
+  const sourceTokens = hierarchyTokens(deriveModuleDisplayTitle(fullTitle));
+  if (sourceTokens.length === 0) return true;
+  const displayTokens = hierarchyTokens(displayTitle);
+  return sourceTokens.some((source) => displayTokens.some((display) =>
+    source === display ||
+    (Math.min(source.length, display.length) >= 5 && (source.includes(display) || display.includes(source)))
+  ));
+}
+
 export function moduleNavigationLayout(
   modules: Array<{ title: string; displayTitle?: string }>,
 ): "compact" | "rail" {
@@ -86,6 +96,16 @@ function meaningfulTokens(value: string): string[] {
   return value.split(/[^\p{L}\p{N}]+/u)
     .map(normalizeToken)
     .filter((token) => token.length > 1 && !["the", "der", "die", "das", "of"].includes(token));
+}
+
+function hierarchyTokens(value: string): string[] {
+  const structural = new Set([
+    "self", "study", "class", "chapter", "kapitel", "unit", "module", "modul",
+    "theme", "thema", "topic", "lecture", "vorlesung", "week", "woche", "lesson",
+    "session", "part", "teil", "eigenstudium", "prasenz", "praesenz",
+  ]);
+  return meaningfulTokens(value)
+    .filter((token) => !structural.has(token) && !/^\d+$|^[ivx]+$/.test(token));
 }
 
 function normalizeToken(value: string): string {

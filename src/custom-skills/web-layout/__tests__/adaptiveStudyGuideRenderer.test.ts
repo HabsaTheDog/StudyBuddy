@@ -163,6 +163,9 @@ describe("adaptive study-guide renderer contracts", () => {
 
     expect(html.match(/data-question-navigation/g)?.length).toBeGreaterThanOrEqual(2);
     expect(html).toContain(".focus-toolbar[data-question-navigation]{position:sticky;top:66px");
+    expect(html).toContain("margin:-9px 0 10px;padding:15px 9px 8px");
+    expect(html).toContain("linear-gradient(to bottom,#fff 0 7px");
+    expect(html).toContain("border-radius:14px");
     expect(html).toContain("[data-learning-question-host]{touch-action:pan-y}");
     expect(html).toContain("target.closest?.('input,textarea,select,button,label,a,details,summary,[contenteditable=\"true\"]')");
     expect(html).toContain("Math.abs(dx)<72||Math.abs(dx)<Math.abs(dy)*1.5");

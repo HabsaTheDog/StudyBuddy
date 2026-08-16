@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { MODULE_DISPLAY_TITLE_MAX } from "./moduleTitles.js";
+import { deriveModuleDisplayTitle, MODULE_DISPLAY_TITLE_MAX, moduleDisplayTitlePreservesHierarchy } from "./moduleTitles.js";
 import type { StudyGuideRequirements } from "./studyGuideProfile.js";
 
 export const studyGuideSourceRefSchema = z.object({
@@ -178,6 +178,26 @@ export const studyGuideContentSchema = z.object({
 
 export type StudyGuideContent = z.infer<typeof studyGuideContentSchema>;
 
+/**
+ * Navigation labels are presentation metadata, not learning content. Repair a
+ * model label that names only one example by deriving it from the already
+ * validated course-faithful chapter title; a full chapter regeneration would
+ * spend tokens without improving the semantic content.
+ */
+export function normalizeStudyGuideNavigationTitles(content: StudyGuideContent): number {
+  let repaired = 0;
+  for (const topic of content.topics) {
+    if (
+      topic.navigationTitle &&
+      !moduleDisplayTitlePreservesHierarchy(topic.title, topic.navigationTitle)
+    ) {
+      topic.navigationTitle = deriveModuleDisplayTitle(topic.title);
+      repaired += 1;
+    }
+  }
+  return repaired;
+}
+
 export const studyGuideContentJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -327,6 +347,9 @@ export function validateStudyGuideChapterQuality(content: StudyGuideContent, _re
     }
   }
   for (const topic of content.topics) {
+    if (topic.navigationTitle && !moduleDisplayTitlePreservesHierarchy(topic.title, topic.navigationTitle)) {
+      issues.push(`${topic.id} navigationTitle '${topic.navigationTitle}' does not preserve a recognizable concept from the course-faithful title '${topic.title}'; use the module concept rather than naming only one example or activity.`);
+    }
     for (const formula of topic.theory.formulas) {
       const withoutNamedSubscripts = formula.expression.replace(/_[A-Za-z]+(?:,[A-Za-z]+)*/g, "");
       const proseWords = withoutNamedSubscripts.match(/\b[A-Za-zÄÖÜäöüß]{3,}\b/g)

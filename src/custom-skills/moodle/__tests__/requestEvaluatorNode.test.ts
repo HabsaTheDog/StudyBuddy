@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveModelPromptBodyCharacterBudget, type CodexClient } from "../codexClient.js";
 import { requestContractJsonSchema } from "../../shared/requestContract.js";
+import { hashRequestContract, minimalRequestContract } from "../../shared/requestContract.js";
 import { buildRequestEvaluatorPrompt, createRequestEvaluatorNode } from "../nodes/requestEvaluatorNode.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
@@ -14,6 +15,31 @@ afterEach(async () => {
 });
 
 describe("request evaluator", () => {
+  it("reuses one verified contract when targeted acquisition enriches the evidence", async () => {
+    const contract = minimalRequestContract("Create a guide", ["html"]);
+    const codex: CodexClient = { run: vi.fn() };
+    const state = moodleTestState({
+      request_contract: contract,
+      request_contract_hash: hashRequestContract(contract),
+      evidence_package: {
+        ...moodleTestState().evidence_package,
+        records: [{
+          ...moodleTestState().evidence_package.records[0],
+          id: "newly-acquired-evidence",
+          content: "New evidence from a later targeted acquisition batch.",
+        }],
+      },
+    });
+
+    const result = await createRequestEvaluatorNode(moodleTestConfig({
+      prompt: "Create a guide",
+      originalUserPrompt: "Create a guide",
+    }), codex)(state);
+
+    expect(result.request_contract).toEqual(contract);
+    expect(codex.run).not.toHaveBeenCalled();
+  });
+
   it("preserves the DYN2 request while leaving worked examples optional", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "request-contract-dyn-"));
     directories.push(runDir);

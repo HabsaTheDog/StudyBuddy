@@ -644,7 +644,9 @@ describe("source architect", () => {
     });
     const architectPrompt = codex.run.mock.calls[0]?.[0] as string;
     expect(architectPrompt).toContain("lecture-only coverage is not sufficient");
-    expect(architectPrompt).toContain("smallest nonredundant set of those practice sources");
+    expect(architectPrompt).toContain("complete nonredundant set of practice sources");
+    expect(architectPrompt).toContain("Do not minimize away a distinct task");
+    expect(architectPrompt).not.toContain("smallest exact URL set");
     expect(architectPrompt).toContain("Do not impose a universal task count");
   });
 
@@ -729,6 +731,162 @@ describe("source architect", () => {
       status: "request_more",
       requestedUrls: [missingUrl],
       learningArchitecture: architecture,
+    });
+  });
+
+  it("continues draining a finite selected source set beyond two operational batches", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-multi-batch-"));
+    directories.push(runDir);
+    const urls = Array.from({ length: 25 }, (_, index) =>
+      `https://moodle.example/practice-${index + 1}.pdf`
+    );
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: urls.map((url, index) => ({
+        ...entry(url, `Practice ${index + 1}`, index < 12, 900 - index),
+        role: "worked_example",
+      })),
+    }));
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "practice",
+        title: "Course practice",
+        priority: "essential" as const,
+        contentMode: "mixed" as const,
+        learningObjectives: ["Apply the evidenced course methods."],
+        assessmentSignals: ["Course practice"],
+        resourceUrls: urls,
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const state = moodleTestState({
+      source_architect_decision: {
+        round: 2,
+        status: "request_more",
+        coverageSummary: "Two operational batches have started.",
+        requestedUrls: urls.slice(0, 12),
+        remainingAvailable: 13,
+        reasons: [],
+        learningArchitecture: architecture,
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: urls.map((url, index) => resource(
+          stableResourceId(url),
+          url,
+          `Practice ${index + 1}`,
+          "Course practice",
+          index < 12 ? `/tmp/practice-${index + 1}.pdf` : null,
+          "worked_example",
+        )),
+      },
+    });
+    const codex = { run: vi.fn() };
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      executionProfile: "balanced",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+    }), codex)(state);
+
+    expect(codex.run).not.toHaveBeenCalled();
+    expect(result.source_architect_decision).toMatchObject({
+      round: 3,
+      status: "request_more",
+    });
+    expect(result.source_architect_decision?.requestedUrls).toHaveLength(12);
+    expect(result.source_architect_decision?.requestedUrls.every((url) => urls.slice(12).includes(url))).toBe(true);
+  });
+
+  it("reassesses remaining practice evidence after a full first acquisition batch for an interactive guide", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-practice-reassessment-"));
+    directories.push(runDir);
+    const lectureUrl = "https://moodle.example/oscillations-lecture.pdf";
+    const acquiredExampleUrl = "https://moodle.example/forced-oscillation-example.pdf";
+    const remainingExampleUrl = "https://moodle.example/physical-pendulum-example.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [
+        { ...entry(lectureUrl, "Oscillations lecture", true, 900), role: "primary_lecture", topic: "Oscillations" },
+        { ...entry(acquiredExampleUrl, "Forced oscillation example", true, 700), role: "worked_example", topic: "Oscillations" },
+        { ...entry(remainingExampleUrl, "Physical pendulum example", false, 690), role: "worked_example", topic: "Oscillations" },
+      ],
+    }));
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "oscillations",
+        title: "Oscillations",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Model and compare oscillating systems."],
+        assessmentSignals: ["Solve course applications."],
+        resourceUrls: [lectureUrl, acquiredExampleUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const baseContract = moodleTestState().request_contract;
+    const state = moodleTestState({
+      request_contract: {
+        ...baseContract,
+        deliverables: [{ id: "interactive-guide", kind: "interactive learning artifact", purpose: "Self-check" }],
+        requirements: [{ ...baseContract.requirements[0]!, appliesTo: ["interactive-guide"] }],
+        reviewAssignments: [
+          ...baseContract.reviewAssignments,
+          { owner: "interaction", requirementIds: ["original-request"], checks: ["Learners can answer and review items."] },
+        ],
+      },
+      source_architect_decision: {
+        round: 1,
+        status: "request_more",
+        coverageSummary: "The first practice batch was acquired.",
+        requestedUrls: [acquiredExampleUrl],
+        remainingAvailable: 1,
+        reasons: [],
+        learningArchitecture: architecture,
+      },
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [
+          resource(stableResourceId(lectureUrl), lectureUrl, "Oscillations lecture", "Oscillations", "/tmp/lecture.pdf", "primary_lecture"),
+          resource(stableResourceId(acquiredExampleUrl), acquiredExampleUrl, "Forced oscillation example", "Oscillations", "/tmp/example.pdf", "worked_example"),
+        ],
+      },
+    });
+    const codex = { run: vi.fn().mockResolvedValue(JSON.stringify({
+      status: "request_more",
+      coverage_summary: "The physical pendulum adds a distinct evidenced model.",
+      requested_urls: [remainingExampleUrl],
+      reasons: ["It is not redundant with the acquired forced-oscillation task."],
+      learning_architecture: architecture,
+    })) };
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      prompt: "Create an interactive exam study guide",
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
+      intentDecision: classifyStudyBuddyIntent({
+        prompt: "Create an interactive exam study guide",
+        stage: "extract",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: false,
+        hasCisUrls: false,
+      }),
+    }), codex)(state);
+
+    expect(codex.run).toHaveBeenCalledTimes(1);
+    expect(result.source_architect_decision).toMatchObject({
+      round: 2,
+      status: "request_more",
+      requestedUrls: [remainingExampleUrl],
     });
   });
 

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
-import { studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent, type StudyGuideEvidenceRef } from "../studyGuideContent.js";
+import { normalizeStudyGuideNavigationTitles, studyGuideContentJsonSchema, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent, type StudyGuideEvidenceRef } from "../studyGuideContent.js";
 import type { JsonObject, LangGraphWebLayoutState } from "../state.js";
 import type { WebLayoutRuntimeConfig } from "../types.js";
 import { deriveStudyGuideRequirements, handoffSourceRegistry, knownHandoffSourceUrls, readExtractionHandoff, type StudyGuideRequirements } from "../studyGuideProfile.js";
@@ -404,6 +404,14 @@ async function buildChunkedModelContent(
     const generated = normalizeDerivedSourceTasks(
       studyGuideContentSchema.parse(normalizeModelContent(JSON.parse(stripJsonFence(response)))),
     );
+    const repairedNavigationTitles = normalizeStudyGuideNavigationTitles(generated);
+    if (repairedNavigationTitles > 0) {
+      await config.diagnostics?.log(
+        "info",
+        "planner",
+        `Normalized ${repairedNavigationTitles} learner-facing navigation label(s) from their course-faithful chapter titles without regenerating content.`,
+      );
+    }
     bindStudyGuideEvidenceRefs(generated, state.source_text);
     normalizeSourceReferences(generated);
     const alignedTopics = alignGeneratedBatchTopics(

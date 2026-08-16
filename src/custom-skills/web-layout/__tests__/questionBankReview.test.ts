@@ -507,6 +507,9 @@ function approvingReviewer(
       expect(prompt).toContain("visible card alone");
       expect(prompt).toContain("Reject deictic references to a chapter, summary, example, list, file, video, or prior question");
       expect(prompt).toContain("without merely repeating all option texts");
+      expect(prompt).toContain("safe, self-contained values that are not literal Moodle values");
+      expect(prompt).toContain("Do not reject such a variant merely because its exact numbers are absent");
+      expect(prompt).toContain("already displays the structured origin badge");
       const batch = items.filter((item) => prompt.includes(`\"itemId\":\"${item.id}\"`));
       return JSON.stringify({
         records: batch.map((item) => ({

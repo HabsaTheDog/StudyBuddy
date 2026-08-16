@@ -112,16 +112,13 @@ export function buildEvidenceHandoff(
     const modulePractice = practiceEvidence.resources.filter((resource) =>
       module.resourceIds.includes(resource.sourceId)
     );
-    const summary = unique([
-      ...modulePractice.flatMap((resource) => resource.examples
-        .filter((example) => example.evidenceStatus !== "unusable")
-        .map((example) => practiceEvidenceText(resource, example))),
-      module.summary?.trim() ?? "",
-      ...moduleRecords.map((record) => record.content.trim()).filter(Boolean),
-    ])
-      .join("\n\n")
-      .slice(0, 7_000)
-      .trim();
+    const summary = balancedModuleEvidence({
+      module,
+      records: moduleRecords,
+      resources,
+      practice: modulePractice,
+      maxCharacters: 7_000,
+    });
     return {
       heading: module.title,
       summary: summary || (config.outputLanguage === "de"
@@ -216,6 +213,93 @@ export function buildEvidenceHandoff(
       ]),
     ],
   });
+}
+
+/**
+ * Keep every selected source visible within the bounded web handoff. A plain
+ * `join().slice()` let one long overview consume the complete chapter budget,
+ * so later lecture and practice sources were selected and extracted but never
+ * reached the content author. This allocator is deliberately source-agnostic:
+ * it gives each resource a fair initial share and redistributes unused space.
+ */
+export function balancedModuleEvidence(input: {
+  module: ModuleBucket;
+  records: LangGraphAgentState["evidence_package"]["records"];
+  resources: LangGraphAgentState["resource_manifest"]["resources"];
+  practice: PracticeVisualResource[];
+  maxCharacters: number;
+}): string {
+  const resourceById = new Map(input.resources.map((resource) => [resource.id, resource]));
+  const practiceById = new Map(input.practice.map((resource) => [resource.sourceId, resource]));
+  const grouped = new Map<string, string[]>();
+  for (const record of input.records) {
+    const content = record.content.trim();
+    if (!content) continue;
+    const bucket = grouped.get(record.resourceId) ?? [];
+    bucket.push(content);
+    grouped.set(record.resourceId, bucket);
+  }
+  for (const practice of input.practice) {
+    const texts = practice.examples
+      .filter((example) => example.evidenceStatus !== "unusable")
+      .map((example) => practiceEvidenceText(practice, example));
+    if (texts.length === 0) continue;
+    grouped.set(practice.sourceId, [
+      ...texts,
+      ...(grouped.get(practice.sourceId) ?? []),
+    ]);
+  }
+  if (input.module.summary?.trim()) {
+    grouped.set("__module_summary__", [input.module.summary.trim()]);
+  }
+
+  const blocks = [...grouped.entries()].map(([resourceId, contents], originalIndex) => {
+    const resource = resourceById.get(resourceId);
+    const practice = practiceById.get(resourceId);
+    const role = practice?.sourceRole ?? resource?.selection?.role ?? "module_context";
+    const title = practice?.sourceTitle ?? resource?.title ?? input.module.title;
+    const rank = role === "worked_example" || role === "sample_exam"
+      ? 0
+      : role === "primary_lecture"
+        ? 1
+        : role === "formula"
+          ? 2
+          : 3;
+    return {
+      originalIndex,
+      rank,
+      text: unique([
+        `[Source evidence: ${title}; role ${role}]`,
+        ...contents,
+      ]).join("\n\n"),
+    };
+  }).sort((left, right) => left.rank - right.rank || left.originalIndex - right.originalIndex);
+  if (blocks.length === 0 || input.maxCharacters <= 0) return "";
+
+  const allocations = new Array(blocks.length).fill(0) as number[];
+  let remaining = input.maxCharacters;
+  let open = blocks.map((_, index) => index);
+  while (remaining > 0 && open.length > 0) {
+    const share = Math.max(1, Math.floor(remaining / open.length));
+    let spent = 0;
+    const nextOpen: number[] = [];
+    for (const index of open) {
+      const capacity = blocks[index]!.text.length - allocations[index]!;
+      const amount = Math.min(capacity, share);
+      allocations[index] = allocations[index]! + amount;
+      spent += amount;
+      if (capacity > amount) nextOpen.push(index);
+    }
+    remaining -= spent;
+    if (spent === 0) break;
+    open = nextOpen;
+  }
+  return blocks
+    .map((block, index) => block.text.slice(0, allocations[index]))
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, input.maxCharacters)
+    .trim();
 }
 
 function deriveArchitectureModules(

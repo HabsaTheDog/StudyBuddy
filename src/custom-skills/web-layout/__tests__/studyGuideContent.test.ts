@@ -7,7 +7,7 @@ import { alignGeneratedBatchTopics, bindStudyGuideEvidenceRefs, buildEvidenceChu
 import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { initialWebLayoutState } from "../state.js";
 import { minimalRequestContract } from "../../shared/requestContract.js";
-import { studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
+import { normalizeStudyGuideNavigationTitles, studyGuideContentSchema, validateStudyGuideChapterQuality, validateStudyGuideContentQuality, type StudyGuideContent } from "../studyGuideContent.js";
 
 const previousConcurrency = process.env.STUDY_BUDDY_WEB_CONTENT_CONCURRENCY;
 const tempDirs: string[] = [];
@@ -246,6 +246,31 @@ describe("study-guide canonical content bank", () => {
     normalizeSourceReferences(content);
 
     expect(content.topics[0]?.workedExamples[0]?.source.label).toBe("1_Folien_Punktkinematik");
+  });
+
+  it("rejects navigation labels that replace the course module with one narrow example", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 1/12"));
+    content.topics[0]!.title = "Eigenstudium 1A: Punktkinematik";
+    content.topics[0]!.navigationTitle = "Schiefer Wurf";
+
+    const findings = validateStudyGuideChapterQuality(content).join("\n");
+    expect(findings).toContain("does not preserve a recognizable concept");
+
+    content.topics[0]!.navigationTitle = "Punktkinematik · Schiefer Wurf";
+    expect(validateStudyGuideChapterQuality(content).join("\n")).not.toContain("does not preserve a recognizable concept");
+  });
+
+  it("repairs presentation-only navigation labels from the course title without changing chapter content", () => {
+    const content = studyGuideContentSchema.parse(modelChapter("Chapter 1/12"));
+    content.topics[0]!.title = "Punktkinematik";
+    content.topics[0]!.navigationTitle = "Schiefer Wurf";
+    const beforeExercises = JSON.stringify(content.topics[0]!.exercises);
+
+    expect(normalizeStudyGuideNavigationTitles(content)).toBe(1);
+    expect(content.topics[0]!.navigationTitle).toBe("Punktkinematik");
+    expect(JSON.stringify(content.topics[0]!.exercises)).toBe(beforeExercises);
+    expect(validateStudyGuideChapterQuality(content).join("\n"))
+      .not.toContain("does not preserve a recognizable concept");
   });
 
   it("uses bounded parallel content-analyzer calls and preserves chapter order", async () => {
