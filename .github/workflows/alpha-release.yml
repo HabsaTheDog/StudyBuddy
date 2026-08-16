@@ -130,7 +130,11 @@ jobs:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             ${{ runner.temp }}/study-buddy-release/*.AppImage
+            ${{ runner.temp }}/study-buddy-release/*.AppImage.blockmap
             ${{ runner.temp }}/study-buddy-release/*.exe
+            ${{ runner.temp }}/study-buddy-release/*.exe.blockmap
+            ${{ runner.temp }}/study-buddy-release/*.yml
+            ${{ runner.temp }}/study-buddy-release/*.yaml
           if-no-files-found: error
           retention-days: 14
 
@@ -153,6 +157,15 @@ jobs:
           merge-multiple: true
           path: release-assets
       - run: npm ci
+      - name: Verify updater payload is complete
+        run: |
+          test "$(find release-assets -maxdepth 1 -type f -name '*.AppImage' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f \( -name 'alpha.yml' -o -name 'alpha-linux.yml' \) | wc -l)" -eq 2
+          grep -Eq '^version: 0\.1\.0-alpha\.[1-9][0-9]*$' release-assets/alpha.yml
+          grep -Eq '^version: 0\.1\.0-alpha\.[1-9][0-9]*$' release-assets/alpha-linux.yml
+          grep -Eq 'sha512:' release-assets/alpha.yml
+          grep -Eq 'sha512:' release-assets/alpha-linux.yml
       - name: Generate production SBOM and immutable release manifest
         env:
           RELEASE_VERSION: ${{ inputs.version }}

@@ -12,6 +12,13 @@ evidence needed for the current request.
 - Restrict local data and secret files to the operating-system user.
 - Browser storage state, cookies, private calendar feeds, cloud-link URLs, and
   local key pairs are credentials, even when they are not named `password`.
+- Source and email credentials entered through the interface are kept out of
+  the public source registry and stored in the dedicated local server secret
+  directory. Study Buddy enforces user-only directory/file permissions
+  (`0700`/`0600`) and atomic writes, but does not currently add application-level
+  encryption or an operating-system keychain layer. Protect the OS account and
+  disk with full-disk encryption, and clear or rotate saved credentials if the
+  device or account may be compromised.
 - Delete obsolete diagnostics and runs according to a local retention policy.
 
 ## Diagnostics and support
@@ -30,6 +37,11 @@ the final file manifest before signing or uploading it.
 
 Never push local checkpoint refs or use `git push --mirror` as a release method.
 Push only explicitly reviewed branches and tags.
+
+Release update checks use the public `HabsaTheDog/StudyBuddy` GitHub Releases
+feed. Installers, channel metadata, checksums, and the SBOM are produced from the
+same reviewed commit. Updates are never downloaded or installed without a user
+action.
 
 ## Portal and academic safety
 

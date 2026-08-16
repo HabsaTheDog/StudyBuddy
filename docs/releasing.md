@@ -51,9 +51,12 @@ is accepted only when all of the following are true:
 - the Windows artifact has been signed through the reviewed SignPath path;
 - every platform build and the release-evidence assembly succeeds.
 
-The assembled bundle contains the platform artifacts, `SHA256SUMS`, the root
-CycloneDX SBOM, and `release-manifest.json` with the exact root and interface
-commits. Do not repurpose the disabled upstream T3 release workflow.
+The assembled bundle contains the platform artifacts, Electron updater channel
+metadata (`alpha.yml` and `alpha-linux.yml`, plus available blockmaps),
+`SHA256SUMS`, the root CycloneDX SBOM, and `release-manifest.json` with the exact
+root and interface commits. The YAML metadata binds each download with SHA-512;
+the website and in-app updater both use these GitHub Release assets. Do not
+repurpose the disabled upstream T3 release workflow.
 
 The workflow fails closed when `signed=true` until SignPath Foundation
 onboarding, origin verification, signing policy, and the pinned integration are
