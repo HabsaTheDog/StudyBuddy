@@ -65,6 +65,32 @@ environment secret, restrict that environment to reviewed tags and required
 maintainers, and require a separate signing approval. Do not add Apple or Azure
 signing credentials to this release path.
 
+### SignPath Foundation owner handoff
+
+SignPath Foundation provides free code-signing certificates for accepted open
+source projects without requiring the maintainer to buy or personally hold a
+certificate. Apply at <https://signpath.org/>. After acceptance:
+
+1. install the SignPath GitHub App for this repository and link SignPath's
+   predefined GitHub.com trusted build system to the Study Buddy project;
+2. create or confirm the SignPath organization ID, project slug, signing policy
+   slug, and artifact configuration for the Windows NSIS payload;
+3. add the submitter token only as the `SIGNPATH_API_TOKEN` secret in the
+   protected `alpha-release` environment; keep the non-secret IDs/slugs as
+   environment variables;
+4. return those identifiers for the final workflow patch. The reviewed
+   integration must upload the unsigned workflow artifact first, submit its
+   GitHub artifact ID through
+   `signpath/github-action-submit-signing-request@v2`, wait for completion,
+   verify the returned executable's Authenticode signature, and pass only that
+   signed payload to release assembly;
+5. keep every build job leading to the signing request on GitHub-hosted runners,
+   as required for SignPath Foundation OSS origin verification.
+
+The current fail-closed workflow is intentional: SignPath project and artifact
+configuration are server-side contracts, so inserting guessed slugs or an
+unverified signing step would create a misleading release path.
+
 ## 5. Publish a draft prerelease
 
 - Create an annotated, preferably signed tag.
