@@ -43,9 +43,10 @@ result as proof for a later commit.
   contracts remain immutable, evidence summaries allocate space across sources,
   safe adapted practice is reviewed honestly, course hierarchy labels are
   preserved, and mobile/math regressions are covered.
-- Interface pull request `HabsaTheDog/t3code#10` is the active public review.
-  The root release branch must not be merged until that PR is green and its
-  exact public commit is pinned as the `t3code-fork` gitlink.
+- Interface pull request `HabsaTheDog/t3code#10` passed its build/typecheck,
+  dependency audit, Gitleaks, unit, and browser gates and was squash-merged as
+  `94d975a45d48cded9ef23cebf36dc48f4cd15583`. The root release branch pins that
+  exact public commit as the `t3code-fork` gitlink.
 
 ## Verified locally and on GitHub on 2026-08-14
 
@@ -119,8 +120,7 @@ result as proof for a later commit.
 
 1. Confirm that GitHub Support has dereferenced the affected pull-request refs
    and removed cached views containing the historical personal data.
-2. Merge the green interface PR, pin its exact public commit in the root PR, and
-   let all root GitHub security/release checks pass from a recursive checkout.
+2. Let all root GitHub security/release checks pass from a recursive checkout.
 3. Complete SignPath Foundation onboarding and provide the organization ID,
    project slug, signing-policy slug, artifact configuration, and protected
    submitter token so the reviewed Windows signing job can replace the current
