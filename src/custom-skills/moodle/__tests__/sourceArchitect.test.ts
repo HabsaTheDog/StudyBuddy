@@ -1294,6 +1294,7 @@ describe("source architect", () => {
     };
     const config = moodleTestConfig({
       runDir,
+      runtimeCacheDir: runDir,
       prompt: "Create a study guide for MEL",
       artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
       intentDecision: classifyStudyBuddyIntent({

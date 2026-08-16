@@ -988,6 +988,7 @@ export function canDeferLookupVerificationToVisualPipeline(
   state: LangGraphAgentState,
   decision: SourceArchitectDecision,
 ): boolean {
+  if (decision.requestedUrls.length > 0) return false;
   const decisionText = `${decision.coverageSummary} ${decision.reasons.join(" ")}`;
   if (!/(?:tabelle|table|TB\s*\d|diagramm|diagram|visual|bild|nachschlag|lookup)/i.test(decisionText)) {
     return false;
