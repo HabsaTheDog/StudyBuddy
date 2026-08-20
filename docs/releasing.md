@@ -45,11 +45,16 @@ x64 artifacts. macOS binaries are outside the current release matrix. Publishing
 is accepted only when all of the following are true:
 
 - the workflow runs from an existing `v<version>` tag;
-- `signed=true` is selected;
-- the `alpha-release` environment controls signing secrets and publication
-  approval;
-- the Windows artifact has been signed through the reviewed SignPath path;
+- `signed=false` is selected while trusted signing is unavailable;
+- `acknowledge_unsigned_windows=true` explicitly accepts the Alpha-only trust
+  warning and the release notes disclose it prominently;
+- the protected `alpha-release` environment controls publication approval;
+- the Windows job verifies that the installer is actually unsigned so the
+  release manifest cannot misrepresent its Authenticode state;
 - every platform build and the release-evidence assembly succeeds.
+
+This exception applies only to the `0.1.0-alpha.*` workflow. Stable publication
+remains blocked until a trusted Windows signing path is configured and tested.
 
 The assembled bundle contains the platform artifacts, Electron updater channel
 metadata (`alpha.yml` and `alpha-linux.yml`, plus available blockmaps),
@@ -58,18 +63,19 @@ root and interface commits. The YAML metadata binds each download with SHA-512;
 the website and in-app updater both use these GitHub Release assets. Do not
 repurpose the disabled upstream T3 release workflow.
 
-The workflow fails closed when `signed=true` until SignPath Foundation
-onboarding, origin verification, signing policy, and the pinned integration are
-complete. Store any eventual SignPath token only as an `alpha-release`
-environment secret, restrict that environment to reviewed tags and required
-maintainers, and require a separate signing approval. Do not add Apple or Azure
-signing credentials to this release path.
+The workflow fails closed when `signed=true` until a reviewed trusted-signing
+integration is complete. Store any eventual signing token only as an
+`alpha-release` environment secret, restrict that environment to reviewed tags
+and required maintainers, and require a separate signing approval. Do not add
+Apple signing credentials to this release path.
 
 ### SignPath Foundation owner handoff
 
 SignPath Foundation provides free code-signing certificates for accepted open
 source projects without requiring the maintainer to buy or personally hold a
-certificate. Apply at <https://signpath.org/>. After acceptance:
+certificate. Its current eligibility conditions require an existing release
+and verifiable project reputation, so apply only after the unsigned Alpha has
+real public usage evidence. After acceptance:
 
 1. install the SignPath GitHub App for this repository and link SignPath's
    predefined GitHub.com trusted build system to the Study Buddy project;
@@ -87,7 +93,7 @@ certificate. Apply at <https://signpath.org/>. After acceptance:
 5. keep every build job leading to the signing request on GitHub-hosted runners,
    as required for SignPath Foundation OSS origin verification.
 
-The current fail-closed workflow is intentional: SignPath project and artifact
+The signed path remains fail-closed intentionally: SignPath project and artifact
 configuration are server-side contracts, so inserting guessed slugs or an
 unverified signing step would create a misleading release path.
 
