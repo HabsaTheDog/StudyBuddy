@@ -14,8 +14,9 @@ not promised; safety and reproducibility gates take priority.
   updates must continue through a separately reviewed interface PR first.
 - Inherited T3 deployment/release automation is disabled and CI now uses
   GitHub-hosted runners. The dedicated artifact workflow targets Linux x64 and
-  Windows x64; SignPath Foundation onboarding and reviewed Windows signing are
-  still required before binary publication. macOS is deferred.
+  Windows x64. Early Alpha Windows releases may be explicitly unsigned with
+  prominent warnings and cryptographic release evidence; stable Windows
+  publication remains signing-gated. macOS is deferred.
 - Root CI recursively checks out, audits, formats, typechecks, and tests the
   pinned UI submodule. Final release candidates still require a clean-machine
   artifact installation round in addition to CI.

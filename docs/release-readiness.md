@@ -121,11 +121,10 @@ result as proof for a later commit.
 1. Confirm that GitHub Support has dereferenced the affected pull-request refs
    and removed cached views containing the historical personal data.
 2. Let all root GitHub security/release checks pass from a recursive checkout.
-3. Complete SignPath Foundation onboarding and provide the organization ID,
-   project slug, signing-policy slug, artifact configuration, and protected
-   submitter token so the reviewed Windows signing job can replace the current
-   fail-closed gate. macOS is not part of this alpha.
-4. Build and inspect the unsigned Windows x64 alpha artifact, then repeat manual
+3. Keep the Alpha release explicitly marked as unsigned on Windows, verify the
+   workflow records `signed: false`, and retain the trusted-signing fail-closed
+   gate for future stable releases. macOS is not part of this alpha.
+4. Build and inspect the unsigned Windows x64 Alpha artifact, then repeat manual
    synthetic smoke tests on every platform claimed in the
    prerelease notes and install the exact draft artifacts on clean machines.
 5. The disabled upstream mobile, marketing, and relay directories are excluded
@@ -139,7 +138,7 @@ result as proof for a later commit.
 
 ## Release decision
 
-The source tree is suitable for continued public alpha hardening. A binary
-release is **not yet authorized**. Publication requires GitHub Support cache
-closure, clean-machine Linux/Windows validation, and the signed Windows artifact
-path.
+The source tree is suitable for an explicitly unsigned public Alpha. Draft
+preparation is authorized; final publication still requires GitHub Support
+cache closure, zero unresolved release-scope security alerts, and clean-machine
+Linux/Windows validation. Stable Windows publication remains signing-gated.
