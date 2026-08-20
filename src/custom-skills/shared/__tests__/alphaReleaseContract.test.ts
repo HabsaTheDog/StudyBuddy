@@ -1,10 +1,15 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const contractScript = resolve(repositoryRoot, "scripts/check-alpha-release-contract.mjs");
+const releaseWorkflow = readFileSync(
+  resolve(repositoryRoot, ".github/workflows/alpha-release.yml"),
+  "utf8",
+);
 const reviewEnvironment = {
   RELEASE_VERSION: "0.1.0-alpha.1",
   PUBLISH_DRAFT: "false",
@@ -62,5 +67,11 @@ describe("Alpha release contract", () => {
     const result = runContract({ RELEASE_VERSION: "1.0.0" });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Expected an alpha version");
+  });
+
+  it("binds draft publication to the exact commit that built the artifacts", () => {
+    expect(releaseWorkflow).toContain('tag_ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/v${RELEASE_VERSION}"');
+    expect(releaseWorkflow).toContain('while [ "$tag_type" = "tag" ]');
+    expect(releaseWorkflow).toContain('[ "$tag_sha" != "$GITHUB_SHA" ]');
   });
 });

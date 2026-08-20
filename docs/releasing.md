@@ -44,7 +44,9 @@ with `publish_draft=false` produces review-only unsigned Linux x64 and Windows
 x64 artifacts. macOS binaries are outside the current release matrix. Publishing
 is accepted only when all of the following are true:
 
-- the workflow runs from an existing `v<version>` tag;
+- the workflow runs from an existing `v<version>` tag and, immediately before
+  draft creation, verifies that its peeled remote commit still equals the
+  commit that produced the artifacts;
 - `signed=false` is selected while trusted signing is unavailable;
 - `acknowledge_unsigned_windows=true` explicitly accepts the Alpha-only trust
   warning and the release notes disclose it prominently;

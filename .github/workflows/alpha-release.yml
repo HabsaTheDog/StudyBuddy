@@ -230,6 +230,20 @@ jobs:
         run: |
           notes="docs/releases/v${RELEASE_VERSION}.md"
           test -s "$notes"
+
+          tag_ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/v${RELEASE_VERSION}"
+          tag_type="$(gh api "$tag_ref" --jq '.object.type')"
+          tag_sha="$(gh api "$tag_ref" --jq '.object.sha')"
+          while [ "$tag_type" = "tag" ]; do
+            tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
+            tag_type="$(jq -r '.object.type' <<<"$tag_object")"
+            tag_sha="$(jq -r '.object.sha' <<<"$tag_object")"
+          done
+          if [ "$tag_type" != "commit" ] || [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "Release tag v${RELEASE_VERSION} resolves to ${tag_type}:${tag_sha}, expected commit:${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
           gh release create "v${RELEASE_VERSION}" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
