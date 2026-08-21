@@ -51,3 +51,8 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   selection while retaining the existing model-picker shortcut contract.
 - Hardened Quick Chat creation, draft promotion, file opening, timeline controls,
   browser startup, and settings persistence regressions.
+- Changed source onboarding to start empty with an unlimited add-source flow,
+  repaired source editing after connection checks, and preserved edit support
+  for configured legacy Alpha sources.
+- Restored Study Buddy icons and executable metadata in intentionally unsigned
+  Windows builds without enabling or implying Authenticode signing.
