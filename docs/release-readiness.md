@@ -6,11 +6,10 @@ result applies only to the commit and artifact hash that produced it.
 
 ## Candidate status on 2026-08-25
 
-The source candidate is locally green and the interface candidate is published
-for review in `HabsaTheDog/t3code#14`. The root candidate pins interface commit
-`72b9bffc7f133f824885c54d9f8bf96375ec7904`; after the interface PR is merged,
-the root gitlink must be updated to the immutable merge result before opening
-the final root PR.
+The source candidate is locally green. Interface PR `HabsaTheDog/t3code#14`
+passed Check, Gitleaks, the full test suite, and browser tests, then merged as
+`fd2382bad4e2e0dc6b1668f409763d5f944b2ad4`. The root candidate pins that exact
+public commit.
 
 This is not yet a completed stable release. Exact draft artifacts still require
 GitHub workflow assembly and installed-artifact acceptance on clean Windows 11
@@ -99,27 +98,25 @@ evidence.
 
 ## Remaining blocking gates
 
-1. Let every required check on interface PR `HabsaTheDog/t3code#14` pass, merge
-   it, and update the root gitlink to the immutable public merge commit.
-2. Open the root stable PR, pass the protected root CI/security ruleset from a
+1. Open the root stable PR, pass the protected root CI/security ruleset from a
    recursive checkout, review the final manifest/diff, and merge it.
-3. Create the reviewed `v1.0.0` tag and let the protected release workflow build
+2. Create the reviewed `v1.0.0` tag and let the protected release workflow build
    and assemble the exact unsigned Windows x64 and Linux x64 draft assets,
    updater manifests, Windows blockmap, embedded Linux blockmap, platform/root
    SBOMs, provenance manifest, and checksums.
-4. Provision the disposable Fedora and Windows lanes only after explicit VM
+3. Provision the disposable Fedora and Windows lanes only after explicit VM
    authorization. Current inventory has one powered-off `win11` guest with no
    guest agent or snapshots, no Fedora guest, and no installer ISO inventory.
-5. Run every blocking clean-machine scenario against the exact draft hashes:
+4. Run every blocking clean-machine scenario against the exact draft hashes:
    install/launch, identity/icons, zero-source onboarding, unlimited source
    lifecycle, browser source, synthetic calendar/email coverage, opt-in
    telemetry delivery, restart/persistence, offline errors, previous-version
    update, uninstall behavior, and a representative offline HTML request.
    Verify document-tool absence messaging and exercise PDF output separately
    with the documented tools installed.
-6. Obtain GitHub Support confirmation that affected historical pull-request refs
+5. Obtain GitHub Support confirmation that affected historical pull-request refs
    were dereferenced and cached personal-data views were purged.
-7. Perform the maintainer-only acceptance that uses real authorized FH accounts;
+6. Perform the maintainer-only acceptance that uses real authorized FH accounts;
    never place those credentials or content in VM evidence.
 
 ## Release decision
