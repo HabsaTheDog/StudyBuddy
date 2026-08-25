@@ -15,8 +15,11 @@ function expectedBuildAssets(version, channel) {
   ].sort();
 }
 
-function manifestScalar(contents, key) {
-  const match = contents.match(new RegExp(`^${key}:\\s*["']?([^"'\\r\\n]+)["']?\\s*$`, "m"));
+function manifestScalar(contents, key, { allowIndented = false } = {}) {
+  const indentation = allowIndented ? "[ \\t]*" : "";
+  const match = contents.match(
+    new RegExp(`^${indentation}${key}:\\s*["']?([^"'\\r\\n]+)["']?\\s*$`, "m"),
+  );
   return match?.[1]?.trim() ?? null;
 }
 
@@ -65,7 +68,9 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
     }
     if (
       manifest === `${channel}-linux.yml` &&
-      !/^[1-9][0-9]*$/u.test(manifestScalar(contents, "blockMapSize") ?? "")
+      !/^[1-9][0-9]*$/u.test(
+        manifestScalar(contents, "blockMapSize", { allowIndented: true }) ?? "",
+      )
     ) {
       throw new Error(`Linux updater manifest has no embedded AppImage block map: ${manifest}`);
     }

@@ -28,7 +28,7 @@ async function fixture(extra = []) {
     const digest = createHash("sha512").update(artifactBytes).digest("base64");
     await writeFile(
       join(directory, manifest),
-      `version: ${version}\npath: ${artifact}\nsha512: ${digest}\n${manifest === "latest-linux.yml" ? "blockMapSize: 1234\n" : ""}`,
+      `version: ${version}\nfiles:\n  - url: ${artifact}\n    sha512: ${digest}\n${manifest === "latest-linux.yml" ? "    blockMapSize: 1234\n" : ""}path: ${artifact}\nsha512: ${digest}\n`,
     );
   }
   const sbom = JSON.stringify({ bomFormat: "CycloneDX", components: [{ name: "Study Buddy" }] });
