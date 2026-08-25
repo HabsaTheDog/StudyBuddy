@@ -399,9 +399,13 @@ async function defaultRunProcess(
 export function resolveCodexProcessInvocation(
   command: string,
   args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
 ): { command: string; args: string[] } {
   if (/\.(?:c|m)?js$/i.test(command)) {
-    return { command: process.execPath, args: [command, ...args] };
+    return {
+      command: environment.STUDY_BUDDY_NODE_EXECUTABLE?.trim() || process.execPath,
+      args: [command, ...args],
+    };
   }
   return { command, args: [...args] };
 }

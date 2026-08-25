@@ -53,11 +53,19 @@ export function buildCredentialFreeChildEnvironment(
 export function buildCodexChildEnvironment(
   source: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  return Object.fromEntries(
+  const environment = Object.fromEntries(
     Object.entries(source).flatMap(([key, value]) =>
       CODEX_ENV_ALLOWLIST.has(key) && value ? [[key, value] as const] : [],
     ),
   );
+  // Packaged desktop workflows execute JavaScript CLIs with Electron's binary.
+  // The executable path itself stays out of the child environment, but its
+  // presence is an explicit desktop-owned signal that Electron must run as
+  // Node. Arbitrary host ELECTRON_RUN_AS_NODE values remain filtered.
+  if (source.STUDY_BUDDY_NODE_EXECUTABLE?.trim()) {
+    environment.ELECTRON_RUN_AS_NODE = "1";
+  }
+  return environment;
 }
 
 export function buildCodexShellEnvironmentConfig(environment: Record<string, string>) {
