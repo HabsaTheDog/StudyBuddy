@@ -366,34 +366,53 @@ EOF
 
 is_resumable_extraction() {
   local run_dir="$1"
-  [[ -s "$run_dir/error.log" ]] || return 1
-  grep -Eq 'Study Buddy run timed out after|Extraction checkpoint required:|Extraction capacity checkpoint required:|content_analyzer model call timed out after|Student-first coverage blocked publication:|Semantic quality review failed:|Quality reviewer failed:|Analyzer failed:' "$run_dir/error.log" || return 1
-  [[ -s "$run_dir/source-map.json" ]] || return 1
-  [[ -s "$run_dir/evidence-package.json" ]] || return 1
-  [[ -s "$run_dir/coverage-report.json" ]] || return 1
-  if [[ -s "$run_dir/extracted-data.json" ]]; then
+  local error_path summary_path raw_path source_map_path evidence_path coverage_path extracted_path
+  validate_recovery_run_layout "$run_dir" || return 1
+  error_path="$(resolve_run_control_file "$run_dir" "error.log")" || return 1
+  summary_path="$(resolve_run_control_file "$run_dir" "run-summary.md")" || return 1
+  raw_path="$(resolve_run_control_file "$run_dir" "moodle_raw.txt")" || return 1
+  source_map_path="$(resolve_run_control_file "$run_dir" "source-map.json")" || return 1
+  evidence_path="$(resolve_run_control_file "$run_dir" "evidence-package.json")" || return 1
+  coverage_path="$(resolve_run_control_file "$run_dir" "coverage-report.json")" || return 1
+  [[ -s "$error_path" && -s "$summary_path" && -s "$raw_path" && -s "$source_map_path" && -s "$evidence_path" && -s "$coverage_path" ]] || return 1
+  grep -Eq 'Study Buddy run timed out after|Extraction checkpoint required:|Extraction capacity checkpoint required:|content_analyzer model call timed out after|Student-first coverage blocked publication:|Semantic quality review failed:|Quality reviewer failed:|Analyzer failed:' "$error_path" || return 1
+  if ! grep -Eq '^Run status: (failed|timeout|partial|success)$' "$summary_path"; then
+    grep -Eq '^Run status: running$' "$summary_path" || return 1
+    grep -Eq 'Semantic quality review failed:|Quality reviewer failed:' "$error_path" || return 1
+  fi
+  if [[ -e "$run_dir/extracted-data.json" || -L "$run_dir/extracted-data.json" ]]; then
+    extracted_path="$(resolve_run_control_file "$run_dir" "extracted-data.json")" || return 1
+    if [[ -s "$extracted_path" ]]; then
+      return 0
+    fi
+  fi
+  if grep -Eq 'Extraction capacity checkpoint required:|content_analyzer model call timed out after' "$error_path"; then
     return 0
   fi
-  if grep -Eq 'Extraction capacity checkpoint required:|content_analyzer model call timed out after' "$run_dir/error.log"; then
+  if grep -Eq 'Extraction checkpoint required:' "$error_path"; then
     return 0
   fi
-  if grep -Eq 'Extraction checkpoint required:' "$run_dir/error.log"; then
+  if grep -Eq 'Student-first coverage blocked publication:' "$error_path"; then
     return 0
   fi
-  if grep -Eq 'Student-first coverage blocked publication:' "$run_dir/error.log"; then
-    return 0
-  fi
-  compgen -G "$run_dir/chapter-handoffs/*.json" >/dev/null
+  local handoff_dir="$run_dir/chapter-handoffs"
+  [[ -d "$handoff_dir" ]] || return 1
+  find "$handoff_dir" -maxdepth 1 -type f -name '*.json' -size +0c -print -quit | grep -q .
 }
 
 is_valid_extraction_handoff() {
   local run_dir="$1"
   [[ -d "$run_dir" ]] || return 1
-  [[ -s "$run_dir/extracted-data.json" ]] || return 1
-  [[ ! -s "$run_dir/error.log" ]] || return 1
-  [[ -s "$run_dir/run-summary.md" ]] || return 1
-  grep -Eq '^Route: extraction$' "$run_dir/run-summary.md" || return 1
-  grep -Eq '^Run status: (success|partial)$' "$run_dir/run-summary.md" || return 1
+  local extracted_path summary_path error_path
+  extracted_path="$(resolve_run_control_file "$run_dir" "extracted-data.json")" || return 1
+  summary_path="$(resolve_run_control_file "$run_dir" "run-summary.md")" || return 1
+  [[ -s "$extracted_path" && -s "$summary_path" ]] || return 1
+  if [[ -e "$run_dir/error.log" || -L "$run_dir/error.log" ]]; then
+    error_path="$(resolve_run_control_file "$run_dir" "error.log")" || return 1
+    [[ ! -s "$error_path" ]] || return 1
+  fi
+  grep -Eq '^Route: extraction$' "$summary_path" || return 1
+  grep -Eq '^Run status: (success|partial)$' "$summary_path" || return 1
 }
 
 run_staged_document() {
@@ -523,26 +542,131 @@ run_staged_document() {
   echo "PDF ready: $render_dir/document.pdf"
 }
 
+resolve_run_control_file() {
+  local run_dir="$1"
+  local name="$2"
+  node - "$run_dir" "$name" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const root = fs.realpathSync(process.argv[2]);
+const name = process.argv[3];
+if (!/^[A-Za-z0-9._-]+$/.test(name)) process.exit(2);
+const candidate = path.join(root, name);
+if (!fs.existsSync(candidate)) process.exit(3);
+const linkStats = fs.lstatSync(candidate);
+const realCandidate = fs.realpathSync(candidate);
+const relative = path.relative(root, realCandidate);
+if (!linkStats.isFile() || relative.startsWith("..") || path.isAbsolute(relative)) process.exit(4);
+console.log(realCandidate);
+NODE
+}
+
+validate_recovery_run_layout() {
+  local run_dir="$1"
+  node - "$run_dir" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const lexicalRoot = process.argv[2];
+const rootStats = fs.lstatSync(lexicalRoot);
+if (!rootStats.isDirectory()) process.exit(2);
+const root = fs.realpathSync(lexicalRoot);
+const contained = (candidateRoot, candidate) => {
+  const relative = path.relative(candidateRoot, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+};
+const regular = (relativePath, required) => {
+  const candidate = path.join(root, relativePath);
+  try {
+    const stats = fs.lstatSync(candidate);
+    const realCandidate = fs.realpathSync(candidate);
+    if (!stats.isFile() || !contained(root, realCandidate) || stats.size === 0) process.exit(3);
+    return true;
+  } catch (error) {
+    if (!required && error?.code === "ENOENT") return false;
+    process.exit(3);
+  }
+};
+const directoryTree = (relativePath, jsonOnly = false) => {
+  const directory = path.join(root, relativePath);
+  let stats;
+  try {
+    stats = fs.lstatSync(directory);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    process.exit(4);
+  }
+  const realDirectory = fs.realpathSync(directory);
+  if (!stats.isDirectory() || !contained(root, realDirectory)) process.exit(4);
+  for (const entry of fs.readdirSync(realDirectory, { withFileTypes: true })) {
+    const childRelative = path.join(relativePath, entry.name);
+    if (entry.isSymbolicLink()) process.exit(4);
+    if (entry.isDirectory()) {
+      if (jsonOnly) process.exit(4);
+      directoryTree(childRelative, false);
+      continue;
+    }
+    if (!entry.isFile() || (jsonOnly && !entry.name.endsWith(".json"))) process.exit(4);
+    regular(childRelative, true);
+  }
+};
+for (const requiredFile of [
+  "run-summary.md",
+  "error.log",
+  "moodle_raw.txt",
+  "source-map.json",
+  "evidence-package.json",
+  "coverage-report.json",
+  "request-contract.json",
+  "request-contract-integrity.json",
+]) regular(requiredFile, true);
+for (const optionalFile of [
+  "extracted-data.json",
+  "source_coverage.json",
+  "state.json",
+  "learning-architecture.json",
+  "resource-catalog.json",
+  "resource-plan.json",
+  "visual-candidates.json",
+  "visual-retrieval-plan.json",
+  "visual-page-index.json",
+  "pending-extraction-repairs.json",
+]) regular(optionalFile, false);
+directoryTree("chapter-handoffs", true);
+directoryTree("assets/visuals", false);
+NODE
+}
+
+read_run_pid_field() {
+  local run_dir="$1"
+  local field="$2"
+  local pid_path
+  pid_path="$(resolve_run_control_file "$run_dir" "pid.json")" || return 1
+  node - "$pid_path" "$field" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))[process.argv[3]];
+if (!Number.isInteger(Number(value)) || Number(value) <= 0) process.exit(2);
+console.log(Number(value));
+NODE
+}
+
 cancel_run() {
   local run_dir="$1"
   local pid_file="$run_dir/pid.json"
-  if [[ ! -f "$pid_file" ]]; then
-    echo "No pid.json found at: $pid_file" >&2
-    exit 1
-  fi
   local pgid
-  pgid="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(p.process_group_id || p.child_pid || '')" "$pid_file")"
-  if [[ -z "$pgid" ]]; then
-    echo "No process group id found in: $pid_file" >&2
-    exit 1
+  if ! pgid="$(read_run_pid_field "$run_dir" "process_group_id")"; then
+    if ! pgid="$(read_run_pid_field "$run_dir" "child_pid")"; then
+      echo "No valid contained process id found in: $pid_file" >&2
+      return 1
+    fi
   fi
   kill -- "-$pgid" 2>/dev/null || kill "$pgid" 2>/dev/null || true
-  if [[ -f "$run_dir/run-summary.md" ]]; then
+  local summary_path
+  if summary_path="$(resolve_run_control_file "$run_dir" "run-summary.md")"; then
     {
       echo
       echo "Run status: canceled"
       echo "Canceled at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    } >> "$run_dir/run-summary.md"
+    } >> "$summary_path"
   fi
 }
 
@@ -553,19 +677,21 @@ status_run() {
     exit 1
   fi
   local process_state="unknown"
-  if [[ -f "$run_dir/pid.json" ]]; then
+  if [[ -e "$run_dir/pid.json" || -L "$run_dir/pid.json" ]]; then
     local pid
-    pid="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(p.child_pid || '')" "$run_dir/pid.json")"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    if ! pid="$(read_run_pid_field "$run_dir" "child_pid")"; then
+      process_state="invalid"
+    elif kill -0 "$pid" 2>/dev/null; then
       process_state="running"
     else
       process_state="stopped"
     fi
   fi
   echo "Process: $process_state"
-  if [[ -f "$run_dir/run-summary.md" ]]; then
-    sed -n '1,220p' "$run_dir/run-summary.md"
-    if [[ "$process_state" == "stopped" ]] && grep -q "Run status: running" "$run_dir/run-summary.md"; then
+  local summary_path
+  if summary_path="$(resolve_run_control_file "$run_dir" "run-summary.md")"; then
+    sed -n '1,220p' "$summary_path"
+    if [[ "$process_state" == "stopped" ]] && grep -q "Run status: running" "$summary_path"; then
       echo "Status warning: process stopped but summary is stale and still marked running"
     fi
   else
@@ -592,9 +718,21 @@ const fs = require("fs");
 const path = require("path");
 
 const runDir = process.argv[2];
+const realRunDir = fs.realpathSync(runDir);
 const read = (name) => {
   try {
-    return fs.readFileSync(path.join(runDir, name), "utf8");
+    const candidate = path.join(runDir, name);
+    const linkStats = fs.lstatSync(candidate);
+    const realCandidate = fs.realpathSync(candidate);
+    const relative = path.relative(realRunDir, realCandidate);
+    if (
+      !linkStats.isFile() ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative)
+    ) {
+      return "";
+    }
+    return fs.readFileSync(realCandidate, "utf8");
   } catch {
     return "";
   }
@@ -608,8 +746,41 @@ const readJson = (name) => {
 };
 const nonEmpty = (name) => {
   try {
-    const stats = fs.statSync(path.join(runDir, name));
-    return stats.isFile() && stats.size > 0;
+    const candidate = path.join(runDir, name);
+    const linkStats = fs.lstatSync(candidate);
+    const realCandidate = fs.realpathSync(candidate);
+    const relative = path.relative(realRunDir, realCandidate);
+    const stats = fs.statSync(realCandidate);
+    return (
+      linkStats.isFile() &&
+      stats.isFile() &&
+      stats.size > 0 &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative)
+    );
+  } catch {
+    return false;
+  }
+};
+const lexicalExists = (name) => {
+  try {
+    fs.lstatSync(path.join(runDir, name));
+    return true;
+  } catch {
+    return false;
+  }
+};
+const isContainedRegularControl = (name) => {
+  try {
+    const candidate = path.join(runDir, name);
+    const linkStats = fs.lstatSync(candidate);
+    const realCandidate = fs.realpathSync(candidate);
+    const relative = path.relative(realRunDir, realCandidate);
+    return (
+      linkStats.isFile() &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative)
+    );
   } catch {
     return false;
   }
@@ -631,6 +802,15 @@ const workflow = readJson("workflow-summary.json");
 const hasWorkflowSummary = nonEmpty("workflow-summary.json");
 const workflowMarkdown = read("workflow-summary.md");
 const workflowMarkdownStatus = [...workflowMarkdown.matchAll(/^Run status:\s*(\S+)/gm)].at(-1)?.[1] || "unknown";
+const invalidControls = [
+  "run-summary.md",
+  "config.json",
+  "run-progress.json",
+  "interaction-result.json",
+  "workflow-summary.json",
+  "workflow-summary.md",
+  "error.log",
+].filter((name) => lexicalExists(name) && !isContainedRegularControl(name));
 
 let terminalStatus = summaryStatus;
 let contract = "document";
@@ -662,14 +842,36 @@ if (hasWorkflowSummary) {
         return;
       }
     }
-    if (kind === "directory") {
-      try {
-        if (!fs.statSync(resolved).isDirectory()) extraMissingArtifacts.push(label);
-      } catch {
-        extraMissingArtifacts.push(label);
+    try {
+      const linkStats = fs.lstatSync(resolved);
+      const realResolved = fs.realpathSync(resolved);
+      const realRelative = path.relative(realRunDir, realResolved);
+      if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+        contradiction = `${label} resolves outside the workflow directory`;
+        return;
       }
-    } else {
-      expectedArtifacts.push(relative);
+      if (parentRaw) {
+        const parent = path.resolve(path.isAbsolute(parentRaw) ? parentRaw : path.join(root, parentRaw));
+        const realParent = fs.realpathSync(parent);
+        const realParentRelative = path.relative(realParent, realResolved);
+        if (!realParentRelative || realParentRelative.startsWith("..") || path.isAbsolute(realParentRelative)) {
+          contradiction = `${label} resolves outside its workflow branch directory`;
+          return;
+        }
+      }
+      if (kind === "directory") {
+        if (!linkStats.isDirectory() || !fs.statSync(realResolved).isDirectory()) {
+          extraMissingArtifacts.push(label);
+        }
+      } else {
+        if (!linkStats.isFile() || !fs.statSync(realResolved).isFile()) {
+          extraMissingArtifacts.push(label);
+        } else {
+          expectedArtifacts.push(relative);
+        }
+      }
+    } catch {
+      extraMissingArtifacts.push(label);
     }
   };
   if (workflow.schemaVersion !== 1) {
@@ -740,7 +942,7 @@ if (hasWorkflowSummary) {
   } else if (
     hasProgress &&
     progressStatus !== summaryStatus &&
-    !(summaryStatus === "unknown" && liveStatuses.has(progressStatus))
+    !(liveStatuses.has(summaryStatus) && liveStatuses.has(progressStatus))
   ) {
     contradiction = `Run summary status ${summaryStatus} contradicts run-progress status ${progressStatus}`;
   }
@@ -774,8 +976,22 @@ if (hasWorkflowSummary) {
         contradiction = `run-progress references an artifact outside the run directory: ${artifactPath}`;
         break;
       }
+      try {
+        const realArtifact = fs.realpathSync(resolved);
+        const realRelative = path.relative(realRunDir, realArtifact);
+        if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+          contradiction = `run-progress references an artifact resolving outside the run directory: ${artifactPath}`;
+          break;
+        }
+      } catch {
+        // Missing paths are handled by the route-specific artifact contract.
+      }
     }
   }
+}
+
+if (invalidControls.length > 0) {
+  contradiction = `Run control file is not a contained regular file: ${invalidControls[0]}`;
 }
 
 const missingArtifacts = [
@@ -783,7 +999,8 @@ const missingArtifacts = [
   ...extraMissingArtifacts,
 ];
 const completed =
-  terminalStatuses.has(terminalStatus) &&
+  (terminalStatus === "success" ||
+    (terminalStatus === "partial" && ["extract", "diagnostic"].includes(contract))) &&
   !error &&
   !contradiction &&
   missingArtifacts.length === 0;
@@ -824,9 +1041,21 @@ const fs = require("fs");
 const path = require("path");
 
 const runDir = process.argv[2];
+const realRunDir = fs.realpathSync(runDir);
 const read = (name) => {
   try {
-    return fs.readFileSync(path.join(runDir, name), "utf8");
+    const candidate = path.join(runDir, name);
+    const linkStats = fs.lstatSync(candidate);
+    const realCandidate = fs.realpathSync(candidate);
+    const relative = path.relative(realRunDir, realCandidate);
+    if (
+      !linkStats.isFile() ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative)
+    ) {
+      return "";
+    }
+    return fs.readFileSync(realCandidate, "utf8");
   } catch {
     return "";
   }
@@ -840,9 +1069,22 @@ const existsNonEmpty = (name) => {
 };
 
 let pid = null;
+let pidControlError = null;
 try {
-  pid = JSON.parse(read("pid.json")).child_pid || null;
-} catch {}
+  const pidRaw = read("pid.json");
+  let pidControlExists = false;
+  try {
+    fs.lstatSync(path.join(runDir, "pid.json"));
+    pidControlExists = true;
+  } catch {}
+  if (pidControlExists && !pidRaw) {
+    pidControlError = "pid.json is not a contained regular control file";
+  } else if (pidRaw) {
+    pid = JSON.parse(pidRaw).child_pid || null;
+  }
+} catch {
+  pidControlError = "pid.json is invalid";
+}
 let processAlive = false;
 if (pid) {
   try {
@@ -885,9 +1127,9 @@ const transientWriteSkew =
     /^Workflow summary JSON status (?:queued|running) contradicts Markdown status (?:success|failed)$/.test(
       contract.contradiction,
     ));
-const completed = contract.completed && !processAlive;
+const completed = contract.completed && !processAlive && !pidControlError;
 const blocked =
-  Boolean(contract.error || (contract.contradiction && !transientWriteSkew)) ||
+  Boolean(pidControlError || contract.error || (contract.contradiction && !transientWriteSkew)) ||
   ["failed", "timeout", "canceled"].includes(contract.terminalStatus) ||
   (!processAlive && !completed);
 
@@ -914,7 +1156,8 @@ console.log(JSON.stringify({
         ? "Wait for worker exit and final status flush"
         : "Continue the same worker lease",
   blocker: blocked
-    ? contract.error ||
+    ? pidControlError ||
+      contract.error ||
       contract.contradiction ||
       (contract.missingArtifacts.length
         ? `Missing required artifacts: ${contract.missingArtifacts.join(", ")}`
@@ -939,8 +1182,11 @@ wait_run() {
   started_at="$(date +%s)"
   while true; do
     local pid=""
-    if [[ -f "$run_dir/pid.json" ]]; then
-      pid="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(p.child_pid || '')" "$run_dir/pid.json")"
+    if [[ -e "$run_dir/pid.json" || -L "$run_dir/pid.json" ]]; then
+      if ! pid="$(read_run_pid_field "$run_dir" "child_pid")"; then
+        echo "Invalid or non-contained pid.json in Study Buddy run: $run_dir" >&2
+        return 1
+      fi
     fi
     if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
       break

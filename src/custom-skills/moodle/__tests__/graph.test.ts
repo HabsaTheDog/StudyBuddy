@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -952,6 +952,70 @@ describe("moodle graph retry routing", () => {
       .resolves.toBe("{}\n");
   });
 
+  it.each(["run-summary.md", "moodle_raw.txt"])(
+    "rejects extraction recovery when %s is an external symlink",
+    async (linkedName) => {
+      runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-recovery-control-link-"));
+      const sourceDir = path.join(runDir, "source");
+      const recoveryDir = path.join(runDir, "recovery");
+      const outsideFile = path.join(runDir, `outside-${linkedName.replaceAll("/", "-")}`);
+      await Promise.all([
+        mkdir(sourceDir, { recursive: true }),
+        mkdir(recoveryDir, { recursive: true }),
+      ]);
+      await Promise.all([
+        writeVerifiedRequestContract(sourceDir),
+        writeFile(path.join(sourceDir, "run-summary.md"), "Run status: failed\n", "utf8"),
+        writeFile(path.join(sourceDir, "error.log"), "Extraction checkpoint required: test\n", "utf8"),
+        writeFile(path.join(sourceDir, "moodle_raw.txt"), "Persisted Moodle evidence\n", "utf8"),
+        writeFile(path.join(sourceDir, "source-map.json"), "{}\n", "utf8"),
+        writeFile(path.join(sourceDir, "evidence-package.json"), "{}\n", "utf8"),
+        writeFile(path.join(sourceDir, "coverage-report.json"), "{}\n", "utf8"),
+        writeFile(outsideFile, "external\n", "utf8"),
+      ]);
+      await rm(path.join(sourceDir, linkedName));
+      await symlink(outsideFile, path.join(sourceDir, linkedName));
+
+      await expect(loadExtractionReviewState(moodleTestConfig({
+        runDir: recoveryDir,
+        outputPath: path.join(recoveryDir, "document.typ"),
+        stage: "extract",
+        resumeExtractionRunDir: sourceDir,
+      }))).rejects.toThrow(/regular file/);
+    },
+  );
+
+  it("rejects mixed regular and external-symlink chapter recovery handoffs", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-recovery-handoff-link-"));
+    const sourceDir = path.join(runDir, "source");
+    const recoveryDir = path.join(runDir, "recovery");
+    const handoffDir = path.join(sourceDir, "chapter-handoffs");
+    const outsideHandoff = path.join(runDir, "outside-handoff.json");
+    await Promise.all([
+      mkdir(handoffDir, { recursive: true }),
+      mkdir(recoveryDir, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeVerifiedRequestContract(sourceDir),
+      writeFile(path.join(sourceDir, "run-summary.md"), "Run status: failed\n", "utf8"),
+      writeFile(path.join(sourceDir, "error.log"), "Analyzer failed: test\n", "utf8"),
+      writeFile(path.join(sourceDir, "moodle_raw.txt"), "Persisted Moodle evidence\n", "utf8"),
+      writeFile(path.join(sourceDir, "source-map.json"), "{}\n", "utf8"),
+      writeFile(path.join(sourceDir, "evidence-package.json"), "{}\n", "utf8"),
+      writeFile(path.join(sourceDir, "coverage-report.json"), "{}\n", "utf8"),
+      writeFile(path.join(handoffDir, "valid.json"), "{}\n", "utf8"),
+      writeFile(outsideHandoff, "{}\n", "utf8"),
+    ]);
+    await symlink(outsideHandoff, path.join(handoffDir, "external.json"));
+
+    await expect(loadExtractionReviewState(moodleTestConfig({
+      runDir: recoveryDir,
+      outputPath: path.join(recoveryDir, "document.typ"),
+      stage: "extract",
+      resumeExtractionRunDir: sourceDir,
+    }))).rejects.toThrow(/symbolic link/);
+  });
+
   it("retries a reviewer execution failure without rebuilding validated extraction data", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-extract-review-retry-"));
     const diagnostics = new RunDiagnostics({ runDir });
@@ -1103,6 +1167,68 @@ describe("moodle graph retry routing", () => {
     await expect(readFile(path.join(renderDir, REQUEST_CONTRACT_INTEGRITY_FILE), "utf8"))
       .resolves.toEqual(await readFile(path.join(extractionDir, REQUEST_CONTRACT_INTEGRITY_FILE), "utf8"));
   }, 20_000);
+
+  it.each(["render", "resume"])(
+    "rejects an external source_coverage.json symlink before %s diagnostics start",
+    async (mode) => {
+      runDir = await mkdtemp(path.join(os.tmpdir(), `moodle-${mode}-coverage-link-`));
+      const sourceDir = path.join(runDir, "source");
+      const targetDir = path.join(runDir, "target");
+      const outsideCoverage = path.join(runDir, "outside-source-coverage.json");
+      await Promise.all([
+        mkdir(sourceDir, { recursive: true }),
+        mkdir(targetDir, { recursive: true }),
+      ]);
+      await Promise.all([
+        writeVerifiedRequestContract(sourceDir),
+        writeFile(path.join(sourceDir, "run-summary.md"), "Run status: failed\n", "utf8"),
+        writeFile(path.join(sourceDir, "error.log"), "Extraction checkpoint required: test\n", "utf8"),
+        writeFile(path.join(sourceDir, "moodle_raw.txt"), "Persisted evidence\n", "utf8"),
+        writeFile(path.join(sourceDir, "extracted-data.json"), "{}\n", "utf8"),
+        writeFile(path.join(sourceDir, "source-map.json"), "{}\n", "utf8"),
+        writeFile(path.join(sourceDir, "evidence-package.json"), "{}\n", "utf8"),
+        writeFile(path.join(sourceDir, "coverage-report.json"), "{}\n", "utf8"),
+        writeFile(outsideCoverage, `${JSON.stringify(initialSourceCoverage)}\n`, "utf8"),
+      ]);
+      await symlink(outsideCoverage, path.join(sourceDir, "source_coverage.json"));
+
+      await expect(runMoodleGraph({
+        prompt: "make notes",
+        moodleUrl: "https://moodle.example/course",
+        runDir: targetDir,
+        stage: mode === "render" ? "render" : "extract",
+        ...(mode === "render"
+          ? { sourceRunDir: sourceDir }
+          : { resumeExtractionRunDir: sourceDir }),
+      })).rejects.toThrow(/regular file/);
+      await expect(stat(path.join(targetDir, "run-progress.json"))).rejects.toThrow();
+    },
+  );
+
+  it("rejects an external moodle_raw.txt symlink before render input is consumed", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-render-raw-link-"));
+    const sourceDir = path.join(runDir, "source");
+    const renderDir = path.join(runDir, "render");
+    const outsideRaw = path.join(runDir, "outside-moodle-raw.txt");
+    await Promise.all([
+      mkdir(sourceDir, { recursive: true }),
+      mkdir(renderDir, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeVerifiedRequestContract(sourceDir),
+      writeFile(path.join(sourceDir, "run-summary.md"), "Run status: success\n", "utf8"),
+      writeFile(path.join(sourceDir, "error.log"), "", "utf8"),
+      writeFile(path.join(sourceDir, "extracted-data.json"), "{}\n", "utf8"),
+      writeFile(outsideRaw, "external private content\n", "utf8"),
+    ]);
+    await symlink(outsideRaw, path.join(sourceDir, "moodle_raw.txt"));
+
+    await expect(loadRenderState(moodleTestConfig({
+      runDir: renderDir,
+      stage: "render",
+      sourceRunDir: sourceDir,
+    }))).rejects.toThrow(/regular file/);
+  });
 
   it("rejects an official render when the persisted RequestContract hash does not match", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-contract-mismatch-"));

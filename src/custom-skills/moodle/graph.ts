@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { createCodexClient, type CodexClient } from "./codexClient.js";
@@ -128,7 +128,18 @@ export async function runMoodleGraph(
   input: MoodleGraphInput,
   dependencies: GraphDependencies = {},
 ): Promise<MoodleGraphResult> {
-  const baseConfig = createRuntimeConfig(input);
+  const unvalidatedConfig = createRuntimeConfig(input);
+  const validatedSourceRunDir = unvalidatedConfig.stage === "render"
+    ? await validateRenderSource(unvalidatedConfig.sourceRunDir)
+    : undefined;
+  const validatedResumeRunDir = unvalidatedConfig.resumeExtractionRunDir
+    ? await validateExtractionRecoverySource(unvalidatedConfig.resumeExtractionRunDir)
+    : undefined;
+  const baseConfig: MoodleRuntimeConfig = {
+    ...unvalidatedConfig,
+    ...(validatedSourceRunDir ? { sourceRunDir: validatedSourceRunDir } : {}),
+    ...(validatedResumeRunDir ? { resumeExtractionRunDir: validatedResumeRunDir } : {}),
+  };
   const initialCoverage = baseConfig.stage === "render"
     ? await loadSourceCoverage(baseConfig.sourceRunDir)
     : baseConfig.resumeExtractionRunDir
@@ -1263,6 +1274,155 @@ async function existingFilePath(filePath: string): Promise<string | undefined> {
   return fileStat?.isFile() && fileStat.size > 0 ? filePath : undefined;
 }
 
+function isContainedPath(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function validateContainedRegularFile(
+  root: string,
+  relativePath: string,
+  required: boolean,
+): Promise<string | null> {
+  const candidate = path.join(root, relativePath);
+  const candidateStats = await lstat(candidate).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!candidateStats) {
+    if (required) {
+      throw new Error(`Recovery source is missing required file: ${relativePath}`);
+    }
+    return null;
+  }
+  if (!candidateStats.isFile()) {
+    throw new Error(`Recovery source path is not a regular file: ${relativePath}`);
+  }
+  const resolved = await realpath(candidate);
+  if (!isContainedPath(root, resolved)) {
+    throw new Error(`Recovery source file escapes its run directory: ${relativePath}`);
+  }
+  return resolved;
+}
+
+async function validateContainedDirectoryTree(
+  root: string,
+  relativePath: string,
+  required: boolean,
+  jsonOnly = false,
+): Promise<string | null> {
+  const candidate = path.join(root, relativePath);
+  const candidateStats = await lstat(candidate).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!candidateStats) {
+    if (required) {
+      throw new Error(`Recovery source is missing required directory: ${relativePath}`);
+    }
+    return null;
+  }
+  if (!candidateStats.isDirectory()) {
+    throw new Error(`Recovery source path is not a real directory: ${relativePath}`);
+  }
+  const resolvedDirectory = await realpath(candidate);
+  if (!isContainedPath(root, resolvedDirectory)) {
+    throw new Error(`Recovery source directory escapes its run directory: ${relativePath}`);
+  }
+  const entries = await readdir(resolvedDirectory, { withFileTypes: true });
+  for (const entry of entries) {
+    const childRelative = path.join(relativePath, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Recovery source contains a symbolic link: ${childRelative}`);
+    }
+    if (entry.isDirectory()) {
+      if (jsonOnly) {
+        throw new Error(`Recovery JSON directory contains a nested directory: ${childRelative}`);
+      }
+      await validateContainedDirectoryTree(root, childRelative, true, false);
+      continue;
+    }
+    if (!entry.isFile()) {
+      throw new Error(`Recovery source contains an unsupported path: ${childRelative}`);
+    }
+    if (jsonOnly && !entry.name.endsWith(".json")) {
+      throw new Error(`Recovery JSON directory contains a non-JSON file: ${childRelative}`);
+    }
+    await validateContainedRegularFile(root, childRelative, true);
+  }
+  return resolvedDirectory;
+}
+
+async function validateExtractionRecoverySource(sourceRunDir: string): Promise<string> {
+  const lexicalStats = await lstat(sourceRunDir);
+  if (!lexicalStats.isDirectory()) {
+    throw new Error(`Extraction recovery source must be a real directory: ${sourceRunDir}`);
+  }
+  const root = await realpath(sourceRunDir);
+  const requiredFiles = [
+    "run-summary.md",
+    "error.log",
+    "moodle_raw.txt",
+    "source-map.json",
+    "evidence-package.json",
+    "coverage-report.json",
+    REQUEST_CONTRACT_FILE,
+    REQUEST_CONTRACT_INTEGRITY_FILE,
+  ];
+  const optionalFiles = [
+    "extracted-data.json",
+    "source_coverage.json",
+    "state.json",
+    "learning-architecture.json",
+    "resource-catalog.json",
+    "resource-plan.json",
+    "visual-candidates.json",
+    "visual-retrieval-plan.json",
+    "visual-page-index.json",
+    PENDING_EXTRACTION_REPAIRS_FILE,
+  ];
+  await Promise.all([
+    ...requiredFiles.map((relativePath) => validateContainedRegularFile(root, relativePath, true)),
+    ...optionalFiles.map((relativePath) => validateContainedRegularFile(root, relativePath, false)),
+    validateContainedDirectoryTree(root, "chapter-handoffs", false, true),
+    validateContainedDirectoryTree(root, "assets/visuals", false),
+  ]);
+  return root;
+}
+
+async function validateRenderSource(sourceRunDir: string | undefined): Promise<string> {
+  if (!sourceRunDir) {
+    throw new Error("Render stage requires --source-run-dir.");
+  }
+  const lexicalStats = await lstat(sourceRunDir);
+  if (!lexicalStats.isDirectory()) {
+    throw new Error(`Render source must be a real directory: ${sourceRunDir}`);
+  }
+  const root = await realpath(sourceRunDir);
+  const requiredFiles = [
+    "run-summary.md",
+    "error.log",
+    "moodle_raw.txt",
+    "extracted-data.json",
+    REQUEST_CONTRACT_FILE,
+    REQUEST_CONTRACT_INTEGRITY_FILE,
+  ];
+  const optionalFiles = [
+    "source_coverage.json",
+    "source-map.json",
+    "evidence-package.json",
+    "coverage-report.json",
+    "study-model.json",
+    "review-report.json",
+  ];
+  await Promise.all([
+    ...requiredFiles.map((relativePath) => validateContainedRegularFile(root, relativePath, true)),
+    ...optionalFiles.map((relativePath) => validateContainedRegularFile(root, relativePath, false)),
+    validateContainedDirectoryTree(root, "assets/visuals", false),
+  ]);
+  return root;
+}
+
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
@@ -1283,15 +1443,20 @@ async function loadSourceCoverage(sourceRunDir: string | undefined): Promise<Sou
   if (!sourceRunDir) {
     throw new Error("Render stage requires --source-run-dir.");
   }
-  const coveragePath = path.join(sourceRunDir, "source_coverage.json");
+  const root = await realpath(sourceRunDir);
+  const coveragePath = await validateContainedRegularFile(root, "source_coverage.json", true);
+  if (!coveragePath) {
+    throw new Error(`Source coverage is missing from ${sourceRunDir}`);
+  }
   return JSON.parse(await readFile(coveragePath, "utf8")) as SourceCoverage;
 }
 
 export async function loadExtractionReviewState(config: MoodleRuntimeConfig): Promise<AgentState> {
-  const sourceRunDir = config.resumeExtractionRunDir;
-  if (!sourceRunDir) {
+  const configuredSourceRunDir = config.resumeExtractionRunDir;
+  if (!configuredSourceRunDir) {
     throw new Error("Extraction review recovery requires --resume-extraction-run-dir.");
   }
+  const sourceRunDir = await validateExtractionRecoverySource(configuredSourceRunDir);
   const verifiedRequestContract = await loadVerifiedRequestContract(
     sourceRunDir,
     "extraction recovery",
@@ -1530,10 +1695,7 @@ async function copyExtractionRecoveryCheckpoints(
 }
 
 export async function loadRenderState(config: MoodleRuntimeConfig): Promise<AgentState> {
-  const sourceRunDir = config.sourceRunDir;
-  if (!sourceRunDir) {
-    throw new Error("Render stage requires --source-run-dir.");
-  }
+  const sourceRunDir = await validateRenderSource(config.sourceRunDir);
   const [
     summary,
     errorLog,
