@@ -4,8 +4,8 @@ The repository is already public. As of 2026-08-14, private vulnerability
 reporting, Dependabot alerts/security updates, secret scanning, push protection,
 and automatic merged-branch deletion are enabled. The unused wiki is disabled.
 The privacy rewrite and credential rotation are complete, and `master` is
-protected by the permanent release ruleset. No tag or release exists. Treat the
-next announcement as a controlled alpha launch, not the first moment of source
+protected by the permanent release ruleset. Alpha releases already exist; the
+next announcement is the first stable launch, not the first moment of source
 exposure.
 
 ## Completed containment
@@ -55,16 +55,16 @@ existing clone owners after the force update.
 - Add the repository homepage/social preview and apply the labels described in
   [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## First release
+## First stable release
 
 - Prepare several bounded `good first issue` and `help wanted` items before the
   announcement.
 - Publish desktop binaries for Linux x64 and Windows x64 only. macOS remains
-  outside the first alpha matrix.
-- Draft `v0.1.0-alpha.1` from the exact verified root and submodule commits.
+  outside the version 1.0 matrix.
+- Draft `v1.0.0` from the exact verified root and submodule commits.
 - Attach release notes, known limitations, checksums, and the reviewed SBOM.
-- Verify the draft artifacts on a clean machine and mark the release as a
-  prerelease.
+- Verify the exact draft artifacts in the calibrated Fedora and Windows release
+  lanes before publication.
 - Announce through a GitHub Discussion and project channels only after the
   synthetic demo and recursive-clone instructions succeed.
 

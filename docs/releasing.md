@@ -1,111 +1,108 @@
 # Release process
 
-Study Buddy uses SemVer prereleases while the product is in alpha. The first
-candidate should be tagged `v0.1.0-alpha.1`; do not publish a stable `v0.1.0`
-until clean-machine validation and the security gates are complete.
+Study Buddy uses Semantic Versioning. Stable, alpha, and beta desktop releases
+share one evidence-producing workflow. Linux x64 and Windows x64 are the only
+supported binary lanes for version 1.0; macOS is not currently shipped.
 
-## 1. Contain and review
+## 1. Freeze and contain
 
-- Revoke every known exposed credential or bearer URL.
+- Rotate every known exposed credential or bearer URL.
 - Scan the current trees and complete histories of both repositories.
 - Confirm no local checkpoint refs will be pushed. Never use `git push --mirror`.
 - Replace real portal/course/attempt fixtures with synthetic data.
-- Resolve or explicitly defer every P0/P1 item in `ROADMAP.md`.
+- Resolve every release-scope P0/P1 issue rather than documenting it away.
+- Freeze features before creating the candidate branch.
 
-## 2. Freeze the source contract
+Review, test, and publish the UI-fork commit first. Update the root gitlink only
+after that exact commit is available to a recursive clone. A release is one root
+commit plus its immutable `t3code-fork` gitlink; testing either repository at a
+different commit is not release evidence.
 
-- Review, test, commit, and push the UI-fork changes first.
-- Update the root gitlink only after the exact submodule commit is public.
-- Confirm `git clone --recurse-submodules` obtains that commit.
-- Run root and UI checks on GitHub-hosted clean runners.
-
-## 3. Verify from a clean clone
+## 2. Verify a clean recursive checkout
 
 ```bash
+git clone --recurse-submodules https://github.com/HabsaTheDog/StudyBuddy.git
+cd StudyBuddy
 npm ci
 npx playwright install chromium
 npm run check:release
 ```
 
-Run the no-credentials example, a synthetic PDF/HTML artifact, and approved
-manual smoke tests on every claimed platform. `npm run check:release` verifies
-that a production-only CycloneDX SBOM can be generated. Generate the final SBOM
-from the exact clean release checkout and attach it to the draft release.
+The root gate covers type checking, tests, Markdown links, public-tree policy,
+production licenses, CycloneDX SBOM generation, the desktop-release contract,
+and dependency audit. The pinned UI workspace must separately pass its frozen
+install, formatting/lint, type checks, tests, production build, release audit,
+and secret scan.
 
-## 4. Build artifacts
+Run the synthetic no-credentials example and representative PDF/HTML workflows.
+Source-only checks do not replace installation of the exact packaged artifacts.
 
-Build from a clean CI checkout, never the maintainer working tree. Record the
-root and submodule SHAs, toolchain versions, checksums, and SBOM. GitHub source
-archives omit submodule contents, so release notes must explain recursive clone
-setup and attach deliberate binaries separately.
+## 3. Build immutable desktop evidence
 
-Use the manually dispatched **Alpha desktop artifacts** workflow. A branch run
-with `publish_draft=false` produces review-only unsigned Linux x64 and Windows
-x64 artifacts. macOS binaries are outside the current release matrix. Publishing
-is accepted only when all of the following are true:
+Dispatch **Desktop release artifacts** from GitHub Actions with a SemVer value
+without the `v` prefix. A branch run with `publish_draft=false` creates review
+artifacts only. Draft publication is accepted only when:
 
-- the workflow runs from an existing `v<version>` tag and, immediately before
-  draft creation, verifies that its peeled remote commit still equals the
-  commit that produced the artifacts;
-- `signed=false` is selected while trusted signing is unavailable;
-- `acknowledge_unsigned_windows=true` explicitly accepts the Alpha-only trust
+- the run starts from an existing `v<version>` tag;
+- immediately before draft creation, the workflow peels the remote tag and
+  proves it still resolves to the exact commit that built the artifacts;
+- the public `VITE_POSTHOG_PROJECT_TOKEN` repository variable is configured;
+- `signed=false` is selected while trusted Windows signing is unavailable;
+- `acknowledge_unsigned_windows=true` explicitly accepts the Windows trust
   warning and the release notes disclose it prominently;
-- the protected `alpha-release` environment controls publication approval;
-- the Windows job verifies that the installer is actually unsigned so the
-  release manifest cannot misrepresent its Authenticode state;
-- every platform build and the release-evidence assembly succeeds.
+- the protected `desktop-release` environment grants publication approval;
+- the Windows job proves the installer is actually unsigned; and
+- every build and evidence-assembly job succeeds.
 
-This exception applies only to the `0.1.0-alpha.*` workflow. Stable publication
-remains blocked until a trusted Windows signing path is configured and tested.
+The bundle must contain exactly one Windows x64 NSIS installer, one Linux x64
+AppImage, both blockmaps, the matching updater manifests, platform and root
+CycloneDX SBOMs, `release-manifest.json`, and `SHA256SUMS`. The release gate
+rejects empty, missing, unexpected, or debug artifacts; mismatched versions;
+incorrect updater SHA-512 values; malformed provenance; and incorrect SHA-256
+checksums.
 
-The assembled bundle contains the platform artifacts, Electron updater channel
-metadata (`alpha.yml` and `alpha-linux.yml`, plus available blockmaps),
-`SHA256SUMS`, the root CycloneDX SBOM, and `release-manifest.json` with the exact
-root and interface commits. The YAML metadata binds each download with SHA-512;
-the website and in-app updater both use these GitHub Release assets. Do not
-repurpose the disabled upstream T3 release workflow.
+Stable releases use `latest.yml` and `latest-linux.yml`; alpha and beta releases
+use their matching channels. The website and in-app updater both consume the
+same GitHub Release assets.
 
-The workflow fails closed when `signed=true` until a reviewed trusted-signing
-integration is complete. Store any eventual signing token only as an
-`alpha-release` environment secret, restrict that environment to reviewed tags
-and required maintainers, and require a separate signing approval. Do not add
-Apple signing credentials to this release path.
+## 4. Installed-artifact acceptance
 
-### SignPath Foundation owner handoff
+Use the `study-buddy-release-lab` skill and bind each lane to the exact artifact
+hash, release manifest, checksums, root/UI commits, disposable VM, and calibrated
+clean snapshot. Version 1.0 requires Fedora Workstation and Windows 11 lanes.
 
-SignPath Foundation provides free code-signing certificates for accepted open
-source projects without requiring the maintainer to buy or personally hold a
-certificate. Its current eligibility conditions require an existing release
-and verifiable project reputation, so apply only after the unsigned Alpha has
-real public usage evidence. After acceptance:
+On both lanes verify installation/launch, product identity and icons, zero-source
+onboarding, unlimited add/edit/disable/delete, a browser-backed source, optional
+telemetry delivery, restart/persistence, previous-version update, offline errors,
+uninstall behavior, and one representative end-to-end request. Windows must
+show the documented unsigned-publisher warning; never tell users to disable
+SmartScreen globally. Fedora must exercise the AppImage on Wayland.
 
-1. install the SignPath GitHub App for this repository and link SignPath's
-   predefined GitHub.com trusted build system to the Study Buddy project;
-2. create or confirm the SignPath organization ID, project slug, signing policy
-   slug, and artifact configuration for the Windows NSIS payload;
-3. add the submitter token only as the `SIGNPATH_API_TOKEN` secret in the
-   protected `alpha-release` environment; keep the non-secret IDs/slugs as
-   environment variables;
-4. return those identifiers for the final workflow patch. The reviewed
-   integration must upload the unsigned workflow artifact first, submit its
-   GitHub artifact ID through
-   `signpath/github-action-submit-signing-request@v2`, wait for completion,
-   verify the returned executable's Authenticode signature, and pass only that
-   signed payload to release assembly;
-5. keep every build job leading to the signing request on GitHub-hosted runners,
-   as required for SignPath Foundation OSS origin verification.
+Missing infrastructure or user-owned account checks are `blocked`, never
+`pass`. Preserve redacted evidence for the exact hashes tested.
 
-The signed path remains fail-closed intentionally: SignPath project and artifact
-configuration are server-side contracts, so inserting guessed slugs or an
-unverified signing step would create a misleading release path.
+## 5. Review and publish
 
-## 5. Publish a draft prerelease
+1. Draft release notes from `CHANGELOG.md`, including supported systems and
+   known limitations.
+2. Create an annotated tag only at the reviewed root commit.
+3. Run the workflow with draft publication and inspect the allowlisted assets.
+4. Install the exact draft downloads in both clean VM lanes and complete the
+   evidence verdicts.
+5. Confirm repository security checks and release-environment approval.
+6. Publish the already reviewed draft without replacing any asset.
+7. Verify the public updater manifests and website resolve to that release.
 
-- Create an annotated, preferably signed tag.
-- Draft release notes from `CHANGELOG.md`, including known limitations.
-- Attach artifacts, checksums, and SBOM before publication.
-- Mark alpha/RC releases as prereleases.
-- Perform one final install from the exact draft artifacts, then publish.
+After publication, monitor update telemetry, issues, dependency/security alerts,
+and failed release workflows. Do not promise a support SLA the maintainer cannot
+sustain.
 
-After release, monitor security/dependency alerts and triage issues on a regular
-cadence. Do not promise support timelines that the maintainer cannot sustain.
+## Windows signing roadmap
+
+Unsigned Windows distribution is an explicit current limitation, not a claim of
+publisher identity. The signed workflow option remains fail-closed until a
+trusted signing service is integrated, its returned binary is independently
+verified with Authenticode, and only the verified signed payload reaches release
+assembly. SignPath Foundation may be reconsidered after the project satisfies
+its current eligibility requirements; no guessed token, project slug, or
+certificate configuration belongs in the repository.

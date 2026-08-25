@@ -4,19 +4,19 @@ Study Buddy is a local-first AI learning companion that finds authorized course
 evidence and turns it into source-grounded answers, PDF study guides, and
 single-file offline learning webpages.
 
-> **Pre-release status:** active alpha hardening. There is no stable release.
-> Official Alpha binaries, when published, are evaluation builds with breaking
-> changes possible. Do not connect a production student account until you have
-> read the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance.
+> **Release-candidate status:** version 1.0 is undergoing clean-machine release
+> acceptance. Until a `v1.0.0` GitHub Release is published, the existing
+> prereleases remain evaluation builds. Read the [security](SECURITY.md) and
+> [privacy](PRIVACY.md) guidance before connecting an account.
 
 [MIT licensed](LICENSE) · [Roadmap](ROADMAP.md) ·
 [Contributing](CONTRIBUTING.md) · [Support](SUPPORT.md)
 
 ## Downloads
 
-Official Alpha downloads are published only through
+Official downloads are published only through
 [GitHub Releases](https://github.com/HabsaTheDog/StudyBuddy/releases). The
-Windows x64 Alpha installer is intentionally unsigned and can trigger Windows
+Windows x64 installer is currently unsigned and can trigger Windows
 SmartScreen or `Unknown publisher` warnings. Verify its SHA-256 value against
 the attached `SHA256SUMS` before running it; never disable SmartScreen globally
 or install a copy obtained from a mirror. Linux x64 AppImages are included in

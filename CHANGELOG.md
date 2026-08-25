@@ -1,7 +1,7 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. It is currently unreleased and may make breaking changes during alpha.
+releases. Version 1.0 is currently undergoing release-candidate validation.
 
 ## Unreleased
 
@@ -37,9 +37,9 @@ releases. It is currently unreleased and may make breaking changes during alpha.
 - Added a dedicated, manually dispatched Study Buddy desktop artifact workflow
   with immutable root/UI metadata, checksums, SBOM evidence, signing gates, and
   draft-prerelease publication.
-- Scoped the initial binary matrix to Linux x64 and Windows x64, permitted only
-  explicitly acknowledged unsigned Windows Alpha publication, and kept trusted
-  signing fail-closed for future stable releases.
+- Scoped the initial binary matrix to Linux x64 and Windows x64, requires an
+  explicit acknowledgement for unsigned Windows publication, and keeps a
+  future trusted-signing path fail-closed until it is implemented and reviewed.
 - Added explicit Quick Chat workspace, deliverables, and thread environment
   isolation so concurrent builder runs cannot share an output root.
 - Bound plain local Markdown source headings and model source aliases to a
