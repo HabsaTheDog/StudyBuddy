@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -16,6 +17,7 @@ import { afterAll, describe, expect, it } from "vitest";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const wrapper = resolve(repositoryRoot, "scripts/study_buddy_task.sh");
 const temporary = mkdtempSync(join(tmpdir(), "study-buddy-wrapper-"));
+const canonicalTemporary = realpathSync(temporary);
 
 afterAll(() => rmSync(temporary, { recursive: true, force: true }));
 
@@ -53,7 +55,7 @@ describe("canonical Study Buddy workflow wrapper", () => {
       expect(root.stdout.trim()).toBe(repositoryRoot);
       const workspace = run("workspace");
       expect(workspace.status).toBe(0);
-      expect(workspace.stdout.trim()).toBe(temporary);
+      expect(workspace.stdout.trim()).toBe(canonicalTemporary);
     },
   );
 
