@@ -13,11 +13,14 @@ Git, but Git ignore is not encryption. Protect the operating-system account,
 restrict file access, and delete obsolete run data with an appropriate local
 retention policy.
 
-Credentials saved through the desktop interface live in a user-restricted local
-secret directory and are excluded from the public source inventory. That store
-uses filesystem permissions, not application-level encryption or an operating-
-system keychain. Full-disk encryption and a protected OS login remain part of
-the security boundary.
+Credentials saved through the desktop interface are encrypted per source with
+AES-256-GCM. A random master key is protected with the operating system's
+credential service: Windows DPAPI or a secure Linux Secret Service/keyring.
+Study Buddy refuses to open the credential store if Linux falls back to
+Electron's insecure `basic_text` backend. The protected key envelope and
+encrypted records remain local and user-restricted. Full-disk encryption and a
+protected OS login remain part of the security boundary because credentials
+must exist briefly in process memory while Study Buddy uses them.
 
 Model requests may send prompt and source context to the configured model
 provider. Users should review that provider's account terms, retention controls,
