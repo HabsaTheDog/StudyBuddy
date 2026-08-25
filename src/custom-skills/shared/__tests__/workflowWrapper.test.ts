@@ -34,7 +34,7 @@ function run(action: string | string[], env: Record<string, string> = {}) {
 
 function createRunFixture(input: {
   name: string;
-  status: "success" | "partial" | "failed";
+  status: "success" | "partial" | "failed" | "running" | "canceled";
   config?: Record<string, unknown>;
   artifacts?: Record<string, string>;
   progressArtifacts?: Record<string, string>;
@@ -222,6 +222,43 @@ describe("canonical Study Buddy workflow wrapper", () => {
         expect(JSON.parse(run(["checkpoint", runDir]).stdout)).toMatchObject({ report: "blocked" });
         expect(run(["wait", runDir, "1"]).status).toBe(1);
       }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "keeps a live nonterminal run in progress and rejects a later-canceled interaction",
+    () => {
+      const active = createRunFixture({
+        name: "active-answer",
+        status: "running",
+        config: {
+          stage: "all",
+          intentDecision: { intent: "quick_answer", wantsQuickAnswer: true },
+        },
+      });
+      writeFileSync(join(active, "pid.json"), `${JSON.stringify({ child_pid: process.pid })}\n`);
+      expect(JSON.parse(run(["checkpoint", active]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        terminal_status: "running",
+      });
+
+      const canceled = createRunFixture({
+        name: "canceled-native-quiz",
+        status: "canceled",
+        interactionResult: {
+          schemaVersion: 1,
+          ok: true,
+          workflowStatus: "completed",
+          kind: "quiz",
+          requiredArtifacts: ["quiz-review.typ", "quiz-review.json"],
+        },
+        artifacts: { "quiz-review.typ": "review\n", "quiz-review.json": "{}\n" },
+      });
+      const canceledCheckpoint = JSON.parse(run(["checkpoint", canceled]).stdout);
+      expect(canceledCheckpoint).toMatchObject({ report: "blocked" });
+      expect(canceledCheckpoint.blocker).toContain("contradicts run summary status canceled");
+      expect(run(["wait", canceled, "1"]).status).toBe(1);
     },
   );
 

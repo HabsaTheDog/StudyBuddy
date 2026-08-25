@@ -622,6 +622,7 @@ const progress = readJson("run-progress.json");
 const hasProgress = nonEmpty("run-progress.json");
 const terminalStatuses = new Set(["success", "partial"]);
 const failureStatuses = new Set(["failed", "timeout", "canceled"]);
+const liveStatuses = new Set(["unknown", "queued", "running"]);
 const error = read("error.log").trim();
 const interaction = readJson("interaction-result.json");
 const hasInteractionResult = nonEmpty("interaction-result.json");
@@ -660,9 +661,17 @@ if (hasInteractionResult) {
   }
 } else {
   const progressStatus = typeof progress.status === "string" ? progress.status : "unknown";
-  if (!terminalStatuses.has(summaryStatus) && !failureStatuses.has(summaryStatus)) {
+  if (
+    !terminalStatuses.has(summaryStatus) &&
+    !failureStatuses.has(summaryStatus) &&
+    !liveStatuses.has(summaryStatus)
+  ) {
     contradiction = `Run summary has no recognized terminal status (${summaryStatus})`;
-  } else if (hasProgress && progressStatus !== summaryStatus) {
+  } else if (
+    hasProgress &&
+    progressStatus !== summaryStatus &&
+    !(summaryStatus === "unknown" && liveStatuses.has(progressStatus))
+  ) {
     contradiction = `Run summary status ${summaryStatus} contradicts run-progress status ${progressStatus}`;
   }
 
