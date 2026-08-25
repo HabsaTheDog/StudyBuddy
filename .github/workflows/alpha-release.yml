@@ -124,7 +124,8 @@ jobs:
           APP_VERSION: ${{ inputs.version }}
           STUDY_BUDDY_ROOT: ${{ github.workspace }}
           STUDY_BUDDY_WORKFLOW_ROOT: ${{ github.workspace }}
-          STUDY_BUDDY_UPDATE_REPOSITORY: ${{ github.repository }}
+          STUDY_BUDDY_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          STUDY_BUDDY_DESKTOP_UPDATE_CHANNEL: ${{ contains(inputs.version, '-alpha') && 'alpha' || contains(inputs.version, '-beta') && 'beta' || contains(inputs.version, '-nightly') && 'nightly' || 'latest' }}
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
           VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.VITE_POSTHOG_PROJECT_TOKEN }}
         run: |
