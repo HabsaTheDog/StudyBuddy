@@ -1,4 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { browserExecutableLaunchOptions } from "../../shared/browserExecutable.js";
 
 import type {
   AgentBrowserClient,
@@ -262,7 +263,10 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
 
   async #getPage(): Promise<Page> {
     if (this.#page) return this.#page;
-    this.#browser = await chromium.launch({ headless: this.#config.headless });
+    this.#browser = await chromium.launch({
+      headless: this.#config.headless,
+      ...browserExecutableLaunchOptions(),
+    });
     this.#context = await this.#browser.newContext(
       this.#config.storageState ? { storageState: this.#config.storageState } : undefined,
     );

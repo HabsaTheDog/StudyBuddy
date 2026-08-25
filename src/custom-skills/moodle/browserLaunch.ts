@@ -1,4 +1,5 @@
 import { chromium, type Browser, type LaunchOptions } from "playwright";
+import { browserExecutableLaunchOptions } from "../shared/browserExecutable.js";
 import { StudyBuddyTimeoutError, raceWithAbort, throwIfAborted } from "./runtimeAbort.js";
 
 const DEFAULT_BROWSER_LAUNCH_TIMEOUT_MS = 30_000;
@@ -29,6 +30,7 @@ export async function launchMoodleBrowser(input: {
   const launch = (input.launcher ?? chromium).launch({
     headless: input.headless,
     timeout: timeoutMs,
+    ...browserExecutableLaunchOptions(),
   });
   let accepted = false;
   void launch.then((browser) => {

@@ -2,6 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
+import { browserExecutableLaunchOptions } from "../shared/browserExecutable.js";
 import { STUDY_BUDDY_HTML_MARKS, STUDY_BUDDY_HTML_TOKENS } from "./designGuidelines.js";
 import { OFFLINE_CSP } from "./htmlShell.js";
 import type { JsonObject } from "./state.js";
@@ -201,7 +202,10 @@ async function validateHtmlFileInBrowser(
     path.join(screenshotsDir, "tablet.png"),
     path.join(screenshotsDir, "mobile.png"),
   ];
-  const browser = await chromium.launch({ headless: !options.headed });
+  const browser = await chromium.launch({
+    headless: !options.headed,
+    ...browserExecutableLaunchOptions(),
+  });
   try {
     const context = await browser.newContext();
     await context.route(/^(?:https?|wss?):/i, (route) => route.abort("blockedbyclient"));
