@@ -492,15 +492,23 @@ describe("canonical Study Buddy workflow wrapper", () => {
         writeFileSync(join(handoffDir, "valid.json"), "{}\n");
         return runDir;
       };
+      const recoveryCheckScript = join(temporary, "check-recovery-layout.sh");
+      writeFileSync(
+        recoveryCheckScript,
+        [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          'wrapper_path="$1"',
+          'run_dir="$2"',
+          "set -- help",
+          'source "$wrapper_path" >/dev/null 2>&1',
+          'is_resumable_extraction "$run_dir"',
+          "",
+        ].join("\n"),
+      );
       const checkRecovery = (runDir: string) => spawnSync(
         "bash",
-        [
-          "-c",
-          'wrapper_path="$1"; run_dir="$2"; set -- help; source "$wrapper_path" >/dev/null 2>&1; is_resumable_extraction "$run_dir"',
-          "wrapper-recovery-test",
-          wrapper,
-          runDir,
-        ],
+        [recoveryCheckScript, wrapper, runDir],
         { cwd: temporary, encoding: "utf8", env: { PATH: process.env.PATH } },
       );
 
