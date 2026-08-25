@@ -16,7 +16,6 @@ async function fixture(extra = []) {
     `Study-Buddy-${version}-x64.exe`,
     `Study-Buddy-${version}-x64.exe.blockmap`,
     `Study-Buddy-${version}-x86_64.AppImage`,
-    `Study-Buddy-${version}-x86_64.AppImage.blockmap`,
   ];
   for (const name of names.filter((name) => !name.endsWith(".yml"))) {
     await writeFile(join(directory, name), `artifact:${name}`);
@@ -29,7 +28,7 @@ async function fixture(extra = []) {
     const digest = createHash("sha512").update(artifactBytes).digest("base64");
     await writeFile(
       join(directory, manifest),
-      `version: ${version}\npath: ${artifact}\nsha512: ${digest}\n`,
+      `version: ${version}\npath: ${artifact}\nsha512: ${digest}\n${manifest === "latest-linux.yml" ? "blockMapSize: 1234\n" : ""}`,
     );
   }
   const sbom = JSON.stringify({ bomFormat: "CycloneDX", components: [{ name: "Study Buddy" }] });
@@ -47,7 +46,7 @@ test("accepts the exact build asset allowlist", async (t) => {
     version: value.version,
     channel: "latest",
   });
-  assert.equal(result.assets.length, 8);
+  assert.equal(result.assets.length, 7);
 });
 
 test("rejects builder debug metadata and any other unexpected asset", async (t) => {
@@ -63,7 +62,7 @@ test("rejects builder debug metadata and any other unexpected asset", async (t) 
   );
 });
 
-test("rejects a missing blockmap", async (t) => {
+test("rejects a missing Windows blockmap", async (t) => {
   const value = await fixture();
   t.after(() => rm(value.directory, { recursive: true, force: true }));
   await rm(join(value.directory, `Study-Buddy-${value.version}-x64.exe.blockmap`));
@@ -74,6 +73,27 @@ test("rejects a missing blockmap", async (t) => {
       channel: "latest",
     }),
     /missing=/,
+  );
+});
+
+test("rejects a Linux manifest without an embedded AppImage block map", async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.directory, { recursive: true, force: true }));
+  const artifact = `Study-Buddy-${value.version}-x86_64.AppImage`;
+  const digest = createHash("sha512")
+    .update(await readFile(join(value.directory, artifact)))
+    .digest("base64");
+  await writeFile(
+    join(value.directory, "latest-linux.yml"),
+    `version: ${value.version}\npath: ${artifact}\nsha512: ${digest}\n`,
+  );
+  await assert.rejects(
+    validateDesktopReleaseAssets({
+      directory: value.directory,
+      version: value.version,
+      channel: "latest",
+    }),
+    /no embedded AppImage block map/,
   );
 });
 
@@ -155,7 +175,7 @@ test("accepts final evidence only when its manifest and checksums are internally
     channel: "latest",
     final: true,
   });
-  assert.equal(result.assets.length, 11);
+  assert.equal(result.assets.length, 10);
 
   await writeFile(join(value.directory, `Study-Buddy-${value.version}-x64.exe`), "tampered");
   await assert.rejects(

@@ -22,6 +22,13 @@ the attached `SHA256SUMS` before running it; never disable SmartScreen globally
 or install a copy obtained from a mirror. Linux x64 AppImages are included in
 the same release bundle. macOS binaries are not currently supported.
 
+The desktop app includes its JavaScript/Codex runtime and does not need a
+developer checkout, system Node.js, Git Bash, or WSL. Browser-backed sources use
+an installed Edge, Chrome, or Chromium. Typst is required only for PDF output;
+Poppler enables complete PDF extraction, and LibreOffice enables optional
+Office-document conversion. Offline HTML output does not need those document
+tools.
+
 ## Current scope
 
 - Generic Moodle navigation and evidence acquisition for accounts the user is

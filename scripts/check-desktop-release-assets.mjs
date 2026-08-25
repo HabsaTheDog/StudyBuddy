@@ -10,7 +10,6 @@ function expectedBuildAssets(version, channel) {
     `Study-Buddy-${version}-x64.exe`,
     `Study-Buddy-${version}-x64.exe.blockmap`,
     `Study-Buddy-${version}-x86_64.AppImage`,
-    `Study-Buddy-${version}-x86_64.AppImage.blockmap`,
     "study-buddy-desktop-linux-x64.cdx.json",
     "study-buddy-desktop-windows-x64.cdx.json",
   ].sort();
@@ -63,6 +62,12 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
     const expectedSha512 = await digestFile(resolve(directory, artifact), "sha512", "base64");
     if (manifestScalar(contents, "sha512") !== expectedSha512) {
       throw new Error(`Updater manifest has the wrong artifact digest: ${manifest}`);
+    }
+    if (
+      manifest === `${channel}-linux.yml` &&
+      !/^[1-9][0-9]*$/u.test(manifestScalar(contents, "blockMapSize") ?? "")
+    ) {
+      throw new Error(`Linux updater manifest has no embedded AppImage block map: ${manifest}`);
     }
   }
   for (const sbom of [

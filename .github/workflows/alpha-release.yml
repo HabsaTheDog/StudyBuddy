@@ -163,7 +163,6 @@ jobs:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             ${{ runner.temp }}/study-buddy-release/*.AppImage
-            ${{ runner.temp }}/study-buddy-release/*.AppImage.blockmap
             ${{ runner.temp }}/study-buddy-release/*.exe
             ${{ runner.temp }}/study-buddy-release/*.exe.blockmap
             ${{ runner.temp }}/study-buddy-release/${{ needs.preflight.outputs.channel }}.yml

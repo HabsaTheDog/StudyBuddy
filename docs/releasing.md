@@ -54,9 +54,10 @@ artifacts only. Draft publication is accepted only when:
 - the Windows job proves the installer is actually unsigned; and
 - every build and evidence-assembly job succeeds.
 
-The bundle must contain exactly one Windows x64 NSIS installer, one Linux x64
-AppImage, both blockmaps, the matching updater manifests, platform and root
-CycloneDX SBOMs, `release-manifest.json`, and `SHA256SUMS`. The release gate
+The bundle must contain exactly one Windows x64 NSIS installer with its external
+blockmap, one Linux x64 AppImage with its embedded blockmap, the matching updater
+manifests, platform and root CycloneDX SBOMs, `release-manifest.json`, and
+`SHA256SUMS`. The release gate
 rejects empty, missing, unexpected, or debug artifacts; mismatched versions;
 incorrect updater SHA-512 values; malformed provenance; and incorrect SHA-256
 checksums.
@@ -77,6 +78,12 @@ telemetry delivery, restart/persistence, previous-version update, offline errors
 uninstall behavior, and one representative end-to-end request. Windows must
 show the documented unsigned-publisher warning; never tell users to disable
 SmartScreen globally. Fedora must exercise the AppImage on Wayland.
+
+Run the representative clean-machine request as an offline HTML workflow so the
+core acceptance does not silently inherit developer-installed document tools.
+Separately verify that missing Typst/Poppler/LibreOffice capabilities are
+reported accurately, then exercise PDF generation on at least one lane with
+the documented tools installed.
 
 Missing infrastructure or user-owned account checks are `blocked`, never
 `pass`. Preserve redacted evidence for the exact hashes tested.
