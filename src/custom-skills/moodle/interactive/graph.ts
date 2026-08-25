@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { createBrowserClient } from "./browserClient.js";
@@ -67,7 +67,7 @@ export async function runInteractiveMoodleGraph(
   const workflowStatus = deriveWorkflowStatus(state);
   const ok = workflowStatus === "completed" || workflowStatus === "permission_required";
   const quizUrl = extractQuizResultUrl(state, config);
-  await persistRunDiagnostics(config, state);
+  await persistRunDiagnostics(config, state, { ok, workflowStatus });
   return {
     ok,
     workflowStatus,
@@ -246,6 +246,7 @@ function sanitizeGraphState(state: AgentState, config: MoodleRuntimeConfig): Age
 async function persistRunDiagnostics(
   config: MoodleRuntimeConfig,
   state: AgentState,
+  result: { ok: boolean; workflowStatus: MoodleWorkflowStatus },
 ): Promise<void> {
   await mkdir(config.runDir, { recursive: true, mode: 0o700 });
   const privateWrite = (filePath: string, value: string) =>
@@ -257,6 +258,37 @@ async function persistRunDiagnostics(
     config.cisPassword,
     config.calendarUrl,
   ];
+  const interactionKind = (state.extracted_data as Record<string, unknown>).assignment_workflow
+    ? "assignment"
+    : "quiz";
+  const requiredArtifacts = interactionKind === "assignment"
+    ? ["assignment-report.md", "assignment-report.json"]
+    : ["quiz-review.typ", "quiz-review.json"];
+  if (result.workflowStatus === "permission_required") {
+    requiredArtifacts.push(
+      interactionKind === "assignment"
+        ? "assignment-permission-request.json"
+        : "quiz-permission-request.json",
+    );
+  }
+  const interactionResult = {
+    schemaVersion: 1,
+    ok: result.ok,
+    workflowStatus: result.workflowStatus,
+    kind: interactionKind,
+    requiredArtifacts,
+  };
+  const summary = [
+    "# Study Buddy Interaction Summary",
+    "",
+    `Route: interactive_${interactionKind}`,
+    `Run status: ${result.ok ? "success" : "failed"}`,
+    `Workflow status: ${result.workflowStatus}`,
+    "",
+    "## Required artifacts",
+    ...requiredArtifacts.map((artifact) => `- ${artifact}`),
+    "",
+  ].join("\n");
   await Promise.all([
     privateWrite(
       path.join(config.runDir, "interaction-config.json"),
@@ -285,5 +317,16 @@ async function persistRunDiagnostics(
       `${JSON.stringify(state.source_coverage, null, 2)}\n`,
     ),
     privateWrite(path.join(config.runDir, "error.log"), state.error_log ?? ""),
+    atomicPrivateWrite(
+      path.join(config.runDir, "interaction-result.json"),
+      `${JSON.stringify(interactionResult, null, 2)}\n`,
+    ),
+    atomicPrivateWrite(path.join(config.runDir, "run-summary.md"), summary),
   ]);
+}
+
+async function atomicPrivateWrite(filePath: string, value: string): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temporaryPath, value, { encoding: "utf8", mode: 0o600 });
+  await rename(temporaryPath, filePath);
 }

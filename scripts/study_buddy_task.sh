@@ -47,6 +47,7 @@ ACTIVE_RUN_DIR=""
 ACTIVE_WATCHDOG_PID=""
 ARTIFACT_LOCK_DIR="$STUDY_BUDDY_THREAD_DATA_ROOT/locks/.artifact-workflow.lock"
 ARTIFACT_LOCK_HELD="false"
+ARTIFACT_LOCK_TOKEN=""
 
 usage() {
   cat >&2 <<'USAGE'
@@ -177,29 +178,68 @@ acquire_artifact_lock() {
   local workflow_dir="$1"
   mkdir -p "$STUDY_BUDDY_OUTPUT_ROOT" "$(dirname "$ARTIFACT_LOCK_DIR")"
   if ! mkdir "$ARTIFACT_LOCK_DIR" 2>/dev/null; then
-    local owner_pid=""
-    if [[ -f "$ARTIFACT_LOCK_DIR/owner.json" ]]; then
-      owner_pid="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(p.wrapper_pid || '')" "$ARTIFACT_LOCK_DIR/owner.json" 2>/dev/null || true)"
+    if [[ ! -d "$ARTIFACT_LOCK_DIR" ]]; then
+      echo "Could not create the Study Buddy artifact lock at: $ARTIFACT_LOCK_DIR" >&2
+      return 1
     fi
-    if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
-      echo "Another Study Buddy artifact workflow is active. Reuse or wait for it instead of starting a replacement." >&2
-      cat "$ARTIFACT_LOCK_DIR/owner.json" >&2
-      return 73
-    fi
-    rm -rf "$ARTIFACT_LOCK_DIR"
-    mkdir "$ARTIFACT_LOCK_DIR"
+    echo "Another Study Buddy artifact workflow is active, initializing, or left a stale lock." >&2
+    echo "Reuse or wait for it; only remove a stale lock after verifying that its owner process is no longer running." >&2
+    node -e '
+      const fs = require("fs");
+      try {
+        const owner = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        const pid = Number.isInteger(Number(owner.wrapper_pid)) ? Number(owner.wrapper_pid) : "unknown";
+        const workflow = typeof owner.workflow_dir === "string" ? owner.workflow_dir : "unknown";
+        const started = typeof owner.started_at === "string" ? owner.started_at : "unknown";
+        console.error(`Lock owner: pid=${pid} workflow=${JSON.stringify(workflow)} started=${JSON.stringify(started)}`);
+      } catch {}
+    ' "$ARTIFACT_LOCK_DIR/owner.json" 2>/dev/null || true
+    return 73
   fi
   ARTIFACT_LOCK_HELD="true"
-  printf '{"wrapper_pid":%s,"workflow_dir":"%s","started_at":"%s"}\n' \
-    "$$" "$workflow_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ARTIFACT_LOCK_DIR/owner.json"
+  ARTIFACT_LOCK_TOKEN="$$-$(date -u +%Y%m%dT%H%M%SZ)-${RANDOM:-0}"
+  local owner_tmp="$ARTIFACT_LOCK_DIR/owner.$ARTIFACT_LOCK_TOKEN.tmp"
+  if ! node -e '
+    const fs = require("fs");
+    const payload = {
+      wrapper_pid: Number(process.argv[2]),
+      workflow_dir: process.argv[3],
+      started_at: process.argv[4],
+      lock_token: process.argv[5],
+    };
+    fs.writeFileSync(process.argv[1], `${JSON.stringify(payload)}\n`, { mode: 0o600 });
+  ' "$owner_tmp" "$$" "$workflow_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ARTIFACT_LOCK_TOKEN"; then
+    rm -f "$owner_tmp"
+    rmdir "$ARTIFACT_LOCK_DIR" 2>/dev/null || true
+    ARTIFACT_LOCK_HELD="false"
+    ARTIFACT_LOCK_TOKEN=""
+    return 1
+  fi
+  if ! mv "$owner_tmp" "$ARTIFACT_LOCK_DIR/owner.json"; then
+    rm -f "$owner_tmp"
+    rmdir "$ARTIFACT_LOCK_DIR" 2>/dev/null || true
+    ARTIFACT_LOCK_HELD="false"
+    ARTIFACT_LOCK_TOKEN=""
+    return 1
+  fi
 }
 
 release_artifact_lock() {
   if [[ "$ARTIFACT_LOCK_HELD" == "true" ]]; then
-    rm -rf "$ARTIFACT_LOCK_DIR"
+    local owner_token=""
+    if [[ -f "$ARTIFACT_LOCK_DIR/owner.json" ]]; then
+      owner_token="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); process.stdout.write(typeof p.lock_token === 'string' ? p.lock_token : '')" "$ARTIFACT_LOCK_DIR/owner.json" 2>/dev/null || true)"
+    fi
+    if [[ -n "$ARTIFACT_LOCK_TOKEN" && "$owner_token" == "$ARTIFACT_LOCK_TOKEN" ]]; then
+      rm -f "$ARTIFACT_LOCK_DIR/owner.json"
+      rmdir "$ARTIFACT_LOCK_DIR" 2>/dev/null || true
+    fi
     ARTIFACT_LOCK_HELD="false"
+    ARTIFACT_LOCK_TOKEN=""
   fi
 }
+
+trap release_artifact_lock EXIT
 
 run_agent_in_dir() {
   local prompt_text="$1"
@@ -545,13 +585,151 @@ status_run() {
   fi
 }
 
+inspect_run_contract() {
+  local run_dir="$1"
+  node - "$run_dir" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const runDir = process.argv[2];
+const read = (name) => {
+  try {
+    return fs.readFileSync(path.join(runDir, name), "utf8");
+  } catch {
+    return "";
+  }
+};
+const readJson = (name) => {
+  try {
+    return JSON.parse(read(name));
+  } catch {
+    return {};
+  }
+};
+const nonEmpty = (name) => {
+  try {
+    return fs.statSync(path.join(runDir, name)).size > 0;
+  } catch {
+    return false;
+  }
+};
+
+const summary = read("run-summary.md");
+const summaryStatus = [...summary.matchAll(/^Run status:\s*(\S+)/gm)].at(-1)?.[1] || "unknown";
+const route = [...summary.matchAll(/^Route:\s*(\S+)/gm)].at(-1)?.[1];
+const config = readJson("config.json");
+const progress = readJson("run-progress.json");
+const hasProgress = nonEmpty("run-progress.json");
+const terminalStatuses = new Set(["success", "partial"]);
+const failureStatuses = new Set(["failed", "timeout", "canceled"]);
+const error = read("error.log").trim();
+const interaction = readJson("interaction-result.json");
+const hasInteractionResult = nonEmpty("interaction-result.json");
+
+let terminalStatus = summaryStatus;
+let contract = "document";
+let expectedArtifacts = [];
+let contradiction = "";
+
+if (hasInteractionResult) {
+  terminalStatus = interaction.ok === true ? "success" : "failed";
+  contract = interaction.kind === "assignment" ? "interactive_assignment" : "interactive_quiz";
+  expectedArtifacts = contract === "interactive_assignment"
+    ? ["assignment-report.md", "assignment-report.json"]
+    : ["quiz-review.typ", "quiz-review.json"];
+  if (interaction.workflowStatus === "permission_required") {
+    expectedArtifacts.push(
+      contract === "interactive_assignment"
+        ? "assignment-permission-request.json"
+        : "quiz-permission-request.json",
+    );
+  }
+  if (interaction.schemaVersion !== 1) {
+    contradiction = `Unsupported interaction result schema (${interaction.schemaVersion || "unknown"})`;
+  } else if (interaction.kind !== "quiz" && interaction.kind !== "assignment") {
+    contradiction = `Unknown interaction kind (${interaction.kind || "unknown"})`;
+  } else if (
+    interaction.workflowStatus !== "completed" &&
+    interaction.workflowStatus !== "permission_required"
+  ) {
+    contradiction = `Interactive workflow ended with ${interaction.workflowStatus || "unknown"}`;
+  } else if (summaryStatus !== terminalStatus) {
+    contradiction = `Interaction result status ${terminalStatus} contradicts run summary status ${summaryStatus}`;
+  } else if (JSON.stringify(interaction.requiredArtifacts) !== JSON.stringify(expectedArtifacts)) {
+    contradiction = "Interaction result required-artifact contract is invalid";
+  }
+} else {
+  const progressStatus = typeof progress.status === "string" ? progress.status : "unknown";
+  if (!terminalStatuses.has(summaryStatus) && !failureStatuses.has(summaryStatus)) {
+    contradiction = `Run summary has no recognized terminal status (${summaryStatus})`;
+  } else if (hasProgress && progressStatus !== summaryStatus) {
+    contradiction = `Run summary status ${summaryStatus} contradicts run-progress status ${progressStatus}`;
+  }
+
+  const stage = config.stage || "all";
+  const intent = config.intentDecision?.intent || route;
+  if (stage === "extract") {
+    contract = "extract";
+    expectedArtifacts = ["extracted-data.json"];
+  } else if (config.diagnosticOnly === true || intent === "diagnostic") {
+    contract = "diagnostic";
+    expectedArtifacts = ["moodle_raw.txt", "source_coverage.json"];
+  } else if (
+    config.intentDecision?.wantsQuickAnswer === true ||
+    intent === "quick_answer" ||
+    intent === "schedule_answer"
+  ) {
+    contract = "answer";
+    expectedArtifacts = ["answer.md", "answer.json"];
+  } else {
+    expectedArtifacts = ["document.typ", "document.pdf"];
+  }
+
+  if (hasProgress && progress.artifacts && typeof progress.artifacts === "object") {
+    const root = path.resolve(runDir);
+    for (const artifactPath of Object.values(progress.artifacts)) {
+      if (typeof artifactPath !== "string" || !artifactPath) continue;
+      const resolved = path.resolve(path.isAbsolute(artifactPath) ? artifactPath : path.join(root, artifactPath));
+      const relative = path.relative(root, resolved);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        contradiction = `run-progress references an artifact outside the run directory: ${artifactPath}`;
+        break;
+      }
+    }
+  }
+}
+
+const missingArtifacts = expectedArtifacts.filter((artifact) => !nonEmpty(artifact));
+const completed =
+  terminalStatuses.has(terminalStatus) &&
+  !error &&
+  !contradiction &&
+  missingArtifacts.length === 0;
+
+console.log(JSON.stringify({
+  completed,
+  terminalStatus,
+  stage: config.stage || (hasInteractionResult ? "interactive" : "all"),
+  route: hasInteractionResult ? interaction.kind || "interactive" : route || config.intentDecision?.intent || "unknown",
+  contract,
+  workflowStatus: hasInteractionResult ? interaction.workflowStatus || "unknown" : null,
+  expectedArtifacts,
+  missingArtifacts,
+  error,
+  contradiction,
+}));
+NODE
+}
+
 checkpoint_run() {
   local run_dir="$1"
   if [[ ! -d "$run_dir" ]]; then
     echo "Run directory not found: $run_dir" >&2
     return 1
   fi
-  node - "$run_dir" <<'NODE'
+  local contract_json
+  contract_json="$(inspect_run_contract "$run_dir")"
+  RUN_CONTRACT_JSON="$contract_json" node - "$run_dir" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
@@ -598,48 +776,47 @@ const lastEvent = events.at(-1) || null;
 const lastSemanticEvent = [...events]
   .reverse()
   .find((event) => event.phase !== "diagnostic") || null;
-const summary = read("run-summary.md");
-const terminalStatus = [...summary.matchAll(/^Run status:\s*(\S+)/gm)].at(-1)?.[1] || "unknown";
-const error = read("error.log").trim();
+const contract = JSON.parse(process.env.RUN_CONTRACT_JSON);
 let coverage = {};
 try {
   coverage = JSON.parse(read("source_coverage.json"));
 } catch {}
-let config = {};
-try {
-  config = JSON.parse(read("config.json"));
-} catch {}
-const stage = config.stage || "all";
-
-const completed =
-  terminalStatus === "success" &&
-  (
-    stage === "extract"
-      ? existsNonEmpty("extracted-data.json")
-      : existsNonEmpty("document.typ") && existsNonEmpty("document.pdf")
-  ) &&
-  !error;
+const completed = contract.completed;
 const blocked =
-  Boolean(error) ||
-  ["failed", "timeout", "canceled"].includes(terminalStatus) ||
+  Boolean(contract.error || contract.contradiction) ||
+  ["failed", "timeout", "canceled"].includes(contract.terminalStatus) ||
   (!processAlive && !completed);
 
 console.log(JSON.stringify({
   report: completed ? "completed" : blocked ? "blocked" : "progress",
   process_alive: processAlive,
-  terminal_status: terminalStatus,
-  stage,
+  terminal_status: contract.terminalStatus,
+  stage: contract.stage,
+  route: contract.route,
+  contract: contract.contract,
+  workflow_status: contract.workflowStatus,
   phase: lastSemanticEvent?.phase || lastEvent?.phase || "starting",
   current_action: lastSemanticEvent?.message || lastEvent?.message || "Run initialized",
   heartbeat_at: lastEvent?.timestamp || null,
   semantic_progress_at: lastSemanticEvent?.timestamp || null,
   active_sources: coverage?.moodle?.urls || coverage?.moodle?.attemptedUrls || [],
   next_action: completed
-    ? "Validate and deliver artifacts"
+    ? contract.workflowStatus === "permission_required"
+      ? "Deliver the permission request and wait for explicit approval"
+      : "Validate and deliver artifacts"
     : blocked
       ? "Inspect blocker before retrying"
       : "Continue the same worker lease",
-  blocker: error || (blocked ? `Process stopped with status ${terminalStatus}` : null),
+  blocker:
+    contract.error ||
+    contract.contradiction ||
+    (contract.missingArtifacts.length
+      ? `Missing required artifacts: ${contract.missingArtifacts.join(", ")}`
+      : blocked
+        ? `Process stopped with status ${contract.terminalStatus}`
+        : null),
+  expected_artifacts: contract.expectedArtifacts,
+  missing_artifacts: contract.missingArtifacts,
   artifacts: [
     existsNonEmpty("extracted-data.json") ? path.join(runDir, "extracted-data.json") : null,
     existsNonEmpty("document.typ") ? path.join(runDir, "document.typ") : null,
@@ -671,17 +848,9 @@ wait_run() {
     sleep 5
   done
   status_run "$run_dir"
-  local stage="all"
-  if [[ -f "$run_dir/config.json" ]]; then
-    stage="$(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(p.stage || 'all')" "$run_dir/config.json")"
-  fi
-  if [[ "$stage" == "extract" ]]; then
-    if [[ ! -s "$run_dir/extracted-data.json" || -s "$run_dir/error.log" ]]; then
-      return 1
-    fi
-  elif [[ ! -s "$run_dir/document.typ" || ! -s "$run_dir/document.pdf" || -s "$run_dir/error.log" ]]; then
-    return 1
-  fi
+  local contract_json
+  contract_json="$(inspect_run_contract "$run_dir")"
+  node -e 'const result = JSON.parse(process.argv[1]); process.exit(result.completed ? 0 : 1)' "$contract_json"
 }
 
 if [[ $# -lt 1 ]]; then
