@@ -69,6 +69,41 @@ function createRunFixture(input: {
   return runDir;
 }
 
+function createStudyGuideFixture(input: {
+  name: string;
+  status: "queued" | "running" | "success" | "failed";
+  withHtml?: boolean;
+  withPdf?: boolean;
+  outputPath?: string;
+}) {
+  const runDir = join(temporary, input.name);
+  const webLayoutRunDir = join(runDir, "web-layout");
+  const pdfRenderRunDir = input.withPdf ? join(runDir, "pdf-render") : undefined;
+  const outputPath = input.outputPath ?? join(webLayoutRunDir, "document.html");
+  mkdirSync(webLayoutRunDir, { recursive: true });
+  if (input.withHtml) writeFileSync(outputPath, "<!doctype html><title>Study Guide</title>\n");
+  if (pdfRenderRunDir) {
+    mkdirSync(pdfRenderRunDir, { recursive: true });
+    writeFileSync(join(pdfRenderRunDir, "document.pdf"), "pdf\n");
+  }
+  writeFileSync(
+    join(runDir, "workflow-summary.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status: input.status,
+      ok: input.status === "success",
+      runDir,
+      webLayoutRunDir,
+      pdfRenderRunDir,
+      outputPath,
+      pdfPath: pdfRenderRunDir ? join(pdfRenderRunDir, "document.pdf") : undefined,
+      error: input.status === "failed" ? "render failed" : undefined,
+    })}\n`,
+  );
+  writeFileSync(join(runDir, "workflow-summary.md"), `Run status: ${input.status}\n`);
+  return runDir;
+}
+
 describe("canonical Study Buddy workflow wrapper", () => {
   it("contains no maintainer-local path", () => {
     const source = readFileSync(wrapper, "utf8");
@@ -193,6 +228,106 @@ describe("canonical Study Buddy workflow wrapper", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "validates interactive Study Guide workflow-root completion",
+    () => {
+      const htmlOnly = createStudyGuideFixture({
+        name: "study-guide-html",
+        status: "success",
+        withHtml: true,
+      });
+      const htmlAndPdf = createStudyGuideFixture({
+        name: "study-guide-pdf",
+        status: "success",
+        withHtml: true,
+        withPdf: true,
+      });
+      for (const runDir of [htmlOnly, htmlAndPdf]) {
+        expect(JSON.parse(run(["checkpoint", runDir]).stdout)).toMatchObject({
+          report: "completed",
+          contract: "interactive_study_guide",
+          workflow_status: "success",
+        });
+        expect(run(["wait", runDir, "1"]).status).toBe(0);
+      }
+
+      const missing = createStudyGuideFixture({ name: "study-guide-missing", status: "success" });
+      const outside = createStudyGuideFixture({
+        name: "study-guide-outside",
+        status: "success",
+        outputPath: join(temporary, "outside-guide.html"),
+      });
+      writeFileSync(join(temporary, "outside-guide.html"), "outside\n");
+      const staleFailed = createStudyGuideFixture({
+        name: "study-guide-failed",
+        status: "failed",
+        withHtml: true,
+      });
+      const htmlDirectory = createStudyGuideFixture({
+        name: "study-guide-html-directory",
+        status: "success",
+      });
+      const htmlDirectoryPath = join(htmlDirectory, "web-layout", "not-an-html-file");
+      mkdirSync(htmlDirectoryPath);
+      const htmlDirectorySummary = JSON.parse(
+        readFileSync(join(htmlDirectory, "workflow-summary.json"), "utf8"),
+      );
+      htmlDirectorySummary.outputPath = htmlDirectoryPath;
+      writeFileSync(
+        join(htmlDirectory, "workflow-summary.json"),
+        `${JSON.stringify(htmlDirectorySummary)}\n`,
+      );
+      const pdfDirectory = createStudyGuideFixture({
+        name: "study-guide-pdf-directory",
+        status: "success",
+        withHtml: true,
+        withPdf: true,
+      });
+      const pdfDirectoryPath = join(pdfDirectory, "pdf-render", "document.pdf");
+      rmSync(pdfDirectoryPath);
+      mkdirSync(pdfDirectoryPath);
+      for (const runDir of [missing, outside, staleFailed, htmlDirectory, pdfDirectory]) {
+        expect(JSON.parse(run(["checkpoint", runDir]).stdout)).toMatchObject({ report: "blocked" });
+        expect(run(["wait", runDir, "1"]).status).toBe(1);
+      }
+
+      const live = createStudyGuideFixture({ name: "study-guide-live", status: "running" });
+      writeFileSync(join(live, "pid.json"), `${JSON.stringify({ child_pid: process.pid })}\n`);
+      expect(JSON.parse(run(["checkpoint", live]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        contract: "interactive_study_guide",
+        blocker: null,
+      });
+
+      const resumeSkew = createStudyGuideFixture({
+        name: "study-guide-resume-skew",
+        status: "success",
+        withHtml: true,
+      });
+      writeFileSync(join(resumeSkew, "workflow-summary.md"), "Run status: running\n");
+      writeFileSync(
+        join(resumeSkew, "pid.json"),
+        `${JSON.stringify({ child_pid: process.pid })}\n`,
+      );
+      expect(JSON.parse(run(["checkpoint", resumeSkew]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        blocker: null,
+      });
+      writeFileSync(
+        join(resumeSkew, "pid.json"),
+        `${JSON.stringify({ child_pid: 2_147_483_647 })}\n`,
+      );
+      expect(JSON.parse(run(["checkpoint", resumeSkew]).stdout)).toMatchObject({
+        report: "blocked",
+        process_alive: false,
+      });
+      expect(run(["wait", resumeSkew, "1"]).status).toBe(1);
+    },
+    15_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
     "rejects missing, failed, contradictory, and out-of-run artifacts",
     () => {
       const missingAnswer = createRunFixture({
@@ -217,8 +352,26 @@ describe("canonical Study Buddy workflow wrapper", () => {
         artifacts: { "document.typ": "document\n", "document.pdf": "pdf\n" },
         progressArtifacts: { pdfPath: join(temporary, "outside.pdf") },
       });
+      const nativeArtifactDirectory = createRunFixture({
+        name: "native-artifact-directory",
+        status: "success",
+        interactionResult: {
+          schemaVersion: 1,
+          ok: true,
+          workflowStatus: "completed",
+          kind: "quiz",
+          requiredArtifacts: ["quiz-review.typ", "quiz-review.json"],
+        },
+        artifacts: { "quiz-review.json": "{}\n" },
+      });
+      mkdirSync(join(nativeArtifactDirectory, "quiz-review.typ"));
 
-      for (const runDir of [missingAnswer, failedWithStalePdf, escapedArtifact]) {
+      for (const runDir of [
+        missingAnswer,
+        failedWithStalePdf,
+        escapedArtifact,
+        nativeArtifactDirectory,
+      ]) {
         expect(JSON.parse(run(["checkpoint", runDir]).stdout)).toMatchObject({ report: "blocked" });
         expect(run(["wait", runDir, "1"]).status).toBe(1);
       }
@@ -241,6 +394,67 @@ describe("canonical Study Buddy workflow wrapper", () => {
         report: "progress",
         process_alive: true,
         terminal_status: "running",
+        blocker: null,
+      });
+
+      const terminalWriteSkew = createRunFixture({
+        name: "terminal-write-skew",
+        status: "success",
+        config: {
+          stage: "all",
+          intentDecision: { intent: "quick_answer", wantsQuickAnswer: true },
+        },
+        artifacts: { "answer.md": "answer\n", "answer.json": "{}\n" },
+      });
+      writeFileSync(
+        join(terminalWriteSkew, "run-progress.json"),
+        `${JSON.stringify({ status: "running", artifacts: {} })}\n`,
+      );
+      writeFileSync(
+        join(terminalWriteSkew, "pid.json"),
+        `${JSON.stringify({ child_pid: process.pid })}\n`,
+      );
+      expect(JSON.parse(run(["checkpoint", terminalWriteSkew]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        terminal_status: "success",
+        blocker: null,
+      });
+      writeFileSync(
+        join(terminalWriteSkew, "pid.json"),
+        `${JSON.stringify({ child_pid: 2_147_483_647 })}\n`,
+      );
+      expect(JSON.parse(run(["checkpoint", terminalWriteSkew]).stdout)).toMatchObject({
+        report: "blocked",
+        process_alive: false,
+        terminal_status: "success",
+      });
+      expect(run(["wait", terminalWriteSkew, "1"]).status).toBe(1);
+
+      const interactionWriteSkew = join(temporary, "interaction-write-skew");
+      mkdirSync(interactionWriteSkew, { recursive: true });
+      writeFileSync(join(interactionWriteSkew, "error.log"), "");
+      writeFileSync(join(interactionWriteSkew, "quiz-review.typ"), "review\n");
+      writeFileSync(join(interactionWriteSkew, "quiz-review.json"), "{}\n");
+      writeFileSync(
+        join(interactionWriteSkew, "interaction-result.json"),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          ok: true,
+          workflowStatus: "completed",
+          kind: "quiz",
+          requiredArtifacts: ["quiz-review.typ", "quiz-review.json"],
+        })}\n`,
+      );
+      writeFileSync(
+        join(interactionWriteSkew, "pid.json"),
+        `${JSON.stringify({ child_pid: process.pid })}\n`,
+      );
+      expect(JSON.parse(run(["checkpoint", interactionWriteSkew]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        terminal_status: "unknown",
+        blocker: null,
       });
 
       const canceled = createRunFixture({

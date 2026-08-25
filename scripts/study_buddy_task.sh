@@ -608,7 +608,8 @@ const readJson = (name) => {
 };
 const nonEmpty = (name) => {
   try {
-    return fs.statSync(path.join(runDir, name)).size > 0;
+    const stats = fs.statSync(path.join(runDir, name));
+    return stats.isFile() && stats.size > 0;
   } catch {
     return false;
   }
@@ -626,14 +627,83 @@ const liveStatuses = new Set(["unknown", "queued", "running"]);
 const error = read("error.log").trim();
 const interaction = readJson("interaction-result.json");
 const hasInteractionResult = nonEmpty("interaction-result.json");
+const workflow = readJson("workflow-summary.json");
+const hasWorkflowSummary = nonEmpty("workflow-summary.json");
+const workflowMarkdown = read("workflow-summary.md");
+const workflowMarkdownStatus = [...workflowMarkdown.matchAll(/^Run status:\s*(\S+)/gm)].at(-1)?.[1] || "unknown";
 
 let terminalStatus = summaryStatus;
 let contract = "document";
 let expectedArtifacts = [];
+let extraMissingArtifacts = [];
 let contradiction = "";
 
-if (hasInteractionResult) {
-  terminalStatus = interaction.ok === true ? "success" : "failed";
+if (hasWorkflowSummary) {
+  terminalStatus = typeof workflow.status === "string" ? workflow.status : "unknown";
+  contract = "interactive_study_guide";
+  expectedArtifacts = ["workflow-summary.json", "workflow-summary.md"];
+  const root = path.resolve(runDir);
+  const insideRoot = (raw, label, parentRaw, kind = "file") => {
+    if (typeof raw !== "string" || !raw) {
+      extraMissingArtifacts.push(label);
+      return;
+    }
+    const resolved = path.resolve(path.isAbsolute(raw) ? raw : path.join(root, raw));
+    const relative = path.relative(root, resolved);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+      contradiction = `${label} is outside the workflow directory`;
+      return;
+    }
+    if (parentRaw) {
+      const parent = path.resolve(path.isAbsolute(parentRaw) ? parentRaw : path.join(root, parentRaw));
+      const parentRelative = path.relative(parent, resolved);
+      if (!parentRelative || parentRelative.startsWith("..") || path.isAbsolute(parentRelative)) {
+        contradiction = `${label} is inconsistent with its workflow branch directory`;
+        return;
+      }
+    }
+    if (kind === "directory") {
+      try {
+        if (!fs.statSync(resolved).isDirectory()) extraMissingArtifacts.push(label);
+      } catch {
+        extraMissingArtifacts.push(label);
+      }
+    } else {
+      expectedArtifacts.push(relative);
+    }
+  };
+  if (workflow.schemaVersion !== 1) {
+    contradiction = `Unsupported workflow summary schema (${workflow.schemaVersion || "unknown"})`;
+  } else if (!["queued", "running", "success", "failed"].includes(terminalStatus)) {
+    contradiction = `Workflow summary has no recognized status (${terminalStatus})`;
+  } else if (workflowMarkdownStatus !== terminalStatus) {
+    contradiction = `Workflow summary JSON status ${terminalStatus} contradicts Markdown status ${workflowMarkdownStatus}`;
+  } else if (path.resolve(workflow.runDir || "") !== root) {
+    contradiction = "Workflow summary run directory does not match the inspected directory";
+  } else if (terminalStatus === "success") {
+    if (workflow.ok !== true || workflow.error) {
+      contradiction = "Successful workflow summary has inconsistent ok/error fields";
+    } else if (typeof workflow.webLayoutRunDir !== "string" || !workflow.webLayoutRunDir) {
+      extraMissingArtifacts.push("webLayoutRunDir");
+    } else {
+      insideRoot(workflow.webLayoutRunDir, "webLayoutRunDir", null, "directory");
+      insideRoot(workflow.outputPath, "outputPath", workflow.webLayoutRunDir);
+      if (workflow.pdfRenderRunDir) {
+        insideRoot(workflow.pdfRenderRunDir, "pdfRenderRunDir", null, "directory");
+        insideRoot(workflow.pdfPath, "pdfPath", workflow.pdfRenderRunDir);
+      } else if (workflow.pdfPath) {
+        contradiction = "Workflow summary has a PDF path without a PDF branch directory";
+      }
+    }
+  } else if (
+    terminalStatus === "failed" &&
+    (workflow.ok !== false || typeof workflow.error !== "string" || !workflow.error.trim())
+  ) {
+    contradiction = "Failed workflow summary has inconsistent ok/error fields";
+  }
+} else if (hasInteractionResult) {
+  const interactionStatus = interaction.ok === true ? "success" : "failed";
+  terminalStatus = summaryStatus;
   contract = interaction.kind === "assignment" ? "interactive_assignment" : "interactive_quiz";
   expectedArtifacts = contract === "interactive_assignment"
     ? ["assignment-report.md", "assignment-report.json"]
@@ -654,8 +724,8 @@ if (hasInteractionResult) {
     interaction.workflowStatus !== "permission_required"
   ) {
     contradiction = `Interactive workflow ended with ${interaction.workflowStatus || "unknown"}`;
-  } else if (summaryStatus !== terminalStatus) {
-    contradiction = `Interaction result status ${terminalStatus} contradicts run summary status ${summaryStatus}`;
+  } else if (summaryStatus !== interactionStatus) {
+    contradiction = `Interaction result status ${interactionStatus} contradicts run summary status ${summaryStatus}`;
   } else if (JSON.stringify(interaction.requiredArtifacts) !== JSON.stringify(expectedArtifacts)) {
     contradiction = "Interaction result required-artifact contract is invalid";
   }
@@ -708,7 +778,10 @@ if (hasInteractionResult) {
   }
 }
 
-const missingArtifacts = expectedArtifacts.filter((artifact) => !nonEmpty(artifact));
+const missingArtifacts = [
+  ...expectedArtifacts.filter((artifact) => !nonEmpty(artifact)),
+  ...extraMissingArtifacts,
+];
 const completed =
   terminalStatuses.has(terminalStatus) &&
   !error &&
@@ -718,10 +791,18 @@ const completed =
 console.log(JSON.stringify({
   completed,
   terminalStatus,
-  stage: config.stage || (hasInteractionResult ? "interactive" : "all"),
-  route: hasInteractionResult ? interaction.kind || "interactive" : route || config.intentDecision?.intent || "unknown",
+  stage: config.stage || (hasWorkflowSummary || hasInteractionResult ? "interactive" : "all"),
+  route: hasWorkflowSummary
+    ? "interactive_study_guide"
+    : hasInteractionResult
+      ? interaction.kind || "interactive"
+      : route || config.intentDecision?.intent || "unknown",
   contract,
-  workflowStatus: hasInteractionResult ? interaction.workflowStatus || "unknown" : null,
+  workflowStatus: hasWorkflowSummary
+    ? terminalStatus
+    : hasInteractionResult
+      ? interaction.workflowStatus || "unknown"
+      : null,
   expectedArtifacts,
   missingArtifacts,
   error,
@@ -790,9 +871,23 @@ let coverage = {};
 try {
   coverage = JSON.parse(read("source_coverage.json"));
 } catch {}
-const completed = contract.completed;
+const transientWriteSkew =
+  processAlive &&
+  (/^Run summary status (?:success|partial) contradicts run-progress status (?:unknown|queued|running)$/.test(
+    contract.contradiction,
+  ) ||
+    /^Interaction result status (?:success|failed) contradicts run summary status (?:unknown|queued|running)$/.test(
+      contract.contradiction,
+    ) ||
+    /^Workflow summary JSON status (?:success|failed) contradicts Markdown status (?:queued|running)$/.test(
+      contract.contradiction,
+    ) ||
+    /^Workflow summary JSON status (?:queued|running) contradicts Markdown status (?:success|failed)$/.test(
+      contract.contradiction,
+    ));
+const completed = contract.completed && !processAlive;
 const blocked =
-  Boolean(contract.error || contract.contradiction) ||
+  Boolean(contract.error || (contract.contradiction && !transientWriteSkew)) ||
   ["failed", "timeout", "canceled"].includes(contract.terminalStatus) ||
   (!processAlive && !completed);
 
@@ -815,15 +910,16 @@ console.log(JSON.stringify({
       : "Validate and deliver artifacts"
     : blocked
       ? "Inspect blocker before retrying"
-      : "Continue the same worker lease",
-  blocker:
-    contract.error ||
-    contract.contradiction ||
-    (contract.missingArtifacts.length
-      ? `Missing required artifacts: ${contract.missingArtifacts.join(", ")}`
-      : blocked
-        ? `Process stopped with status ${contract.terminalStatus}`
-        : null),
+      : transientWriteSkew || contract.completed
+        ? "Wait for worker exit and final status flush"
+        : "Continue the same worker lease",
+  blocker: blocked
+    ? contract.error ||
+      contract.contradiction ||
+      (contract.missingArtifacts.length
+        ? `Missing required artifacts: ${contract.missingArtifacts.join(", ")}`
+        : `Process stopped with status ${contract.terminalStatus}`)
+    : null,
   expected_artifacts: contract.expectedArtifacts,
   missing_artifacts: contract.missingArtifacts,
   artifacts: [
