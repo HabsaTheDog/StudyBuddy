@@ -104,6 +104,7 @@ interface CodexRuntimeDependencies {
   fetchLatestVersion?: () => Promise<string | null>;
   runCanary?: (input: {
     binaryPath: string;
+    binarySource: CodexBinarySource;
     model: string;
     workingDirectory: string;
   }) => Promise<void>;
@@ -253,7 +254,7 @@ export async function preflightCodexRuntime(
       continue;
     }
     try {
-      await runCanary({ binaryPath, model, workingDirectory: input.cacheDir });
+      await runCanary({ binaryPath, binarySource, model, workingDirectory: input.cacheDir });
       baseReport.modelProbes.push({ model, status: "verified", checkedAt });
       cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
     } catch (error) {
@@ -280,7 +281,12 @@ export async function preflightCodexRuntime(
         if (!input.bypassCache && cached?.expiresAt && cached.expiresAt > now) {
           baseReport.modelProbes.push({ model: fallback, status: "cached", checkedAt: cached.checkedAt });
         } else {
-          await runCanary({ binaryPath, model: fallback, workingDirectory: input.cacheDir });
+          await runCanary({
+            binaryPath,
+            binarySource,
+            model: fallback,
+            workingDirectory: input.cacheDir,
+          });
           baseReport.modelProbes.push({ model: fallback, status: "verified", checkedAt });
           cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
         }
@@ -422,6 +428,7 @@ async function defaultFetchLatestVersion(): Promise<string | null> {
 
 async function defaultRunCanary(input: {
   binaryPath: string;
+  binarySource: CodexBinarySource;
   model: string;
   workingDirectory: string;
 }): Promise<void> {
@@ -430,7 +437,10 @@ async function defaultRunCanary(input: {
   try {
     const codexEnvironment = buildCodexChildEnvironment();
     const codex = new Codex({
-      codexPathOverride: input.binaryPath,
+      // The SDK resolves its bundled native executable on every supported OS.
+      // Passing the JavaScript package wrapper as an executable would fail on
+      // clean Windows installations without a system Node file association.
+      ...(input.binarySource === "override" ? { codexPathOverride: input.binaryPath } : {}),
       env: codexEnvironment,
       config: buildCodexShellEnvironmentConfig(codexEnvironment),
     });

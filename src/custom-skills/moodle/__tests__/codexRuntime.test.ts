@@ -75,6 +75,13 @@ describe("Codex runtime preflight", () => {
       expect.objectContaining({ model: "gpt-test", status: "verified" }),
     ]);
     expect(runCanary).toHaveBeenCalledTimes(1);
+    expect(runCanary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binaryPath: "/fake/codex",
+        binarySource: "bundled",
+        model: "gpt-test",
+      }),
+    );
     const persisted = JSON.parse(await readFile(path.join(tempDir, "codex-runtime.json"), "utf8"));
     expect(persisted.effectiveCliVersion).toBe("0.144.5");
   });
