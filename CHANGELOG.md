@@ -22,6 +22,8 @@ releases. Version 1.0 is currently undergoing release-candidate validation.
   gate for the desktop/server workspaces included in Study Buddy releases.
 - Limited the fork workspace and frozen lockfile to shipped Study Buddy packages,
   removing the disabled relay's private tarball from default clean installs.
+- Added CodeQL coverage for the separately versioned desktop/interface fork and
+  expanded its ignored certificate, key, and browser-auth-state patterns.
 
 ### Documentation
 
@@ -44,6 +46,8 @@ releases. Version 1.0 is currently undergoing release-candidate validation.
   isolation so concurrent builder runs cannot share an output root.
 - Bound plain local Markdown source headings and model source aliases to a
   deterministic evidence identity before independent Question Bank review.
+- Added a release gate that rejects a UI submodule pin unless the exact full
+  commit is reachable from a public remote ref.
 
 ### Interface
 
@@ -58,3 +62,5 @@ releases. Version 1.0 is currently undergoing release-candidate validation.
   Windows builds without enabling or implying Authenticode signing.
 - Corrected prerelease build identity and prevented newer alpha builds from
   offering an older published alpha as an automatic downgrade.
+- Restricted local-only desktop port selection to loopback probing so normal
+  Windows startup does not request public-network firewall access.
