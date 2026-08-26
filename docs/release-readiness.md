@@ -8,7 +8,7 @@ substitute for retesting a changed artifact.
 ## Current candidate status on 2026-08-26
 
 The active alpha.5 source candidate pins interface commit
-`44a6f88fa07719df546ea5c71c5c39da095ea587`. The final root commit and both
+`289b40ea60409ad7819b5624eae4ffb809a4f609`. The final root commit and both
 artifact hashes must be taken from the successful workflow's
 `release-manifest.json` and `SHA256SUMS`; they are deliberately not predicted in
 this document.
