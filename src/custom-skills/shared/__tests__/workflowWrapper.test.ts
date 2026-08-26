@@ -105,6 +105,38 @@ function createStudyGuideFixture(input: {
   return runDir;
 }
 
+function createStagedDocumentFixture(input: {
+  name: string;
+  status: "running" | "success" | "failed";
+  withTypst?: boolean;
+  withPdf?: boolean;
+}) {
+  const runDir = join(temporary, input.name);
+  const extractionRunDir = join(runDir, "extraction");
+  const renderRunDir = join(runDir, "render");
+  mkdirSync(extractionRunDir, { recursive: true });
+  mkdirSync(renderRunDir, { recursive: true });
+  if (input.withTypst) writeFileSync(join(renderRunDir, "document.typ"), "document\n");
+  if (input.withPdf) writeFileSync(join(renderRunDir, "document.pdf"), "pdf\n");
+  writeFileSync(
+    join(runDir, "workflow-summary.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      kind: "staged_document",
+      status: input.status,
+      ok: input.status === "success" ? true : input.status === "running" ? null : false,
+      runDir,
+      extractionRunDir,
+      renderRunDir,
+      documentTypPath: join(renderRunDir, "document.typ"),
+      documentPdfPath: join(renderRunDir, "document.pdf"),
+      ...(input.status === "failed" ? { error: "render failed" } : {}),
+    })}\n`,
+  );
+  writeFileSync(join(runDir, "workflow-summary.md"), `Run status: ${input.status}\n`);
+  return runDir;
+}
+
 describe("canonical Study Buddy workflow wrapper", () => {
   it("contains no maintainer-local path", () => {
     const source = readFileSync(wrapper, "utf8");
@@ -340,6 +372,66 @@ describe("canonical Study Buddy workflow wrapper", () => {
       expect(run(["wait", resumeSkew, "1"]).status).toBe(1);
     },
     15_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "tracks a staged document through its workflow root",
+    () => {
+      const complete = createStagedDocumentFixture({
+        name: "staged-document-complete",
+        status: "success",
+        withTypst: true,
+        withPdf: true,
+      });
+      expect(JSON.parse(run(["checkpoint", complete]).stdout)).toMatchObject({
+        report: "completed",
+        contract: "staged_document",
+        workflow_status: "success",
+      });
+      expect(run(["wait", complete, "1"]).status).toBe(0);
+
+      const live = createStagedDocumentFixture({
+        name: "staged-document-live",
+        status: "running",
+      });
+      writeFileSync(join(live, "pid.json"), `${JSON.stringify({ child_pid: process.pid })}\n`);
+      expect(JSON.parse(run(["checkpoint", live]).stdout)).toMatchObject({
+        report: "progress",
+        process_alive: true,
+        contract: "staged_document",
+        blocker: null,
+      });
+
+      const missing = createStagedDocumentFixture({
+        name: "staged-document-missing-pdf",
+        status: "success",
+        withTypst: true,
+      });
+      expect(JSON.parse(run(["checkpoint", missing]).stdout)).toMatchObject({ report: "blocked" });
+      expect(run(["wait", missing, "1"]).status).toBe(1);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "requires explicit quiz-action targeting before auto-answer routing",
+    () => {
+      const probe = (prompt: string) => spawnSync(
+        "bash",
+        [
+          "-c",
+          'wrapper_path="$1"; prompt="$2"; set -- help; source "$wrapper_path" >/dev/null 2>&1; is_quiz_task "$prompt"',
+          "probe",
+          wrapper,
+          prompt,
+        ],
+        { cwd: temporary, encoding: "utf8", env: { PATH: process.env.PATH } },
+      );
+      expect(probe("Complete a study guide for my test").status).toBe(1);
+      expect(probe("Complete my Moodle test").status).toBe(0);
+      expect(probe("Bearbeite bitte das Moodle Quiz").status).toBe(0);
+      expect(probe("Bearbeite den nächsten MEL Minitest").status).toBe(0);
+      expect(probe("https://moodle.example.edu/mod/quiz/view.php?id=1").status).toBe(1);
+    },
   );
 
   it.skipIf(process.platform === "win32")(

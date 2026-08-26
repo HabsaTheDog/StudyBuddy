@@ -45,6 +45,9 @@ ACTIVE_CHILD_PID=""
 ACTIVE_PROCESS_GROUP_ID=""
 ACTIVE_RUN_DIR=""
 ACTIVE_WATCHDOG_PID=""
+ACTIVE_WORKFLOW_DIR=""
+ACTIVE_WORKFLOW_EXTRACTION_DIR=""
+ACTIVE_WORKFLOW_RENDER_DIR=""
 ARTIFACT_LOCK_DIR="$STUDY_BUDDY_THREAD_DATA_ROOT/locks/.artifact-workflow.lock"
 ARTIFACT_LOCK_HELD="false"
 ARTIFACT_LOCK_TOKEN=""
@@ -107,8 +110,24 @@ needs_detailed_cis() {
 
 is_quiz_task() {
   local prompt_text="$1"
-  [[ "$prompt_text" =~ (Quiz|quiz|Test|test|Minitest|minitest|Kurztest|kurztest|Testblock|testblock|Selbstcheck|selbstcheck|Selfcheck|selfcheck|Moodle[[:space:]]*Test|moodle[[:space:]]*test) ]] &&
-    [[ "$prompt_text" =~ (mach|Mach|mache|Mache|bearbeit|Bearbeit|füll|Füll|fuell|Fuell|ausfüll|Ausfüll|ausfuell|Ausfuell|lös|Lös|loes|Loes|answer|Answer|solve|Solve|fill|Fill|complete|Complete|start|Start) ]]
+  PROMPT_TEXT="$prompt_text" node <<'NODE'
+const prompt = process.env.PROMPT_TEXT || "";
+const quiz = String.raw`(?:moodle[ -]?)?(?:quiz(?:zes)?|tests?|minitests?|kurztests?|testblocks?|self[ -]?checks?|selbsttests?|selbstkontrollen?)`;
+const action = String.raw`(?:mach(?:e)?|bearbeit\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|answer\w*|solve\w*|fill\w*|complete\w*|start\w*)`;
+const documentArtifact = /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/iu;
+if (documentArtifact.test(prompt)) process.exit(1);
+const explicitTarget = new RegExp(
+  String.raw`(?:\b${action}\b.{0,48}\b${quiz}\b|\b${quiz}\b.{0,48}\b${action}\b)`,
+  "iu",
+);
+process.exit(explicitTarget.test(prompt) ? 0 : 1);
+NODE
+}
+
+classify_prompt_intent() {
+  local prompt_text="$1"
+  require_root
+  ./node_modules/.bin/tsx src/custom-skills/moodle/taskIntentCli.ts "$prompt_text"
 }
 
 request_slug() {
@@ -268,6 +287,84 @@ try {
 NODE
 }
 
+write_staged_document_summary() {
+  local workflow_dir="$1"
+  local status="$2"
+  local error_message="${3:-}"
+  local extraction_dir="$4"
+  local render_dir="$5"
+  node - "$workflow_dir" "$status" "$error_message" "$extraction_dir" "$render_dir" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const [workflowDir, status, errorMessage, extractionDir, renderDir] = process.argv.slice(2);
+const summary = {
+  schemaVersion: 1,
+  kind: "staged_document",
+  status,
+  ok: status === "success" ? true : status === "running" ? null : false,
+  runDir: workflowDir,
+  extractionRunDir: extractionDir,
+  renderRunDir: renderDir,
+  documentTypPath: path.join(renderDir, "document.typ"),
+  documentPdfPath: path.join(renderDir, "document.pdf"),
+  ...(errorMessage ? { error: errorMessage } : {}),
+};
+const jsonPath = path.join(workflowDir, "workflow-summary.json");
+const markdownPath = path.join(workflowDir, "workflow-summary.md");
+const suffix = `${process.pid}.${Date.now()}.tmp`;
+const jsonTemp = `${jsonPath}.${suffix}`;
+const markdownTemp = `${markdownPath}.${suffix}`;
+fs.writeFileSync(jsonTemp, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
+fs.writeFileSync(
+  markdownTemp,
+  [
+    "Workflow: staged document",
+    `Run status: ${status}`,
+    ...(errorMessage ? [`Error: ${errorMessage}`] : []),
+    "",
+  ].join("\n"),
+  { mode: 0o600 },
+);
+fs.renameSync(jsonTemp, jsonPath);
+fs.renameSync(markdownTemp, markdownPath);
+NODE
+}
+
+record_staged_workflow_pid() {
+  local workflow_dir="$1"
+  local wrapper_start_identity process_group_id
+  wrapper_start_identity="$(process_start_identity "$$")"
+  process_group_id="$(ps -o pgid= -p "$$" | tr -d ' ')"
+  node - "$workflow_dir/pid.json" "$$" "${process_group_id:-$$}" "$wrapper_start_identity" <<'NODE'
+const fs = require("fs");
+const [output, pidRaw, processGroupRaw, startIdentity] = process.argv.slice(2);
+const payload = {
+  wrapper_pid: Number(pidRaw),
+  child_pid: Number(pidRaw),
+  process_group_id: Number(processGroupRaw),
+  child_start_identity: startIdentity,
+  started_at: new Date().toISOString(),
+  command: "study_buddy_task.sh staged-document",
+};
+const temporary = `${output}.${process.pid}.${Date.now()}.tmp`;
+fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+fs.renameSync(temporary, output);
+NODE
+}
+
+cleanup_staged_document() {
+  if [[ -n "${ACTIVE_WORKFLOW_DIR:-}" ]]; then
+    write_staged_document_summary \
+      "$ACTIVE_WORKFLOW_DIR" \
+      "canceled" \
+      "The staged document workflow was canceled." \
+      "$ACTIVE_WORKFLOW_EXTRACTION_DIR" \
+      "$ACTIVE_WORKFLOW_RENDER_DIR" || true
+  fi
+  cleanup_child
+  exit 130
+}
+
 run_agent_in_dir() {
   local prompt_text="$1"
   local run_dir="$2"
@@ -304,7 +401,11 @@ EOF
   ACTIVE_CHILD_PID=""
   ACTIVE_PROCESS_GROUP_ID=""
   ACTIVE_RUN_DIR=""
-  trap - INT TERM
+  if [[ -n "${ACTIVE_WORKFLOW_DIR:-}" ]]; then
+    trap cleanup_staged_document INT TERM
+  else
+    trap - INT TERM
+  fi
   return "$status"
 }
 
@@ -315,6 +416,21 @@ run_agent() {
   local run_dir
   run_dir="$(prepare_run_dir "$prompt_text")"
   run_agent_in_dir "$prompt_text" "$run_dir" "$@"
+}
+
+run_locked_extraction() {
+  local prompt_text="$1"
+  shift
+  require_root
+  local run_dir
+  run_dir="$(prepare_run_dir "$prompt_text")"
+  acquire_artifact_lock "$run_dir"
+  trap cleanup_child INT TERM
+  local status=0
+  run_agent_in_dir "$prompt_text" "$run_dir" "$@" || status=$?
+  release_artifact_lock
+  trap - INT TERM
+  return "$status"
 }
 
 run_interactive_study_guide() {
@@ -462,6 +578,21 @@ is_valid_extraction_handoff() {
   grep -Eq '^Run status: (success|partial)$' "$summary_path" || return 1
 }
 
+workflow_budget_ms_for_run() {
+  local run_dir="$1"
+  node -e '
+    const fs = require("fs");
+    try {
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const requested = Number(value.totalWorkflowBudgetMs);
+      const bounded = Number.isFinite(requested)
+        ? Math.max(900000, Math.min(2280000, Math.floor(requested)))
+        : 1560000;
+      process.stdout.write(String(bounded));
+    } catch { process.stdout.write("1560000"); }
+  ' "$run_dir/adaptive-budget.json"
+}
+
 run_staged_document() {
   local prompt_text="$1"
   shift
@@ -484,7 +615,12 @@ run_staged_document() {
   local workflow_started_ms
   workflow_started_ms="$(date +%s%3N)"
   acquire_artifact_lock "$workflow_dir"
-  trap cleanup_child INT TERM
+  ACTIVE_WORKFLOW_DIR="$workflow_dir"
+  ACTIVE_WORKFLOW_EXTRACTION_DIR="$extraction_dir"
+  ACTIVE_WORKFLOW_RENDER_DIR="$render_dir"
+  write_staged_document_summary "$workflow_dir" "running" "" "$extraction_dir" "$render_dir"
+  record_staged_workflow_pid "$workflow_dir"
+  trap cleanup_staged_document INT TERM
   echo "Workflow directory: $workflow_dir"
   echo "Extraction run directory: $extraction_dir"
 
@@ -502,17 +638,7 @@ run_staged_document() {
   if ! run_agent_in_dir "$prompt_text" "$extraction_dir" --stage extract "${source_args[@]}" "${workflow_args[@]}"; then
     local extraction_recovered="false"
     local workflow_budget_ms
-    workflow_budget_ms="$(node -e '
-      const fs = require("fs");
-      try {
-        const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-        const requested = Number(value.totalWorkflowBudgetMs);
-        const bounded = Number.isFinite(requested)
-          ? Math.max(900000, Math.min(2280000, Math.floor(requested)))
-          : 1560000;
-        process.stdout.write(String(bounded));
-      } catch { process.stdout.write("1560000"); }
-    ' "$extraction_dir/adaptive-budget.json")"
+    workflow_budget_ms="$(workflow_budget_ms_for_run "$extraction_dir")"
     local workflow_deadline_ms=$((workflow_started_ms + workflow_budget_ms))
     export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$workflow_deadline_ms"
 
@@ -551,22 +677,36 @@ run_staged_document() {
       current_extraction_dir="$recovery_dir"
     done
     if [[ "$extraction_recovered" != "true" ]]; then
+      write_staged_document_summary "$workflow_dir" "failed" "Extraction failed without a valid recoverable handoff." "$current_extraction_dir" "$render_dir"
       release_artifact_lock
+      ACTIVE_WORKFLOW_DIR=""
+      trap - INT TERM
       return 1
     fi
   fi
   if ! is_valid_extraction_handoff "$successful_extraction_dir"; then
     echo "Extraction did not produce a valid handoff; render stage will not start." >&2
+    write_staged_document_summary "$workflow_dir" "failed" "Extraction did not produce a valid handoff." "$successful_extraction_dir" "$render_dir"
     release_artifact_lock
+    ACTIVE_WORKFLOW_DIR=""
+    trap - INT TERM
     return 1
   fi
 
   echo "Extraction handoff ready: $successful_extraction_dir/extracted-data.json"
+  if [[ -z "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
+    local workflow_budget_ms
+    workflow_budget_ms="$(workflow_budget_ms_for_run "$successful_extraction_dir")"
+    export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$((workflow_started_ms + workflow_budget_ms))"
+  fi
   if [[ -n "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
     local render_remaining_ms=$((STUDY_BUDDY_WORKFLOW_DEADLINE_MS - $(date +%s%3N)))
     if (( render_remaining_ms <= 60000 )); then
       echo "Adaptive workflow budget left no safe render window." >&2
+      write_staged_document_summary "$workflow_dir" "failed" "Adaptive workflow budget left no safe render window." "$successful_extraction_dir" "$render_dir"
       release_artifact_lock
+      ACTIVE_WORKFLOW_DIR=""
+      trap - INT TERM
       return 1
     fi
   fi
@@ -581,10 +721,25 @@ run_staged_document() {
     --no-downloads \
     --no-cis \
     "${workflow_args[@]}"; then
+    write_staged_document_summary "$workflow_dir" "failed" "Render stage failed." "$successful_extraction_dir" "$render_dir"
     release_artifact_lock
+    ACTIVE_WORKFLOW_DIR=""
+    trap - INT TERM
     return 1
   fi
+  if [[ ! -s "$render_dir/document.typ" || ! -s "$render_dir/document.pdf" || -s "$render_dir/error.log" ]]; then
+    echo "Render stage stopped without a complete, error-free PDF deliverable." >&2
+    write_staged_document_summary "$workflow_dir" "failed" "Render stage did not produce a complete, error-free PDF deliverable." "$successful_extraction_dir" "$render_dir"
+    release_artifact_lock
+    ACTIVE_WORKFLOW_DIR=""
+    trap - INT TERM
+    return 1
+  fi
+  write_staged_document_summary "$workflow_dir" "success" "" "$successful_extraction_dir" "$render_dir"
   release_artifact_lock
+  ACTIVE_WORKFLOW_DIR=""
+  ACTIVE_WORKFLOW_EXTRACTION_DIR=""
+  ACTIVE_WORKFLOW_RENDER_DIR=""
   trap - INT TERM
   echo "PDF ready: $render_dir/document.pdf"
 }
@@ -712,7 +867,7 @@ NODE
 cancel_run() {
   local run_dir="$1"
   local pid_file="$run_dir/pid.json"
-  local child_pid pgid recorded_identity current_identity current_pgid
+  local child_pid pgid recorded_identity current_identity current_pgid recorded_command
   if ! child_pid="$(read_run_pid_field "$run_dir" "child_pid")"; then
     echo "No valid contained child process id found in: $pid_file" >&2
     return 1
@@ -727,6 +882,12 @@ cancel_run() {
   fi
   if ! current_identity="$(process_start_identity "$child_pid")" || [[ "$current_identity" != "$recorded_identity" ]]; then
     echo "Recorded Study Buddy PID has been reused; leaving process $child_pid untouched."
+    return 0
+  fi
+  recorded_command="$(read_run_string_field "$run_dir" "command" 2>/dev/null || true)"
+  if [[ "$recorded_command" == "study_buddy_task.sh staged-document" ]]; then
+    kill "$child_pid" 2>/dev/null || true
+    echo "Cancellation requested for staged Study Buddy workflow: $child_pid"
     return 0
   fi
   if ! pgid="$(read_run_pid_field "$run_dir" "process_group_id")"; then
@@ -772,6 +933,10 @@ status_run() {
     if [[ "$process_state" == "stopped" ]] && grep -q "Run status: running" "$summary_path"; then
       echo "Status warning: process stopped but summary is stale and still marked running"
     fi
+  elif summary_path="$(resolve_run_control_file "$run_dir" "workflow-summary.md")"; then
+    sed -n '1,220p' "$summary_path"
+    echo "workflow-summary.json: $([[ -s "$run_dir/workflow-summary.json" ]] && echo present || echo missing)"
+    return 0
   else
     echo "Run summary: missing"
   fi
@@ -898,7 +1063,10 @@ let contradiction = "";
 
 if (hasWorkflowSummary) {
   terminalStatus = typeof workflow.status === "string" ? workflow.status : "unknown";
-  contract = "interactive_study_guide";
+  const workflowKind = workflow.kind === "staged_document"
+    ? "staged_document"
+    : "interactive_study_guide";
+  contract = workflowKind;
   expectedArtifacts = ["workflow-summary.json", "workflow-summary.md"];
   const root = path.resolve(runDir);
   const insideRoot = (raw, label, parentRaw, kind = "file") => {
@@ -954,7 +1122,7 @@ if (hasWorkflowSummary) {
   };
   if (workflow.schemaVersion !== 1) {
     contradiction = `Unsupported workflow summary schema (${workflow.schemaVersion || "unknown"})`;
-  } else if (!["queued", "running", "success", "failed"].includes(terminalStatus)) {
+  } else if (!["queued", "running", "success", "failed", "canceled"].includes(terminalStatus)) {
     contradiction = `Workflow summary has no recognized status (${terminalStatus})`;
   } else if (workflowMarkdownStatus !== terminalStatus) {
     contradiction = `Workflow summary JSON status ${terminalStatus} contradicts Markdown status ${workflowMarkdownStatus}`;
@@ -963,6 +1131,11 @@ if (hasWorkflowSummary) {
   } else if (terminalStatus === "success") {
     if (workflow.ok !== true || workflow.error) {
       contradiction = "Successful workflow summary has inconsistent ok/error fields";
+    } else if (workflowKind === "staged_document") {
+      insideRoot(workflow.extractionRunDir, "extractionRunDir", null, "directory");
+      insideRoot(workflow.renderRunDir, "renderRunDir", null, "directory");
+      insideRoot(workflow.documentTypPath, "documentTypPath", workflow.renderRunDir);
+      insideRoot(workflow.documentPdfPath, "documentPdfPath", workflow.renderRunDir);
     } else if (typeof workflow.webLayoutRunDir !== "string" || !workflow.webLayoutRunDir) {
       extraMissingArtifacts.push("webLayoutRunDir");
     } else {
@@ -976,10 +1149,10 @@ if (hasWorkflowSummary) {
       }
     }
   } else if (
-    terminalStatus === "failed" &&
+    (terminalStatus === "failed" || terminalStatus === "canceled") &&
     (workflow.ok !== false || typeof workflow.error !== "string" || !workflow.error.trim())
   ) {
-    contradiction = "Failed workflow summary has inconsistent ok/error fields";
+    contradiction = "Unsuccessful workflow summary has inconsistent ok/error fields";
   }
 } else if (hasInteractionResult) {
   const interactionStatus = interaction.ok === true ? "success" : "failed";
@@ -1088,7 +1261,7 @@ console.log(JSON.stringify({
   terminalStatus,
   stage: config.stage || (hasWorkflowSummary || hasInteractionResult ? "interactive" : "all"),
   route: hasWorkflowSummary
-    ? "interactive_study_guide"
+    ? workflow.kind === "staged_document" ? "staged_document" : "interactive_study_guide"
     : hasInteractionResult
       ? interaction.kind || "interactive"
       : route || config.intentDecision?.intent || "unknown",
@@ -1311,6 +1484,12 @@ case "$action" in
       run_agent "$prompt_text" --max-pages 24 --auto-answer "${@:2}"
       exit $?
     fi
+    prompt_intent="$(classify_prompt_intent "$prompt_text")"
+    if [[ "$prompt_intent" == "study_pdf" ]]; then
+      shift
+      run_staged_document "$prompt_text" "$@"
+      exit $?
+    fi
     if needs_combined_sources "$prompt_text"; then
       if needs_detailed_cis "$prompt_text"; then
         run_agent "$prompt_text" --cis-url "$DEFAULT_CIS_URL" "${@:2}"
@@ -1341,9 +1520,9 @@ case "$action" in
     require_nonempty_prompt "$prompt"
     shift
     if needs_combined_sources "$prompt"; then
-      run_agent "$prompt" --stage extract --cis-url "$DEFAULT_CIS_URL" "$@"
+      run_locked_extraction "$prompt" --stage extract --cis-url "$DEFAULT_CIS_URL" "$@"
     else
-      run_agent "$prompt" --stage extract --no-cis "$@"
+      run_locked_extraction "$prompt" --stage extract --no-cis "$@"
     fi
     ;;
   render)
@@ -1378,7 +1557,7 @@ case "$action" in
     prompt="$1"
     require_nonempty_prompt "$prompt"
     shift
-    run_agent "$prompt" --no-cis "$@"
+    run_staged_document "$prompt" "$@"
     ;;
   assignment-brief)
     [[ $# -ge 1 ]] || { usage; exit 2; }

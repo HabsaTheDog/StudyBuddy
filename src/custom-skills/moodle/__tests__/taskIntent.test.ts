@@ -110,6 +110,34 @@ describe("Study Buddy task intent", () => {
     expect(intent.intent).toBe("quiz_assist");
   });
 
+  it("keeps document creation for a test from becoming quiz assistance", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Complete a study guide for my test",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+    });
+
+    expect(intent.intent).toBe("study_pdf");
+    expect(intent.wantsQuizAssistance).toBe(false);
+  });
+
+  it("does not infer quiz execution from a bare quiz URL", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "https://moodle.example.edu/mod/quiz/view.php?id=1",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+    });
+
+    expect(intent.intent).not.toBe("quiz_assist");
+    expect(intent.wantsQuizAssistance).toBe(false);
+  });
+
   it("does not let autoAnswer alone turn the MEL schedule prompt into a quiz", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: melPrompt,
