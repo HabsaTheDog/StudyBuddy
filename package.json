@@ -48,10 +48,11 @@
     "check:public-tree": "node scripts/check-public-tree.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:sbom": "node scripts/check-sbom.mjs",
+    "check:submodule-pin": "node scripts/check-submodule-pin.mjs",
     "check:release-contract": "node --test scripts/check-desktop-release-contract.test.mjs scripts/check-desktop-release-assets.test.mjs",
     "audit:all": "npm audit --audit-level=high",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:release-contract && npm run audit:all"
+    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:submodule-pin && npm run check:release-contract && npm run audit:all"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.9",
