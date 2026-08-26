@@ -4,16 +4,23 @@ This is the durable handoff for Study Buddy 1.0. It records evidence without
 credentials, private source identifiers, or machine-specific paths. A green
 result applies only to the commit and artifact hash that produced it.
 
-## Candidate status on 2026-08-25
+## Candidate status on 2026-08-26
 
-The source candidate is locally green. Interface PR `HabsaTheDog/t3code#14`
-passed Check, Gitleaks, the full test suite, and browser tests, then merged as
-`fd2382bad4e2e0dc6b1668f409763d5f944b2ad4`. The root candidate pins that exact
-public commit.
+The current alpha candidate is root commit
+`07e57c30fa31ab62802f70d3d966d2dfda684223`, pinning interface commit
+`dd1e7662305d002f8bcf56d232bea6f55d3231b4`. GitHub Actions run
+`32957438007` passed preflight, Windows and Linux builds, and immutable bundle
+assembly for `0.1.0-alpha.3`. All nine checksum entries in that assembled bundle
+were verified.
 
-This is not yet a completed stable release. Exact draft artifacts still require
-GitHub workflow assembly and installed-artifact acceptance on clean Windows 11
-and Fedora Workstation lanes.
+The exact unsigned Windows installer was accepted on the disposable clean
+Windows 11 lane with SHA-256
+`7a5b8990a47e7ee2c15ab72a6b59b34918057bcfc218cbe6b3b7e88e268e1d5d`.
+Eleven of thirteen blocking scenarios passed. Previous-version in-app update is
+blocked until this exact candidate is available on the public prerelease
+channel, and the representative generated workflow remains blocked until the
+maintainer supplies a real authorized Codex session. Neither blocked gate is
+reported as a pass.
 
 ## Security and privacy evidence
 
@@ -90,30 +97,28 @@ updater SHA-512 matched, and the embedded AppImage block map parsed as version 2
 with 15,072 chunks. This dry run proves the packaging path, but it does not
 replace acceptance of the exact GitHub draft hashes.
 
-The reusable `study-buddy-release-lab` skill passes Python compilation, Ruff,
-the Codex skill validator, 20 tests, and read-only libvirt inventory. It binds
-every run to the exact artifact, `release-manifest.json`, `SHA256SUMS`, root/UI
-commits, disposable VM baseline, blocking scenarios, and reviewed redacted
-evidence.
+The Windows-only `study-buddy-release-lab` skill passes Python compilation,
+Ruff, the Codex skill validator, 26 tests, and read-only libvirt inventory. It
+binds every run to the exact artifact, `release-manifest.json`, `SHA256SUMS`,
+root/UI commits, disposable VM baseline, blocking scenarios, and reviewed
+redacted evidence. Linux acceptance runs directly on the Fedora host and does
+not require a duplicate Fedora VM.
 
 ## Remaining blocking gates
 
-1. Open the root stable PR, pass the protected root CI/security ruleset from a
-   recursive checkout, review the final manifest/diff, and merge it.
-2. Create the reviewed `v1.0.0` tag and let the protected release workflow build
-   and assemble the exact unsigned Windows x64 and Linux x64 draft assets,
-   updater manifests, Windows blockmap, embedded Linux blockmap, platform/root
-   SBOMs, provenance manifest, and checksums.
-3. Provision the disposable Fedora and Windows lanes only after explicit VM
-   authorization. Current inventory has one powered-off `win11` guest with no
-   guest agent or snapshots, no Fedora guest, and no installer ISO inventory.
-4. Run every blocking clean-machine scenario against the exact draft hashes:
-   install/launch, identity/icons, zero-source onboarding, unlimited source
-   lifecycle, browser source, synthetic calendar/email coverage, opt-in
-   telemetry delivery, restart/persistence, offline errors, previous-version
-   update, uninstall behavior, and a representative offline HTML request.
-   Verify document-tool absence messaging and exercise PDF output separately
-   with the documented tools installed.
+1. Review and merge the current interface and root release branches through the
+   protected repository rules from a recursive checkout.
+2. Run the exact Linux AppImage from the assembled `0.1.0-alpha.3` bundle on the
+   Fedora host, including launch, identity, updater, and package/runtime smoke
+   checks. Host-native Linux evidence must remain bound to the same manifest and
+   checksums as the Windows run.
+3. Make the reviewed alpha candidate available through the prerelease channel,
+   then test the real alpha.2-to-alpha.3 in-app update while preserving local
+   state. The already-tested alpha.3 build must continue to refuse an alpha.2
+   downgrade.
+4. Run one representative generated workflow on Windows with the maintainer's
+   real authorized Codex session. Keep the disposable VM free of FH credentials
+   and production course data.
 5. Obtain GitHub Support confirmation that affected historical pull-request refs
    were dereferenced and cached personal-data views were purged.
 6. Perform the maintainer-only acceptance that uses real authorized FH accounts;
@@ -121,8 +126,8 @@ evidence.
 
 ## Release decision
 
-The repository is suitable for stable pull-request review and exact draft
-creation after the source PRs merge. Public `v1.0.0` publication is blocked until
-the exact Windows/Fedora draft lanes pass and the historical GitHub cache ticket
-is confirmed. Unsigned Windows publication is an accepted disclosed limitation,
-not a claim of publisher identity.
+The exact Windows alpha candidate has passed every credential-independent gate
+that can be completed before publication. Public `v1.0.0` remains blocked until
+the host-native Linux lane, real update path, authorized representative workflow,
+and historical GitHub cache ticket are complete. Unsigned Windows publication
+is an accepted disclosed limitation, not a claim of publisher identity.

@@ -56,3 +56,5 @@ releases. Version 1.0 is currently undergoing release-candidate validation.
   for configured legacy Alpha sources.
 - Restored Study Buddy icons and executable metadata in intentionally unsigned
   Windows builds without enabling or implying Authenticode signing.
+- Corrected prerelease build identity and prevented newer alpha builds from
+  offering an older published alpha as an automatic downgrade.

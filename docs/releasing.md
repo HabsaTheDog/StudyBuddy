@@ -68,16 +68,19 @@ same GitHub Release assets.
 
 ## 4. Installed-artifact acceptance
 
-Use the `study-buddy-release-lab` skill and bind each lane to the exact artifact
-hash, release manifest, checksums, root/UI commits, disposable VM, and calibrated
-clean snapshot. Version 1.0 requires Fedora Workstation and Windows 11 lanes.
+Use the `study-buddy-release-lab` skill for the disposable Windows 11 lane and
+bind the run to the exact artifact hash, release manifest, checksums, root/UI
+commits, and calibrated clean snapshot. Run Linux acceptance directly on the
+Fedora host, bound to the same immutable bundle provenance; a duplicate Fedora
+VM is not required.
 
-On both lanes verify installation/launch, product identity and icons, zero-source
-onboarding, unlimited add/edit/disable/delete, a browser-backed source, optional
-telemetry delivery, restart/persistence, previous-version update, offline errors,
-uninstall behavior, and one representative end-to-end request. Windows must
-show the documented unsigned-publisher warning; never tell users to disable
-SmartScreen globally. Fedora must exercise the AppImage on Wayland.
+Across Windows and Linux verify installation/launch, product identity and icons,
+zero-source onboarding, unlimited add/edit/disable/delete, a browser-backed
+source, optional telemetry delivery, restart/persistence, previous-version
+update, offline errors, uninstall behavior, and one representative end-to-end
+request. Windows must show the documented unsigned-publisher warning; never tell
+users to disable SmartScreen globally. Fedora must exercise the AppImage on
+Wayland.
 
 Run the representative clean-machine request as an offline HTML workflow so the
 core acceptance does not silently inherit developer-installed document tools.
@@ -94,7 +97,8 @@ Missing infrastructure or user-owned account checks are `blocked`, never
    known limitations.
 2. Create an annotated tag only at the reviewed root commit.
 3. Run the workflow with draft publication and inspect the allowlisted assets.
-4. Install the exact draft downloads in both clean VM lanes and complete the
+4. Install the exact Windows draft download in the clean disposable VM and run
+   the exact Linux artifact on the clean host acceptance profile; complete both
    evidence verdicts.
 5. Confirm repository security checks and release-environment approval.
 6. Publish the already reviewed draft without replacing any asset.

@@ -63,8 +63,8 @@ existing clone owners after the force update.
   outside the version 1.0 matrix.
 - Draft `v1.0.0` from the exact verified root and submodule commits.
 - Attach release notes, known limitations, checksums, and the reviewed SBOM.
-- Verify the exact draft artifacts in the calibrated Fedora and Windows release
-  lanes before publication.
+- Verify the exact Windows draft artifact in the calibrated disposable Windows
+  lane and the exact Linux artifact on the Fedora host before publication.
 - Announce through a GitHub Discussion and project channels only after the
   synthetic demo and recursive-clone instructions succeed.
 
