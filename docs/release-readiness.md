@@ -46,10 +46,9 @@ unverified on Windows until the exact replacement installer is tested.
   security updates, full-history Gitleaks workflows, and private vulnerability
   reporting. The parent repository has an active default-branch ruleset; the
   interface repository now has an equivalent active default-branch ruleset.
-- GitHub currently reports zero open secret-scanning or Dependabot alerts in
-  either repository and zero open CodeQL alerts in the parent. The interface's
-  new CodeQL workflow must complete before its first code-scanning result can be
-  claimed.
+- GitHub currently reports zero open secret-scanning, Dependabot, or CodeQL
+  alerts in either repository. The interface CodeQL analysis completed before
+  its release PR was merged.
 - Previously disclosed credentials were rotated. GitHub Support confirmation
   for historical pull-request refs and cached personal-data views remains an
   external manual item.
