@@ -7,8 +7,8 @@ substitute for retesting a changed artifact.
 
 ## Current candidate status on 2026-08-26
 
-The active alpha.5 source candidate pins interface commit
-`289b40ea60409ad7819b5624eae4ffb809a4f609`. The final root commit and both
+The active alpha.5 source candidate pins the merged interface commit
+`6f53d083ff38429518312d396bd37b95fe48b34a`. The final root commit and both
 artifact hashes must be taken from the successful workflow's
 `release-manifest.json` and `SHA256SUMS`; they are deliberately not predicted in
 this document.
@@ -45,7 +45,7 @@ unverified on Windows until the exact replacement installer is tested.
 - Both public repositories have secret scanning, push protection, Dependabot
   security updates, full-history Gitleaks workflows, and private vulnerability
   reporting. The parent repository has an active default-branch ruleset; the
-  interface ruleset is applied after its current release PR passes.
+  interface repository now has an equivalent active default-branch ruleset.
 - GitHub currently reports zero open secret-scanning or Dependabot alerts in
   either repository and zero open CodeQL alerts in the parent. The interface's
   new CodeQL workflow must complete before its first code-scanning result can be
@@ -110,8 +110,7 @@ never used. Inactive Windows and Fedora lanes remain shut down.
    update while preserving local state.
 5. Run one representative generated workflow with the maintainer's authorized
    Codex session and perform the maintainer-only authenticated source checks.
-6. Merge the interface PR first, update the parent pin to the resulting public
-   commit, pass protected checks, and merge the parent release PR.
+6. Pass the protected parent checks and merge the parent release PR.
 7. Obtain GitHub Support confirmation that affected historical pull-request
    refs were dereferenced and cached personal-data views were purged.
 
