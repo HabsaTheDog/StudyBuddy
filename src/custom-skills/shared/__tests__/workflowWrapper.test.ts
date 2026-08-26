@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   accessSync,
   constants,
@@ -531,6 +531,87 @@ describe("canonical Study Buddy workflow wrapper", () => {
 
       for (const runDir of [summarySymlink, rawSymlink, mixedHandoffs]) {
         expect(checkRecovery(runDir).status).toBe(1);
+      }
+    },
+    15_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "verifies the recorded process identity before canceling a process group",
+    () => {
+      const identityScript = join(temporary, "read-process-identity.sh");
+      writeFileSync(
+        identityScript,
+        [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          'wrapper_path="$1"',
+          'child_pid="$2"',
+          "set -- help",
+          'source "$wrapper_path" >/dev/null 2>&1',
+          'process_start_identity "$child_pid"',
+          "",
+        ].join("\n"),
+      );
+      const children: number[] = [];
+      const startDisposable = () => {
+        const child = spawn(
+          process.execPath,
+          ["-e", "setInterval(() => undefined, 1000)"],
+          { detached: true, stdio: "ignore" },
+        );
+        if (!child.pid) throw new Error("Could not start disposable cancellation test child.");
+        children.push(child.pid);
+        const identity = spawnSync("bash", [identityScript, wrapper, String(child.pid)], {
+          cwd: temporary,
+          encoding: "utf8",
+          env: { PATH: process.env.PATH },
+        });
+        expect(identity.status).toBe(0);
+        return { pid: child.pid, identity: identity.stdout };
+      };
+      const writePid = (runDir: string, pid: number, identity: string) => {
+        mkdirSync(runDir, { recursive: true });
+        writeFileSync(join(runDir, "run-summary.md"), "Run status: running\n");
+        writeFileSync(
+          join(runDir, "pid.json"),
+          `${JSON.stringify({
+            child_pid: pid,
+            process_group_id: pid,
+            child_start_identity: identity,
+          })}\n`,
+        );
+      };
+      try {
+        const valid = startDisposable();
+        const validRun = join(temporary, "cancel-valid-identity");
+        writePid(validRun, valid.pid, valid.identity);
+        const canceled = run(["cancel", validRun]);
+        expect(canceled.status).toBe(0);
+        expect(readFileSync(join(validRun, "run-summary.md"), "utf8")).toContain(
+          "Run status: canceled",
+        );
+
+        const reused = startDisposable();
+        const reusedRun = join(temporary, "cancel-reused-identity");
+        writePid(reusedRun, reused.pid, `${reused.identity}-different-process`);
+        const refused = run(["cancel", reusedRun]);
+        expect(refused.status).toBe(0);
+        expect(refused.stdout).toContain("PID has been reused");
+        expect(() => process.kill(reused.pid, 0)).not.toThrow();
+        expect(readFileSync(join(reusedRun, "run-summary.md"), "utf8")).not.toContain("canceled");
+      } finally {
+        for (const pid of children) {
+          try {
+            process.kill(-pid, "SIGKILL");
+          } catch {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch {
+              // The valid cancellation case is already stopped.
+            }
+          }
+        }
       }
     },
     15_000,

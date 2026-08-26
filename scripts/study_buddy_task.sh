@@ -241,6 +241,33 @@ release_artifact_lock() {
 
 trap release_artifact_lock EXIT
 
+process_start_identity() {
+  local pid="$1"
+  node - "$pid" <<'NODE'
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+const pid = Number(process.argv[2]);
+if (!Number.isInteger(pid) || pid <= 0) process.exit(2);
+try {
+  const value = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+  const afterCommand = value.slice(value.lastIndexOf(")") + 2).trim().split(/\s+/u);
+  const startTicks = afterCommand[19];
+  if (!/^[0-9]+$/u.test(startTicks ?? "")) process.exit(3);
+  process.stdout.write(`proc:${startTicks}`);
+} catch {
+  try {
+    const started = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+    }).trim().replace(/\s+/gu, " ");
+    if (!started) process.exit(4);
+    process.stdout.write(`ps:${started}`);
+  } catch {
+    process.exit(4);
+  }
+}
+NODE
+}
+
 run_agent_in_dir() {
   local prompt_text="$1"
   local run_dir="$2"
@@ -251,14 +278,20 @@ run_agent_in_dir() {
   echo "Run directory: $run_dir"
   setsid npm run moodle:agent -- "$prompt_text" --url "$DEFAULT_MOODLE_URL" --run-dir "$run_dir" "$@" &
   ACTIVE_CHILD_PID="$!"
-  local process_group_id
+  local process_group_id child_start_identity
   process_group_id="$(ps -o pgid= -p "$ACTIVE_CHILD_PID" | tr -d ' ')"
+  child_start_identity="$(process_start_identity "$ACTIVE_CHILD_PID")" || {
+    kill "$ACTIVE_CHILD_PID" 2>/dev/null || true
+    echo "Could not record a stable identity for Study Buddy child $ACTIVE_CHILD_PID." >&2
+    return 1
+  }
   ACTIVE_PROCESS_GROUP_ID="${process_group_id:-$ACTIVE_CHILD_PID}"
   cat > "$run_dir/pid.json" <<EOF
 {
   "wrapper_pid": $$,
   "child_pid": $ACTIVE_CHILD_PID,
   "process_group_id": ${process_group_id:-$ACTIVE_CHILD_PID},
+  "child_start_identity": "$child_start_identity",
   "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "command": "npm run moodle:agent"
 }
@@ -299,14 +332,21 @@ run_interactive_study_guide() {
     --run-dir "$workflow_dir" \
     "$@" &
   ACTIVE_CHILD_PID="$!"
-  local process_group_id
+  local process_group_id child_start_identity
   process_group_id="$(ps -o pgid= -p "$ACTIVE_CHILD_PID" | tr -d ' ')"
+  child_start_identity="$(process_start_identity "$ACTIVE_CHILD_PID")" || {
+    kill "$ACTIVE_CHILD_PID" 2>/dev/null || true
+    echo "Could not record a stable identity for Study Buddy child $ACTIVE_CHILD_PID." >&2
+    release_artifact_lock
+    return 1
+  }
   ACTIVE_PROCESS_GROUP_ID="${process_group_id:-$ACTIVE_CHILD_PID}"
   cat > "$workflow_dir/pid.json" <<EOF
 {
   "wrapper_pid": $$,
   "child_pid": $ACTIVE_CHILD_PID,
   "process_group_id": ${process_group_id:-$ACTIVE_CHILD_PID},
+  "child_start_identity": "$child_start_identity",
   "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "command": "npm run interactive-study-guide"
 }
@@ -339,14 +379,21 @@ resume_interactive_study_guide() {
     --resume-run-dir "$workflow_dir" \
     "$@" &
   ACTIVE_CHILD_PID="$!"
-  local process_group_id
+  local process_group_id child_start_identity
   process_group_id="$(ps -o pgid= -p "$ACTIVE_CHILD_PID" | tr -d ' ')"
+  child_start_identity="$(process_start_identity "$ACTIVE_CHILD_PID")" || {
+    kill "$ACTIVE_CHILD_PID" 2>/dev/null || true
+    echo "Could not record a stable identity for Study Buddy child $ACTIVE_CHILD_PID." >&2
+    release_artifact_lock
+    return 1
+  }
   ACTIVE_PROCESS_GROUP_ID="${process_group_id:-$ACTIVE_CHILD_PID}"
   cat > "$workflow_dir/pid.json" <<EOF
 {
   "wrapper_pid": $$,
   "child_pid": $ACTIVE_CHILD_PID,
   "process_group_id": ${process_group_id:-$ACTIVE_CHILD_PID},
+  "child_start_identity": "$child_start_identity",
   "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "command": "npm run interactive-study-guide -- --resume-run-dir"
 }
@@ -649,17 +696,48 @@ console.log(Number(value));
 NODE
 }
 
+read_run_string_field() {
+  local run_dir="$1"
+  local field="$2"
+  local pid_path
+  pid_path="$(resolve_run_control_file "$run_dir" "pid.json")" || return 1
+  node - "$pid_path" "$field" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))[process.argv[3]];
+if (typeof value !== "string" || !value.trim()) process.exit(2);
+process.stdout.write(value);
+NODE
+}
+
 cancel_run() {
   local run_dir="$1"
   local pid_file="$run_dir/pid.json"
-  local pgid
-  if ! pgid="$(read_run_pid_field "$run_dir" "process_group_id")"; then
-    if ! pgid="$(read_run_pid_field "$run_dir" "child_pid")"; then
-      echo "No valid contained process id found in: $pid_file" >&2
-      return 1
-    fi
+  local child_pid pgid recorded_identity current_identity current_pgid
+  if ! child_pid="$(read_run_pid_field "$run_dir" "child_pid")"; then
+    echo "No valid contained child process id found in: $pid_file" >&2
+    return 1
   fi
-  kill -- "-$pgid" 2>/dev/null || kill "$pgid" 2>/dev/null || true
+  if ! kill -0 "$child_pid" 2>/dev/null; then
+    echo "Study Buddy process is already stopped: $child_pid"
+    return 0
+  fi
+  if ! recorded_identity="$(read_run_string_field "$run_dir" "child_start_identity")"; then
+    echo "Refusing to signal a live process without a recorded start identity: $pid_file" >&2
+    return 1
+  fi
+  if ! current_identity="$(process_start_identity "$child_pid")" || [[ "$current_identity" != "$recorded_identity" ]]; then
+    echo "Recorded Study Buddy PID has been reused; leaving process $child_pid untouched."
+    return 0
+  fi
+  if ! pgid="$(read_run_pid_field "$run_dir" "process_group_id")"; then
+    pgid="$child_pid"
+  fi
+  current_pgid="$(ps -o pgid= -p "$child_pid" | tr -d ' ')"
+  if [[ -z "$current_pgid" || "$current_pgid" != "$pgid" ]]; then
+    echo "Recorded Study Buddy process group no longer matches PID $child_pid; leaving it untouched."
+    return 0
+  fi
+  kill -- "-$pgid" 2>/dev/null || kill "$child_pid" 2>/dev/null || true
   local summary_path
   if summary_path="$(resolve_run_control_file "$run_dir" "run-summary.md")"; then
     {
