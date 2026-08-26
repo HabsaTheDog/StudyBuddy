@@ -110,24 +110,14 @@ needs_detailed_cis() {
 
 is_quiz_task() {
   local prompt_text="$1"
-  PROMPT_TEXT="$prompt_text" node <<'NODE'
-const prompt = process.env.PROMPT_TEXT || "";
-const quiz = String.raw`(?:moodle[ -]?)?(?:quiz(?:zes)?|tests?|minitests?|kurztests?|testblocks?|self[ -]?checks?|selbsttests?|selbstkontrollen?)`;
-const action = String.raw`(?:mach(?:e)?|bearbeit\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|answer\w*|solve\w*|fill\w*|complete\w*|start\w*)`;
-const documentArtifact = /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/iu;
-if (documentArtifact.test(prompt)) process.exit(1);
-const explicitTarget = new RegExp(
-  String.raw`(?:\b${action}\b.{0,48}\b${quiz}\b|\b${quiz}\b.{0,48}\b${action}\b)`,
-  "iu",
-);
-process.exit(explicitTarget.test(prompt) ? 0 : 1);
-NODE
+  require_root
+  ./node_modules/.bin/tsx src/custom-skills/moodle/taskIntentCli.ts --quiz-execution "$prompt_text"
 }
 
 classify_prompt_intent() {
   local prompt_text="$1"
   require_root
-  ./node_modules/.bin/tsx src/custom-skills/moodle/taskIntentCli.ts "$prompt_text"
+  ./node_modules/.bin/tsx src/custom-skills/moodle/taskIntentCli.ts --intent "$prompt_text"
 }
 
 request_slug() {

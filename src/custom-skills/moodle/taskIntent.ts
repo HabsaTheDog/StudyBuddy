@@ -159,6 +159,16 @@ function explicitQuizIntent(prompt: string): boolean {
   ) {
     return false;
   }
+  return isExplicitQuizExecutionIntent(prompt);
+}
+
+export function isExplicitQuizExecutionIntent(prompt: string): boolean {
+  if (
+    /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/i
+      .test(prompt)
+  ) {
+    return false;
+  }
   const quizNoun = /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|multiple choice|self[ -]?checks?|selbsttests?)\b/i;
   const executionAction = /\b(?:bearbeit\w*|mach(?:e)?|start\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|solve\w*|fill\w*|answer\w*|complete\w*|hilf\w*|help\w*)\b/i;
   const nounMatch = quizNoun.exec(prompt);

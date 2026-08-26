@@ -1,10 +1,18 @@
-import { classifyStudyBuddyIntent } from "./taskIntent.js";
+import {
+  classifyStudyBuddyIntent,
+  isExplicitQuizExecutionIntent,
+} from "./taskIntent.js";
 
-const prompt = process.argv.slice(2).join(" ").trim();
+const mode = process.argv[2];
+const prompt = process.argv.slice(3).join(" ").trim();
 
-if (!prompt) {
-  console.error("A non-empty prompt is required.");
+if (!prompt || (mode !== "--intent" && mode !== "--quiz-execution")) {
+  console.error("Usage: taskIntentCli.ts --intent|--quiz-execution <prompt>");
   process.exit(2);
+}
+
+if (mode === "--quiz-execution") {
+  process.exit(isExplicitQuizExecutionIntent(prompt) ? 0 : 1);
 }
 
 const decision = classifyStudyBuddyIntent({

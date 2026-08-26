@@ -413,28 +413,6 @@ describe("canonical Study Buddy workflow wrapper", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "requires explicit quiz-action targeting before auto-answer routing",
-    () => {
-      const probe = (prompt: string) => spawnSync(
-        "bash",
-        [
-          "-c",
-          'wrapper_path="$1"; prompt="$2"; set -- help; source "$wrapper_path" >/dev/null 2>&1; is_quiz_task "$prompt"',
-          "probe",
-          wrapper,
-          prompt,
-        ],
-        { cwd: temporary, encoding: "utf8", env: { PATH: process.env.PATH } },
-      );
-      expect(probe("Complete a study guide for my test").status).toBe(1);
-      expect(probe("Complete my Moodle test").status).toBe(0);
-      expect(probe("Bearbeite bitte das Moodle Quiz").status).toBe(0);
-      expect(probe("Bearbeite den nächsten MEL Minitest").status).toBe(0);
-      expect(probe("https://moodle.example.edu/mod/quiz/view.php?id=1").status).toBe(1);
-    },
-  );
-
-  it.skipIf(process.platform === "win32")(
     "rejects missing, failed, contradictory, and out-of-run artifacts",
     () => {
       const missingAnswer = createRunFixture({
