@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { classifyStudyBuddyIntent } from "../taskIntent.js";
+import {
+  classifyStudyBuddyIntent,
+  isExplicitQuizExecutionIntent,
+} from "../taskIntent.js";
 
 const melPrompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin mit exactem Datum, Uhrzeit, Raum und pruefungsrelevanten Lernunterlagen aus dem zugehoerigen MEL Moodle-Kurs.";
 
 describe("Study Buddy task intent", () => {
+  it("requires an explicit quiz execution target", () => {
+    expect(isExplicitQuizExecutionIntent("Complete a study guide for my test")).toBe(false);
+    expect(isExplicitQuizExecutionIntent("Complete my Moodle test")).toBe(true);
+    expect(isExplicitQuizExecutionIntent("Bearbeite bitte das Moodle Quiz")).toBe(true);
+    expect(isExplicitQuizExecutionIntent("Bearbeite den nächsten MEL Minitest")).toBe(true);
+    expect(
+      isExplicitQuizExecutionIntent("https://moodle.example.edu/mod/quiz/view.php?id=1"),
+    ).toBe(false);
+  });
+
   it("classifies the MEL next-exam prompt as a schedule answer", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: melPrompt,
@@ -108,6 +121,34 @@ describe("Study Buddy task intent", () => {
     });
 
     expect(intent.intent).toBe("quiz_assist");
+  });
+
+  it("keeps document creation for a test from becoming quiz assistance", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Complete a study guide for my test",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+    });
+
+    expect(intent.intent).toBe("study_pdf");
+    expect(intent.wantsQuizAssistance).toBe(false);
+  });
+
+  it("does not infer quiz execution from a bare quiz URL", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "https://moodle.example.edu/mod/quiz/view.php?id=1",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: false,
+      hasCisUrls: false,
+    });
+
+    expect(intent.intent).not.toBe("quiz_assist");
+    expect(intent.wantsQuizAssistance).toBe(false);
   });
 
   it("does not let autoAnswer alone turn the MEL schedule prompt into a quiz", () => {

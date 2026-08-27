@@ -1,12 +1,12 @@
-name: Alpha desktop artifacts
+name: Desktop release artifacts
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: SemVer prerelease without the v prefix
+        description: Stable, alpha, or beta SemVer without the v prefix
         required: true
-        default: 0.1.0-alpha.1
+        default: 0.2.0-alpha
         type: string
       signed:
         description: Require Windows code signing (blocked until SignPath onboarding is complete)
@@ -14,18 +14,18 @@ on:
         default: false
         type: boolean
       acknowledge_unsigned_windows:
-        description: Acknowledge that a published Alpha Windows installer is unsigned and will trigger trust warnings
+        description: Acknowledge that the published Windows installer is unsigned and will trigger trust warnings
         required: true
         default: false
         type: boolean
       publish_draft:
-        description: Publish a draft GitHub prerelease from an existing matching tag
+        description: Publish a draft GitHub release from an existing matching tag
         required: true
         default: false
         type: boolean
 
 concurrency:
-  group: alpha-release-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -34,8 +34,11 @@ permissions:
 jobs:
   preflight:
     name: Release preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      channel: ${{ steps.contract.outputs.channel }}
+      prerelease: ${{ steps.contract.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,13 +52,15 @@ jobs:
         with:
           typst-version: 0.15.0
       - name: Validate release contract
+        id: contract
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           PUBLISH_DRAFT: ${{ inputs.publish_draft }}
           SIGNED: ${{ inputs.signed }}
           ACKNOWLEDGE_UNSIGNED_WINDOWS: ${{ inputs.acknowledge_unsigned_windows }}
           RELEASE_REF: ${{ github.ref }}
-        run: node scripts/check-alpha-release-contract.mjs
+          VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.VITE_POSTHOG_PROJECT_TOKEN }}
+        run: node scripts/check-desktop-release-contract.mjs
       - run: npm ci
       - name: Install release-validation tooling
         run: |
@@ -63,6 +68,13 @@ jobs:
           sudo apt-get install -y poppler-utils
           npx playwright install --with-deps chromium
       - run: npm run check:release
+      - name: Audit the exact shipped UI dependency graph
+        working-directory: t3code-fork
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.24.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm study-buddy:audit
 
   build:
     name: Build ${{ matrix.label }}
@@ -72,13 +84,15 @@ jobs:
       matrix:
         include:
           - label: Linux x64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             platform: linux
+            artifact_os: linux
             target: AppImage
             arch: x64
           - label: Windows x64
-            os: windows-latest
+            os: windows-2025
             platform: win
+            artifact_os: windows
             target: nsis
             arch: x64
     runs-on: ${{ matrix.os }}
@@ -107,6 +121,13 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          APP_VERSION: ${{ inputs.version }}
+          STUDY_BUDDY_ROOT: ${{ github.workspace }}
+          STUDY_BUDDY_WORKFLOW_ROOT: ${{ github.workspace }}
+          STUDY_BUDDY_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          STUDY_BUDDY_DESKTOP_UPDATE_CHANNEL: ${{ contains(inputs.version, '-alpha') && 'alpha' || contains(inputs.version, '-beta') && 'beta' || contains(inputs.version, '-nightly') && 'nightly' || 'latest' }}
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.VITE_POSTHOG_PROJECT_TOKEN }}
         run: |
           args=(
             --platform "${{ matrix.platform }}"
@@ -117,6 +138,12 @@ jobs:
           )
           cd t3code-fork
           pnpm dist:desktop:artifact "${args[@]}"
+          generic_sbom="$RUNNER_TEMP/study-buddy-release/study-buddy-desktop.cdx.json"
+          platform_sbom="$RUNNER_TEMP/study-buddy-release/study-buddy-desktop-${{ matrix.artifact_os }}-x64.cdx.json"
+          if [ -s "$generic_sbom" ]; then
+            mv "$generic_sbom" "$platform_sbom"
+          fi
+          test -s "$platform_sbom"
       - name: Confirm Windows installer is intentionally unsigned
         if: matrix.platform == 'win' && inputs.signed == false
         shell: pwsh
@@ -127,27 +154,27 @@ jobs:
           }
           $signature = Get-AuthenticodeSignature $installers[0].FullName
           if ($signature.Status -ne 'NotSigned') {
-            throw "Expected an intentionally unsigned Alpha installer, received Authenticode status $($signature.Status)."
+            throw "Expected an intentionally unsigned Windows installer, received Authenticode status $($signature.Status)."
           }
-          "Confirmed unsigned Windows Alpha installer: $($installers[0].Name)"
+          "Confirmed unsigned Windows installer: $($installers[0].Name)"
       - name: Upload desktop artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             ${{ runner.temp }}/study-buddy-release/*.AppImage
-            ${{ runner.temp }}/study-buddy-release/*.AppImage.blockmap
             ${{ runner.temp }}/study-buddy-release/*.exe
             ${{ runner.temp }}/study-buddy-release/*.exe.blockmap
-            ${{ runner.temp }}/study-buddy-release/*.yml
-            ${{ runner.temp }}/study-buddy-release/*.yaml
+            ${{ runner.temp }}/study-buddy-release/${{ needs.preflight.outputs.channel }}.yml
+            ${{ runner.temp }}/study-buddy-release/${{ needs.preflight.outputs.channel }}-linux.yml
+            ${{ runner.temp }}/study-buddy-release/study-buddy-desktop-*-x64.cdx.json
           if-no-files-found: error
           retention-days: 14
 
   assemble:
     name: Assemble release evidence
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,17 +191,14 @@ jobs:
           path: release-assets
       - run: npm ci
       - name: Verify updater payload is complete
-        run: |
-          test "$(find release-assets -maxdepth 1 -type f -name '*.AppImage' | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -type f \( -name 'alpha.yml' -o -name 'alpha-linux.yml' \) | wc -l)" -eq 2
-          grep -Eq '^version: 0\.1\.0-alpha\.[1-9][0-9]*$' release-assets/alpha.yml
-          grep -Eq '^version: 0\.1\.0-alpha\.[1-9][0-9]*$' release-assets/alpha-linux.yml
-          grep -Eq 'sha512:' release-assets/alpha.yml
-          grep -Eq 'sha512:' release-assets/alpha-linux.yml
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.channel }}
+        run: node scripts/check-desktop-release-assets.mjs release-assets "$RELEASE_VERSION" "$RELEASE_CHANNEL"
       - name: Generate production SBOM and immutable release manifest
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.channel }}
           RELEASE_SIGNED: ${{ inputs.signed }}
           ROOT_SHA: ${{ github.sha }}
         run: |
@@ -182,7 +206,8 @@ jobs:
           UI_SHA="$(git ls-tree HEAD t3code-fork | awk '{print $3}')"
           export UI_SHA
           node --input-type=module -e '
-            import { writeFileSync } from "node:fs";
+            import { createHash } from "node:crypto";
+            import { readFileSync, writeFileSync } from "node:fs";
             const manifest = {
               schemaVersion: 1,
               product: "Study Buddy",
@@ -193,11 +218,33 @@ jobs:
               signed: process.env.RELEASE_SIGNED === "true",
               generatedBy: "GitHub Actions",
             };
-            writeFileSync("release-assets/release-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+            const manifestPath = "release-assets/release-manifest.json";
+            writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+            const distribution = {
+              schemaVersion: 1,
+              product: "Study Buddy",
+              version: process.env.RELEASE_VERSION,
+              channel: process.env.RELEASE_CHANNEL,
+              rootCommit: process.env.ROOT_SHA,
+              uiCommit: process.env.UI_SHA,
+              releaseManifestSha256: createHash("sha256")
+                .update(readFileSync(manifestPath))
+                .digest("hex"),
+              downloads: {
+                windows: `Study-Buddy-${process.env.RELEASE_VERSION}-x64.exe`,
+                linux: `Study-Buddy-${process.env.RELEASE_VERSION}-x86_64.AppImage`,
+              },
+            };
+            writeFileSync(
+              "release-assets/distribution-ready.json",
+              `${JSON.stringify(distribution, null, 2)}\n`,
+            );
           '
           node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync("release-assets/study-buddy-root.cdx.json", "utf8")); if(value.bomFormat!=="CycloneDX" || !value.components?.length) process.exit(1)'
           cd release-assets
           sha256sum -- * > SHA256SUMS
+          cd ..
+          node scripts/check-desktop-release-assets.mjs release-assets "$RELEASE_VERSION" "${{ needs.preflight.outputs.channel }}" --final
       - name: Upload complete release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -207,12 +254,12 @@ jobs:
           retention-days: 30
 
   publish-draft:
-    name: Publish draft prerelease
+    name: Publish draft release
     if: inputs.publish_draft
-    needs: assemble
-    runs-on: ubuntu-latest
+    needs: [preflight, assemble]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: alpha-release
+    environment: desktop-release
     permissions:
       contents: write
     steps:
@@ -227,6 +274,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
         run: |
           notes="docs/releases/v${RELEASE_VERSION}.md"
           test -s "$notes"
@@ -244,12 +292,16 @@ jobs:
             exit 1
           fi
 
+          release_flags=(--draft)
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            release_flags+=(--prerelease)
+          fi
+
           gh release create "v${RELEASE_VERSION}" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --target "$GITHUB_SHA" \
             --title "Study Buddy v${RELEASE_VERSION}" \
             --notes-file "$notes" \
-            --draft \
-            --prerelease \
+            "${release_flags[@]}" \
             release-assets/*

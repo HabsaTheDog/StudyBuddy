@@ -51,3 +51,12 @@ workspaces to progress; positive values impose a machine-wide ceiling.
 Use `npm run moodle:doctor -- --version-only --json` to inspect resolved native
 tools without accessing Moodle or CIS. Full authenticated preflight may contact
 the configured model provider and require a Codex login.
+
+Artifact-producing workflows use a fail-closed lock at
+`study-buddy-data/locks/.artifact-workflow.lock` (or the corresponding
+thread-local directory). A lock without readable owner metadata is treated as
+busy; it is never deleted automatically because doing so could admit two
+writers. After a crash or power loss, first verify that the recorded wrapper and
+child processes are no longer running. Then move the stale lock directory aside
+for inspection before starting one replacement workflow. Never clear a lock
+while a Study Buddy run is active or initializing.

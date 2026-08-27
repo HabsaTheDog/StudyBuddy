@@ -13,13 +13,9 @@ import { parseExecutionProfile, type StudyBuddyExecutionProfile } from "../model
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CORPUS = path.join(MODULE_DIR, "corpus", "baseline.json");
-const DEFAULT_WRAPPER = process.env.STUDY_BUDDY_WRAPPER ?? path.join(
-  process.env.HOME ?? "",
-  ".agents",
-  "skills",
-  "study-buddy",
-  "scripts",
-  "study_buddy_task.sh",
+const DEFAULT_WRAPPER = process.env.STUDY_BUDDY_WRAPPER ?? path.resolve(
+  MODULE_DIR,
+  "../../../../scripts/study_buddy_task.sh",
 );
 
 const ReplayManifestSchema = z.object({

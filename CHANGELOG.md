@@ -1,7 +1,8 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. It is currently unreleased and may make breaking changes during alpha.
+releases. Version `0.2.0-alpha` is currently undergoing release-candidate
+validation; the `1.x` line remains reserved for the first stable release.
 
 ## Unreleased
 
@@ -22,6 +23,8 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   gate for the desktop/server workspaces included in Study Buddy releases.
 - Limited the fork workspace and frozen lockfile to shipped Study Buddy packages,
   removing the disabled relay's private tarball from default clean installs.
+- Added CodeQL coverage for the separately versioned desktop/interface fork and
+  expanded its ignored certificate, key, and browser-auth-state patterns.
 
 ### Documentation
 
@@ -37,13 +40,15 @@ releases. It is currently unreleased and may make breaking changes during alpha.
 - Added a dedicated, manually dispatched Study Buddy desktop artifact workflow
   with immutable root/UI metadata, checksums, SBOM evidence, signing gates, and
   draft-prerelease publication.
-- Scoped the initial binary matrix to Linux x64 and Windows x64, permitted only
-  explicitly acknowledged unsigned Windows Alpha publication, and kept trusted
-  signing fail-closed for future stable releases.
+- Scoped the initial binary matrix to Linux x64 and Windows x64, requires an
+  explicit acknowledgement for unsigned Windows publication, and keeps a
+  future trusted-signing path fail-closed until it is implemented and reviewed.
 - Added explicit Quick Chat workspace, deliverables, and thread environment
   isolation so concurrent builder runs cannot share an output root.
 - Bound plain local Markdown source headings and model source aliases to a
   deterministic evidence identity before independent Question Bank review.
+- Added a release gate that rejects a UI submodule pin unless the exact full
+  commit is reachable from a public remote ref.
 
 ### Interface
 
@@ -56,3 +61,7 @@ releases. It is currently unreleased and may make breaking changes during alpha.
   for configured legacy Alpha sources.
 - Restored Study Buddy icons and executable metadata in intentionally unsigned
   Windows builds without enabling or implying Authenticode signing.
+- Corrected prerelease build identity and prevented newer alpha builds from
+  offering an older published alpha as an automatic downgrade.
+- Restricted local-only desktop port selection to loopback probing so normal
+  Windows startup does not request public-network firewall access.

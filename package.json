@@ -1,6 +1,6 @@
 {
   "name": "study-buddy",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha",
   "description": "Local-first, source-grounded AI study workflows for Moodle and FH Technikum Wien student systems.",
   "license": "MIT",
   "private": true,
@@ -48,9 +48,11 @@
     "check:public-tree": "node scripts/check-public-tree.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:sbom": "node scripts/check-sbom.mjs",
+    "check:submodule-pin": "node scripts/check-submodule-pin.mjs",
+    "check:release-contract": "node --test scripts/check-desktop-release-contract.test.mjs scripts/check-desktop-release-assets.test.mjs",
     "audit:all": "npm audit --audit-level=high",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run audit:all"
+    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:submodule-pin && npm run check:release-contract && npm run audit:all"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.9",
@@ -60,12 +62,12 @@
     "ical.js": "^2.2.1",
     "parse5": "^8.0.1",
     "playwright": "^1.62.1",
+    "tsx": "^4.23.12",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "postcss": "^8.5.26",
-    "tsx": "^4.23.12",
     "typescript": "^5.7.3",
     "vitest": "^4.1.10"
   },

@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Study Buddy has no stable release yet. Security fixes are applied to the current
-default branch and the newest prerelease when one exists. Older commits and
-untagged snapshots are not supported.
+Security fixes are applied to the current default branch and the newest public
+release. During the 1.0 release-candidate period, the newest prerelease is the
+only supported binary. Older releases, commits, and untagged snapshots are not
+supported.
 
 ## Report a vulnerability privately
 
@@ -21,8 +22,8 @@ authenticated screenshots, course content, and student records from evidence.
 
 The maintainer will acknowledge reports when practical, investigate privately,
 coordinate a fix and advisory, and credit reporters who want attribution. No
-fixed response SLA is promised during alpha. Please allow reasonable remediation
-time before public disclosure.
+fixed response SLA is promised. Please allow reasonable remediation time before
+public disclosure.
 
 ## Credential and data incidents
 

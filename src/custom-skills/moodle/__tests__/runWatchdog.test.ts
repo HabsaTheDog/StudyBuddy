@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { findLatestRunActivity, monitorRunProcess } from "../runWatchdog.js";
+import {
+  findLatestRunActivity,
+  monitorRunProcess,
+  windowsTaskkillArguments,
+} from "../runWatchdog.js";
 
 let runDir: string | null = null;
 
@@ -13,6 +17,11 @@ afterEach(async () => {
 });
 
 describe("external Study Buddy watchdog", () => {
+  it("targets the complete Windows process tree and escalates only when requested", () => {
+    expect(windowsTaskkillArguments(1234, false)).toEqual(["/PID", "1234", "/T"]);
+    expect(windowsTaskkillArguments(1234, true)).toEqual(["/PID", "1234", "/T", "/F"]);
+  });
+
   it("returns normally when the supervised process exits", async () => {
     let checks = 0;
     const terminate = vi.fn();

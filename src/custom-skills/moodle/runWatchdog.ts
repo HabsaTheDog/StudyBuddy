@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { appendFile, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -203,6 +204,16 @@ function defaultProcessIsAlive(pid: number): boolean {
 }
 
 async function terminateProcessGroup(pid: number, processGroupId: number, graceMs: number): Promise<void> {
+  if (process.platform === "win32") {
+    await runWindowsTaskkill(pid, false);
+    const deadline = Date.now() + graceMs;
+    while (defaultProcessIsAlive(pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (defaultProcessIsAlive(pid)) await runWindowsTaskkill(pid, true);
+    return;
+  }
+
   const signal = (name: NodeJS.Signals) => {
     try {
       process.kill(-Math.abs(processGroupId), name);
@@ -220,4 +231,19 @@ async function terminateProcessGroup(pid: number, processGroupId: number, graceM
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   if (defaultProcessIsAlive(pid)) signal("SIGKILL");
+}
+
+export function windowsTaskkillArguments(pid: number, force: boolean): string[] {
+  return ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])];
+}
+
+async function runWindowsTaskkill(pid: number, force: boolean): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const child = spawn("taskkill.exe", windowsTaskkillArguments(pid, force), {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", () => resolve());
+    child.once("close", () => resolve());
+  });
 }

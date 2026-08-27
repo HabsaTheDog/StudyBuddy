@@ -4,23 +4,31 @@ Study Buddy is a local-first AI learning companion that finds authorized course
 evidence and turns it into source-grounded answers, PDF study guides, and
 single-file offline learning webpages.
 
-> **Pre-release status:** active alpha hardening. There is no stable release.
-> Official Alpha binaries, when published, are evaluation builds with breaking
-> changes possible. Do not connect a production student account until you have
-> read the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance.
+> **Alpha status:** `v0.2.0-alpha` is undergoing clean-machine release
+> acceptance as the first coordinated public alpha under the current release
+> process. The `1.x` line remains reserved for the future stable release. Read
+> the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance before
+> connecting an account.
 
 [MIT licensed](LICENSE) · [Roadmap](ROADMAP.md) ·
 [Contributing](CONTRIBUTING.md) · [Support](SUPPORT.md)
 
 ## Downloads
 
-Official Alpha downloads are published only through
+Official downloads are published only through
 [GitHub Releases](https://github.com/HabsaTheDog/StudyBuddy/releases). The
-Windows x64 Alpha installer is intentionally unsigned and can trigger Windows
+Windows x64 installer is currently unsigned and can trigger Windows
 SmartScreen or `Unknown publisher` warnings. Verify its SHA-256 value against
 the attached `SHA256SUMS` before running it; never disable SmartScreen globally
 or install a copy obtained from a mirror. Linux x64 AppImages are included in
 the same release bundle. macOS binaries are not currently supported.
+
+The desktop app includes its JavaScript/Codex runtime and does not need a
+developer checkout, system Node.js, Git Bash, or WSL. Browser-backed sources use
+an installed Edge, Chrome, or Chromium. Typst is required only for PDF output;
+Poppler enables complete PDF extraction, and LibreOffice enables optional
+Office-document conversion. Offline HTML output does not need those document
+tools.
 
 ## Current scope
 

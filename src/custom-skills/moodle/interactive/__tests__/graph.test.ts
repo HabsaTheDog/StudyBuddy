@@ -44,6 +44,12 @@ describe("interactive Moodle graph", () => {
       expect(result.workflowStatus).toBe("permission_required");
       expect(result.permissionRequestPath).toContain("quiz-permission-request.json");
       expect(result.quizUrl).toBe("https://moodle.example/mod/quiz/view.php?id=7");
+      await expect(
+        readFile(path.join(result.runDir, "interaction-result.json"), "utf8"),
+      ).resolves.toContain('"workflowStatus": "permission_required"');
+      await expect(readFile(path.join(result.runDir, "run-summary.md"), "utf8")).resolves.toContain(
+        "Run status: success",
+      );
     } finally {
       restoreWorkspace(previousWorkspace);
     }

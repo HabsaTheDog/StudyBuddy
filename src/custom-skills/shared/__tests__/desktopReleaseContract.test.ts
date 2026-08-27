@@ -5,17 +5,18 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const contractScript = resolve(repositoryRoot, "scripts/check-alpha-release-contract.mjs");
+const contractScript = resolve(repositoryRoot, "scripts/check-desktop-release-contract.mjs");
 const releaseWorkflow = readFileSync(
   resolve(repositoryRoot, ".github/workflows/alpha-release.yml"),
   "utf8",
 );
 const reviewEnvironment = {
-  RELEASE_VERSION: "0.1.0-alpha.1",
+  RELEASE_VERSION: "0.2.0-alpha",
   PUBLISH_DRAFT: "false",
   SIGNED: "false",
   ACKNOWLEDGE_UNSIGNED_WINDOWS: "false",
-  RELEASE_REF: "refs/heads/release/unsigned-alpha",
+  RELEASE_REF: "refs/heads/release/0.2.0-alpha",
+  VITE_POSTHOG_PROJECT_TOKEN: "phc_public-project-token",
 };
 
 function runContract(overrides: Partial<typeof reviewEnvironment> = {}) {
@@ -26,8 +27,8 @@ function runContract(overrides: Partial<typeof reviewEnvironment> = {}) {
   });
 }
 
-describe("Alpha release contract", () => {
-  it("allows an unsigned review-only build without acknowledgement", () => {
+describe("desktop release contract", () => {
+  it("allows an unsigned review-only stable build without acknowledgement", () => {
     expect(runContract().status).toBe(0);
   });
 
@@ -35,14 +36,14 @@ describe("Alpha release contract", () => {
     expect(runContract({
       PUBLISH_DRAFT: "true",
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
-      RELEASE_REF: "refs/tags/v0.1.0-alpha.1",
+      RELEASE_REF: "refs/tags/v0.2.0-alpha",
     }).status).toBe(0);
   });
 
   it("rejects unsigned draft publication without acknowledgement", () => {
     const result = runContract({
       PUBLISH_DRAFT: "true",
-      RELEASE_REF: "refs/tags/v0.1.0-alpha.1",
+      RELEASE_REF: "refs/tags/v0.2.0-alpha",
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("requires explicit acknowledgement");
@@ -54,7 +55,7 @@ describe("Alpha release contract", () => {
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("must run from refs/tags/v0.1.0-alpha.1");
+    expect(result.stderr).toContain("must run from refs/tags/v0.2.0-alpha");
   });
 
   it("keeps the unconfigured signed path fail-closed", () => {
@@ -63,10 +64,20 @@ describe("Alpha release contract", () => {
     expect(result.stderr).toContain("Signed Windows builds remain disabled");
   });
 
-  it("rejects stable versions", () => {
-    const result = runContract({ RELEASE_VERSION: "1.0.0" });
+  it("supports stable, alpha, and beta versions but rejects unsupported channels", () => {
+    expect(runContract({ RELEASE_VERSION: "0.2.0-alpha" }).status).toBe(0);
+    expect(runContract({ RELEASE_VERSION: "0.3.0-beta" }).status).toBe(0);
+    const result = runContract({ RELEASE_VERSION: "0.3.0-alpha.1" });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("Expected an alpha version");
+    expect(result.stderr).toContain("Expected stable, alpha, or beta SemVer");
+  });
+
+  it("requires a public telemetry ingestion token but no administrative key", () => {
+    const result = runContract({ VITE_POSTHOG_PROJECT_TOKEN: "" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("public PostHog project token");
+    expect(releaseWorkflow).toContain("vars.VITE_POSTHOG_PROJECT_TOKEN");
+    expect(releaseWorkflow).not.toMatch(/POSTHOG_(?:PERSONAL|ADMIN|API)_KEY/u);
   });
 
   it("binds draft publication to the exact commit that built the artifacts", () => {

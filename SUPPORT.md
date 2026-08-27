@@ -1,7 +1,6 @@
 # Support
 
-Study Buddy is an alpha project maintained on a best-effort basis; there is no
-support SLA.
+Study Buddy is maintained on a best-effort basis; there is no support SLA.
 
 - Use GitHub Discussions for setup questions and ideas once Discussions are
   enabled.

@@ -4,8 +4,9 @@ The repository is already public. As of 2026-08-14, private vulnerability
 reporting, Dependabot alerts/security updates, secret scanning, push protection,
 and automatic merged-branch deletion are enabled. The unused wiki is disabled.
 The privacy rewrite and credential rotation are complete, and `master` is
-protected by the permanent release ruleset. No tag or release exists. Treat the
-next announcement as a controlled alpha launch, not the first moment of source
+protected by the permanent release ruleset. Earlier `0.1.0` prereleases are
+historical technical previews. The next announcement is the first coordinated
+public alpha under the current release process, not the first moment of source
 exposure.
 
 ## Completed containment
@@ -55,16 +56,26 @@ existing clone owners after the force update.
 - Add the repository homepage/social preview and apply the labels described in
   [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## First release
+## First coordinated alpha
+
+- Publish `v0.2.0-alpha` as a GitHub prerelease for Linux x64 and Windows x64.
+- Keep the Windows unsigned-publisher limitation prominent and attach exact
+  checksums, provenance, and SBOMs.
+- Promote the alpha to the download website only through its reviewed
+  distribution-ready contract after both clean VM lanes pass.
+- Describe later corrective alphas as `0.2.1-alpha`, `0.2.2-alpha`, and so on;
+  do not consume public versions for unpublished build attempts.
+
+## First stable release
 
 - Prepare several bounded `good first issue` and `help wanted` items before the
   announcement.
 - Publish desktop binaries for Linux x64 and Windows x64 only. macOS remains
-  outside the first alpha matrix.
-- Draft `v0.1.0-alpha.1` from the exact verified root and submodule commits.
+  outside the version 1.0 matrix.
+- Draft `v1.0.0` from the exact verified root and submodule commits.
 - Attach release notes, known limitations, checksums, and the reviewed SBOM.
-- Verify the draft artifacts on a clean machine and mark the release as a
-  prerelease.
+- Verify the exact Windows and Linux draft artifacts in their calibrated
+  disposable VM lanes before publication.
 - Announce through a GitHub Discussion and project channels only after the
   synthetic demo and recursive-clone instructions succeed.
 

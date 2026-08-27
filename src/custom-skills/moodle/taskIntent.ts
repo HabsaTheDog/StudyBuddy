@@ -68,9 +68,10 @@ export function classifyStudyBuddyIntent(input: {
   }
 
   const wantsQuizDiscovery = isQuizDiscoveryIntent(prompt);
-  const hasQuizIntent = explicitQuizIntent(prompt);
   const wantsPdf = /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/i
     .test(prompt);
+  const hasQuizIntent = explicitQuizIntent(prompt) &&
+    (!wantsPdf || input.autoAnswer || wantsQuizDiscovery);
   const wantsInteractiveStudyArtifact =
     /\b(?:study buddy|interaktive[rsn]?\s+study guide|interactive\s+study guide|lernumgebung|lernseite)\b/i
       .test(prompt);
@@ -158,13 +159,23 @@ function explicitQuizIntent(prompt: string): boolean {
   ) {
     return false;
   }
-  return (
-    /\/mod\/quiz\//i.test(prompt) ||
-    /\b(?:quiz|test|minitest|kurztest|moodle-test|testblock|multiple choice)\b/i.test(prompt) ||
-    /\b(?:bearbeite|mach|starte|fülle|fuelle|ausfüllen|ausfuellen|solve|fill|answer)\b.{0,40}\b(?:quiz|test|minitest|kurztest)\b/i
-      .test(prompt) ||
-    /\b(?:antworten ausfüllen|antworten ausfuellen|answer this quiz|fill this quiz|solve this quiz)\b/i.test(prompt)
-  );
+  return isExplicitQuizExecutionIntent(prompt);
+}
+
+export function isExplicitQuizExecutionIntent(prompt: string): boolean {
+  if (
+    /\b(?:pdfs?|lernzettel|formelsammlung|skript|typst|dokument|document|study guide|worksheet|cheat sheet)\b/i
+      .test(prompt)
+  ) {
+    return false;
+  }
+  const quizNoun = /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|multiple choice|self[ -]?checks?|selbsttests?)\b/i;
+  const executionAction = /\b(?:bearbeit\w*|mach(?:e)?|start\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|solve\w*|fill\w*|answer\w*|complete\w*|hilf\w*|help\w*)\b/i;
+  const nounMatch = quizNoun.exec(prompt);
+  if (!nounMatch) return false;
+  const actionMatch = executionAction.exec(prompt);
+  if (!actionMatch) return false;
+  return Math.abs(actionMatch.index - nounMatch.index) <= 64;
 }
 
 function isQuizDiscoveryIntent(prompt: string): boolean {

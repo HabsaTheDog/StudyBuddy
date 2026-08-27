@@ -29,6 +29,17 @@ describe("Codex runtime preflight", () => {
       .toEqual({ command: "codex.exe", args: ["--version"] });
   });
 
+  it("uses the packaged Electron Node runtime for bundled JavaScript entrypoints", () => {
+    expect(
+      resolveCodexProcessInvocation("C:\\app\\codex.js", ["--version"], {
+        STUDY_BUDDY_NODE_EXECUTABLE: "C:\\Program Files\\Study Buddy\\study-buddy-t3code.exe",
+      }),
+    ).toEqual({
+      command: "C:\\Program Files\\Study Buddy\\study-buddy-t3code.exe",
+      args: ["C:\\app\\codex.js", "--version"],
+    });
+  });
+
   it("rejects SDK and bundled CLI package skew before executing Codex", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
     const runProcess = vi.fn();
@@ -64,6 +75,13 @@ describe("Codex runtime preflight", () => {
       expect.objectContaining({ model: "gpt-test", status: "verified" }),
     ]);
     expect(runCanary).toHaveBeenCalledTimes(1);
+    expect(runCanary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binaryPath: "/fake/codex",
+        binarySource: "bundled",
+        model: "gpt-test",
+      }),
+    );
     const persisted = JSON.parse(await readFile(path.join(tempDir, "codex-runtime.json"), "utf8"));
     expect(persisted.effectiveCliVersion).toBe("0.144.5");
   });

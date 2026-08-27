@@ -30,6 +30,7 @@ describe("Codex task access policy", () => {
       CIS_CALENDAR_URL: "https://calendar.example.test/private-feed",
       OPENAI_API_KEY: "host-api-key",
       NODE_OPTIONS: "--require=/tmp/injected.js",
+      ELECTRON_RUN_AS_NODE: "1",
     });
 
     expect(environment).toEqual({
@@ -43,6 +44,20 @@ describe("Codex task access policy", () => {
         inherit: "none",
         set: { PATH: "/bin", LANG: "de_AT.UTF-8" },
       },
+    });
+  });
+
+  it("enables Electron Node mode only for the desktop-owned packaged runtime", () => {
+    expect(
+      buildCodexChildEnvironment({
+        PATH: "C:\\Windows\\System32",
+        STUDY_BUDDY_NODE_EXECUTABLE: "C:\\Program Files\\Study Buddy\\study-buddy-t3code.exe",
+        ELECTRON_RUN_AS_NODE: "0",
+        MOODLE_PASSWORD: "portal-secret",
+      }),
+    ).toEqual({
+      PATH: "C:\\Windows\\System32",
+      ELECTRON_RUN_AS_NODE: "1",
     });
   });
 
