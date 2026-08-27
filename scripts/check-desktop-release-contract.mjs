@@ -2,13 +2,13 @@ import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta)\.([1-9]\d*))?$/;
+const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta))?$/;
 
 export function releaseMetadata(version) {
   const match = VERSION_PATTERN.exec(version);
   if (!match) {
     throw new Error(
-      `Expected stable, alpha, or beta SemVer such as 1.0.0 or 1.1.0-beta.1, received: ${version}`,
+      `Expected stable, alpha, or beta SemVer such as 1.0.0 or 0.2.0-alpha, received: ${version}`,
     );
   }
   const prereleaseKind = match[4] ?? null;

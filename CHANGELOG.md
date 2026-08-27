@@ -1,7 +1,8 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. Version 1.0 is currently undergoing release-candidate validation.
+releases. Version `0.2.0-alpha` is currently undergoing release-candidate
+validation; the `1.x` line remains reserved for the first stable release.
 
 ## Unreleased
 

@@ -6,7 +6,7 @@ on:
       version:
         description: Stable, alpha, or beta SemVer without the v prefix
         required: true
-        default: 1.0.0
+        default: 0.2.0-alpha
         type: string
       signed:
         description: Require Windows code signing (blocked until SignPath onboarding is complete)
@@ -198,6 +198,7 @@ jobs:
       - name: Generate production SBOM and immutable release manifest
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.channel }}
           RELEASE_SIGNED: ${{ inputs.signed }}
           ROOT_SHA: ${{ github.sha }}
         run: |
@@ -205,7 +206,8 @@ jobs:
           UI_SHA="$(git ls-tree HEAD t3code-fork | awk '{print $3}')"
           export UI_SHA
           node --input-type=module -e '
-            import { writeFileSync } from "node:fs";
+            import { createHash } from "node:crypto";
+            import { readFileSync, writeFileSync } from "node:fs";
             const manifest = {
               schemaVersion: 1,
               product: "Study Buddy",
@@ -216,7 +218,27 @@ jobs:
               signed: process.env.RELEASE_SIGNED === "true",
               generatedBy: "GitHub Actions",
             };
-            writeFileSync("release-assets/release-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+            const manifestPath = "release-assets/release-manifest.json";
+            writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+            const distribution = {
+              schemaVersion: 1,
+              product: "Study Buddy",
+              version: process.env.RELEASE_VERSION,
+              channel: process.env.RELEASE_CHANNEL,
+              rootCommit: process.env.ROOT_SHA,
+              uiCommit: process.env.UI_SHA,
+              releaseManifestSha256: createHash("sha256")
+                .update(readFileSync(manifestPath))
+                .digest("hex"),
+              downloads: {
+                windows: `Study-Buddy-${process.env.RELEASE_VERSION}-x64.exe`,
+                linux: `Study-Buddy-${process.env.RELEASE_VERSION}-x86_64.AppImage`,
+              },
+            };
+            writeFileSync(
+              "release-assets/distribution-ready.json",
+              `${JSON.stringify(distribution, null, 2)}\n`,
+            );
           '
           node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync("release-assets/study-buddy-root.cdx.json", "utf8")); if(value.bomFormat!=="CycloneDX" || !value.components?.length) process.exit(1)'
           cd release-assets

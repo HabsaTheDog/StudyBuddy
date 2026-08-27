@@ -2,7 +2,7 @@
 
 Study Buddy uses Semantic Versioning. Stable, alpha, and beta desktop releases
 share one evidence-producing workflow. Linux x64 and Windows x64 are the only
-supported binary lanes for version 1.0; macOS is not currently shipped.
+supported binary lanes for the current alpha; macOS is not currently shipped.
 
 ## 1. Freeze and contain
 
@@ -68,11 +68,10 @@ same GitHub Release assets.
 
 ## 4. Installed-artifact acceptance
 
-Use the `study-buddy-release-lab` skill for the disposable Windows 11 lane and
-bind the run to the exact artifact hash, release manifest, checksums, root/UI
-commits, and calibrated clean snapshot. Run Linux acceptance directly on the
-Fedora host, bound to the same immutable bundle provenance; a duplicate Fedora
-VM is not required.
+Use the `study-buddy-release-lab` skill for both the disposable Windows 11 and
+Fedora lanes. Bind each run to the exact artifact hash, release manifest,
+checksums, root/UI commits, and calibrated blank snapshot. Host-native testing
+does not replace clean packaged acceptance.
 
 Across Windows and Linux verify installation/launch, product identity and icons,
 zero-source onboarding, unlimited add/edit/disable/delete, a browser-backed
@@ -82,11 +81,12 @@ request. Windows must show the documented unsigned-publisher warning; never tell
 users to disable SmartScreen globally. Fedora must exercise the AppImage on
 Wayland.
 
-Run the representative clean-machine request as an offline HTML workflow so the
-core acceptance does not silently inherit developer-installed document tools.
-Separately verify that missing Typst/Poppler/LibreOffice capabilities are
-reported accurately, then exercise PDF generation on at least one lane with
-the documented tools installed.
+Run the representative request through a new thread in the packaged desktop
+application with ChatGPT subscription authentication, a real streamed response,
+and bounded synthetic file read/edit/create operations. Separately verify that
+missing Typst/Poppler/LibreOffice capabilities are reported accurately, then
+exercise offline HTML and PDF generation on at least one lane with the
+documented tools installed.
 
 Missing infrastructure or user-owned account checks are `blocked`, never
 `pass`. Preserve redacted evidence for the exact hashes tested.
@@ -97,9 +97,8 @@ Missing infrastructure or user-owned account checks are `blocked`, never
    known limitations.
 2. Create an annotated tag only at the reviewed root commit.
 3. Run the workflow with draft publication and inspect the allowlisted assets.
-4. Install the exact Windows draft download in the clean disposable VM and run
-   the exact Linux artifact on the clean host acceptance profile; complete both
-   evidence verdicts.
+4. Install the exact Windows and Linux draft downloads in their calibrated
+   disposable VMs and complete both evidence verdicts.
 5. Confirm repository security checks and release-environment approval.
 6. Publish the already reviewed draft without replacing any asset.
 7. Verify the public updater manifests and website resolve to that release.

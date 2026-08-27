@@ -32,6 +32,7 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
   if (final) {
     expected.push(
       "SHA256SUMS",
+      "distribution-ready.json",
       "release-manifest.json",
       "study-buddy-root.cdx.json",
     );
@@ -100,6 +101,28 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
       typeof releaseManifest.signed !== "boolean"
     ) {
       throw new Error("Release manifest is invalid or does not describe this release.");
+    }
+
+    const distribution = JSON.parse(
+      await readFile(resolve(directory, "distribution-ready.json"), "utf8"),
+    );
+    const releaseManifestSha256 = await digestFile(
+      resolve(directory, "release-manifest.json"),
+      "sha256",
+      "hex",
+    );
+    if (
+      distribution.schemaVersion !== 1 ||
+      distribution.product !== "Study Buddy" ||
+      distribution.version !== version ||
+      distribution.channel !== channel ||
+      distribution.rootCommit !== releaseManifest.rootCommit ||
+      distribution.uiCommit !== releaseManifest.uiCommit ||
+      distribution.releaseManifestSha256 !== releaseManifestSha256 ||
+      distribution.downloads?.windows !== `Study-Buddy-${version}-x64.exe` ||
+      distribution.downloads?.linux !== `Study-Buddy-${version}-x86_64.AppImage`
+    ) {
+      throw new Error("Distribution-ready marker is invalid or does not describe this release.");
     }
 
     const checksumLines = (await readFile(resolve(directory, "SHA256SUMS"), "utf8"))

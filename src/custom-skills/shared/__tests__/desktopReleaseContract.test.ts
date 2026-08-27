@@ -11,11 +11,11 @@ const releaseWorkflow = readFileSync(
   "utf8",
 );
 const reviewEnvironment = {
-  RELEASE_VERSION: "1.0.0",
+  RELEASE_VERSION: "0.2.0-alpha",
   PUBLISH_DRAFT: "false",
   SIGNED: "false",
   ACKNOWLEDGE_UNSIGNED_WINDOWS: "false",
-  RELEASE_REF: "refs/heads/release/stable-rc",
+  RELEASE_REF: "refs/heads/release/0.2.0-alpha",
   VITE_POSTHOG_PROJECT_TOKEN: "phc_public-project-token",
 };
 
@@ -36,14 +36,14 @@ describe("desktop release contract", () => {
     expect(runContract({
       PUBLISH_DRAFT: "true",
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
-      RELEASE_REF: "refs/tags/v1.0.0",
+      RELEASE_REF: "refs/tags/v0.2.0-alpha",
     }).status).toBe(0);
   });
 
   it("rejects unsigned draft publication without acknowledgement", () => {
     const result = runContract({
       PUBLISH_DRAFT: "true",
-      RELEASE_REF: "refs/tags/v1.0.0",
+      RELEASE_REF: "refs/tags/v0.2.0-alpha",
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("requires explicit acknowledgement");
@@ -55,7 +55,7 @@ describe("desktop release contract", () => {
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("must run from refs/tags/v1.0.0");
+    expect(result.stderr).toContain("must run from refs/tags/v0.2.0-alpha");
   });
 
   it("keeps the unconfigured signed path fail-closed", () => {
@@ -65,9 +65,9 @@ describe("desktop release contract", () => {
   });
 
   it("supports stable, alpha, and beta versions but rejects unsupported channels", () => {
-    expect(runContract({ RELEASE_VERSION: "1.1.0-alpha.1" }).status).toBe(0);
-    expect(runContract({ RELEASE_VERSION: "1.1.0-beta.1" }).status).toBe(0);
-    const result = runContract({ RELEASE_VERSION: "1.1.0-rc.1" });
+    expect(runContract({ RELEASE_VERSION: "0.2.0-alpha" }).status).toBe(0);
+    expect(runContract({ RELEASE_VERSION: "0.3.0-beta" }).status).toBe(0);
+    const result = runContract({ RELEASE_VERSION: "0.3.0-alpha.1" });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Expected stable, alpha, or beta SemVer");
   });
