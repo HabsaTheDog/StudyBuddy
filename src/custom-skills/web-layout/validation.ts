@@ -1517,6 +1517,14 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       });
       await page.reload({ waitUntil: "load", timeout: 20_000 });
       await page.locator('[data-main-tab="catalog"]').click();
+      await page
+        .waitForFunction(
+          (selector) =>
+            document.querySelector(selector)?.getAttribute("aria-pressed") === "true",
+          persistenceSelector,
+          { timeout: 5_000 },
+        )
+        .catch(() => undefined);
       reloadRestores = compactState &&
         await page.locator(persistenceSelector).first().getAttribute("aria-pressed") === "true";
     }
