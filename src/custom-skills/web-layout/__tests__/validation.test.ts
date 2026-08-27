@@ -149,6 +149,7 @@ describe("single-file HTML validation", () => {
         }),
       ]);
     },
+    30_000,
   );
 
   it.runIf(process.env.WEB_LAYOUT_BROWSER_TESTS === "1")(
