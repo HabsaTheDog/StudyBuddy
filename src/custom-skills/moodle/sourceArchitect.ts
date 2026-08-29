@@ -479,6 +479,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
       };
     } else if (
       decision.status !== "sufficient" &&
+      decision.requestedUrls.length === 0 &&
       canDeferLookupVerificationToVisualPipeline(state, decision)
     ) {
       decision = {

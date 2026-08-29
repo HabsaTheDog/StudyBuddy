@@ -1,13 +1,13 @@
 # GitHub launch checklist
 
-The repository is already public. As of 2026-08-14, private vulnerability
+The repository is already public. As of 2026-08-29, private vulnerability
 reporting, Dependabot alerts/security updates, secret scanning, push protection,
 and automatic merged-branch deletion are enabled. The unused wiki is disabled.
 The privacy rewrite and credential rotation are complete, and `master` is
-protected by the permanent release ruleset. Earlier `0.1.0` prereleases are
-historical technical previews. The next announcement is the first coordinated
-public alpha under the current release process, not the first moment of source
-exposure.
+protected by the permanent release ruleset. Releases `v0.2.0-alpha` and
+`v0.2.1-alpha` established the coordinated public-alpha process; corrective
+alphas continue through the same immutable build, VM acceptance, and promotion
+contract.
 
 ## Completed containment
 
@@ -56,14 +56,14 @@ existing clone owners after the force update.
 - Add the repository homepage/social preview and apply the labels described in
   [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## First coordinated alpha
+## Coordinated alpha releases
 
-- Publish `v0.2.0-alpha` as a GitHub prerelease for Linux x64 and Windows x64.
+- Publish alpha builds as GitHub prereleases for Linux x64 and Windows x64.
 - Keep the Windows unsigned-publisher limitation prominent and attach exact
   checksums, provenance, and SBOMs.
 - Promote the alpha to the download website only through its reviewed
   distribution-ready contract after both clean VM lanes pass.
-- Describe later corrective alphas as `0.2.1-alpha`, `0.2.2-alpha`, and so on;
+- Describe corrective alphas as `0.2.1-alpha`, `0.2.2-alpha`, and so on;
   do not consume public versions for unpublished build attempts.
 
 ## First stable release

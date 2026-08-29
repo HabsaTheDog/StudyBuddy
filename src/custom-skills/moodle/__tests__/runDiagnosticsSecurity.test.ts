@@ -116,4 +116,26 @@ describe("run diagnostic privacy", () => {
     expect(summary).not.toContain("calendar-secret");
     expect(summary).toContain("[redacted]");
   });
+
+  it("gives packaged-app users an actionable runtime recovery without developer commands", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "diagnostic-packaged-runtime-"));
+    tempDirs.push(runDir);
+    const diagnostics = new RunDiagnostics({ runDir, packagedApp: true });
+    await diagnostics.init();
+
+    await diagnostics.writeSummary({
+      route: "interactive_study",
+      status: "failed",
+      prompt: "Create an interactive study guide",
+      error: "Codex runtime preflight failed before source access.",
+      stateHasRawText: false,
+      stateHasDocument: false,
+    });
+
+    const summary = await readFile(path.join(runDir, "run-summary.md"), "utf8");
+    expect(summary).toContain("Update Study Buddy to the latest available build");
+    expect(summary).toContain("report this run");
+    expect(summary).not.toContain("npm install");
+    expect(summary).not.toContain("moodle:doctor");
+  });
 });

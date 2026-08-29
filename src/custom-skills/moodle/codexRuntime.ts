@@ -110,6 +110,17 @@ interface CodexRuntimeDependencies {
   }) => Promise<void>;
 }
 
+interface JavaScriptRuntime {
+  execPath: string;
+  electron: boolean;
+}
+
+interface ProcessInvocation {
+  command: string;
+  args: string[];
+  envPatch: Record<string, string>;
+}
+
 export class CodexRuntimePreflightError extends Error {
   readonly updateCommand = UPDATE_COMMAND;
   readonly report?: CodexRuntimeReport;
@@ -379,7 +390,10 @@ async function defaultRunProcess(
   return new Promise((resolve, reject) => {
     const invocation = resolveCodexProcessInvocation(command, args);
     const child = spawn(invocation.command, invocation.args, {
-      env: buildCodexChildEnvironment(),
+      env: {
+        ...buildCodexChildEnvironment(),
+        ...invocation.envPatch,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -405,15 +419,29 @@ async function defaultRunProcess(
 export function resolveCodexProcessInvocation(
   command: string,
   args: readonly string[],
-  environment: NodeJS.ProcessEnv = process.env,
-): { command: string; args: string[] } {
+  runtime: JavaScriptRuntime = {
+    execPath: process.execPath,
+    electron: Boolean(process.versions.electron),
+  },
+): ProcessInvocation {
   if (/\.(?:c|m)?js$/i.test(command)) {
     return {
-      command: environment.STUDY_BUDDY_NODE_EXECUTABLE?.trim() || process.execPath,
+      command: runtime.execPath,
       args: [command, ...args],
+      envPatch: runtime.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {},
     };
   }
-  return { command, args: [...args] };
+  return { command, args: [...args], envPatch: {} };
+}
+
+export function resolveCodexPathOverride(
+  binarySource: CodexBinarySource,
+  binaryPath: string,
+): string | undefined {
+  // The SDK resolves the packaged platform-native Codex executable itself.
+  // Passing its JavaScript shim as an override would require an external Node
+  // installation and does not work on a clean Windows machine.
+  return binarySource === "override" ? binaryPath : undefined;
 }
 
 async function defaultFetchLatestVersion(): Promise<string | null> {
@@ -437,10 +465,7 @@ async function defaultRunCanary(input: {
   try {
     const codexEnvironment = buildCodexChildEnvironment();
     const codex = new Codex({
-      // The SDK resolves its bundled native executable on every supported OS.
-      // Passing the JavaScript package wrapper as an executable would fail on
-      // clean Windows installations without a system Node file association.
-      ...(input.binarySource === "override" ? { codexPathOverride: input.binaryPath } : {}),
+      codexPathOverride: resolveCodexPathOverride(input.binarySource, input.binaryPath),
       env: codexEnvironment,
       config: buildCodexShellEnvironmentConfig(codexEnvironment),
     });

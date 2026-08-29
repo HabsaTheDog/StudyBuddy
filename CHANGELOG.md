@@ -1,10 +1,25 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. Version `0.2.0-alpha` is currently undergoing release-candidate
-validation; the `1.x` line remains reserved for the first stable release.
+releases. Version `0.2.2-alpha` is currently undergoing release-candidate
+validation; the `1.x` line remains reserved for the first full release.
 
 ## Unreleased
+
+## 0.2.2-alpha — 2026-08-29
+
+### Fixed
+
+- Repaired the packaged Codex runtime preflight on clean Windows and Linux
+  installations so real desktop requests can start without a system Node.js.
+- Preferred an explicit password-login plan over optional passkey prompts and
+  hardened origin-scoped portal authentication.
+- Preserved settings and other menu actions invoked while the lightweight
+  startup screen is visible.
+- Replaced the startup card and text with the centered Study Buddy mark and a
+  compact gold activity spinner.
+- Added release probes for the packaged Codex runtime and desktop source broker
+  so the failures corrected here block future candidate acceptance.
 
 ### Security
 

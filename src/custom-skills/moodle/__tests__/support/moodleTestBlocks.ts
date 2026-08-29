@@ -69,7 +69,10 @@ export function moodleTestConfig(overrides: Partial<MoodleRuntimeConfig> = {}): 
     artifactIntent: classifyArtifactIntent("make compact notes"),
     codexPreflightMode: "off",
     codexModelExplicit: false,
-    runtimeCacheDir: "/tmp/study-buddy-runtime-cache",
+    // Keep planner caches inside a test's temporary run directory whenever it
+    // provides one. A shared /tmp cache made otherwise isolated tests reuse a
+    // decision from an earlier run and hid evidence-dependent source checks.
+    runtimeCacheDir: overrides.runtimeCacheDir ?? overrides.runDir ?? "/tmp/study-buddy-runtime-cache",
     executionProfile: "auto",
     ...overrides,
     originalUserPrompt: overrides.originalUserPrompt ?? overrides.prompt ?? "make compact notes",
