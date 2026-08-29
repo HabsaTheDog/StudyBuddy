@@ -46,6 +46,9 @@
 ## Phase 4 — generic websites
 
 - [ ] Add bounded anonymous website reads.
+- [x] Add secure password connection checks with origin-scoped HTTP auth,
+  semantic same-origin form discovery, one username-first transition, clean
+  post-login verification, and a bounded broker-only classifier fallback.
 - [ ] Add broker-owned authenticated sessions with per-auth-profile partitions,
   headed MFA/passkey login, origin/path allowlists, and exclusive leases.
 - [ ] Add safe page/list/search/download operations; deny unknown mutations.
@@ -83,4 +86,3 @@
   source/account/session, decline, cancel, concurrent execution, one-time use.
 - Existing root verification plus Study Builder benchmark hard gates and proof
   that final Moodle quiz submission is still impossible.
-

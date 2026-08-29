@@ -52,6 +52,34 @@ The existing Codex filesystem/environment restrictions remain defense in depth.
 They are not a substitute for a broker that simply does not expose a read-secret
 operation to agents.
 
+### Password portal authentication
+
+Website and resource-portal password checks use a layered broker-owned state
+machine:
+
+1. Open an isolated browser context without credentials. An HTTP 401 challenge
+   is retried once in a new context whose `httpCredentials` are restricted to
+   the exact configured origin.
+2. Otherwise, discover only visible, enabled controls in explicitly allowed
+   same-origin page/frame scopes. Rank username, current-password, next, and
+   submit roles from input type, autocomplete, labels, ARIA metadata, form
+   membership, and bounded multilingual terms.
+3. Support one username-first transition, then require deterministic password
+   and submit controls. No model call is allowed after any credential is filled.
+4. If the initial candidate set remains ambiguous, a bounded classifier may
+   receive only pre-fill metadata and opaque candidate IDs. The broker validates
+   every returned role, origin, form, risk signal, and confidence before filling.
+5. MFA, captcha, passkey, OAuth/SSO consent, mutation forms, unexpected origins,
+   and unresolved ambiguity fail closed or require explicit user action.
+6. Replace the credential-bearing document and verify the authenticated state
+   survives a clean reload before any content becomes available for extraction.
+
+The classifier defaults to GPT-5.6 Luna at low reasoning for this rare,
+small-schema fallback. Terra is a tested configuration alternative, not a
+second automatic attempt. Candidate labels are bounded and secret-redacted;
+field values, locators, URLs, cookies, credentials, and browser state never
+enter the classifier request.
+
 ## Capabilities and effects
 
 Capabilities describe what evidence or action a source can provide. Operations
@@ -97,4 +125,3 @@ Legacy configuration remains readable for one transition period. It is
 idempotently projected into default source blocks and connections. Registry
 configuration takes precedence. Secrets are migrated only through a verified
 broker operation; old `.env.local` values are never deleted automatically.
-

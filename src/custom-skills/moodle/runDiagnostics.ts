@@ -116,16 +116,23 @@ export class RunDiagnostics {
   private readonly coveragePath: string;
   private readonly summaryPath: string;
   private readonly secrets: string[];
+  private readonly packagedApp: boolean;
   private coverage: SourceCoverage = structuredClone(initialSourceCoverage);
   private lastEventAt = Date.now();
   private persistenceQueue: Promise<void> = Promise.resolve();
 
-  constructor(input: { runDir: string; secrets?: string[]; initialCoverage?: SourceCoverage }) {
+  constructor(input: {
+    runDir: string;
+    secrets?: string[];
+    initialCoverage?: SourceCoverage;
+    packagedApp?: boolean;
+  }) {
     this.runDir = input.runDir;
     this.eventsPath = path.join(input.runDir, "run-events.jsonl");
     this.coveragePath = path.join(input.runDir, "source_coverage.json");
     this.summaryPath = path.join(input.runDir, "run-summary.md");
     this.secrets = (input.secrets ?? []).filter(Boolean);
+    this.packagedApp = input.packagedApp ?? Boolean(process.versions.electron);
     if (input.initialCoverage) {
       this.coverage = {
         ...structuredClone(input.initialCoverage),
@@ -366,7 +373,7 @@ export class RunDiagnostics {
       input.error ? this.redact(input.error) : "None.",
       "",
       "## Recommended next attempt",
-      recommendation(input, coverage),
+      recommendation(input, coverage, this.packagedApp),
       "",
     ];
     await this.enqueuePersistence(() => this.writeAtomically(this.summaryPath, `${lines.join("\n")}\n`));
@@ -490,7 +497,7 @@ function latestSuccessfulStep(coverage: SourceCoverage): string {
     "none";
 }
 
-function recommendation(input: RunSummaryInput, coverage: SourceCoverage): string {
+function recommendation(input: RunSummaryInput, coverage: SourceCoverage, packagedApp: boolean): string {
   if (input.status === "success") {
     return "No retry needed.";
   }
@@ -498,6 +505,9 @@ function recommendation(input: RunSummaryInput, coverage: SourceCoverage): strin
     input.error?.startsWith("Codex runtime preflight failed") ||
     input.error?.toLowerCase().includes("requires a newer version of codex")
   ) {
+    if (packagedApp) {
+      return "Update Study Buddy to the latest available build, then retry the same request. If no update is available, report this run so the packaged runtime can be repaired; no Moodle reconnect or source crawl is needed to diagnose this failure.";
+    }
     return `Update the pinned Study Buddy runtime with \`${input.codexRuntime?.updateCommand ?? "npm install --save-exact @openai/codex-sdk@latest"}\`, run \`npm run moodle:doctor -- --no-cache\`, then retry the same request. No source crawl is needed to diagnose this failure.`;
   }
   if (coverage.moodle.status === "timeout") {

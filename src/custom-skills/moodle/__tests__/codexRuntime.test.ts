@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexRuntimePreflightError,
   preflightCodexRuntime,
+  resolveCodexPathOverride,
   resolveCodexProcessInvocation,
 } from "../codexRuntime.js";
 
@@ -24,20 +25,32 @@ describe("Codex runtime preflight", () => {
       .toEqual({
         command: process.execPath,
         args: ["C:\\app\\codex.js", "--version"],
+        envPatch: {},
       });
     expect(resolveCodexProcessInvocation("codex.exe", ["--version"]))
-      .toEqual({ command: "codex.exe", args: ["--version"] });
+      .toEqual({ command: "codex.exe", args: ["--version"], envPatch: {} });
   });
 
-  it("uses the packaged Electron Node runtime for bundled JavaScript entrypoints", () => {
-    expect(
-      resolveCodexProcessInvocation("C:\\app\\codex.js", ["--version"], {
-        STUDY_BUDDY_NODE_EXECUTABLE: "C:\\Program Files\\Study Buddy\\study-buddy-t3code.exe",
-      }),
-    ).toEqual({
-      command: "C:\\Program Files\\Study Buddy\\study-buddy-t3code.exe",
-      args: ["C:\\app\\codex.js", "--version"],
+  it("keeps a packaged Electron executable in Node mode for bundled JavaScript entrypoints", () => {
+    expect(resolveCodexProcessInvocation(
+      "/app/resources/study-buddy-runtime/node_modules/@openai/codex/bin/codex.js",
+      ["--version"],
+      { execPath: "/app/study-buddy", electron: true },
+    )).toEqual({
+      command: "/app/study-buddy",
+      args: [
+        "/app/resources/study-buddy-runtime/node_modules/@openai/codex/bin/codex.js",
+        "--version",
+      ],
+      envPatch: { ELECTRON_RUN_AS_NODE: "1" },
     });
+  });
+
+  it("lets the SDK resolve its packaged native binary instead of executing the JavaScript shim", () => {
+    const bundledShim = "/app/resources/study-buddy-runtime/node_modules/@openai/codex/bin/codex.js";
+    expect(resolveCodexPathOverride("bundled", bundledShim)).toBeUndefined();
+    expect(resolveCodexPathOverride("override", "/opt/codex/bin/codex"))
+      .toBe("/opt/codex/bin/codex");
   });
 
   it("rejects SDK and bundled CLI package skew before executing Codex", async () => {
