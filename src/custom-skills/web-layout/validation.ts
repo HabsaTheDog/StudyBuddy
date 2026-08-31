@@ -1498,25 +1498,6 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
       if (await starredButton.getAttribute("aria-pressed") !== "true") {
         await starredButton.click();
       }
-      await page.waitForFunction(
-        ({ selector, questionId }) => {
-          const button = document.querySelector(selector);
-          const storageKey = Object.keys(localStorage).find((key) =>
-            key.startsWith("study-buddy:study-builder:v1:")
-          );
-          if (button?.getAttribute("aria-pressed") !== "true" || !storageKey) return false;
-          try {
-            const persisted = JSON.parse(localStorage.getItem(storageKey) || "{}") as {
-              questions?: Record<string, { starred?: boolean }>;
-            };
-            return persisted.questions?.[questionId]?.starred === true;
-          } catch {
-            return false;
-          }
-        },
-        { selector: persistenceSelector, questionId: interaction.persistenceQuestionId },
-        { timeout: 10_000 },
-      );
       compactState = await page.evaluate(() => {
         const keys = Object.keys(localStorage).filter((key) =>
           key.startsWith("study-buddy:study-builder:v1:")
@@ -1541,7 +1522,7 @@ async function validateAdaptiveStudyGuideInteractionMatrix(
           (selector) =>
             document.querySelector(selector)?.getAttribute("aria-pressed") === "true",
           persistenceSelector,
-          { timeout: 10_000 },
+          { timeout: 5_000 },
         )
         .catch(() => undefined);
       reloadRestores = compactState &&
