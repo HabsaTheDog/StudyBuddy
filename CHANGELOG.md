@@ -11,7 +11,7 @@ validation; the `1.x` line remains reserved for the first full release.
 ### Fixed
 
 - Restored the packaged Study Buddy source broker so installed desktop requests
-  can use configured Moodle, CIS, calendar, website, and email sources.
+  can use configured Moodle, CIS, calendar, and website sources.
 - Bound every broker run to a server-generated scope and rejected disabled,
   deleted, unconfigured, or mismatched source targets before credentials can be
   resolved.
