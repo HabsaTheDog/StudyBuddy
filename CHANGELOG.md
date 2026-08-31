@@ -1,10 +1,40 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. Version `0.2.2-alpha` is currently undergoing release-candidate
+releases. Version `0.2.3-alpha` is currently undergoing release-candidate
 validation; the `1.x` line remains reserved for the first full release.
 
 ## Unreleased
+
+## 0.2.3-alpha — 2026-08-31
+
+### Fixed
+
+- Restored the packaged Study Buddy source broker so installed desktop requests
+  can use configured Moodle, CIS, calendar, website, and email sources.
+- Bound every broker run to a server-generated scope and rejected disabled,
+  deleted, unconfigured, or mismatched source targets before credentials can be
+  resolved.
+- Added bounded Windows and Unix process-tree termination and request
+  cancellation so failed source runs do not leave provider children behind.
+
+### Security
+
+- Restricted packaged Codex network access to the authenticated loopback broker
+  and kept public outbound networking denied for source-backed workflows.
+- Redacted raw, JSON-escaped, and URL-encoded source credentials from broker
+  diagnostics and provider output.
+- Enforced quiz approval in the native broker: fabricated, skipped, changed,
+  declined, or expired approvals fail closed, while final quiz submission
+  remains blocked.
+
+### Testing
+
+- Added deterministic packaged source probes for exact configured targets,
+  public CIS access, credential injection, cancellation, and fail-closed source
+  lifecycle behavior.
+- Extended the clean Windows and Fedora release gates with the repaired
+  source-runtime path and a targeted Moodle-to-artifact acceptance round.
 
 ## 0.2.2-alpha — 2026-08-29
 
