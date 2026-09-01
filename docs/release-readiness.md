@@ -1,4 +1,4 @@
-# `v0.2.2-alpha` release readiness
+# `v0.2.3-alpha` release readiness
 
 This is the durable, credential-free handoff for the current corrective Study
 Buddy alpha. A green result applies
@@ -11,7 +11,7 @@ previews; unpublished build attempts do not consume additional public versions.
 
 ## Release contract
 
-- Version/tag: `0.2.2-alpha` / `v0.2.2-alpha`
+- Version/tag: `0.2.3-alpha` / `v0.2.3-alpha`
 - GitHub state: prerelease
 - Platforms: Windows 11 x64 and Linux x64
 - Windows signing: intentionally unsigned with SmartScreen disclosure
@@ -50,7 +50,7 @@ zero-source onboarding, more-than-three source management, edit/disable/delete,
 browser-backed source checks, optional telemetry delivery, restart persistence,
 offline recovery, Windows SmartScreen behavior, and Fedora AppImage execution.
 Those runs are regression evidence only; they do not approve new
-`0.2.2-alpha` bytes.
+`0.2.3-alpha` bytes.
 
 The release-lab now additionally requires ChatGPT subscription authentication,
 a real streamed response in a newly created packaged desktop thread, bounded
@@ -63,7 +63,7 @@ of the calibrated Windows `clean` and Fedora `clean-wallet` snapshots.
    with the exact public UI submodule pin.
 2. Complete root and UI typecheck, test, lint/format, dependency audit, license,
    SBOM, public-tree, link, submodule, secret-scan, and CodeQL gates.
-3. Build the exact `0.2.2-alpha` Windows and Linux bundle from the final tagged
+3. Build the exact `0.2.3-alpha` Windows and Linux bundle from the final tagged
    default-branch commit. Verify all manifest, checksum, updater, SBOM, version,
    platform, and unsigned-state claims.
 4. Complete full-setup packaged acceptance in the disposable Windows and Fedora
@@ -86,6 +86,6 @@ of the calibrated Windows `clean` and Fedora `clean-wallet` snapshots.
 
 Status: **blocked for publication while preparation is in progress**.
 
-The source candidate is being converted to the agreed `0.2.2-alpha` contract.
+The source candidate is being converted to the agreed `0.2.3-alpha` contract.
 No final bundle, exact VM pass, reviewed GitHub draft, or deployed website
 promotion exists yet. Successful source CI alone will not change this decision.
