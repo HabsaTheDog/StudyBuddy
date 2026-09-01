@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.9",
-    "@openai/codex-sdk": "0.147.0",
+    "@openai/codex-sdk": "0.150.1",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ical.js": "^2.2.1",
