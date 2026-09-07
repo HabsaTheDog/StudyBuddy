@@ -55,15 +55,15 @@
     "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:submodule-pin && npm run check:release-contract && npm run audit:all"
   },
   "dependencies": {
-    "@langchain/langgraph": "^1.4.9",
+    "@langchain/langgraph": "^1.4.13",
     "@openai/codex-sdk": "0.147.0",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ical.js": "^2.2.1",
     "parse5": "^8.0.1",
     "playwright": "^1.62.1",
-    "tsx": "^4.23.12",
-    "zod": "^4.4.3"
+    "tsx": "^4.23.13",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
