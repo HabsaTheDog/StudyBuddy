@@ -4,6 +4,31 @@ import { classifyStudyBuddyIntent } from "../taskIntent.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 
 describe("sourcePlanner", () => {
+  it("plans calendar first and Moodle second for exhaustive next-week obligations", () => {
+    const prompt = "Kannst du in Moodle schauen, was ich nächste Woche alles machen muss?";
+    const plan = planSources(moodleTestConfig({
+      prompt,
+      calendarUrl: "https://calendar.example/private",
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+        hasCalendarUrl: true,
+      }),
+    }));
+
+    expect(plan.targets).toEqual(["calendar", "moodle"]);
+    expect(plan).toMatchObject({
+      obligationDiscovery: true,
+      needsCurrentScheduleData: true,
+      needsCourseMaterial: true,
+      needsQuizOrAssignment: true,
+    });
+  });
+
   it("routes Moodle material and PDF prompts to Moodle only", () => {
     const plan = planSourcesForPrompt("Erstelle einen Lernzettel aus den PDF-Folien", {
       hasCisUrls: true,

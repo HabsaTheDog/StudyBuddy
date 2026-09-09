@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { sourceCacheRoot } from "../sourceEvidenceCache.js";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { ensureLoggedIn } from "../browserAuth.js";
@@ -9,6 +10,8 @@ import {
   type CodexClient,
 } from "../codexClient.js";
 import { resolveCourseTargetsFromLinks } from "../courseTargeting.js";
+import { resolveSemanticSearch } from "../semanticSearch.js";
+import { readEnrolledCourses, readCourseActivities, type EnrolledCourse } from "../moodleInventory.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { hasExactOrigin } from "../urlSecurity.js";
@@ -122,7 +125,8 @@ export function createCourseResolverNode(
         href: candidate.url,
         label: candidate.label,
       })));
-      if (exact.status === "resolved" && exact.selectedUrls.length === 1) {
+      const literalMatches = literalCourseMatches(config.originalUserPrompt || config.prompt, candidates);
+      if (exact.status === "resolved" && exact.selectedUrls.length === 1 && literalMatches.length === 1) {
         const selected = candidates.find((candidate) => normalizeUrl(candidate.url) === normalizeUrl(exact.selectedUrls[0]));
         if (selected) {
           const decision: CourseDecision = {
@@ -152,7 +156,7 @@ export function createCourseResolverNode(
 
       const shortlist = await chooseShortlist(config, codex, candidates);
       const probes = await probeCandidates(reader, shortlist, config);
-      const decision = await chooseFromEvidence(config, codex, probes);
+      let decision = await chooseFromEvidence(config, codex, probes);
       if (exact.status === "ambiguous" && decision.confidence === "medium") {
         decision.confidence = "low";
         decision.reasoning =
@@ -160,6 +164,23 @@ export function createCourseResolverNode(
           "A medium-confidence preference must not choose the course scope for a full artifact workflow.";
       }
       if (decision.confidence === "low") {
+        const explored = await resolveSemanticSearch({
+          prompt: config.originalUserPrompt || config.prompt,
+          context: JSON.stringify(config.temporalRequest),
+          candidates, model: codex, runDir: config.runDir,
+          cacheDir: path.join(sourceCacheRoot(config), "semantic-search"),
+          sourceScope: config.baseUrl, signal: config.abortSignal,
+          reader: {
+            inspect: async c => ({ ...c, ...await reader!.probeCourse(c) }),
+            search: async query => candidates.filter(c => query.toLocaleLowerCase().split(/\s+/)
+              .some(word => c.label.toLocaleLowerCase().includes(word))),
+          },
+        });
+        if (explored.status === "resolved") {
+          decision = { selectedId: explored.selectedIds[0], confidence: "high",
+            reasoning: explored.reason, alternatives: [], method: "model_evidence" };
+          return await persistDecision(config, candidates, probes, decision);
+        }
         const unresolvedCandidates = [
           { id: decision.selectedId, reason: decision.reasoning },
           ...decision.alternatives,
@@ -207,6 +228,7 @@ function shouldResolveCourse(
   // Selecting one semantically plausible course here silently destroys the
   // requested enrolled-course scope.
   if (config.intentDecision?.wantsQuizDiscovery) return false;
+  if (config.intentDecision?.obligationDiscovery?.scope === "all_relevant") return false;
   if (!config.sourcePlan?.targets.includes("moodle") || !config.sourcePlan.needsCourseMaterial) return false;
   return isMoodleDashboardUrl(config.moodleUrl);
 }
@@ -218,7 +240,7 @@ async function chooseShortlist(
 ): Promise<CourseCandidate[]> {
   try {
     const response = await codex.run(shortlistPrompt(config.prompt, candidates), {
-      task: "content_analyzer",
+      task: "source_search",
       attempt: 1,
       outputSchema: shortlistSchema,
     });
@@ -284,7 +306,7 @@ async function chooseFromEvidence(
   );
   try {
     const response = await codex.run(primary, {
-      task: "content_analyzer",
+      task: "source_search",
       attempt: 1,
       outputSchema: decisionSchema,
     });
@@ -306,7 +328,7 @@ async function chooseFromEvidence(
       );
       try {
         const response = await codex.run(compact, {
-          task: "content_analyzer",
+          task: "source_search",
           attempt: 1,
           outputSchema: decisionSchema,
         });
@@ -638,45 +660,21 @@ async function createPlaywrightCourseCatalogReader(config: MoodleRuntimeConfig):
 }
 
 function playwrightReader(browser: Browser, page: Page, config: MoodleRuntimeConfig): CourseCatalogReader {
+  let courses: EnrolledCourse[] = [];
   return {
     async readDashboard() {
-      await page.goto(config.dashboardUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      const origin = new URL(config.baseUrl).origin;
-      const links = await page.locator("a[href*='/course/view.php']").evaluateAll((anchors) => anchors.map((anchor) => ({
-        url: (anchor as HTMLAnchorElement).href,
-        label: ((anchor as HTMLAnchorElement).innerText || anchor.textContent || "").replace(/\s+/g, " ").trim(),
-      })));
-      const unique = new Map<string, { url: string; label: string }>();
-      for (const link of links) {
-        if (!hasExactOrigin(link.url, origin) || !link.label) continue;
-        unique.set(normalizeUrl(link.url), { ...link, url: normalizeUrl(link.url) });
-      }
-      return [...unique.values()].map((candidate, index) => ({
-        id: `C${index + 1}`,
-        ...candidate,
-      }));
+      const inventory = await readEnrolledCourses(page, config.dashboardUrl);
+      await writeFile(path.join(config.runDir, "course-inventory.json"), JSON.stringify(inventory, null, 2));
+      courses = inventory.courses;
+      return courses.map(c => ({ id: c.id, url: c.url, label: c.label }));
     },
     async probeCourse(candidate) {
-      await page.goto(candidate.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      const [title, text] = await Promise.all([
-        page.title().catch(() => candidate.label),
-        page.locator("body").evaluate((body) => {
-          const root = body.querySelector("main, [role='main'], #region-main") ?? body;
-          const uniqueText = (elements: Element[]) => [...new Set(elements
-            .map((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim())
-            .filter(Boolean))];
-          const headings = uniqueText(Array.from(root.querySelectorAll("h1, h2, h3, h4, [role='heading']")));
-          const resources = uniqueText(Array.from(root.querySelectorAll(
-            "a[href*='/mod/'], .activityname, .activity-item .instancename",
-          )));
-          const structured = [
-            headings.length ? `Section headings:\n${headings.join("\n")}` : "",
-            resources.length ? `Resources and activities:\n${resources.join("\n")}` : "",
-          ].filter(Boolean).join("\n");
-          return structured || (root.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 4_000);
-        }).catch(() => ""),
-      ]);
-      return { ...candidate, title, text: text.trim() || candidate.label };
+      const course = courses.find(c => c.id === candidate.id) ?? {
+        ...candidate, courseId: Number(new URL(candidate.url).searchParams.get("id")), start: null, end: null,
+      };
+      const detail = await readCourseActivities(page, course);
+      return { ...candidate, title: course.label,
+        text: [course.text, detail.text, ...detail.activities.map(a => a.label)].filter(Boolean).join("\n") };
     },
     close: () => browser.close(),
   };
@@ -686,6 +684,16 @@ function normalizeUrl(value: string): string {
   const url = new URL(value);
   url.hash = "";
   return url.toString();
+}
+
+/** An inferred subject alias must not silently choose a particular numbered semester course. */
+export function literalCourseMatches(prompt: string, candidates: CourseCandidate[]): CourseCandidate[] {
+  const codes = [...new Set([
+    ...(prompt.match(/\b[A-Z][A-Z0-9]{1,9}\b/g) ?? []),
+    ...(prompt.match(/\b[a-z]{2,8}\d{1,3}\b/gi) ?? []),
+  ])].filter(code => !["PDF", "CIS", "URL", "FH"].includes(code));
+  return candidates.filter(c => prompt.includes(c.url) || prompt.toLowerCase().includes(c.label.toLowerCase()) ||
+    codes.some(code => new RegExp(`(?:^|[^a-z0-9])${code}\\d*(?:$|[^a-z0-9])`, "i").test(c.label)));
 }
 
 function errorMessage(error: unknown): string {

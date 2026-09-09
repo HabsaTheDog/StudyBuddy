@@ -4,15 +4,51 @@ import {
   filterMoodleLinksToCourseScope,
   isOutsideResolvedCourseScope,
   isLowValueMoodleUtilityLink,
+  obligationSectionRefs,
   scoreMoodleLink,
   scoreCourseFocus,
   scheduleSectionRefs,
   scheduleSectionUrlsFromSnapshot,
   selectRelevantFileLinks,
   selectRelevantMoodleLinks,
+  selectObligationMoodleLinks,
 } from "../nodes/scraperNode.js";
 
 describe("Moodle crawl relevance", () => {
+  it("keeps all courses and safe deep activity pages for exhaustive obligation discovery", () => {
+    const links = [
+      ...Array.from({ length: 7 }, (_, index) => ({
+        href: `https://moodle.example/course/view.php?id=${index + 1}`,
+        label: index === 5 ? "Robotics Lab" : `Course ${index + 1}`,
+      })),
+      { href: "https://moodle.example/course/section.php?id=80", label: "Week 2" },
+      { href: "https://moodle.example/mod/assign/view.php?id=90", label: "Homework 1" },
+      { href: "https://moodle.example/mod/quiz/attempt.php?attempt=4", label: "Attempt quiz" },
+      { href: "https://moodle.example/mod/resource/view.php?id=91", label: "Lecture slides" },
+    ];
+
+    const selected = selectObligationMoodleLinks(links, ["Robotics Lab next week"]);
+    expect(selected.filter((url) => url.includes("/course/view.php"))).toHaveLength(7);
+    expect(selected[0]).toBe("https://moodle.example/course/view.php?id=6");
+    expect(selected).toContain("https://moodle.example/course/section.php?id=80");
+    expect(selected).toContain("https://moodle.example/mod/assign/view.php?id=90");
+    expect(selected).not.toContain("https://moodle.example/mod/quiz/attempt.php?attempt=4");
+    expect(selected).not.toContain("https://moodle.example/mod/resource/view.php?id=91");
+  });
+
+  it("expands all collapsed content sections but excludes navigation controls", () => {
+    expect(obligationSectionRefs({
+      origin: "https://moodle.example/course/view.php?id=1",
+      refs: {},
+      snapshot: [
+        '- button "Week 1" [expanded=false, ref=e1]',
+        '- button "Assignments" [expanded=false, ref=e2]',
+        '- button "Navigation menu" [expanded=false, ref=e3]',
+        '- button "Week 3" [expanded=true, ref=e4]',
+      ].join("\n"),
+    })).toEqual(["e1", "e2"]);
+  });
+
   it("prioritizes activity pages for read-only quiz discovery", () => {
     const links = [
       { href: "https://moodle.example/mod/page/view.php?id=1", label: "Lecture notes" },

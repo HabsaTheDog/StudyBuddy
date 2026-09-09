@@ -43,7 +43,14 @@ export function createSourceOrchestratorNode(
     const initialPlan = config.sourcePlan ?? planSources(config);
     config.sourcePlan = initialPlan;
     const budget = resolveTaskBudget(config.intentDecision);
-    const boundedConfig = config.intentDecision?.wantsQuickAnswer
+    const boundedConfig = config.intentDecision?.obligationDiscovery?.requested
+      ? {
+          ...config,
+          maxPages: budget.maxMoodlePages,
+          maxDepth: budget.maxMoodleDepth,
+          maxCisPages: 0,
+        }
+      : config.intentDecision?.wantsQuickAnswer
       ? {
           ...config,
           maxPages: Math.min(config.maxPages, budget.maxMoodlePages),
@@ -58,14 +65,61 @@ export function createSourceOrchestratorNode(
     const cisScraperNode = dependencies.cisScraperNode ?? createCisScraperNode(boundedConfig);
     const calendarNode = dependencies.calendarNode ?? createCalendarNode(config);
 
-    const initialResult = await runTargets({
-      config,
-      state,
-      targets: initialPlan.targets,
-      scraperNode,
-      cisScraperNode,
-      calendarNode,
-    });
+    let initialResult;
+    if (
+      config.intentDecision?.obligationDiscovery?.calendarFirst &&
+      initialPlan.targets.includes("calendar") &&
+      initialPlan.targets.includes("moodle")
+    ) {
+      const calendarResult = await runTargets({
+        config,
+        state,
+        targets: ["calendar"],
+        scraperNode,
+        cisScraperNode,
+        calendarNode,
+      });
+      config.obligationCourseHints = (config.calendarSelection?.events ?? [])
+        .map((event) => event.title)
+        .filter(Boolean);
+      await config.diagnostics?.log(
+        "info",
+        "moodle_crawl",
+        "Calendar scope resolved; auditing Moodle courses and their obligation activities.",
+        { calendarEvents: config.calendarSelection?.events.length ?? 0 },
+      );
+      const postCalendarConfig = {
+        ...config,
+        maxPages: budget.maxMoodlePages,
+        maxDepth: budget.maxMoodleDepth,
+        maxCisPages: 0,
+        obligationCourseHints: config.obligationCourseHints,
+      };
+      const postCalendarScraper = dependencies.scraperNode ?? createScraperNode(postCalendarConfig);
+      const moodleResult = await runTargets({
+        config,
+        state: { ...state, moodle_raw_text: calendarResult.calendarText },
+        targets: initialPlan.targets.filter((target) => target !== "calendar"),
+        scraperNode: postCalendarScraper,
+        cisScraperNode,
+        calendarNode,
+      });
+      initialResult = {
+        moodleText: moodleResult.moodleText,
+        cisText: moodleResult.cisText,
+        calendarText: calendarResult.calendarText,
+        warnings: [...calendarResult.warnings, ...moodleResult.warnings],
+      };
+    } else {
+      initialResult = await runTargets({
+        config,
+        state,
+        targets: initialPlan.targets,
+        scraperNode,
+        cisScraperNode,
+        calendarNode,
+      });
+    }
     let mergedText = mergeRawText([
       state.moodle_raw_text,
       initialResult.moodleText,
@@ -74,7 +128,11 @@ export function createSourceOrchestratorNode(
       ...initialResult.warnings,
     ]);
     const completedFollowUpTargets: SourceTarget[] = [];
-    if (initialPlan.targets.includes("calendar") && config.calendarSelection?.needsCisFallback) {
+    if (
+      !initialPlan.obligationDiscovery &&
+      initialPlan.targets.includes("calendar") &&
+      config.calendarSelection?.needsCisFallback
+    ) {
       const fallbackTargets: SourceTarget[] = [];
       const isScheduleLookup = config.intentDecision?.intent === "schedule_answer" ||
         (initialPlan.needsCurrentScheduleData && !initialPlan.needsCourseMaterial);

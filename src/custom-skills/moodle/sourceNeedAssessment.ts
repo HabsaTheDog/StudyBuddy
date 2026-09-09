@@ -33,6 +33,7 @@ export function assessFollowUpCrawl(input: {
   const cisOk = isUsable(input.coverage.cis.status);
 
   if (
+    !input.plan.obligationDiscovery &&
     !input.plan.targets.includes("cis") &&
     !completed.has("cis") &&
     scheduleSignal(prompt) &&
@@ -95,11 +96,11 @@ function isUsable(status: SourceCoverage["moodle"]["status"]): boolean {
 }
 
 function scheduleSignal(prompt: string): boolean {
-  return /\b(?:heute|morgen|diese woche|stundenplan|raum|räume|prüfung|pruefung|test|klausur|termin|deadline|frist|wann|wo|anwesenheit|fachlabor|laborslot|nächste einheit|naechste einheit)\b/i.test(prompt);
+  return /\b(?:heute|morgen|diese woche|nächste woche|naechste woche|kommende woche|next week|stundenplan|raum|räume|prüfung|pruefung|test|klausur|termin|deadline|frist|wann|wo|anwesenheit|fachlabor|laborslot|nächste einheit|naechste einheit)\b/i.test(prompt);
 }
 
 function materialSignal(prompt: string): boolean {
-  return /(?:unterlagen|kursmaterial|moodle|folie|folien|pdf|skript|datei|lernzettel|formelsammlung|übungsblatt|uebungsblatt|quiz|assignment|aufgabenstellung)/i.test(prompt);
+  return /(?:unterlagen|kursmaterial|moodle|folie|folien|pdf|skript|datei|lernzettel|formelsammlung|übungsblatt|uebungsblatt|quiz|assignment|homework|hausübung|hausuebung|aufgabe|aufgabenstellung|abgabe|erledigen|machen muss)/i.test(prompt);
 }
 
 function fileSignal(prompt: string): boolean {

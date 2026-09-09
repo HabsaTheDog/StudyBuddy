@@ -5,11 +5,18 @@ import {
   normalizeCalendarUrl,
   parseCalendarEvents,
   readCalendarEvents,
+  resolveRequestedTimeRange,
 } from "../calendarAdapter.js";
 
 const NOW = new Date("2026-06-27T10:00:00.000Z");
 
 describe("calendar adapter", () => {
+  it("resolves next week as the following Vienna Monday through Sunday", () => {
+    const range = resolveRequestedTimeRange("Was muss ich nächste Woche alles machen?", NOW);
+    expect(range.start.toISOString()).toBe("2026-06-28T22:00:00.000Z");
+    expect(range.end.toISOString()).toBe("2026-07-05T21:59:59.999Z");
+  });
+
   it("selects a MEL exam with Vienna summer time, time, and room", async () => {
     const selection = await readCalendarEvents(
       "webcal://calendar.example/private-token",
