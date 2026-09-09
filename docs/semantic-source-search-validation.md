@@ -24,9 +24,14 @@ through the existing retry path.
 - Isolated changed fork paths: 54 tests passed; formatting/lint and all 13
   workspace type checks passed.
 - Root release-contract tests: 13 passed; local Markdown links valid.
-- Production dependency audit: no reported vulnerabilities. The all-dependency
+- Root-workspace production dependency audit: no reported vulnerabilities. Its
   high-severity gate passed; two existing moderate Vitest/mocker development
-  dependency advisories remain. No dependency versions changed.
+  dependency advisories remain.
+- Desktop-fork lockfile audit: 29 high and 16 moderate findings across all
+  dependencies; the production-only audit reports 8 high and 9 moderate findings.
+  Its security gate therefore fails. These are registry dependency advisories,
+  not a demonstrated exploit of the app. No package or lockfile versions changed;
+  dependency remediation remains required before a security/release sign-off.
 - Installed desktop, Balanced: current-semester overview accounted for all
   enrolled courses with explicit scope exclusions and audited 101/101 selected
   activities without gaps. A separate colloquial mathematics request resolved
