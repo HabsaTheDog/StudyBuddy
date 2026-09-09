@@ -1,3 +1,4 @@
+import type { CourseInventory } from "../moodleInventory.js";
 // @effect-diagnostics nodeBuiltinImport:off
 import { access } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -24,6 +25,8 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_AGENT_BROWSER_PACKAGE = "agent-browser@0.27.0";
 
 export interface AgentBrowserClient {
+  captureQuestionImage?(questionId: string, targetPath: string): Promise<void>;
+  enrolledCourses?(): Promise<CourseInventory>;
   doctor(): Promise<AgentBrowserCommandResult>;
   open(url: string): Promise<AgentBrowserCommandResult>;
   snapshot(options?: SnapshotOptions): Promise<AgentBrowserSnapshot>;

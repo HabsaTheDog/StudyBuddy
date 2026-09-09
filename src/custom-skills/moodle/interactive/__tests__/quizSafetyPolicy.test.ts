@@ -266,6 +266,15 @@ describe("quizSafetyPolicy", () => {
     expect(decision.reason).toBe("quiz-attempt-needs-confirmation");
   });
 
+  it("allows continuing an open attempt without requiring unused new attempts", () => {
+    const current = metadata({ hasActiveAttempt: true, attemptsAllowed: 2, attemptsUsed: 2,
+      attemptsLeft: 0, appearsLimitedAttempt: true, availabilityStatus: "open" });
+    const allowed = policy({ allowStartingOrContinuingAttempts: true, askBeforeLimitedAttemptQuizzes: false });
+    expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: current }).status).toBe("allowed");
+    expect(enforceQuizSafetyPolicy({ ...allowed, askBeforeStartingOrContinuingAttempts: true }, "start_or_continue_attempt", { metadata: current }).status).toBe("permission_required");
+    expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: { ...current, hasActiveAttempt: false } }).status).toBe("blocked");
+  });
+
   it("prevents filling when filling is disabled", () => {
     const decision = enforceQuizSafetyPolicy(
       policy({ allowFillingAnswers: false }),

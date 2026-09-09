@@ -19,6 +19,14 @@
   configuration.
 - [x] Add immutable email draft hashing and exact one-time approval contracts.
 - [x] Stop returning the configured private calendar bearer URL to the renderer.
+- [x] Add generic obligation discovery with calendar hints and exhaustive
+  Moodle traversal, a persisted completeness manifest, direct activity
+  provenance, and fail-closed negative answers. Calendar absence does not
+  establish that no assignment is due.
+- [x] Add bounded semantic course/activity resolution, validated source proofs,
+  account-isolated caches, and actual source-progress publication to the host.
+- [ ] Complete installed-desktop acceptance of the full enrollment inventory
+  and canonical answer handoff before promoting the local semantic-search build.
 - [ ] Move source metadata to server-owned application state and secret material
   to an OS-backed desktop vault with a narrow server-store fallback.
 

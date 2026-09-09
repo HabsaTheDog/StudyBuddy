@@ -29,6 +29,7 @@ import {
 import { isAssignmentSubmissionPrompt, isQuizPrompt } from "./quizIntent.js";
 
 export interface InteractiveGraphDependencies {
+  onStep?: (state: AgentState) => Promise<void>;
   codex?: CodexClient;
   browser?: AgentBrowserClient;
   assignmentWorkflowNode?: ReturnType<typeof createAssignmentWorkflowNode>;
@@ -49,6 +50,11 @@ export async function runInteractiveMoodleGraph(
     state = (await buildInteractiveMoodleGraph(config, {
       ...dependencies,
       browser,
+      onStep: async (current) => {
+        state = current;
+        await persistInteractionProgress(config, current, "running");
+        await dependencies.onStep?.(current);
+      },
     }).invoke(initialAgentState, {
       recursionLimit: Math.max(64, config.maxPages * 8),
     })) as AgentState;
@@ -68,6 +74,7 @@ export async function runInteractiveMoodleGraph(
   const ok = workflowStatus === "completed" || workflowStatus === "permission_required";
   const quizUrl = extractQuizResultUrl(state, config);
   await persistRunDiagnostics(config, state, { ok, workflowStatus });
+  await persistInteractionProgress(config, state, workflowStatus);
   return {
     ok,
     workflowStatus,
@@ -114,26 +121,25 @@ export function buildInteractiveMoodleGraph(
   const browser = dependencies.browser ?? createBrowserClient(config);
   const codex = dependencies.codex ?? createCodexClient(config);
 
+  const track = (node: (state: LangGraphAgentState) => Promise<Partial<LangGraphAgentState>>) =>
+    async (state: LangGraphAgentState) => {
+      await dependencies.onStep?.(state);
+      const update = await node(state);
+      await dependencies.onStep?.({ ...state, ...update });
+      return update;
+    };
   return new StateGraph(AgentStateAnnotation)
     .addNode("router", async () => ({}))
-    .addNode(
-      "assignmentWorkflow",
-      dependencies.assignmentWorkflowNode ??
-        createAssignmentWorkflowNode(config, { agentBrowser: browser }),
-    )
-    .addNode(
-      "quizTarget",
-      dependencies.quizTargetNode ?? createQuizTargetNode(config, { agentBrowser: browser }),
-    )
-    .addNode(
-      "quizPage",
-      dependencies.quizPageNode ?? createQuizPageNode(config, { agentBrowser: browser }),
-    )
-    .addNode("quizSolver", dependencies.quizSolverNode ?? createQuizSolverNode(config, { codex }))
-    .addNode(
-      "quizFill",
-      dependencies.quizFillNode ?? createQuizFillNode(config, { agentBrowser: browser }),
-    )
+    .addNode("assignmentWorkflow", track(dependencies.assignmentWorkflowNode ??
+      createAssignmentWorkflowNode(config, { agentBrowser: browser })))
+    .addNode("quizTarget", track(dependencies.quizTargetNode ??
+      createQuizTargetNode(config, { agentBrowser: browser, codex })))
+    .addNode("quizPage", track(dependencies.quizPageNode ??
+      createQuizPageNode(config, { agentBrowser: browser })))
+    .addNode("quizSolver", track(dependencies.quizSolverNode ??
+      createQuizSolverNode(config, { codex, agentBrowser: browser })))
+    .addNode("quizFill", track(dependencies.quizFillNode ??
+      createQuizFillNode(config, { agentBrowser: browser })))
     .addEdge(START, "router")
     .addConditionalEdges("router", () => routeInitial(config), {
       assignmentWorkflow: "assignmentWorkflow",
@@ -329,4 +335,23 @@ async function atomicPrivateWrite(filePath: string, value: string): Promise<void
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(temporaryPath, value, { encoding: "utf8", mode: 0o600 });
   await rename(temporaryPath, filePath);
+}
+
+async function persistInteractionProgress(
+  config: MoodleRuntimeConfig,
+  state: AgentState,
+  status: string,
+): Promise<void> {
+  await mkdir(config.runDir, { recursive: true, mode: 0o700 });
+  const quiz = (state.extracted_data as Record<string, unknown>).quiz_workflow as
+    Record<string, unknown> | undefined;
+  const results = Array.isArray(quiz?.fill_results) ? quiz.fill_results : [];
+  await atomicPrivateWrite(path.join(config.runDir, "interaction-progress.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    status,
+    updatedAt: new Date().toISOString(),
+    pageNumber: quiz?.page_number ?? null,
+    savedAnswers: results.filter((result) => result.filled === true && result.persisted === true).length,
+    finalSubmitClicked: false,
+  }, null, 2)}\n`);
 }

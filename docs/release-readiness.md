@@ -84,8 +84,52 @@ of the calibrated Windows `clean` and Fedora `clean-wallet` snapshots.
 
 ## Current decision
 
-Status: **blocked for publication while preparation is in progress**.
+Status (2026-09-08): **blocked for publication: targeted Moodle-to-artifact
+acceptance has no recorded successful result**.
 
-The source candidate is being converted to the agreed `0.2.3-alpha` contract.
-No final bundle, exact VM pass, reviewed GitHub draft, or deployed website
-promotion exists yet. Successful source CI alone will not change this decision.
+- Root commit: `0b039abc16b5feb084c8f8c23ac1edfb9f10755d`.
+- UI commit: `24b13681688d3994329ff222759078dd349d812e`.
+- Build: [33491078741](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/33491078741), successful.
+- Root commit checks: successful, including repository policy, pinned UI,
+  Windows/Linux verification, Gitleaks and CodeQL.
+- Windows installer SHA-256:
+  `3b2f6e1e46046d61e7a2852b69efa399689e69c544e95c2736dfbf5849080ef6`.
+- Linux AppImage SHA-256:
+  `13f22eeecf3c86da8011eb3378f3c7e4f4c2521e375902b01d301ca159629820`.
+- Windows standard packaged acceptance: **pass**, 16 scenarios.
+- Fedora standard packaged acceptance: **pass**, 17 scenarios.
+- Both lanes exercised subscription-authenticated synthetic file operations,
+  packaged source-broker/runtime probes, source lifecycle, telemetry,
+  persistence and an upgrade from public `0.2.1-alpha` to these exact bytes.
+- Windows was restored to `clean`; Fedora was restored to `clean-wallet` and
+  booted to verify app/profile/test-workspace absence. Both VMs are shut down.
+- Local evidence: `~/.local/share/study-buddy/release-lab/runs/0.2.3-alpha-run-33491078741/`.
+- GitHub has the complete draft and matching asset digests. Authentication is
+  working. Publication and website promotion were authorized by the maintainer
+  but have not been performed.
+- Bundle checksum verification passed for all ten listed assets. The remote
+  annotated tag resolves to the root commit above.
+- The local website release-selector suite passed (6 tests). The deployed site
+  was inspected and still advertises `0.2.1-alpha`; the draft is excluded.
+  This is not post-publication acceptance of `0.2.3-alpha`.
+- Release-lab helper suite: 41 tests passed. Release-manager skill validation
+  passed after documenting the distinction between generic and targeted gates.
+
+### Remaining release-specific gate
+
+The reported defect concerns a Moodle-backed study guide. The successful saved
+thread exercised synthetic file read/edit/create; the deterministic broker
+probe verifies runtime/environment wiring. Neither proves Moodle acquisition
+through generation of a validated artifact. No successful exact-candidate
+Moodle-to-artifact record was found in the release evidence.
+
+Run that targeted request with an authorized test course/account through the
+exact packaged candidate and record terminal workflow and artifact validation.
+Diagnose any failure before publication. Guest tests used synthetic sources;
+their temporary subscription credentials have been removed. Institution
+credentials were not transferred into the lab.
+
+Afterward, reconcile the draft notes, publish the same accepted bytes, and
+verify anonymous downloads/checksums and deployed website links. Do not repeat
+passing standard scenarios merely because this regression record was missing.
+New development in the dirty checkout is outside this immutable candidate.

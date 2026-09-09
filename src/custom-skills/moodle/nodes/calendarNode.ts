@@ -19,7 +19,7 @@ export function createCalendarNode(config: MoodleRuntimeConfig) {
     }
 
     await config.diagnostics?.log("info", "calendar", "Checking personal university calendar.");
-    const selection = await readCalendarEvents(config.calendarUrl, config.prompt);
+    const selection = await readCalendarEvents(config.calendarUrl, config.prompt, { temporalRequest: config.temporalRequest });
     config.calendarSelection = selection;
     const artifact = await writeFilteredCalendarArtifact(config.runDir, selection.events);
     if (selection.status === "failed") {

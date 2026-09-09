@@ -23,6 +23,44 @@ afterEach(async () => {
 });
 
 describe("Playwright credential broker", () => {
+  it("opens a usable document while a background request remains active", async () => {
+    const server = createServer((request, response) => {
+      if (request.url === "/background") {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.write("still connected");
+        return;
+      }
+      response.setHeader("content-type", "text/html");
+      response.end('<main>Quiz ready</main><script>fetch("/background")</script>');
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    closeServer = async () => {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    };
+    const { port } = server.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${port}`;
+    const client = createPlaywrightBrowserClient(runtimeConfig(origin));
+    try {
+      await client.open(`${origin}/course`);
+      expect(await client.getText("main")).toBe("Quiz ready");
+    } finally { await client.close(); }
+  }, 5_000);
+
+  it("still rejects HTTP failures after document readiness", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(503, { "content-type": "text/html" });
+      response.end("<main>Unavailable</main>");
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    closeServer = async () => { await new Promise<void>(resolve => server.close(() => resolve())); };
+    const { port } = server.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${port}`;
+    const client = createPlaywrightBrowserClient(runtimeConfig(origin));
+    try { await expect(client.open(`${origin}/course`)).rejects.toThrow("HTTP 503"); }
+    finally { await client.close(); }
+  });
+
   it("parses JSON strings returned by Moodle DOM extraction scripts", async () => {
     const server = createServer((_request, response) => {
       response.setHeader("content-type", "text/html");

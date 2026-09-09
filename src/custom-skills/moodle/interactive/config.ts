@@ -1,3 +1,4 @@
+import { requestTimeBoundary } from "../temporalRequest.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,6 +106,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   return {
     prompt: input.prompt,
     originalUserPrompt,
+    temporalRequest: requestTimeBoundary(originalUserPrompt, input.prompt),
     outputLanguage: outputLanguage.language,
     outputLanguageReason: outputLanguage.reason,
     moodleUrl: input.moodleUrl,

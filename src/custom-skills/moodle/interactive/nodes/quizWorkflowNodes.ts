@@ -1,3 +1,4 @@
+import { quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
@@ -79,7 +80,7 @@ export function createQuizTargetNode(
         allowedOrigins: config.moodleLoginAllowedOrigins,
       }),
     );
-    const targetUrl = extractQuizUrl(config.prompt) ?? (await discoverQuizTarget(config, client));
+    const targetUrl = extractQuizUrl(config.prompt) ?? (await discoverQuizTarget(config, client, dependencies.codex));
     const workflow: QuizWorkflowState = {
       kind: "quiz_workflow",
       target_url: targetUrl,
@@ -159,6 +160,8 @@ export function createQuizPageNode(
         questions: [],
       };
       workflow.page = openedPage;
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopQuizWorkflowForPolicy(config, state, workflow, dateGate, metadata);
       const wantsAttempt = promptWantsQuizAttempt(config.prompt);
       if (wantsAttempt) {
         const startDecision = enforceQuizSafetyPolicy(
@@ -195,6 +198,8 @@ export function createQuizPageNode(
       beforeStart.questions.length === 0
     ) {
       metadata = await extractQuizMetadata(client);
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopQuizWorkflowForPolicy(config, state, workflow, dateGate, metadata);
       const liveStartDecision = enforceQuizSafetyPolicy(
         config.quizSafetyPolicy,
         "start_or_continue_attempt",
@@ -213,9 +218,19 @@ export function createQuizPageNode(
         await claimApprovedQuizPermission(config.approvedQuizPermission);
         permissionClaimed = true;
       }
-      startResult = await clickSafeStartOrContinue(client);
+      startResult = await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt });
       if (startResult.clicked) {
         await client.wait(1_500);
+        if (metadata.hasActiveAttempt) {
+          // A resumed Moodle attempt opens its last visited page. A request to
+          // work on the quiz must review the full attempt, including saved pages.
+          const attemptUrl = new URL(await client.getUrl());
+          if (/\/mod\/quiz\/attempt\.php$/.test(attemptUrl.pathname) && attemptUrl.searchParams.has("attempt")) {
+            attemptUrl.searchParams.set("page", "0");
+            await client.open(attemptUrl.toString());
+            await client.wait(750);
+          }
+        }
       }
     }
     const page = await extractQuizPage(client);
@@ -335,7 +350,7 @@ export function createQuizSolverNode(
           workflow.metadata,
         );
       }
-      const packet = {
+      const packet: Record<string, unknown> = {
         ...buildQuestionPacket({
           page: workflow.page,
           question,
@@ -348,6 +363,12 @@ export function createQuizSolverNode(
         `question-${String(question.question_index).padStart(3, "0")}`,
       );
       await mkdir(questionDir, { recursive: true });
+      const client = dependencies.agentBrowser ?? createBrowserClient(config);
+      if (question.response_model?.adapter === "drag-drop-image" && client.captureQuestionImage) {
+        const imagePath = path.join(questionDir, "question.png");
+        await client.captureQuestionImage(question.question_id, imagePath);
+        packet.image_paths = [imagePath];
+      }
       await writeFile(
         path.join(questionDir, "packet.json"),
         `${JSON.stringify(packet, null, 2)}\n`,

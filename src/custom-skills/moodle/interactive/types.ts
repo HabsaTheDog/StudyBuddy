@@ -1,3 +1,4 @@
+import type { TemporalRequest } from "../temporalRequest.js";
 import type { AgentState, SourceCoverage } from "./state.js";
 import type {
   LanguageResolutionReason,
@@ -72,6 +73,7 @@ export type MoodleWorkflowStatus =
   | "failed";
 
 export interface MoodleRuntimeConfig {
+  readonly temporalRequest?: TemporalRequest;
   prompt: string;
   originalUserPrompt: string;
   outputLanguage: SupportedLanguage;

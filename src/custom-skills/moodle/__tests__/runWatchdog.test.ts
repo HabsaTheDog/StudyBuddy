@@ -92,6 +92,33 @@ describe("external Study Buddy watchdog", () => {
     expect(activity!).toBeGreaterThan(0);
   });
 
+  it("keeps a progressing quiz alive and times out after its last answer becomes stale", async () => {
+    runDir = await createRunningWorkflow();
+    const packetDir = path.join(runDir, "subagent-packets", "page-001", "question-001");
+    await mkdir(packetDir, { recursive: true });
+    const { utimes } = await import("node:fs/promises");
+    let current = Date.now() + 10_000;
+    let polls = 0;
+    const terminate = vi.fn(async () => {});
+    const result = await monitorRunProcess({runDir, pid:123, idleTimeoutMs:200, maxRuntimeMs:2000, pollMs:100}, {
+      now: () => current,
+      processIsAlive: () => true,
+      terminate,
+      sleep: async (milliseconds) => {
+        current += milliseconds;
+        polls += 1;
+        if (polls <= 5) {
+          const target = path.join(packetDir, polls % 2 ? "packet.json" : "answer-spec.json");
+          await writeFile(target, "{}");
+          await utimes(target, new Date(current), new Date(current));
+        }
+      },
+    });
+    expect(polls).toBe(7);
+    expect(result.status).toBe("idle_timeout");
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+
   it("terminates a real detached process group after its run files become stale", async () => {
     if (process.platform === "win32") return;
     runDir = await createRunningWorkflow();

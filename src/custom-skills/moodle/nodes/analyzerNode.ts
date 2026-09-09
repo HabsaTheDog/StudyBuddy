@@ -1,3 +1,4 @@
+import { readObligationInventory } from "../obligationInventory.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -27,6 +28,8 @@ import {
   STUDENT_FIRST_POLICY_VERSION,
 } from "../studentFirstPolicy.js";
 import { resolveTaskBudget } from "../taskBudget.js";
+import { readObligationCoverage } from "../obligationCoverage.js";
+import { compactObligationRawSource } from "../obligationDiscovery.js";
 import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
@@ -75,6 +78,18 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       throwIfAborted(config.abortSignal);
+      const inventory = config.intentDecision?.obligationDiscovery?.requested
+        ? await readObligationInventory(config.runDir) : null;
+      if (inventory?.answer) {
+        const validated = validateExtractedData({ document_title: "Obligation overview", language: config.outputLanguage,
+          course: { title: inventory.scope, url: config.dashboardUrl },
+          sources: inventory.facts.map(f => ({ id: f.id, title: f.label, kind: "moodle_page", url: f.url })),
+          sections: inventory.facts.filter(f => f.disposition === "due").map(f => ({ heading: `${f.course}: ${f.label}`, summary: `${f.dueDate}: ${f.status}`, source_ids: [f.id] })),
+          warnings: inventory.gaps,
+        });
+        await persistExtractedData(config.runDir, validated);
+        return { extracted_data: validated, error_log: null };
+      }
       const analyzed = shouldAnalyzeByChapter(config, state)
         ? await analyzeCourseChapters(config, state, codex)
         : await analyzeWholeRequest(config, state, codex);
@@ -143,6 +158,9 @@ export function reconcileRequestedCourseIdentity(
   data: ReturnType<typeof validateExtractedData>,
   sourceText = "",
 ): ReturnType<typeof validateExtractedData> {
+  if (config.intentDecision?.obligationDiscovery?.scope === "all_relevant") {
+    return data;
+  }
   const resolvedIdentity = extractResolvedCourseIdentity(sourceText);
   const requestedCode = resolveRequestedCourseCode(
     config.prompt,
@@ -2473,10 +2491,39 @@ export async function buildAnalyzerPrompt(
   focus?: ChapterFocus,
 ): Promise<string> {
   const visualManifest = await readVisualManifest(config.runDir);
-  const contextBudget = focus
+  const obligationCoverage = config.intentDecision?.obligationDiscovery?.requested
+    ? await readObligationCoverage(config.runDir)
+    : null;
+  const obligationCoverageView = obligationCoverage
+    ? {
+        requestedRange: obligationCoverage.requestedRange,
+        calendar: obligationCoverage.calendar,
+        calendarCourseHints: obligationCoverage.calendarCourseHints,
+        budget: obligationCoverage.budget,
+        counts: {
+          courses: obligationCoverage.discovered.courses.length,
+          sections: obligationCoverage.discovered.sections.length,
+          activities: obligationCoverage.discovered.activities.length,
+          visited: obligationCoverage.visited.length,
+          failed: obligationCoverage.failed.length,
+          pending: obligationCoverage.pending.length,
+        },
+        failed: obligationCoverage.failed.slice(0, 20),
+        pending: obligationCoverage.pending.slice(0, 20),
+        frontierTruncated: obligationCoverage.frontierTruncated,
+        complete: obligationCoverage.complete,
+        detail: obligationCoverage.detail,
+      }
+    : null;
+  const obligationDiscovery = config.intentDecision?.obligationDiscovery?.requested === true;
+  const contextBudget = obligationDiscovery
+    ? 32_000
+    : focus
     ? FOCUSED_CONTEXT_BUDGET
     : Math.min(resolveTaskBudget(config.intentDecision).maxModelInputChars, 40_000);
-  const evidenceBudget = focus
+  const evidenceBudget = obligationDiscovery
+    ? 4_000
+    : focus
     ? FOCUSED_EVIDENCE_BUDGET
     : Math.floor(contextBudget * 0.7);
   const sourceBudget = Math.max(0, contextBudget - evidenceBudget);
@@ -2537,12 +2584,14 @@ export async function buildAnalyzerPrompt(
       }
     : null;
   const rawSource = focus ? focusedRawSource(state.moodle_raw_text, analyzerManifest.resources) : state.moodle_raw_text;
-  const sourceOverview = focusedEvidence.records.length > 0
-    ? ""
-    : rawSource.slice(0, Math.min(
-        focus ? FOCUSED_SOURCE_OVERVIEW_BUDGET : 12_000,
-        sourceBudget || contextBudget,
-      ));
+  const sourceOverview = config.intentDecision?.obligationDiscovery?.requested
+    ? compactObligationRawSource(rawSource, sourceBudget || contextBudget)
+    : focusedEvidence.records.length > 0
+      ? ""
+      : rawSource.slice(0, Math.min(
+          focus ? FOCUSED_SOURCE_OVERVIEW_BUDGET : 12_000,
+          sourceBudget || contextBudget,
+        ));
   const figureLimit = analyzerVisuals
     ? analyzerVisuals.candidates.length
     : config.maxVisualAssets > 0
@@ -2553,6 +2602,17 @@ export async function buildAnalyzerPrompt(
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
     "Keep official titles and identifiers traceable. Calendar is primary for dates/times/exams/rooms; CIS is the fallback and the source for attendance or administrative LV facts.",
+    config.intentDecision?.obligationDiscovery?.requested
+      ? [
+          `Resolved time boundary (authoritative, never recompute): ${JSON.stringify(config.temporalRequest ?? null)}`,
+          "This is obligation discovery. Calendar events define temporal context and course priority, but a lecture event is not itself an assignment.",
+          "Return one section per source-confirmed actionable obligation. Its heading identifies course and activity; its summary states task, due date/window, submission or preparation requirements, and status when available. Explicitly say when one of those fields is not exposed.",
+          "Every returned assignment/test obligation must cite its direct Moodle activity page through source_ids. Preparation instructions may instead cite the direct course or section page on which they are stated. Never use a dashboard alone.",
+          "You may combine a Moodle rule such as 'the evening before the next class' with the selected calendar event to resolve the date; cite both and state that the date is derived from those two sources.",
+          "Before returning, account for every distinct calendar course: emit each actionable preparation/assignment supported for that course, or mention in warnings that its audited pages exposed no obligation for the requested window. A relative assignment rule tied to the next class is actionable in that window even when Moodle leaves its absolute due-date field blank.",
+          "Never claim that there are no more obligations unless the obligation coverage manifest is complete. When it is incomplete, add a warning naming the remaining coverage gap.",
+        ].join(" ")
+      : "",
     "Use the evaluated request contract to decide which subject components belong in each deliverable. Preserve Moodle hierarchy and explain only the requested or evidence-supported material; never add a conventional study-guide component merely to satisfy a template.",
     "When learning objectives contain official labels such as 'Thema 2' or 'Topic 2', create a distinct subject section for every listed number and retain that label in its heading. Related official topics may share one broader learning module, but their mapping must remain visible.",
     "worked_examples, figures, questions, derivations, and other optional components may be empty. Include them only when required by the evaluated contract or justified by its evidence-derived strategy, and make every included item source-grounded and pedagogically complete.",
@@ -2583,7 +2643,16 @@ export async function buildAnalyzerPrompt(
       : "",
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
-    `Source coverage JSON:\n${JSON.stringify(config.diagnostics?.getCoverage() ?? {}, null, 2)}`,
+    `Source coverage JSON:\n${JSON.stringify(
+      obligationDiscovery
+        ? compactSourceCoverage(config.diagnostics?.getCoverage() ?? {})
+        : config.diagnostics?.getCoverage() ?? {},
+      null,
+      2,
+    )}`,
+    obligationCoverageView
+      ? `Obligation coverage manifest summary JSON:\n${JSON.stringify(obligationCoverageView, null, 2)}`
+      : "",
     analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(analyzerVisuals, null, 2)}` : "Visual candidates JSON: none",
     `Resource manifest JSON:\n${JSON.stringify(analyzerManifest, null, 2)}`,
     `Evidence package selection JSON:\n${JSON.stringify(evidenceView, null, 2)}`,
@@ -2591,6 +2660,21 @@ export async function buildAnalyzerPrompt(
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function compactSourceCoverage(coverage: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(coverage as Record<string, unknown>).map(([source, value]) => {
+    if (!value || typeof value !== "object") return [source, value];
+    const entry = value as Record<string, unknown>;
+    return [source, {
+      status: entry.status,
+      detail: entry.detail,
+      pages: entry.pages,
+      urlCount: Array.isArray(entry.urls) ? entry.urls.length : 0,
+      attemptedUrlCount: Array.isArray(entry.attemptedUrls) ? entry.attemptedUrls.length : 0,
+      artifactCount: Array.isArray(entry.artifacts) ? entry.artifacts.length : 0,
+    }];
+  }));
 }
 
 function compactEvidenceForAnalyzer(

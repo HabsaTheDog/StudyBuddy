@@ -1,46 +1,11 @@
-# Study Buddy 2.0 Agent Rules
+# Study Buddy Agent Rules
 
-- Study Buddy and upstream T3 Code are separate applications. `t3code-fork/` is Study Buddy-owned fork code; `~/Dokumente/Development/t3code-upstream`, `~/Applications/t3code`, `~/.local/bin/t3-code`, `~/.local/share/applications/t3code.desktop`, `~/.t3`, and `~/.config/t3code` belong to upstream T3 Code unless the user explicitly scopes work there.
-- Study Buddy fork builds must use Study Buddy-specific app identity, state, launcher, protocol, and artifact names. Do not install or copy Study Buddy artifacts into `~/Applications/t3code`, and do not name generated Study Buddy AppImages `T3-Code-*`.
-- Before changing the adaptive interactive Study Builder, read `docs/study-builder-vnext/implementation-charter.md` and the relevant sections of `docs/study-builder-vnext/product-spec.md`; track implementation status in `docs/study-builder-vnext/implementation-plan.md`.
-- Preserve the recognizable Moodle course hierarchy, keep generated practice inside established course scope, and select learning blocks from course and assessment evidence rather than fixed subject templates.
-- Treat every interactive question as a validated bank item with a stable ID, learning objective, answer or rubric, origin, scope basis, stage, and review result.
-- Use only the existing effective Moodle quiz permission. Do not create a shadow permission path or access, start, change, or inspect a quiz beyond that permission.
-- Automatic Study Builder evidence acquisition may inspect authorized completed quiz attempts but must never start or continue an attempt; broader Quiz Assist actions require a separate explicit quiz-assistance request.
-- Keep the adaptive learner runtime to one offline HTML file with compact local state; do not add a backend, account system, detailed attempt history, spaced-repetition scheduler, or user-authored question builder without an explicit charter change.
-- Benchmark adaptive Study Builder changes against `docs/study-builder-vnext/benchmark-manifest.json`; permission, correctness, scope, provenance, and interaction gates remain hard requirements even when optimizing runtime or tokens.
-- Keep all Moodle/CIS pipeline logic isolated under `src/custom-skills/moodle/`.
-- Do not modify host routing, state, or UI files for the Moodle skill.
-- Treat `reference repo Study Buddy 1.0/` as read-only unless the user explicitly asks to modify it.
-- Keep `t3code-fork/` edits minimal, scoped, and merge-friendly; do not place generated study artifacts there.
-- Store Study Buddy pipeline data under `study-buddy-data/`. In regular projects, isolate runs below `threads/<thread-id>/runs/<request-name>/`; in Quick Chats, use `runs/<request-name>/` directly because the workspace is already thread-specific.
-- Keep canonical workflow deliverables inside their run directory, then publish verified user-facing copies outside `study-buddy-data/` in the surrounding workspace.
-- Do not place generated PDFs, Typst files, Markdown drafts, screenshots, diagrams, downloads, or temporary source files inside `t3code-fork/`, `reference repo Study Buddy 1.0/`, or other reference repos.
-- Use the current 2.0 TypeScript contracts for Moodle data shapes, study-document expectations, quiz workflows, and Typst conventions.
-- Govern the Moodle pipeline with LangGraph, not a linear script.
-- Preserve the strict graph state fields: `moodle_raw_text`, `extracted_data`, `final_document`, `error_log`, and `retry_count`.
-- Route invalid analyzer JSON back to the analyzer with `error_log` repair context.
-- Route invalid Typst back to the formatter with validator diagnostics.
-- Abort retry loops after three retries.
-- Expose both a reusable TypeScript API and a CLI wrapper.
-- Prefer live Moodle reads for current information; download linked files only as per-run artifacts when they add usable source text.
-- Prefer live CIS reads for timetable, exam, administrative, and study-program information that Moodle does not expose.
-- For dates, schedules, rooms, exams, and deadlines, use the personal calendar first when configured. One complete direct result from calendar, CIS, or Moodle is sufficient; do not start another run merely to corroborate it.
-- Use CIS directly for attendance and administrative LV information. Use another source only when the primary source is unavailable, has no match, or lacks a requested field.
-- Do not conclude that information is unavailable from one empty source; use the appropriate fallback and report source coverage.
-- Never submit final Moodle quiz attempts.
-- For artifact requests, start one Study Buddy run and monitor that run directory until it reaches a terminal status. Do not launch a second broad crawl while the first run is active.
-- Prefer a direct Moodle course, activity, assignment, or resource URL when one is already known from a completed run.
-- Never reinterpret a requested topic as a neighboring topic such as AC-DC instead of DC-DC. Report source mismatches explicitly.
-- Treat a PDF request as successful only when `run-summary.md` is terminal, `error.log` is empty, and non-empty `document.typ` and `document.pdf` files exist.
-- A reachable dashboard or unrelated course page is not sufficient source coverage for a specific topic.
-- Generated study PDFs must use the standardized Study Buddy Typst component library and document shell.
-- If a run is too broad, cancel it through the wrapper and retry once with the most specific discovered URL. Do not leave superseded runs active.
-- For PDF requests, the Study Buddy `doc` wrapper and standardized Typst renderer are the PDF toolchain. Poll the original command session until exit, or use `study_buddy_task.sh wait <run-dir>`; status checks alone do not complete the task.
-- Do not end the agent turn while an artifact-producing process is still active. After verifying the terminal run and non-empty canonical `document.pdf`, preserve it in the run directory, copy it byte-for-byte to an unused simple `/tmp/<descriptive-filename>.pdf` path, verify the copy, and include `[descriptive-filename.pdf](/tmp/descriptive-filename.pdf)` in the final response so T3 renders the native file attachment icon. Never use `file://`, URL encoding, angle brackets, a workspace/output path as the final delivery link, or a plain-text-only path.
-- Use the buffered lease protocol in `docs/orchestration-lease-protocol.md` for long-running workers: 210 seconds of tool work, 90 seconds reserved for checkpoint generation, and 30 seconds of parent-side delivery grace. For subagents use `wait_agent` with `timeout_ms: 330000`; for PTY processes use one `write_stdin` with `yield_time_ms: 210000`.
-- A long-running worker must checkpoint as `completed`, `progress`, or `blocked` no later than the end of its five-minute lease. Continue the same worker by default when it is alive, on-topic, and making semantic progress.
-- A worker must not begin a blocking operation that can outlive its remaining 210-second work budget. Long processes must run in a reusable session or detached process so the worker can regain control and respond before the five-minute checkpoint deadline.
-- Do not duplicate or replace an active worker because it is quiet. Redirect or replace only on concrete off-course evidence, terminal failure, or stale semantic progress, and confirm the original process has stopped first.
-- Moodle document generation is a mandatory two-worker workflow: `extract` must finish and persist a validated handoff before `render` starts; `render` must consume that handoff without crawling sources again.
-- For Moodle-derived artifacts, never manually create or patch a replacement `.typ`, never call `typst compile` directly, and never generate replacement PDFs in `test*/` or outside the wrapper's printed workflow directory. Rendering recovery must use the official `render` command with the existing successful extraction run. A byte-for-byte `/tmp` delivery copy is permitted only after the canonical workflow PDF has passed all success checks.
+- Study Buddy is a universal study agent, not degree-, course-, subject-, or institution-specific. Build reusable modular behavior that adapts to the user's topic, study context, and configured sources; avoid hard-coded curricula, subject templates, or source assumptions.
+- Study Buddy must coexist with independently installed T3 Code. Never share or alter its identity, state, ports, protocols, launchers, artifacts, updater, migrations, or processes unless explicitly requested.
+- `t3code-fork/` belongs exclusively to Study Buddy. Treat `reference repo Study Buddy 1.0/` as read-only.
+- Keep Moodle and CIS pipeline logic under `src/custom-skills/moodle/`; do not couple it to host routing or UI state.
+- Use the current Study Buddy 2.0 contracts and LangGraph architecture. Preserve `moodle_raw_text`, `extracted_data`, `final_document`, `error_log`, and `retry_count`; stop after three unsuccessful validation retries.
+- Never submit a final Moodle quiz attempt or exceed the existing permission boundary.
+- Before changing Study Builder, read its implementation charter and relevant product specification, then update its implementation plan.
+- Store workflow state under `study-buddy-data/`. Never place generated artifacts inside forks or reference repositories.
+- Use the applicable Study Buddy skill for workflow-specific acquisition, rendering, testing, and delivery procedures.

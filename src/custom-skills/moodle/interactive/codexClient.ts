@@ -1,3 +1,4 @@
+import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
@@ -5,12 +6,12 @@ import {
   buildCodexShellEnvironmentConfig,
 } from "../../shared/childProcessSecurity.js";
 
-export type CodexTask = "quiz_solver";
+export type CodexTask = "quiz_solver" | "source_search";
 
 export interface CodexClient {
   run(
     prompt: string,
-    options?: { outputSchema?: unknown; task?: CodexTask; attempt?: number },
+    options?: { outputSchema?: unknown; task?: CodexTask; attempt?: number; imagePaths?: string[] },
   ): Promise<string>;
 }
 
@@ -47,7 +48,9 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         ...(selection.model ? { model: selection.model } : {}),
         ...(selection.reasoningEffort ? { modelReasoningEffort: selection.reasoningEffort } : {}),
       });
-      const turn = await thread.run(prompt, { outputSchema: options?.outputSchema });
+      const turn = await thread.run(options?.imagePaths?.length
+        ? [{ type: "text", text: prompt }, ...options.imagePaths.map(imagePath => ({ type: "local_image" as const, path: imagePath }))]
+        : prompt, { outputSchema: options?.outputSchema });
       return turn.finalResponse;
     },
   };
@@ -58,6 +61,10 @@ export function resolveCodexModelSelection(
   task?: CodexTask,
   attempt = 1,
 ): { model?: string; reasoningEffort?: ModelReasoningEffort } {
+  if (task === "source_search") {
+    const policy = resolveTaskModelPolicy({ profile: "balanced", task, attempt, globalModel: config.codexModel });
+    return { model: policy.model, reasoningEffort: policy.reasoningEffort === "minimal" ? "low" : policy.reasoningEffort };
+  }
   if (task === "quiz_solver" && config.quizSolverModelPolicy) {
     return attempt > 1
       ? {
