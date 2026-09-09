@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { SourceEvidenceCache, sourceCacheRoot, sourceBackedStatus, evidenceSourceText } from "../sourceEvidenceCache.js";
+import { SourceEvidenceCache, sourceCacheRoot, sourceBackedStatus, evidenceSourceText, missingExternalTaskEvidence } from "../sourceEvidenceCache.js";
 import type { EvidenceCard, ObligationFact } from "../obligationInventory.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 import { resolveTemporalRequest } from "../temporalRequest.js";
@@ -108,4 +108,46 @@ it("rejects a legacy blank-index no-deadline proof when the actual activity has 
   legacy.fact = { ...legacy.fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: dated.index };
   await writeFile(target, JSON.stringify(legacy));
   expect(await cache.read(dated)).toBeNull();
+});
+
+it.each([
+  ['8.4 - Task ***\nExternal source: https://source.example/home\nGeneral book home', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/8.40\n8.40 exercise', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/chapter\nMechanics textbook. Chapter 8 Friction. 8.1 Sliding ** 8.4 Friction *** 8.6 Support **** Solutions', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/8.4\nGeneral chapter navigation without the task', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nExample 8.4 friction', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nNew exercise. Record results.', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nExample 8.4 friction. New exercise. Record results.', false],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nExample 8.5 friction. New exercise. Record results.', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nChapter 8.4 friction. Example 8.5 forces. New exercise. Record results.', true],
+  ['8.4 - Task ***\nExternal source: https://source.example/task\nExample 8.4 friction. Due date: no deadline', false],
+])("requires evidence from the actual external task: %s", (landing, missing) => {
+  expect(missingExternalTaskEvidence({ ...card, kind: 'lti', label: '8.4 - Task ***', read: true, landing })).toBe(missing);
+});
+
+it("rejects unsupported date quotes from a legacy undated proof", async () => {
+  const dir = await root(); const cache = new SourceEvidenceCache(config, dir);
+  const source = { ...card, read: true, landing: 'Textbook reading with no published deadline' };
+  await cache.write(source, { ...fact, disposition: 'no_deadline', evidence: source.landing });
+  const [file] = await readdir(dir); const target = path.join(dir, file!);
+  const legacy = JSON.parse(await readFile(target, 'utf8')); legacy.fact.dateQuote = 'e4';
+  await writeFile(target, JSON.stringify(legacy));
+  expect(await cache.read(source)).toBeNull();
+});
+
+it("invalidates a legacy generic-home proof and never writes another no-deadline proof for it", async () => {
+  const dir = await root(); const cache = new SourceEvidenceCache(config, dir);
+  const external = { ...card, kind: 'lti', label: '8.4 - Task ***', read: true, landing: '8.4 - Task ***\nExternal source: https://source.example/home\nGeneral book home' };
+  // A legacy entry retains a valid fingerprint and quotation; only its evidence
+  // sufficiency is obsolete. Seed an allowed record then emulate that old fact.
+  await cache.write(external, { ...fact, evidence: 'General book home' });
+  const [file] = await readdir(dir); const target = path.join(dir, file!);
+  const legacy = JSON.parse(await readFile(target, 'utf8'));
+  legacy.fact.disposition = 'no_deadline';
+  await writeFile(target, JSON.stringify(legacy));
+  expect(await cache.read(external)).toBeNull();
+  const before = await readFile(target, 'utf8');
+  await cache.write(external, legacy.fact);
+  expect(await readFile(target, 'utf8')).toBe(before);
+  expect(cache.writes).toBe(1);
 });

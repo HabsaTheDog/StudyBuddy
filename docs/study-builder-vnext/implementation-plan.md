@@ -1495,7 +1495,22 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
   interpretation independently before narrowing a course query.
 - [x] Execute the explicit historical-enrollment desktop verification and record
   its actual partial result: all enrollments inventoried, seven unresolved facts.
-- [ ] Obtain complete historical source coverage and reliable long-run desktop
+- [x] Obtain complete historical source coverage and reliable long-run desktop
   delivery before promoting this candidate as fully accepted.
 
 See [validation results](../semantic-source-search-validation.md).
+
+## Remaining reliability completion
+
+- [x] Distinguish opening/grading metadata from closing instructions in undated-task validation.
+- [x] Reconcile already-read source evidence and positive resource purpose without hiding actual gaps.
+- [x] Preserve the canonical answer and reliable desktop terminal delivery.
+- [x] Patch dependency advisories with isolated installs and run repository checks.
+- [x] Recover misdirected external task links through bounded observed navigation, with native identifier matching, independent semantic review when ambiguous, and rejection of optional cookies only.
+- [x] Reject generic external-home evidence in direct classification, model extraction and legacy proof caching.
+- [x] Recover transient empty external/embedded metadata within the existing three-acquisition limit; retain authentication and quiz boundaries.
+- [x] Require task-focused external source content; a matching identifier in a chapter link list cannot satisfy acquisition or cache validation.
+- [x] Keep date fields empty for non-deadline facts and reject unsupported legacy date quotations.
+- [x] Distinguish a cited textbook used to prepare/consult for a separate test from an assessed reading deliverable; verify actual failed resource cards and negative reading/interactive cases.
+- [x] Require actual task/deadline metadata with the requested external identity; reject title-only embedded launch shells and retry them within the existing acquisition limit. Avoid re-navigation after a fresh correct landing.
+- [x] Pass historical/current-semester/Mathe desktop gates before local promotion (R37: 46/1,030, 8/101, 1/16; exact canonical desktop answers and independent source review passed).
