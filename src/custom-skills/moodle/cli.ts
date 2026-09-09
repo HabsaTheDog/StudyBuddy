@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { isAssignmentSubmissionPrompt } from "./interactive/quizIntent.js";
 import { Command } from "commander";
+import { readFile } from "node:fs/promises";
 import { runMoodleGraph } from "./graph.js";
 import { runInteractiveMoodleGraph } from "./interactive/graph.js";
 import { loadApprovedQuizPermission } from "./interactive/quizPermissions.js";
@@ -227,6 +229,12 @@ if (interactiveRequest) {
       })
     : [];
 
+  if (!options.json && result.answerPath) {
+    const canonical = await readFile(result.answerPath, "utf8");
+    console.log(`Canonical answer (${result.coverageComplete ? "complete source coverage" : "PARTIAL source coverage"}): ${result.answerPath}`);
+    console.log("Preserve the following answer's facts, source links and uncertainty in the user reply. An unconfirmed deadline is not evidence that nothing is due. Do not replace this answer with deductions from raw source files.");
+    console.log(canonical.length <= 24000 ? canonical : `Read the complete canonical answer at ${result.answerPath}; it is too long to inline.`);
+  }
   if (options.json) {
     console.log(JSON.stringify({ ...result, publishedDeliverables }, null, 2));
   } else if (result.ok) {
@@ -356,11 +364,7 @@ function isQuizExecutionPrompt(value: string): boolean {
 }
 
 function isAssignmentExecutionPrompt(value: string): boolean {
-  return (
-    (/\b(?:assignment|submission|abgabe|aufgabe|übungsabgabe|uebungsabgabe)\b/i.test(value) ||
-      /\/mod\/assign\//i.test(value)) &&
-    /\b(?:submit|turn in|upload|abgeben|einreichen|hochladen)\b/i.test(value)
-  );
+  return isAssignmentSubmissionPrompt(value);
 }
 
 async function runNativeQuizWorkflow(input: {

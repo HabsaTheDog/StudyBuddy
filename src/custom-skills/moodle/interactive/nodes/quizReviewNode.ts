@@ -1,3 +1,5 @@
+import { resolveSemanticSearch } from "../../semanticSearch.js";
+import { quizRequestTime, quizDateMatches, quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
@@ -296,6 +298,8 @@ export function createQuizReviewNode(
       await client.open(target);
       await client.wait(1_000);
       let metadata = await extractQuizMetadata(client);
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopForQuizPolicy(config, state, target, dateGate, metadata);
       const readDecision = enforceQuizSafetyPolicy(config.quizSafetyPolicy, "read_questions");
       if (readDecision.status !== "allowed") {
         return await stopForQuizPolicy(config, state, target, readDecision, metadata);
@@ -970,9 +974,41 @@ function toJsonObject(value: unknown): JsonObject {
 export async function discoverQuizTarget(
   config: MoodleRuntimeConfig,
   client: AgentBrowserClient,
+  model?: CodexClient,
 ): Promise<string | null> {
   const visited = new Set<string>();
   const queue: string[] = [config.moodleUrl || config.dashboardUrl];
+  // The configured source may be the Moodle root, which login redirects to the
+  // dashboard. Resolve the enrolled catalog for any discovery entry point;
+  // testing only the configured /my/ path silently bypassed course resolution.
+  let courseScope = quizCourseIdentity(queue[0]);
+  if (model && client.enrolledCourses && !courseScope) {
+    const catalog = await client.enrolledCourses();
+    const resolution = await resolveSemanticSearch({
+      prompt: config.originalUserPrompt || config.prompt, context: JSON.stringify(quizRequestTime(config)),
+      candidates: catalog.courses, runDir: config.runDir, sourceScope: config.baseUrl,
+      cacheDir: path.join(config.runDir, "semantic-cache"),
+      model: { run: (prompt, options) => model.run(prompt, { ...options, task: "source_search" }) },
+      reader: {
+        inspect: async c => {
+          await client.open(c.url);
+          const text = await client.evalJson<string>("(() => { const root = document.querySelector('main,#region-main'); return (root?.textContent || '').replace(/\\s+/g, ' ').trim(); })()");
+          return { ...c, text: `${c.text ?? ""}\n${text}` };
+        },
+        search: async query => catalog.courses.filter(c => query.toLowerCase().split(/\s+/).some(w => `${c.label} ${c.text}`.toLowerCase().includes(w))),
+      },
+    });
+    if (resolution.status === "resolved") {
+      const selected = catalog.courses.filter(c => resolution.selectedIds.includes(c.id));
+      if (selected.length !== 1) return null;
+      courseScope = quizCourseIdentity(selected[0].url);
+      queue.splice(0, queue.length, selected[0].url);
+    } else {
+      // An unresolved course is not permission to search other courses for a
+      // similarly numbered quiz.
+      return null;
+    }
+  }
   const candidatesByUrl = new Map<string, QuizCandidate>();
   const sourcesDir = path.join(config.runDir, "quiz-discovery-snapshots");
   await mkdir(sourcesDir, { recursive: true });
@@ -1015,7 +1051,9 @@ export async function discoverQuizTarget(
         }
       } else if (
         (link.href.includes("/course/view.php") || link.href.includes("/my/")) &&
-        isRelevantCourseLink(config.prompt, link.label, link.href) &&
+        (courseScope
+          ? quizCourseIdentity(link.href) === courseScope
+          : isRelevantCourseLink(config.prompt, link.label, link.href)) &&
         !visited.has(link.href) &&
         queue.length + visited.size < config.maxPages
       ) {
@@ -1033,7 +1071,32 @@ export async function discoverQuizTarget(
       candidate.order,
     );
   }
-  const selected = selectQuizCandidate(config.prompt, candidates);
+  const requestTime = quizRequestTime(config);
+  let eligible = candidates;
+  const dateEvidence: Array<{ url: string; opensAt?: string | null; closesAt?: string | null; matches: boolean; error?: string }> = [];
+  if (requestTime.status !== "none") {
+    eligible = [];
+    if (requestTime.status === "resolved" && config.quizSafetyPolicy?.allowOpeningQuizPages !== false) {
+      for (const candidate of candidates) {
+        try {
+          await client.open(candidate.url);
+          const metadata = await extractQuizMetadata(client);
+          const matches = quizDateMatches(metadata, requestTime);
+          dateEvidence.push({ url: candidate.url, opensAt: metadata.opensAt, closesAt: metadata.closesAt, matches });
+          if (matches) eligible.push(candidate);
+        } catch {
+          dateEvidence.push({ url: candidate.url, matches: false, error: "date-metadata-unavailable" });
+        }
+      }
+    }
+  }
+  // Dates require a unique match, never a score-based guess between dated activities.
+  const selected = requestTime.status === "none" || eligible.length === 1
+    ? selectQuizCandidate(config.prompt, eligible) : null;
+  await writeFile(path.join(config.runDir, "quiz-target-resolution.json"), JSON.stringify({
+    temporalRequest: requestTime, selectedUrl: selected?.url ?? null, dateEvidence,
+    reason: selected ? "target-selected" : requestTime.status !== "none" ? "no-unique-date-confirmed-target" : "no-matching-target",
+  }, null, 2) + "\n");
   candidates.sort((a, b) => b.score - a.score || a.order - b.order);
   await writeFile(
     path.join(config.runDir, "quiz-candidates.json"),
@@ -1322,6 +1385,7 @@ function isQuizActivityViewUrl(value: string): boolean {
 
 function quizCandidateTitleQuality(title: string): number {
   const normalized = title.replace(/\s+/g, " ").trim();
+  if (/^https?:\/\//i.test(normalized)) return -10_000;
   const genericPenalty = /^(?:test|quiz|moodle test)$/i.test(normalized) ? 1_000 : 0;
   const semanticBonus = extractUnitNumbers(normalized).size > 0 ? 500 : 0;
   return semanticBonus + normalized.length - genericPenalty;
@@ -1343,6 +1407,13 @@ function requestedOrdinal(prompt: string): number | null {
 function isRelevantCourseLink(prompt: string, label: string, url: string): boolean {
   const haystack = `${label} ${url}`.toLocaleLowerCase("de-AT");
   const lower = prompt.toLocaleLowerCase("de-AT");
+  // Course identifiers come from the request, not a fixed curriculum. Match
+  // complete tokens so e.g. ABC3 cannot resolve to ABC30 or ABC2.
+  const codes = lower.match(/\b[a-z]{2,}\d+[a-z\d]*\b/g) ?? [];
+  if (codes.length) {
+    const tokens = new Set(haystack.match(/[a-z\d]+/g) ?? []);
+    return codes.some(code => tokens.has(code));
+  }
   if (/dyn2|anwendungen der dynamik/.test(lower)) {
     return /dyn2|anwendungen der dynamik/.test(haystack);
   }
@@ -1356,6 +1427,13 @@ function isRelevantCourseLink(prompt: string, label: string, url: string): boole
     return /(^|\W)et2(\W|$)|elektrotechnik\s*2/.test(haystack);
   }
   return /course\/view\.php/.test(url);
+}
+
+function quizCourseIdentity(value: string): string | null {
+  const url = new URL(value);
+  const id = url.searchParams.get("id");
+  return /\/course\/view\.php$/.test(url.pathname) && id
+    ? `${url.origin}${url.pathname}?id=${id}` : null;
 }
 
 export function detectQuizRisks(bodyText: string): string[] {

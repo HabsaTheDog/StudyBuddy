@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildAnswerGraph } from "../graph.js";
 import { RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
@@ -11,6 +11,7 @@ import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 let runDir: string | null = null;
 
 afterEach(async () => {
+  vi.useRealTimers();
   if (runDir) await rm(runDir, { recursive: true, force: true });
   runDir = null;
 });
@@ -99,6 +100,8 @@ describe("calendar graph routing", () => {
   });
 
   it("answers an empty-calendar schedule lookup from bounded Moodle/CIS evidence without an analyzer", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
     runDir = await mkdtemp(path.join(os.tmpdir(), "calendar-answer-"));
     const prompt = "Find the next TEZEI exam date, time, and room.";
     const diagnostics = new RunDiagnostics({ runDir });

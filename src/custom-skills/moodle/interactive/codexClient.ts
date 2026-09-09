@@ -1,3 +1,4 @@
+import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
@@ -5,7 +6,7 @@ import {
   buildCodexShellEnvironmentConfig,
 } from "../../shared/childProcessSecurity.js";
 
-export type CodexTask = "quiz_solver";
+export type CodexTask = "quiz_solver" | "source_search";
 
 export interface CodexClient {
   run(
@@ -58,6 +59,10 @@ export function resolveCodexModelSelection(
   task?: CodexTask,
   attempt = 1,
 ): { model?: string; reasoningEffort?: ModelReasoningEffort } {
+  if (task === "source_search") {
+    const policy = resolveTaskModelPolicy({ profile: "balanced", task, attempt, globalModel: config.codexModel });
+    return { model: policy.model, reasoningEffort: policy.reasoningEffort === "minimal" ? "low" : policy.reasoningEffort };
+  }
   if (task === "quiz_solver" && config.quizSolverModelPolicy) {
     return attempt > 1
       ? {

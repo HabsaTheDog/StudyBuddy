@@ -81,11 +81,10 @@ const ASSIGNMENT_ACTION_TERMS = [
 
 export function isAssignmentSubmissionPrompt(prompt: string): boolean {
   const lower = prompt.toLocaleLowerCase("de-AT");
-  return (
-    (ASSIGNMENT_TERMS.some((term) => lower.includes(term)) ||
-      extractAssignmentUrl(prompt) !== null) &&
-    ASSIGNMENT_ACTION_TERMS.some((term) => lower.includes(term))
-  );
+  if (/\b(?:nichts?|nicht|keine?\w*|never|do not|don.t)\s+(?:abgeben|einreichen|hochladen|submit|upload)\b|\b(?:nur lesen|read.only)\b/i.test(lower)) return false;
+  if (/\b(?:welche\w*|was|wann|what|which|when)\b/.test(lower) && /\b(?:muss|soll|fällig|faellig|due|need|have to)\b/.test(lower)) return false;
+  return (ASSIGNMENT_TERMS.some(term => lower.includes(term)) || extractAssignmentUrl(prompt) !== null) &&
+    ASSIGNMENT_ACTION_TERMS.some(term => new RegExp(`\\b${term}\\b`, "i").test(lower));
 }
 
 export function extractAssignmentUrl(prompt: string): string | null {

@@ -1,3 +1,4 @@
+import { resolveTemporalRequest, temporalRange, type TemporalRequest } from "./temporalRequest.js";
 import { writeFile } from "node:fs/promises";
 import type { SupportedLanguage } from "../shared/languagePolicy.js";
 import path from "node:path";
@@ -7,6 +8,7 @@ import {
   hasUnrecognizedNamedCourseTarget,
 } from "./courseTargeting.js";
 import { assertPublicHttpsUrl } from "./urlSecurity.js";
+import { classifyObligationDiscovery } from "./obligationDiscovery.js";
 
 export const CALENDAR_TIMEOUT_MS = 15_000;
 export const CALENDAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -33,10 +35,14 @@ export interface CalendarSelection {
   missingFields: string[];
   needsCisFallback: boolean;
   detail: string;
+  requestedRange?: { start: string; end: string };
+  totalMatches?: number;
+  truncated?: boolean;
 }
 
 export interface CalendarAdapterOptions {
   now?: Date;
+  temporalRequest?: TemporalRequest;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxBytes?: number;
@@ -56,7 +62,7 @@ const EXAM_SIGNAL = /\b(?:prüfung|pruefung|test|exam|klausur)\b/i;
 const ADMIN_SIGNAL =
   /\b(?:anwesenheit|attendance|lv-info|lv information|lehrveranstaltungsinformation|administrativ|ects|lehrende|dozent|syllabus)\b/i;
 const SCHEDULE_SIGNAL =
-  /\b(?:termin|prüfung|pruefung|test|exam|klausur|uhrzeit|raum|räume|raeume|wann|wo|heute|morgen|diese woche|nächste[rsn]? termin|naechste[rsn]? termin|deadline|frist|stundenplan|schedule|timetable|today|tomorrow|room)\b/i;
+  /\b(?:termin|prüfung|pruefung|test|exam|klausur|uhrzeit|raum|räume|raeume|wann|wo|heute|morgen|diese woche|nächste[rsn]? woche|naechste[rsn]? woche|kommende[rsn]? woche|next week|nächste[rsn]? termin|naechste[rsn]? termin|deadline|frist|stundenplan|schedule|timetable|today|tomorrow|room)\b/i;
 const MATERIAL_SIGNAL =
   /\b(?:moodle|unterlagen|kursmaterial|folie|folien|skript|pdf|datei|lernzettel|formelsammlung|übungsblatt|uebungsblatt|quiz|assignment|aufgabenstellung|fachlabor|laborinhalt)\b|was machen wir|what are we doing/i;
 
@@ -77,22 +83,30 @@ export async function readCalendarEvents(
   prompt: string,
   options: CalendarAdapterOptions = {},
 ): Promise<CalendarSelection> {
-  const now = options.now ?? new Date();
+  const now = options.now ?? (options.temporalRequest ? new Date(options.temporalRequest.resolvedAt) : new Date());
   try {
     const normalizedUrl = normalizeCalendarUrl(calendarUrl);
     const ics = await fetchCalendarText(normalizedUrl, options);
-    const events = filterCalendarEvents(parseCalendarEvents(ics, now), prompt, now);
+    const parsedEvents = parseCalendarEvents(ics, now);
+    const allMatches = filterCalendarEvents(parsedEvents, prompt, now, false, options.temporalRequest);
+    const exhaustive = classifyObligationDiscovery(prompt).exhaustive;
+    const events = exhaustive ? allMatches : allMatches.slice(0, CALENDAR_MAX_EVENTS);
+    const range = options.temporalRequest ? temporalRange(options.temporalRequest) : resolveRequestedTimeRange(prompt, now);
+    const truncated = events.length < allMatches.length;
     const missingFields = requiredMissingFields(prompt, events[0]);
     const complete = events.length > 0 && missingFields.length === 0;
     return {
       status: events.length > 0 ? "success" : "empty",
       events,
-      complete,
+      complete: complete && !truncated,
       missingFields,
-      needsCisFallback: !complete,
+      needsCisFallback: !complete || truncated,
       detail: events.length > 0
-        ? `Selected ${events.length} relevant calendar event(s).`
+        ? `Selected ${events.length} relevant calendar event(s)${truncated ? ` of ${allMatches.length}` : ""}.`
         : "Calendar was readable, but no matching event was found.",
+      requestedRange: { start: range.start.toISOString(), end: range.end.toISOString() },
+      totalMatches: allMatches.length,
+      truncated,
     };
   } catch (error) {
     return {
@@ -246,8 +260,10 @@ export function filterCalendarEvents(
   events: CalendarEvent[],
   prompt: string,
   now = new Date(),
+  applyLimit = true,
+  request?: TemporalRequest,
 ): CalendarEvent[] {
-  const timeRange = requestedTimeRange(prompt, now);
+  const timeRange = request ? temporalRange(request) : resolveRequestedTimeRange(prompt, now);
   const courseTerms = requestedCourseTerms(prompt);
   const examOnly = EXAM_SIGNAL.test(prompt);
 
@@ -255,15 +271,15 @@ export function filterCalendarEvents(
     return [];
   }
 
-  return events
+  const selected = events
     .filter((event) => {
       const start = new Date(event.start);
       return start >= timeRange.start && start <= timeRange.end;
     })
     .filter((event) => courseTerms.length === 0 || courseTerms.some((term) => eventText(event).includes(term)))
     .filter((event) => !examOnly || EXAM_SIGNAL.test(eventText(event)))
-    .sort(compareEvents)
-    .slice(0, CALENDAR_MAX_EVENTS);
+    .sort(compareEvents);
+  return applyLimit ? selected.slice(0, CALENDAR_MAX_EVENTS) : selected;
 }
 
 export function formatCalendarEventsForWorkflow(events: CalendarEvent[]): string {
@@ -359,21 +375,8 @@ function requestedCourseTerms(prompt: string): string[] {
   return [...terms];
 }
 
-function requestedTimeRange(prompt: string, now: Date): { start: Date; end: Date } {
-  const normalized = prompt.toLowerCase();
-  const todayKey = viennaDateKey(now);
-  if (/\b(?:heute|today)\b/.test(normalized)) return dateKeyRange(todayKey);
-  if (/\b(?:morgen|tomorrow)\b/.test(normalized)) return dateKeyRange(addDaysToKey(todayKey, 1));
-  if (/\b(?:diese woche|this week)\b/.test(normalized)) {
-    const today = parseDateKey(todayKey);
-    const day = today.getUTCDay() || 7;
-    const monday = addDaysToKey(todayKey, 1 - day);
-    return { start: dateKeyRange(monday).start, end: dateKeyRange(addDaysToKey(monday, 6)).end };
-  }
-  return {
-    start: now,
-    end: new Date(now.getTime() + CALENDAR_DEFAULT_HORIZON_DAYS * 24 * 60 * 60 * 1000),
-  };
+export function resolveRequestedTimeRange(prompt: string, now: Date): { start: Date; end: Date } {
+  return temporalRange(resolveTemporalRequest(prompt, now), CALENDAR_DEFAULT_HORIZON_DAYS);
 }
 
 function requiredMissingFields(prompt: string, event: CalendarEvent | undefined): string[] {
@@ -414,76 +417,6 @@ function formatTime(date: Date): string {
     minute: "2-digit",
     hour12: false,
   }).format(date);
-}
-
-function viennaDateKey(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: CALENDAR_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function dateKeyRange(key: string): { start: Date; end: Date } {
-  const start = zonedMidnight(key);
-  const end = new Date(zonedMidnight(addDaysToKey(key, 1)).getTime() - 1);
-  return { start, end };
-}
-
-function zonedMidnight(key: string): Date {
-  const [year, month, day] = key.split("-").map(Number);
-  let guess = Date.UTC(year, month - 1, day);
-  for (let iteration = 0; iteration < 3; iteration += 1) {
-    const observed = viennaDateParts(new Date(guess));
-    const observedAsUtc = Date.UTC(
-      observed.year,
-      observed.month - 1,
-      observed.day,
-      observed.hour === 24 ? 0 : observed.hour,
-      observed.minute,
-      observed.second,
-    );
-    guess += Date.UTC(year, month - 1, day) - observedAsUtc;
-  }
-  return new Date(guess);
-}
-
-function viennaDateParts(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: CALENDAR_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const number = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return {
-    year: number("year"),
-    month: number("month"),
-    day: number("day"),
-    hour: number("hour"),
-    minute: number("minute"),
-    second: number("second"),
-  };
-}
-
-function addDaysToKey(key: string, days: number): string {
-  const date = parseDateKey(key);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function parseDateKey(key: string): Date {
-  const [year, month, day] = key.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
 }
 
 function safeCalendarError(error: unknown): string {

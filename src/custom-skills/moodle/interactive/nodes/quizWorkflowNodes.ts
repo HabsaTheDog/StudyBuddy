@@ -1,3 +1,4 @@
+import { quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
@@ -79,7 +80,7 @@ export function createQuizTargetNode(
         allowedOrigins: config.moodleLoginAllowedOrigins,
       }),
     );
-    const targetUrl = extractQuizUrl(config.prompt) ?? (await discoverQuizTarget(config, client));
+    const targetUrl = extractQuizUrl(config.prompt) ?? (await discoverQuizTarget(config, client, dependencies.codex));
     const workflow: QuizWorkflowState = {
       kind: "quiz_workflow",
       target_url: targetUrl,
@@ -159,6 +160,8 @@ export function createQuizPageNode(
         questions: [],
       };
       workflow.page = openedPage;
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopQuizWorkflowForPolicy(config, state, workflow, dateGate, metadata);
       const wantsAttempt = promptWantsQuizAttempt(config.prompt);
       if (wantsAttempt) {
         const startDecision = enforceQuizSafetyPolicy(
@@ -195,6 +198,8 @@ export function createQuizPageNode(
       beforeStart.questions.length === 0
     ) {
       metadata = await extractQuizMetadata(client);
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopQuizWorkflowForPolicy(config, state, workflow, dateGate, metadata);
       const liveStartDecision = enforceQuizSafetyPolicy(
         config.quizSafetyPolicy,
         "start_or_continue_attempt",

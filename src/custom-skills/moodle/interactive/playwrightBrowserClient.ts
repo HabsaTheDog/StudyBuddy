@@ -1,3 +1,4 @@
+import { readEnrolledCourses } from "../moodleInventory.js";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { browserExecutableLaunchOptions } from "../../shared/browserExecutable.js";
 
@@ -62,6 +63,11 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     }
   }
 
+  async enrolledCourses() {
+    this.#authenticationGate.assertReadable("enrolled course inventory");
+    return readEnrolledCourses(await this.#getPage(), this.#config.dashboardUrl);
+  }
+
   async doctor(): Promise<AgentBrowserCommandResult> {
     await this.#getPage();
     return EMPTY_RESULT;
@@ -70,7 +76,9 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
   async open(url: string): Promise<AgentBrowserCommandResult> {
     this.#assertAllowedUrl(url);
     const page = await this.#getPage();
-    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 45_000 });
+    // Moodle pages can keep analytics, media or polling requests alive after the
+    // document is usable. Those requests must not turn navigation into a failure.
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
     if (response && !response.ok())
       throw new Error(`Browser navigation failed with HTTP ${response.status()}.`);
     this.#assertAllowedUrl(page.url());

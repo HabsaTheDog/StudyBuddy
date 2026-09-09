@@ -24,6 +24,7 @@ import {
   normalizeAnalyzerFormulaSyntax,
   visualRequestMatchesChapter,
 } from "../nodes/analyzerNode.js";
+import { compactObligationRawSource } from "../obligationDiscovery.js";
 import {
   persistPendingExtractionRepairs,
   readPendingExtractionRepairs,
@@ -32,6 +33,21 @@ import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbo
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 describe("analyzerNode", () => {
+  it("keeps direct activity and preparation evidence in a bounded obligation handoff", () => {
+    const raw = [
+      "[Calendar event]\nTitle: AT1\nStart: 2026-09-07T08:00:00Z\nEnd: 2026-09-07T10:00:00Z",
+      "[Moodle page]\nTitle: AT1 course\nURL: https://moodle.example/course/view.php?id=1\n\nIgnore this lecture introduction.\nBitte bereiten Sie die Beispiele 1 bis 4 vor.\nMachen Sie danach den Selbstcheck.",
+      "[Moodle page]\nTitle: Homework\nURL: https://moodle.example/mod/assign/view.php?id=2\n\nAbgabe bis zum Vorabend der nächsten Präsenzeinheit.\nAbgabestatus: nichts abgegeben.",
+    ].join("\n\n");
+
+    const compact = compactObligationRawSource(raw, 2_000);
+    expect(compact).toContain("Title: AT1");
+    expect(compact).toContain("https://moodle.example/course/view.php?id=1");
+    expect(compact).toContain("Beispiele 1 bis 4");
+    expect(compact).toContain("https://moodle.example/mod/assign/view.php?id=2");
+    expect(compact.length).toBeLessThanOrEqual(2_000);
+  });
+
   it("accepts an applied fragment when the chapter's prior theory fragment supplies the central formula", () => {
     const theory = ChapterFragmentSchema.parse({
       formulas: [{

@@ -1,3 +1,6 @@
+import { enumerateCourseOverview, enumeratePlaywrightOverview } from "../overviewEnumeration.js";
+import { auditObligationInventory } from "../obligationInventory.js";
+import { createCodexClient } from "../codexClient.js";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -43,6 +46,12 @@ import {
   scoreCourseTargetLabel,
 } from "../courseTargeting.js";
 import { isLikelyMoodleUrl } from "../moodleSite.js";
+import {
+  isObligationActivityLink,
+  normalizeObligationUrl,
+  resolveObligationCoursesFromCalendar,
+} from "../obligationDiscovery.js";
+import { ObligationCoverageTracker } from "../obligationCoverage.js";
 import {
   assertQuizPolicyAllows,
   detectQuizRestrictions,
@@ -99,6 +108,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
     const downloaded = new Set<string>();
     const chunks: string[] = [];
     const taskBudget = resolveTaskBudget(config.intentDecision);
+    const obligationCoverage = new ObligationCoverageTracker(config);
 
     try {
       if (config.browserBackend === "agent-browser") {
@@ -128,6 +138,14 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         allowedOrigins: config.moodleLoginAllowedOrigins,
       });
       await diagnostics?.log("info", "moodle_login", "Moodle login ok.");
+      if (config.intentDecision?.obligationDiscovery?.requested && config.intentDecision.wantsQuickAnswer) {
+        const inventory = await auditObligationInventory(config, activePage, createCodexClient(config));
+        const raw = [inventory.answer, ...inventory.courses.filter(c => c.status === "audited").map(c =>
+          `[Moodle page]\nTitle: ${c.title}\nURL: ${c.url}\n${c.reason}`), ...inventory.facts.map(f =>
+          `[Moodle page]\nTitle: ${f.label}\nURL: ${f.url}\n${f.disposition}: ${f.evidence}\n${f.reason}`)].join("\n\n");
+        await writeFile(path.join(config.runDir, "moodle_raw.txt"), raw);
+        return { moodle_raw_text: raw, error_log: null };
+      }
       const quizEvidenceCapability =
         createPlaywrightStudyBuilderQuizEvidenceCapability(config, activePage);
 
@@ -212,6 +230,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
         await diagnostics?.log("info", "moodle_crawl", `Opening Moodle URL: ${next.url}`);
         const opened = await gotoWithDiagnostics(page, config, next.url, visited.size);
         if (!opened.ok) {
+          obligationCoverage.markFailure(next.url);
           chunks.push(formatWarning("Moodle", opened.message));
           continue;
         }
@@ -242,6 +261,7 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
           chunks.push(formatWarning("Moodle quiz safety", violation.message));
         }
         successfulUrls.add(resolvedUrl);
+        obligationCoverage.markSuccess(resolvedUrl);
         chunks.push(formatSourceChunk({ title, url: resolvedUrl, text }));
         await capturePlaywrightResourceSnapshot(
           page,
@@ -259,8 +279,16 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
           await captureFileLinks(page, sourcesDir, chunks, config, downloaded);
         }
 
-        if (next.depth < config.maxDepth) {
-          const links = await extractMoodleLinks(page, config);
+        if (next.depth < config.maxDepth || obligationCoverage.enabled) {
+          let links: string[];
+          if (obligationCoverage.enabled && /\/my(?:\/|$)/.test(new URL(next.url).pathname)) {
+            const overview = await enumeratePlaywrightOverview(page);
+            obligationCoverage.markEnumeration(overview.complete, overview.courseCount, overview.advertisedCount);
+            links = extractMoodleLinksFromSnapshot(overview.snapshot, config);
+          } else {
+            links = await extractMoodleLinks(page, config);
+          }
+          obligationCoverage.discover(links);
           for (const link of links) {
             const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
             if (linkViolation) {
@@ -270,12 +298,18 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
             if (config.allowFileDownloads && taskBudget.maxDownloadedFiles > 0 && isReadableResourceLink(link)) {
               continue;
             }
-            if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
+            if (visited.has(link) || queue.some((entry) => entry.url === link)) continue;
+            if (next.depth < config.maxDepth && queue.length + visited.size < config.maxPages) {
               queue.push({ url: link, depth: next.depth + 1 });
+            } else {
+              obligationCoverage.markTruncated();
             }
           }
         }
       }
+
+      if (queue.length > 0) obligationCoverage.markTruncated();
+      await obligationCoverage.persist();
 
       const hasText = chunks.some(hasBodyText);
       await diagnostics?.markSuccess("moodle", {
@@ -294,6 +328,8 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
     } catch (error) {
       throwIfAborted(config.abortSignal);
       const message = error instanceof Error ? error.message : String(error);
+      obligationCoverage.markFailure(config.moodleUrl);
+      await obligationCoverage.persist().catch(() => null);
       if (page) {
         await diagnostics?.capturePageDiagnostics(
           "moodle",
@@ -333,6 +369,7 @@ async function scrapeWithAgentBrowser(
   const chunks: string[] = [];
   const taskBudget = resolveTaskBudget(config.intentDecision);
   const failures: PageFetchFailure[] = [];
+  const obligationCoverage = new ObligationCoverageTracker(config);
   let recoveredPages = 0;
 
   try {
@@ -470,8 +507,10 @@ async function scrapeWithAgentBrowser(
           chunks.push(fallback.chunk);
           if (fallback.ok) {
             successfulUrls.add(fallback.url);
+            obligationCoverage.markSuccess(fallback.url);
             recoveredPages += 1;
           } else {
+            obligationCoverage.markFailure(next.url);
             failures.push({
               ...fallback,
               message: `agent-browser failed opening ${next.url}: ${message}; ${fallback.message}`,
@@ -483,6 +522,17 @@ async function scrapeWithAgentBrowser(
         }
       }
 
+      if (obligationCoverage.enabled && /\/my(?:\/|$)/.test(new URL(next.url).pathname)) {
+        const overview = await enumerateCourseOverview({
+          snapshot: () => client.snapshot({ interactive: true, urls: true, compact: true }),
+          click: selector => client.click(selector), wait: ms => client.wait(ms),
+        }, snapshot);
+        snapshot = overview.snapshot;
+        obligationCoverage.markEnumeration(overview.complete, overview.courseCount, overview.advertisedCount);
+      } else if (config.intentDecision?.obligationDiscovery?.deep) {
+        snapshot = await expandAgentBrowserObligationSections(client, snapshot, config);
+        if (obligationSectionRefs(snapshot).length > 0) obligationCoverage.markTruncated();
+      }
       const title = snapshot.origin || next.url;
       if (isOutsideResolvedCourseScope(snapshot.origin || next.url, configuredCourseScope(config))) {
         await diagnostics?.log(
@@ -506,6 +556,7 @@ async function scrapeWithAgentBrowser(
         chunks.push(formatWarning("Moodle quiz safety", violation.message));
       }
       successfulUrls.add(next.url);
+      obligationCoverage.markSuccess(snapshot.origin || next.url);
       await writeFile(
         path.join(sourcesDir, safeFileName(`${visited.size}-${title || "snapshot"}.json`)),
         `${JSON.stringify(snapshot, null, 2)}\n`,
@@ -536,11 +587,12 @@ async function scrapeWithAgentBrowser(
         );
       }
 
-      if (next.depth < config.maxDepth) {
+      if (next.depth < config.maxDepth || obligationCoverage.enabled) {
         const links = [
           ...(isBoundedScheduleProbe(config) ? scheduleSectionUrlsFromSnapshot(snapshot) : []),
           ...extractMoodleLinksFromSnapshot(snapshot, config),
         ];
+        obligationCoverage.discover(links);
         for (const link of links) {
           const linkViolation = quizUrlPolicyViolation(config, link, quizContext);
           if (linkViolation) {
@@ -550,12 +602,18 @@ async function scrapeWithAgentBrowser(
           if (config.allowFileDownloads && taskBudget.maxDownloadedFiles > 0 && isReadableResourceLink(link)) {
             continue;
           }
-          if (!visited.has(link) && queue.length + visited.size < config.maxPages) {
+          if (visited.has(link) || queue.some((entry) => entry.url === link)) continue;
+          if (next.depth < config.maxDepth && queue.length + visited.size < config.maxPages) {
             queue.push({ url: link, depth: next.depth + 1 });
+          } else {
+            obligationCoverage.markTruncated();
           }
         }
       }
     }
+
+    if (queue.length > 0) obligationCoverage.markTruncated();
+    await obligationCoverage.persist();
 
     const hasText = chunks.some(hasBodyText);
     if (successfulUrls.size === 0 && failures.length > 0) {
@@ -586,6 +644,8 @@ async function scrapeWithAgentBrowser(
   } catch (error) {
     throwIfAborted(config.abortSignal);
     const message = error instanceof Error ? error.message : String(error);
+    obligationCoverage.markFailure(config.moodleUrl);
+    await obligationCoverage.persist().catch(() => null);
     await diagnostics?.captureAgentBrowserDiagnostics(
       "moodle",
       client,
@@ -1015,7 +1075,20 @@ async function extractMoodleLinks(page: Page, config: MoodleRuntimeConfig): Prom
       return true;
     });
   let courseScope = configuredCourseScope(config);
-  if (courseScope.length === 0) {
+  if (
+    config.intentDecision?.obligationDiscovery?.scope === "all_relevant"
+  ) {
+    const calendarResolution = config.obligationCourseHints?.length
+      ? resolveObligationCoursesFromCalendar(relevantLinks, config.obligationCourseHints)
+      : null;
+    const discoveredCourses = selectObligationMoodleLinks(relevantLinks, config.obligationCourseHints)
+      .filter((url) => moodleCourseIdentity(url));
+    config.obligationUnresolvedCourseHints = calendarResolution?.unmatchedHints ?? [];
+    if (discoveredCourses.length > 0) {
+      config.targetCourseUrls = [...new Set([...(config.targetCourseUrls ?? []), ...discoveredCourses])];
+      courseScope = [];
+    }
+  } else if (courseScope.length === 0) {
     const resolved = resolveCourseTargetsFromLinks(config.prompt, relevantLinks);
     if (resolved.selectedUrls.length > 0) {
       config.targetCourseUrls = resolved.selectedUrls;
@@ -1489,6 +1562,41 @@ export function scheduleSectionRefs(snapshot: AgentBrowserSnapshot): string[] {
   return scheduleSectionControls(snapshot).map((control) => control.ref);
 }
 
+export function obligationSectionRefs(snapshot: AgentBrowserSnapshot): string[] {
+  return snapshot.snapshot
+    .split("\n")
+    .filter((line) => /\bbutton\b/i.test(line) && /expanded=false/i.test(line))
+    .filter((line) => !/\b(?:navigation|menu|profil|profile|notifications?|messages?|filter|drawer)\b/i.test(line))
+    .map((line) => /ref=([a-z0-9_-]+)/i.exec(line)?.[1] ?? "")
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
+async function expandAgentBrowserObligationSections(
+  client: AgentBrowserClient,
+  snapshot: AgentBrowserSnapshot,
+  config: MoodleRuntimeConfig,
+): Promise<AgentBrowserSnapshot> {
+  const refs = obligationSectionRefs(snapshot);
+  if (refs.length === 0) return snapshot;
+  let expanded = 0;
+  for (const ref of refs) {
+    try {
+      await client.click(`@${ref}`);
+      expanded += 1;
+    } catch {
+      // One stale or non-clickable section must not hide the remaining course.
+    }
+  }
+  if (expanded === 0) return snapshot;
+  await config.diagnostics?.log(
+    "info",
+    "moodle_crawl",
+    `Expanded ${expanded} Moodle course section(s) for obligation discovery.`,
+  );
+  return client.snapshot({ interactive: true, urls: true, compact: true });
+}
+
 function scheduleSectionControls(
   snapshot: AgentBrowserSnapshot,
 ): Array<{ ref: string; label: string }> {
@@ -1533,14 +1641,22 @@ async function expandPlaywrightScheduleSections(
   page: Page,
   config: MoodleRuntimeConfig,
 ): Promise<void> {
-  if (!isBoundedScheduleProbe(config)) return;
-  const controls = page.locator("button[aria-expanded='false'], [role='button'][aria-expanded='false']");
+  const obligationDiscovery = config.intentDecision?.obligationDiscovery?.deep === true;
+  if (!isBoundedScheduleProbe(config) && !obligationDiscovery) return;
+  const controls = obligationDiscovery
+    ? page.locator([
+        "#region-main li.section button[aria-expanded='false']",
+        "#region-main [data-for='section'] button[aria-expanded='false']",
+        "#region-main .course-section-header [role='button'][aria-expanded='false']",
+      ].join(", "))
+    : page.locator("button[aria-expanded='false'], [role='button'][aria-expanded='false']");
   const count = Math.min(await controls.count().catch(() => 0), 40);
   let expanded = 0;
-  for (let index = 0; index < count && expanded < 4; index += 1) {
-    const control = controls.nth(index);
+  const limit = obligationDiscovery ? 40 : 4;
+  for (let index = 0; index < count && expanded < limit; index += 1) {
+    const control = obligationDiscovery ? controls.first() : controls.nth(index);
     const label = await control.innerText({ timeout: 300 }).catch(() => "");
-    if (!SCHEDULE_SECTION_PATTERN.test(label)) continue;
+    if (!obligationDiscovery && !SCHEDULE_SECTION_PATTERN.test(label)) continue;
     if (!(await control.isVisible().catch(() => false))) continue;
     await control.click({ timeout: 1_000 }).catch(() => undefined);
     expanded += 1;
@@ -1549,7 +1665,9 @@ async function expandPlaywrightScheduleSections(
     await config.diagnostics?.log(
       "info",
       "moodle_crawl",
-      `Expanded ${expanded} schedule-related Moodle section(s).`,
+      obligationDiscovery
+        ? `Expanded ${expanded} Moodle course section(s) for obligation discovery.`
+        : `Expanded ${expanded} schedule-related Moodle section(s).`,
     );
   }
 }
@@ -1566,7 +1684,20 @@ function extractMoodleLinksFromSnapshot(
         href.includes("/course/") || href.includes("/mod/") || href.includes("/pluginfile.php"),
     );
   let courseScope = configuredCourseScope(config);
-  if (courseScope.length === 0) {
+  if (
+    config.intentDecision?.obligationDiscovery?.scope === "all_relevant"
+  ) {
+    const calendarResolution = config.obligationCourseHints?.length
+      ? resolveObligationCoursesFromCalendar(links, config.obligationCourseHints)
+      : null;
+    const discoveredCourses = selectObligationMoodleLinks(links, config.obligationCourseHints)
+      .filter((url) => moodleCourseIdentity(url));
+    config.obligationUnresolvedCourseHints = calendarResolution?.unmatchedHints ?? [];
+    if (discoveredCourses.length > 0) {
+      config.targetCourseUrls = [...new Set([...(config.targetCourseUrls ?? []), ...discoveredCourses])];
+      courseScope = [];
+    }
+  } else if (courseScope.length === 0) {
     const resolved = resolveCourseTargetsFromLinks(config.prompt, links);
     if (resolved.selectedUrls.length > 0) {
       config.targetCourseUrls = resolved.selectedUrls;
@@ -1583,6 +1714,9 @@ function selectMoodleCrawlLinks(
   links: Array<{ href: string; label: string }>,
   config: MoodleRuntimeConfig,
 ): string[] {
+  if (config.intentDecision?.obligationDiscovery?.requested) {
+    return selectObligationMoodleLinks(links, config.obligationCourseHints);
+  }
   const selected = selectRelevantMoodleLinks(links, config.prompt);
   if (!config.evidenceHandoffOnly) {
     return selected;
@@ -1596,7 +1730,42 @@ function selectMoodleCrawlLinks(
   return [...new Set([...selected, ...completedReviewLinks])];
 }
 
+/**
+ * Obligation discovery keeps every visible enrolled course in scope and every
+ * read-only activity/section that can contain requirements. Calendar labels
+ * affect order only; they never silently remove a course from an exhaustive audit.
+ */
+export function selectObligationMoodleLinks(
+  links: Array<{ href: string; label: string }>,
+  calendarHints: string[] = [],
+): string[] {
+  const hintTokens = new Set(calendarHints.flatMap((hint) => textTokens(hint)));
+  const unique = new Map<string, { href: string; label: string; priority: number }>();
+  for (const link of links) {
+    if (isLowValueMoodleUtilityLink(link)) continue;
+    const normalized = normalizeObligationUrl(normalizeMoodleUrl(link.href));
+    const pathname = new URL(normalized).pathname;
+    const course = pathname.endsWith("/course/view.php");
+    const section = pathname.endsWith("/course/section.php");
+    const activity = isObligationActivityLink(link);
+    const labelledResource = isReadableResourceLink(normalized) &&
+      isObligationActivityLink(link);
+    if (!course && !section && !activity && !labelledResource) continue;
+    if (/\/(?:attempt|processattempt|summary|review)\.php$/i.test(pathname)) continue;
+    const overlap = textTokens(link.label).filter((token) => hintTokens.has(token)).length;
+    const priority = (course ? 300 : section ? 200 : 100) + overlap * 20;
+    const current = unique.get(normalized);
+    if (!current || priority > current.priority) {
+      unique.set(normalized, { ...link, href: normalized, priority });
+    }
+  }
+  return [...unique.values()]
+    .sort((left, right) => right.priority - left.priority || left.label.localeCompare(right.label))
+    .map((link) => link.href);
+}
+
 function configuredCourseScope(config: MoodleRuntimeConfig): string[] {
+  if (config.intentDecision?.obligationDiscovery?.scope === "all_relevant") return [];
   const resolvedTargets = (config.targetCourseUrls ?? []).filter((url) => moodleCourseIdentity(url));
   if (resolvedTargets.length > 0) {
     return resolvedTargets;
@@ -1932,6 +2101,14 @@ function isBoundedScheduleProbe(config: MoodleRuntimeConfig): boolean {
 }
 
 function shouldCaptureFilesOnPage(config: MoodleRuntimeConfig, url: string): boolean {
+  if (config.intentDecision?.obligationDiscovery?.requested) {
+    try {
+      const pathname = new URL(url).pathname;
+      return /\/mod\/(?:assign|workshop|folder)\/view\.php$/i.test(pathname) || isReadableResourceLink(url);
+    } catch {
+      return false;
+    }
+  }
   if (!isBoundedScheduleProbe(config)) return true;
   try {
     const pathname = new URL(url).pathname;
@@ -1954,7 +2131,7 @@ function readableFileName(label: string, href: string): string {
 function normalizeMoodleUrl(url: string): string {
   const parsed = new URL(url);
   parsed.hash = "";
-  for (const key of ["time", "forcedownload"]) {
+  for (const key of ["time", "forcedownload", "lang", "notifyeditingon", "rownum", "useridlistid", "action", "sesskey"]) {
     parsed.searchParams.delete(key);
   }
   return parsed.toString();

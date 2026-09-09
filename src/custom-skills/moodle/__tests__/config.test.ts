@@ -444,3 +444,14 @@ describe("createRuntimeConfig", () => {
     expect(config.maxPages).toBe(1);
   });
 });
+
+it("budgets exhaustive acquisition independently of a short answer while preserving explicit runtime limits", async () => {
+  tempRoot = await mkdtemp(path.join(os.tmpdir(), 'moodle-inventory-timeout-'));
+  vi.stubEnv('STUDY_BUDDY_WORKSPACE', tempRoot);
+  vi.stubEnv('MOODLE_MAX_RUNTIME_MS', '');
+  const input = { prompt: 'Zeig alle benoteten Aufgaben bis morgen', moodleUrl: 'https://m.example/my/' };
+  expect(createRuntimeConfig(input).maxRuntimeMs).toBe(90 * 60_000);
+  expect(createRuntimeConfig({ ...input, maxRuntimeMs: 123000 }).maxRuntimeMs).toBe(123000);
+  vi.stubEnv('MOODLE_MAX_RUNTIME_MS', '240000');
+  expect(createRuntimeConfig(input).maxRuntimeMs).toBe(240000);
+});

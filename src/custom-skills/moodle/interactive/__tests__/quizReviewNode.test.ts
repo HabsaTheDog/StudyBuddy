@@ -1,3 +1,4 @@
+import { resolveTemporalRequest } from "../../temporalRequest.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -35,6 +36,20 @@ afterEach(async () => {
 });
 
 describe("quizReviewNode", () => {
+  it("never starts a direct quiz when its date is unconfirmed even under the full work policy", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-date-stop-"));
+    const client = new FakeQuizBrowserClient();
+    const config = {
+      ...testConfig(runDir, allowQuizWorkPolicy()),
+      originalUserPrompt: "kannst du den morgigen minitest für mathe machen?",
+      temporalRequest: resolveTemporalRequest("morgigen", new Date("2026-09-08T14:53:13Z")),
+    };
+    const result = await createQuizReviewNode(config, { agentBrowser: client })(initialAgentState);
+    expect(result.final_document).toContain("quiz-target-date-unconfirmed");
+    expect(client.calls.some(call => call.startsWith("click:"))).toBe(false);
+    expect(JSON.parse(await readFile(path.join(runDir, "quiz-review.json"), "utf8")).final_submit_clicked).toBe(false);
+  });
+
   it("retries a malformed Quiz Solver answer with the retry role policy", async () => {
     const calls: Array<{ task?: string; attempt?: number }> = [];
     const codex: CodexClient = {

@@ -3,6 +3,7 @@ export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-09.1-balanced-terra-ana
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
 export type StudyBuddyModelTask =
+  | "source_search"
   | "content_analyzer"
   | "content_repair"
   | "quiz_solver"
@@ -40,6 +41,7 @@ const PROFILE_POLICIES: Record<
   Record<StudyBuddyModelTask, StudyBuddyTaskModelPolicy>
 > = {
   auto: {
+    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
     artifact_planner: {
       model: "gpt-5.6-terra",
       reasoningEffort: "medium",
@@ -98,6 +100,7 @@ const PROFILE_POLICIES: Record<
     },
   },
   fast: {
+    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
     artifact_planner: {
       model: "gpt-5.6-luna",
       reasoningEffort: "high",
@@ -158,6 +161,7 @@ const PROFILE_POLICIES: Record<
     },
   },
   balanced: {
+    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
     artifact_planner: {
       model: "gpt-5.6-terra",
       reasoningEffort: "medium",
@@ -224,6 +228,7 @@ const PROFILE_POLICIES: Record<
     },
   },
   quality: {
+    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
     artifact_planner: {
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
@@ -365,6 +370,7 @@ export function parseModelPolicyOverrides(
   }
 
   const tasks: StudyBuddyModelTask[] = [
+    "source_search",
     "content_analyzer",
     "content_repair",
     "quiz_solver",

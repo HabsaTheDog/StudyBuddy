@@ -123,7 +123,7 @@ export function buildInteractiveMoodleGraph(
     )
     .addNode(
       "quizTarget",
-      dependencies.quizTargetNode ?? createQuizTargetNode(config, { agentBrowser: browser }),
+      dependencies.quizTargetNode ?? createQuizTargetNode(config, { agentBrowser: browser, codex }),
     )
     .addNode(
       "quizPage",

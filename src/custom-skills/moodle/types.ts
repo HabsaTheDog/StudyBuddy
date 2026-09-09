@@ -1,3 +1,4 @@
+import type { TemporalRequest } from "./temporalRequest.js";
 import type { AgentState } from "./state.js";
 import type { RunDiagnostics, SourceCoverage } from "./runDiagnostics.js";
 import type { SourcePlan } from "./sourcePlanner.js";
@@ -108,6 +109,7 @@ export interface MoodleGraphResult {
 }
 
 export interface MoodleRuntimeConfig {
+  readonly temporalRequest?: TemporalRequest;
   prompt: string;
   originalUserPrompt: string;
   moodleUrl: string;
@@ -161,6 +163,8 @@ export interface MoodleRuntimeConfig {
   renderStrategyDecision?: RenderStrategyDecision;
   intentDecision?: StudyBuddyIntentDecision;
   targetCourseUrls?: string[];
+  obligationCourseHints?: string[];
+  obligationUnresolvedCourseHints?: string[];
   calendarSelection?: CalendarSelection;
   codexModel?: string;
   codexReasoningEffort?: StudyBuddyReasoningEffort;

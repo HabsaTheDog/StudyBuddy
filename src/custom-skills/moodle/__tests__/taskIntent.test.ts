@@ -7,6 +7,34 @@ import {
 const melPrompt = "Finde die naechste kommende MEL Pruefung in Moodle und CIS. Nenne nur den naechsten Termin mit exactem Datum, Uhrzeit, Raum und pruefungsrelevanten Lernunterlagen aus dem zugehoerigen MEL Moodle-Kurs.";
 
 describe("Study Buddy task intent", () => {
+  it("classifies an exhaustive next-week to-do request as deep obligation discovery", () => {
+    const intent = classifyStudyBuddyIntent({
+      prompt: "Kannst du in Moodle schauen, was ich nächste Woche alles machen muss?",
+      stage: "all",
+      diagnosticOnly: false,
+      autoAnswer: false,
+      includeCis: true,
+      hasCisUrls: true,
+      hasCalendarUrl: true,
+    });
+
+    expect(intent).toMatchObject({
+      intent: "schedule_answer",
+      wantsQuickAnswer: true,
+      needsMoodle: true,
+      needsCalendar: true,
+      needsCourseMaterial: true,
+      obligationDiscovery: {
+        requested: true,
+        temporal: true,
+        exhaustive: true,
+        deep: true,
+        calendarFirst: true,
+        scope: "all_relevant",
+      },
+    });
+  });
+
   it("requires an explicit quiz execution target", () => {
     expect(isExplicitQuizExecutionIntent("Complete a study guide for my test")).toBe(false);
     expect(isExplicitQuizExecutionIntent("Complete my Moodle test")).toBe(true);

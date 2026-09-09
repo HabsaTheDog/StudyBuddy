@@ -1,3 +1,4 @@
+import { requestTimeBoundary } from "./temporalRequest.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -143,18 +144,24 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   );
   const codexReasoningEffort =
     input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT);
+  const taskBudget = resolveTaskBudget(intentDecision);
 
   return {
     prompt: input.prompt,
     originalUserPrompt,
+    temporalRequest: requestTimeBoundary(originalUserPrompt, input.prompt),
     outputLanguage: outputLanguage.language,
     outputLanguageReason: outputLanguage.reason,
     moodleUrl,
     requestName,
     outputPath: explicitOutputPath || path.resolve(path.join(runDir, "document.typ")),
     runDir,
-    maxDepth: input.maxDepth ?? (isDirectQuizAttempt ? 0 : 2),
-    maxPages: input.maxPages ?? (isDirectQuizAttempt ? 1 : 8),
+    maxDepth: input.maxDepth ?? (
+      isDirectQuizAttempt ? 0 : intentDecision.obligationDiscovery?.requested ? taskBudget.maxMoodleDepth : 2
+    ),
+    maxPages: input.maxPages ?? (
+      isDirectQuizAttempt ? 1 : intentDecision.obligationDiscovery?.requested ? taskBudget.maxMoodlePages : 8
+    ),
     maxCisPages: input.maxCisPages ?? parsePositiveInteger(process.env.CIS_MAX_PAGES, 4),
     allowFileDownloads: input.allowFileDownloads ?? true,
     baseUrl: process.env.MOODLE_BASE_URL || new URL(moodleUrl).origin,
@@ -190,6 +197,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       codexModel,
       codexReasoningEffort,
       input.modelPolicyOverrides,
+      intentDecision.obligationDiscovery?.exhaustive ?? false,
     ),
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
@@ -201,7 +209,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       : undefined,
     evidenceHandoffOnly,
     includeCis,
-    sourceMode: parseSourceMode(input.sourceMode || process.env.STUDY_BUDDY_SOURCE_MODE),
+    sourceMode: parseSourceMode(input.sourceMode || (/\b(?:ausschließlich|ausschliesslich|nur|only)\s+moodle\b|\b(?:nicht den|ohne)\s+kalender\b/i.test(requestContextPrompt) ? "moodle" : process.env.STUDY_BUDDY_SOURCE_MODE)),
     downloadConcurrency: clampConcurrency(
       input.downloadConcurrency ?? parsePositiveInteger(process.env.STUDY_BUDDY_DOWNLOAD_CONCURRENCY, 3),
     ),
@@ -274,6 +282,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     resumeExtractionRunDir: config.resumeExtractionRunDir,
     includeCis: config.includeCis,
     sourceMode: config.sourceMode,
+    temporalRequest: config.temporalRequest,
     downloadConcurrency: config.downloadConcurrency,
     typstValidationMode: config.typstValidationMode,
     renderStrategy: config.renderStrategy,
@@ -405,6 +414,7 @@ function parseMaxRuntimeMs(
   globalModel: string | undefined,
   globalReasoningEffort: StudyBuddyReasoningEffort | undefined,
   overrides: MoodleRuntimeConfig["modelPolicyOverrides"],
+  exhaustiveInventory = false,
 ): number {
   const stageOverride = stage === "extract"
     ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
@@ -423,7 +433,9 @@ function parseMaxRuntimeMs(
           overrides,
         )
       : wantsQuickAnswer
-        ? DEFAULT_QUICK_MAX_RUNTIME_MS
+        // Answer length does not bound the cost of auditing all enrollments.
+        // The existing idle watchdog and explicit user limits still apply.
+        ? exhaustiveInventory ? 90 * 60_000 : DEFAULT_QUICK_MAX_RUNTIME_MS
         : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
   return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
 }

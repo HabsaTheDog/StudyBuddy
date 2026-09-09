@@ -1,5 +1,6 @@
 import type { PipelineStage } from "./types.js";
 import { extractMoodleUrlFromText, isLikelyMoodleUrl } from "./moodleSite.js";
+import { classifyObligationDiscovery, type ObligationDiscoveryIntent } from "./obligationDiscovery.js";
 
 export type StudyBuddyIntent =
   | "quick_answer"
@@ -23,6 +24,7 @@ export interface StudyBuddyIntentDecision {
   needsCalendar: boolean;
   needsCourseMaterial: boolean;
   needsDownloadedFiles: boolean;
+  obligationDiscovery?: ObligationDiscoveryIntent;
   reason: string;
 }
 
@@ -38,6 +40,7 @@ export function classifyStudyBuddyIntent(input: {
   const prompt = input.prompt;
   const cisAvailable = input.includeCis && input.hasCisUrls;
   const calendarAvailable = Boolean(input.hasCalendarUrl);
+  const obligationDiscovery = classifyObligationDiscovery(prompt);
 
   if (input.diagnosticOnly) {
     return decision("diagnostic", "Diagnostic-only runs only probe source access.", {
@@ -89,6 +92,22 @@ export function classifyStudyBuddyIntent(input: {
     .test(prompt);
   const needsDownloadedFiles = wantsPdf ||
     /\b(?:download|herunterlad\w*|pdfs?|dateien?|files?|folien?|slides?|skript|screenshots?)\b/i.test(prompt);
+
+  if (obligationDiscovery.requested && !wantsPdf && !isExplicitQuizExecutionIntent(prompt)) {
+    return decision(
+      obligationDiscovery.temporal ? "schedule_answer" : "quick_answer",
+      "The prompt asks for actionable course obligations and requires adaptive Moodle coverage.",
+      {
+        wantsQuickAnswer: true,
+        needsMoodle: true,
+        needsCis: false,
+        needsCalendar: obligationDiscovery.calendarFirst && calendarAvailable,
+        needsCourseMaterial: true,
+        needsDownloadedFiles,
+        obligationDiscovery,
+      },
+    );
+  }
 
   if (hasQuizIntent) {
     return decision("quiz_assist", "The prompt explicitly asks for quiz/test assistance.", {

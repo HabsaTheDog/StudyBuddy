@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -49,12 +50,14 @@ export interface CodexToolUsage {
 }
 
 const LEAF_MODEL_TASKS = new Set<StudyBuddyModelTask>([
+  "source_search",
   "artifact_planner",
   "content_analyzer",
   "content_repair",
   "quality_reviewer",
 ]);
 const MODEL_PROMPT_CHARACTER_BUDGETS: Record<StudyBuddyModelTask, number> = {
+  source_search: 60_000,
   artifact_planner: 60_000,
   content_analyzer: 60_000,
   content_repair: 60_000,
@@ -315,7 +318,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         })();
         const startedAt = new Date().toISOString();
         const startedMs = Date.now();
-        const callId = `${task}-${attempt}-${startedMs}`;
+        const callId = `${task}-${attempt}-${randomUUID()}`;
         const timeoutController = new AbortController();
         const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
         const signal = combineSignals(config.abortSignal, timeoutController.signal);

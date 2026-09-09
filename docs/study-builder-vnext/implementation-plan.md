@@ -1473,3 +1473,29 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
   lifecycle work that the immutable-contract and finite-queue fixes now remove.
 - Current affected regression gate: 269 tests passed, 3 browser-dependent tests
   skipped, TypeScript type checking and diff whitespace checks clean.
+
+## Source search and deadline reliability
+
+- [x] Retain one original time boundary across calendar, acquisition and quiz
+  selection, including shared-month ranges and unsettled source dates.
+- [x] Resolve uncertain course/activity names through bounded, read-only semantic
+  search with observed identities, source quotations and verified caching.
+- [x] Enumerate all enrolled courses and all selected-course activities. Default
+  broad obligation requests to the source-confirmed current semester; include
+  historical enrollments only when explicitly requested and persist exclusions.
+- [x] Verify deadline, personal-status and resource-purpose evidence, including
+  embedded metadata and actual failed-source handling; stop after three failed
+  validation attempts and expose genuine gaps.
+- [x] Publish meaningful source progress and preserve the canonical-answer
+  handoff; recover desktop stream subscriptions after heartbeat reconnects.
+- [x] Verify the current-semester and colloquial mathematics cases in the actual
+  installed desktop; retain source and UI evidence separately.
+- [x] Reject additive inclusion phrases used as whole-request restrictions,
+  preserve explicit historical inclusion for named subjects, and verify the
+  interpretation independently before narrowing a course query.
+- [x] Execute the explicit historical-enrollment desktop verification and record
+  its actual partial result: all enrollments inventoried, seven unresolved facts.
+- [ ] Obtain complete historical source coverage and reliable long-run desktop
+  delivery before promoting this candidate as fully accepted.
+
+See [validation results](../semantic-source-search-validation.md).
