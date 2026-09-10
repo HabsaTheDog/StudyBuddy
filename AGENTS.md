@@ -9,3 +9,11 @@
 - Before changing Study Builder, read its implementation charter and relevant product specification, then update its implementation plan.
 - Store workflow state under `study-buddy-data/`. Never place generated artifacts inside forks or reference repositories.
 - Use the applicable Study Buddy skill for workflow-specific acquisition, rendering, testing, and delivery procedures.
+
+## Batched Development and Release
+
+- Accumulate compatible fixes and features on the current development version instead of starting or incrementing a release for every change. A batch of roughly 10–20 fixes is a planning heuristic, not a quota or permission to merge unverified work.
+- Give every change focused deterministic tests, a scoped commit, and an entry in the development batch backlog. These checks make a change safe to queue; they do not make the accumulated version release-ready.
+- Freeze the batch deliberately before release. At that point, run the applicable Study Buddy review and release skills, resolve the holistic review findings, and build one exact candidate from the reviewed commit.
+- Because clean packaged acceptance is expensive, reserve full Fedora and Windows VM testing for the exact frozen candidate rather than every small development commit. Any byte change after acceptance invalidates that evidence and requires a rebuilt candidate and fresh affected acceptance.
+- Do not tag, publish, promote, or call a build release-ready without explicit owner approval and the required final review, packaged checks, and clean Fedora/Windows VM acceptance. Never move or reuse a public tag for changed bytes.
