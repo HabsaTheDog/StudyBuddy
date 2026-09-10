@@ -26,5 +26,6 @@ describe("responsive repair diagnostics", () => {
     expect(report.ok).toBe(false);
     expect(overflow?.details?.pageOverflow).toBeTypeOf("number");
     expect(JSON.stringify(overflow?.details?.offenders)).toContain("forced-overflow");
-  });
+  // Includes a real Chromium launch and responsive viewport measurements.
+  }, 30_000);
 });

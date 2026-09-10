@@ -51,6 +51,11 @@ export function classifyQuizQuestionResponse(
       (typeof control.control_id === "string" && control.control_id.trim().length > 0) ||
       (typeof control.id === "string" && control.id.trim().length > 0),
   );
+  if (questionType === "ddimageortext" && editableControls.length > 0 && controlsHaveStableIds &&
+      editableControls.every(c => c.type === "dragdrop" && Array.isArray(c.options) && c.options.length > 0)) {
+    return { adapter: "drag-drop-image", support: "supported", questionType,
+      controlCount: editableControls.length, controlTypes, reason: "complete-dragdrop-response-surface" };
+  }
   if (editableControls.length > 0 && controlsHaveStableIds) {
     return {
       adapter: "native-control-plan",

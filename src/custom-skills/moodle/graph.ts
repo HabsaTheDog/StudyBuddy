@@ -91,6 +91,7 @@ import {
   parseLearningArchitectureModelJson,
 } from "./learningArchitecture.js";
 import { resolveTaskBudget } from "./taskBudget.js";
+import { readObligationCoverage } from "./obligationCoverage.js";
 import { inspectSystemDependencies } from "./systemDependencies.js";
 import {
   CodexRuntimePreflightError,
@@ -339,10 +340,14 @@ export async function runMoodleGraph(
     );
   const sourceCoverage = diagnostics.getCoverage();
   const sourceFamiliesComplete = isCoverageComplete(config, sourceCoverage);
+  const obligationCoverage = config.intentDecision?.obligationDiscovery?.requested
+    ? await readObligationCoverage(config.runDir)
+    : null;
   const coverageComplete =
     sourceFamiliesComplete &&
     (
-      config.intentDecision?.wantsQuickAnswer ||
+      (config.intentDecision?.wantsQuickAnswer &&
+        (!config.intentDecision.obligationDiscovery?.requested || obligationCoverage?.complete === true)) ||
       state.coverage_assessment.status === "complete"
     );
   await persistRunDiagnostics(config, state);

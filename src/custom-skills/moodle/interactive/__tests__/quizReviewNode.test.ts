@@ -1,3 +1,4 @@
+import { resolveTemporalRequest } from "../../temporalRequest.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +11,7 @@ import type {
 import type { CodexClient } from "../codexClient.js";
 import {
   clickSafeNextPage,
+  clickSafeStartOrContinue,
   createQuizReviewNode,
   discoverQuizTarget,
   generateAnswerSpec,
@@ -35,6 +37,45 @@ afterEach(async () => {
 });
 
 describe("quizReviewNode", () => {
+  it("resumes the same attempt at page zero so earlier saved responses are included", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-resume-full-quiz-"));
+    const client = new FakeQuizBrowserClient({
+      metadataSequence: [{ ...openQuizMetadata(), hasActiveAttempt:true, canStartNewAttempt:false, attemptsLeft:0 }],
+      initialSnapshot: { refs: {resume:{role:"button",name:"Versuch fortsetzen"}}, snapshot:'button "Versuch fortsetzen" [ref=resume]' },
+    });
+    client.getUrl = async () => "https://moodle.example/mod/quiz/attempt.php?attempt=5&cmid=123&page=3";
+    await createQuizPageNode(testConfig(runDir,allowQuizWorkPolicy()),{agentBrowser:client})(quizWorkflowState());
+    expect(client.calls).toContain("click:@resume");
+    expect(client.calls).toContain("open:https://moodle.example/mod/quiz/attempt.php?attempt=5&cmid=123&page=0");
+    expect(client.calls).not.toContain("click:@e-start");
+  });
+  it("only clicks continue when resuming an existing attempt", async () => {
+    const client = new FakeQuizBrowserClient({ initialSnapshot: {
+      refs: { start: {role:"button",name:"Test wiederholen"}, resume: {role:"button",name:"Versuch fortsetzen"} },
+      snapshot: 'button "Test wiederholen" [ref=start]\nbutton "Versuch fortsetzen" [ref=resume]',
+    } });
+    expect(await clickSafeStartOrContinue(client, {continueOnly:true})).toMatchObject({clicked:true,ref:"resume"});
+    expect(client.calls).not.toContain("click:@start");
+    const noResume = new FakeQuizBrowserClient({ initialSnapshot: {
+      refs: { start: {role:"button",name:"Test wiederholen"} }, snapshot: 'button "Test wiederholen" [ref=start]',
+    } });
+    expect(await clickSafeStartOrContinue(noResume, {continueOnly:true})).toMatchObject({clicked:false});
+    expect(noResume.calls.some(c=>c.startsWith('click:'))).toBe(false);
+  });
+  it("never starts a direct quiz when its date is unconfirmed even under the full work policy", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-date-stop-"));
+    const client = new FakeQuizBrowserClient();
+    const config = {
+      ...testConfig(runDir, allowQuizWorkPolicy()),
+      originalUserPrompt: "kannst du den morgigen minitest für mathe machen?",
+      temporalRequest: resolveTemporalRequest("morgigen", new Date("2026-09-08T14:53:13Z")),
+    };
+    const result = await createQuizReviewNode(config, { agentBrowser: client })(initialAgentState);
+    expect(result.final_document).toContain("quiz-target-date-unconfirmed");
+    expect(client.calls.some(call => call.startsWith("click:"))).toBe(false);
+    expect(JSON.parse(await readFile(path.join(runDir, "quiz-review.json"), "utf8")).final_submit_clicked).toBe(false);
+  });
+
   it("retries a malformed Quiz Solver answer with the retry role policy", async () => {
     const calls: Array<{ task?: string; attempt?: number }> = [];
     const codex: CodexClient = {

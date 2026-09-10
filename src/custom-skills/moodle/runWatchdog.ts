@@ -4,6 +4,7 @@ import path from "node:path";
 
 const ACTIVITY_FILES = new Set([
   "run-events.jsonl",
+  "interaction-progress.json",
   "run-metrics.json",
   "run-progress.json",
   "run-summary.md",
@@ -92,7 +93,9 @@ export async function findLatestRunActivity(runDir: string): Promise<number | nu
         }
         return;
       }
-      if (!entry.isFile() || !ACTIVITY_FILES.has(entry.name)) return;
+      const quizPacket = (entry.name === "packet.json" || entry.name === "answer-spec.json") &&
+        path.relative(runDir, directory).split(path.sep)[0] === "subagent-packets";
+      if (!entry.isFile() || (!ACTIVITY_FILES.has(entry.name) && !quizPacket)) return;
       const modifiedAt = await stat(target).then((value) => value.mtimeMs, () => 0);
       latest = Math.max(latest ?? 0, modifiedAt);
     }));

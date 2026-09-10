@@ -6,11 +6,9 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
-const previousWorkspace = process.env.STUDY_BUDDY_WORKSPACE;
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  process.env.STUDY_BUDDY_WORKSPACE = previousWorkspace;
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -40,7 +38,7 @@ describe("web layout CLI", () => {
           STUDY_BUDDY_WORKSPACE: workspace,
           WEB_LAYOUT_TEST_CODEX: "1",
         },
-        timeout: 60_000,
+        timeout: 30_000,
       },
     );
 
@@ -53,5 +51,7 @@ describe("web layout CLI", () => {
     expect(result.publishedDeliverables[0].publishedPath).toBe(
       path.join(workspace, "study-buddy-deliverables", "build-flashcards.html"),
     );
-  });
+  // Let execFile terminate/settle before the outer test deadline and cleanup.
+  // Cold Windows process startup can exceed Vitest's 5s unit-test default.
+  }, 35_000);
 });

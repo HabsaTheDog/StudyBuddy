@@ -12,6 +12,7 @@ export interface SourcePlan {
   needsFiles: boolean;
   needsQuizOrAssignment: boolean;
   allowFollowUpCrawl: boolean;
+  obligationDiscovery?: boolean;
 }
 
 export function planSources(config: MoodleRuntimeConfig): SourcePlan {
@@ -49,6 +50,22 @@ function planSourcesForIntent(config: MoodleRuntimeConfig): SourcePlan {
       needsFiles: intent.needsDownloadedFiles,
       needsQuizOrAssignment: intent.wantsQuizAssistance,
     });
+  }
+  if (intent.obligationDiscovery?.requested) {
+    const calendarFirst = intent.obligationDiscovery.calendarFirst && Boolean(config.calendarUrl);
+    return {
+      targets: calendarFirst ? ["calendar", "moodle"] : ["moodle"],
+      confidence: "high",
+      reason: calendarFirst
+        ? "Obligation discovery reads the requested calendar window first, then audits the relevant Moodle courses and activities."
+        : "Obligation discovery audits the relevant Moodle courses and activities; no calendar-first scope is available.",
+      needsCurrentScheduleData: intent.obligationDiscovery.temporal,
+      needsCourseMaterial: true,
+      needsFiles: intent.needsDownloadedFiles,
+      needsQuizOrAssignment: true,
+      allowFollowUpCrawl: true,
+      obligationDiscovery: true,
+    };
   }
   if (intent.intent === "schedule_answer") {
     const cisAllowed = config.includeCis && config.cisUrls.length > 0;

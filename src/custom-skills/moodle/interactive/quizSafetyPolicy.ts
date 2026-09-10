@@ -342,6 +342,7 @@ function enforceAttemptPolicy(
   }
   if (
     metadata?.appearsLimitedAttempt &&
+    !metadata.hasActiveAttempt &&
     metadata.attemptsLeft !== null &&
     metadata.attemptsLeft < policy.minimumAttemptsLeft
   ) {

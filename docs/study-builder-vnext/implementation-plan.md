@@ -1,5 +1,102 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Semantic source search — 2026-09-08
+
+User approved the concrete semantic fallback plan. Campaign:
+`study-buddy-data/optimization-campaigns/semantic-source-search/`.
+Extend the existing resolver with a constrained Luna decision loop over observed
+IDs, read-only probes and query refinement. Direct identities remain fast;
+ambiguous aliases require evidence. Keep one persisted search trace and validate
+cached resolutions against current source evidence. Replace the broad obligation
+crawl with an enrolled-course and activity inventory, source-backed dates/status,
+and per-course coverage. No course disappears merely on a model preference.
+Acceptance requires the actual correct obligation overview; a partial-only reply
+does not pass. Preserve permissions, original temporal contracts and renderers.
+
+Desktop diagnostics additionally exposed the broker fetch header deadline (five
+minutes), the quick-workflow deadline (twelve minutes), and avoidable repeated
+classification of all-course evidence. The candidate uses native streaming HTTP
+transport governed by the existing worker watchdog, reads missing assessment
+details before extraction, verifies explicit ungraded/graded-offline cases
+directly, and processes at most two independent leaf packets concurrently.
+R6 is not accepted: complete enrollment, 581/797 activities, terminal timeout.
+R7 root regression passed (1003 tests, four skipped), but desktop acquisition
+found eight stale prose links whose enclosing learning-path text was misassigned.
+R8 keeps link-local context, adds same-course inspected reference repair, allows
+positive administrative/example exclusions, and gives exhaustive acquisition the
+existing 90-minute worker ceiling independently of short answer format. Explicit
+limits and the idle watchdog still apply. Triage also uses two bounded packets;
+model diagnostics now use unique IDs under concurrency. R8 root regression
+passed (1008 tests, four skipped), but full desktop acceptance exposed missing
+LTI popup content and insufficiently specific stale-reference equivalence.
+R9 reads the source-opened external window/frames without pressing controls,
+preserves course-format section context, independently verifies unique reference
+equivalence, and salvages validated facts when individual IDs are omitted.
+Additional source evidence requests terminate classification instead of replaying
+the same insufficient packet. R9 focused desktop proved all19 detail reads
+including external videos, but two model paraphrases failed strict quotation
+validation. R10 adds per-card evidence handles backed by exact source spans and
+a preceding-heading fallback for custom course formats. Full regression:
+1014 passed, four skipped; TypeScript clean. R10 showed that prose links
+still overrode authoritative module names and could not prove complete nested
+course coverage. R11 uses Moodle's read-only core_courseformat_get_state for all
+visible module IDs, canonical names and section membership; observed prose
+references remain in per-course evidence but are not separate enrolled modules.
+DOM-only fallback is explicitly partial. R11 full root regression: 1016 passed,
+four skipped across 134 files; TypeScript clean. The fresh all-course desktop
+round confirms the course-state API is available; full output acceptance pending. R11 was stopped after manual evidence review
+found exclusions based only on generic external topic names. R12 adds an
+independent bounded purpose-evidence review to triage and extraction; rejected
+or omitted exclusions proceed to detail acquisition. Exact quotation integrity
+alone is insufficient to prove non-assessment. Entire owned process group was
+verified stopped before changes; R11 is not an accepted candidate. R12
+Mathe desktop resolves MAES3 and preserves the explicit unsettled Minitest1 date,
+but review omitted two forums. R13 requires a supported/unsupported decision and
+reason for every reviewed ID, retries only missing/invalid decisions, and accepts
+explicit peer-exchange/support purpose without inventing graded participation.
+Moodle forum landing acquisition also strips editor/forms and redacts embedded
+session query parameters before persistence/model input. R13 Mathe desktop
+passes complete16/16 with correct course, linked TBD and77s worker duration;
+all-course runtime exceeds eleven minutes with511k input tokens before detailed
+acquisition. Add a source/account-scoped evidence-decision cache: enumerate fresh
+sources on every run, match full current source fingerprints, validate stored
+quotes, rebase dates to the current requested window, never cache unresolved
+facts, and use atomic private writes. Packaged quick chats may share only their
+own Study Buddy account-scoped cache. Live R13 continues as the uncached comparator;
+cache acceptance requires a fresh packaged run and independently measured reuse. R13 full acquisition then
+exposed23 reads marked failed. A separate read-only probe proves five lab reports
+are inaccessible to this user's groups, and Pearson popup bodies exist but have
+zero/hidden body geometry. R14 preserves native uservisible plus rendered access
+requirements, accounts for exclusive unmet group prerequisites directly, retains
+module text even without enabled anchors, waits for attached external body before
+reading frame metadata, and stores bounded redacted read errors. Context now
+includes the actual course title, so tutorial examples can be distinguished from
+student assessments. R13 stopped after reproducing these acquisition defects.
+
+## Request date and source scope stabilization — 2026-09-08
+
+User approved the diagnosed quiz/deadline stabilization. Campaign:
+`study-buddy-data/optimization-campaigns/request-date-scope-stabilization/`.
+Preserve the existing worktree changes and renderer contracts. Add a shared,
+persisted temporal request contract; preserve real quiz labels and validate dated
+targets before attempts; recognize obligation requests despite incidental typos;
+audit all enrolled course/activity sources with explicit enumeration gaps.
+Calendar hints prioritize courses but cannot narrow an exhaustive audit.
+Validate original requests, absolute/relative dates, time-zone boundaries, empty
+and partial source results, and existing permission gates before desktop checks.
+
+First stabilization stage accepted locally on 2026-09-08. Root verification:
+974 tests passed, four skipped; TypeScript passed. Two fresh Balanced threads in
+the installed Electron candidate used the exact reported prompts. Deadline thread
+`ea4fdb50-5451-4f9e-83f5-1a3e17aabc12` ended `partial` and explicitly disclosed
+incomplete coverage; quiz thread `30bfde93-b330-44fa-82a7-8aabe7ef743a` ended
+`target_not_found` with no attempt or final submission. This validates the safety
+and evidence-bound-result contract, not complete all-course deadline discovery.
+Remaining: bounded 64-page crawl leaves 505 discovered pages pending; course
+hints and conflicting course/quiz dates need better resolution. Canonical evidence:
+`study-buddy-data/diagnostics/2026-09-08-stabilization/`. Private local AppImage
+SHA-256 starts `bbdc754215d3`; desktop asar unchanged; original image retained.
+
 Status: cross-course production candidate promoted for MEL, mathematics, dynamics, and Business English; theory/business outside the validated English course remains a contract fixture
 Charter: [`implementation-charter.md`](./implementation-charter.md)  
 Product specification: [`product-spec.md`](./product-spec.md)  
@@ -25,6 +122,46 @@ After each work package:
 
 The primary agent owns shared contracts, integration, end-to-end validation,
 benchmark comparison, and the final quality decision.
+
+## Adaptive cross-course obligation discovery
+
+Status: implementation, regression verification, and fresh Balanced desktop
+pipeline acceptance complete on 2026-09-03; canonical-answer handoff guard
+verified on 2026-09-08
+
+- Natural German and English requests for homework, assignments, submissions,
+  preparation, or other actionable to-dos now resolve to a first-class generic
+  obligation-discovery policy. The policy records temporal, exhaustive, deep,
+  calendar-first, and targeted/all-relevant scope instead of relying on a
+  course-specific prompt template.
+- Temporal obligation requests read the personal calendar first and preserve
+  its exact requested range. Every distinct calendar course hint is resolved
+  independently to Moodle; unmatched hints become explicit coverage gaps
+  instead of a silent Top-N cut. Without usable calendar hints, the fallback
+  remains an exhaustive visible-course audit.
+- The Moodle reader opens all selected course roots, expands collapsed course
+  sections, follows safe section and activity landing pages to depth three,
+  and retains the existing quiz boundary: attempts, answer changes, saves, and
+  final submission are not admitted by this read-only discovery path.
+- `obligation-coverage.json` records discovered, visited, failed, pending, and
+  budget-truncated pages. Quick-answer publication is `partial` unless the
+  requested calendar range and every discovered Moodle obligation page were
+  audited; a negative result is allowed only after that manifest is complete.
+- Obligation answers no longer use a complete calendar selection as the final
+  answer. Each reported item requires a direct Moodle activity source ID and
+  renders with its direct source URL.
+- Focused regression gates cover the original next-week wording, source order,
+  exact Vienna week boundaries, all-course/deep-link selection, safe collapsed
+  section expansion, and incomplete-answer integrity.
+- Fresh desktop thread `30401d66-caab-4868-b0f1-730863bbbcc3` resolved the
+  exact Vienna week of 7–13 September from seven calendar events, mapped all
+  hints to six unique Moodle courses, and completed 6 course roots, 2 sections,
+  and 37 safe activity pages with no unresolved, pending, failed, or truncated
+  frontier. It found both source-grounded preparation and the relative KOUE
+  assignment deadline in one model call (73.6 s; 13,635 fresh input tokens).
+- The desktop coordinator must now preserve a successful answer contract's
+  canonical `answer.md` facts, derived dates, uncertainty, and links instead of
+  independently recomputing a deadline while presenting the result.
 
 ## Ambiguous course-scope reliability guard
 
@@ -1473,3 +1610,84 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
   lifecycle work that the immutable-contract and finite-queue fixes now remove.
 - Current affected regression gate: 269 tests passed, 3 browser-dependent tests
   skipped, TypeScript type checking and diff whitespace checks clean.
+
+- R15: Feed rejected semantic purpose exclusions back into the existing bounded extraction validation loop after a successful source read. Re-evaluate only the rejected activity with its reviewer reason; retain unknown grading/status and absent published dates rather than discard the task or end on a correctable classification disagreement. No new agent, source scope or retry ceiling.
+
+- R16: Preserve personal status wording only when found in the freshly read source (or an already-validated completion fact). Otherwise retain unknown, including cached facts. R15 desktop output passed82/82 in117.877s with56proof hits, but manual internal-fact review found unsupported negative completion labels on undated external exercises.
+
+- R17: Live manual review found lesson Grade:0 and generic module purpose used as non-assessment evidence. Official Moodle lesson/index.php confirms student grade0 is not grading configuration. Remove generic module-purpose text from semantic evidence, reject numeric grade-only purpose proofs, route lesson/attendance/H5P and other assessment modules directly to detail verification, and persist each verified triage packet through the existing source-proof cache. No acceptance relaxation. R16 all-course stopped and owned process group2663757 terminated after identity verification.
+
+- R18: Browser-only source probe2068267 confirms that an LTI titled example with solution help is an interactive score-entry exercise with solution penalties. External-tool exclusions now require fresh landing inspection; observed exercise/score-entry controls require explicit ungraded evidence for exclusion. Enforce the same rule for cache reuse, retaining unknown grading and unpublished deadlines. This avoids title-only classification of external tools and removes their speculative preliminary model pass. R17 owned group2693139 stopped and verified empty; no full acceptance claimed.
+
+- R19 acquisition: Existing live evidence shows LTI2098970 and242250 were marked read with only Abschlussbedingungen. Add visible embedded-frame metadata reading for no-popup LTI pages and reject empty launcher-only reads. Reuse the same rendered-text reader as popup frames; retain hidden-question/form filtering and no control interaction. R18 was built/source-tested but not launched for desktop acceptance.
+
+- R20: Live browser-only probe proves2098970 embedded exercise metadata is readable, while242250 is an empty demonstration tool in an explicitly documented Moodle tutorial/example course. Restore the existing positive-context exclusion rule after a failed external read, with mandatory independent purpose review and explicit instructions that failure/title alone never proves non-assessment. Unattempted LTI exclusions and scored-interaction exclusions remain blocked; failed sources never enter the proof cache. Stop R19 early after this acquisition probe rather than wait for a known unresolvable empty demonstration page.
+
+- R21: R20 host agent manually killed a healthy source worker after mistaking run-progress.json (stale since12s) for idle state, then falsely answered no obligations from calendar fragments. Publish actual course/model-packet/detail progress into the existing public progress contract; keep Moodle attempted until completion. Parent routing must distinguish class-calendar queries from exhaustive obligation queries, leave cancellation/timeouts to the supervised workflow unless explicitly requested, and never reconstruct a deadline answer without its canonical answer. Stop acquisition immediately on browser closure/abort to avoid cascading synthetic page failures. This fixes a concrete parent/worker handoff defect; no new agent or parallel source controller.
+
+- R22 transport investigation: R21 source workflow continues beyond the former false-idle cutoff, but the actual renderer stops receiving chat events after a socket reconnect while Ping/Pong remains healthy and SQLite messages advance. The installed Effect RPC protocol suppresses SocketOpenError notifications with retryTransientErrors enabled; heartbeat timeouts use that same error type, so existing subscriptions can remain waiting on a connection whose server subscriptions no longer exist. Reproduce a missing-Pong reconnection and subsequent stream delivery in the existing transport test, then propagate the transport error through the existing subscription retry path. Keep the active source run unchanged and verify final desktop delivery separately.
+
+- R23 source refinement: R21's two Business English lesson classifications exhausted validation by repeatedly proposing ungraded learning material despite the native index explicitly stating `Deadline: No deadline`. Normalize an explicit native no-deadline field only after a successful landing read and when other observed text supplies neither a date nor a competing deadline/submission statement. Preserve unknown grading and personal status; never infer completion or non-assessment from that field. Retain semantic inspection for conflicting, unread, or merely absent deadline evidence. Collect the full R21 terminal result before packaging further source fixes.
+
+- R23 semantic refinement: Two freshly read H5P software-tutorial activities are also blocked before independent review because their exact evidence quotes lack a fixed list of purpose keywords. Remove that redundant lexical purpose gate after actual acquisition and use the existing independent evidence-based reviewer. Retain the required read attempt for assessment modules, exact-quote verification, rejection of numeric-grade-only evidence, external scored-exercise safeguards, and the three-attempt ceiling. This restores semantic decisions without treating a module type or a permitted keyword as its purpose.
+
+- R23 evidence refinement: The live audit also finds a real `23.Sep 2025` deadline rejected by the independent date parser, and a finished quiz whose exact status is buried in concatenated landing text. Support ordinary German/English month abbreviations and optional spacing after a day separator without changing source years. Add short, source-exact status-field evidence options before generic text options and explicitly require completion-status evidence rather than a numeric score. Keep semantic choice across attempts; do not infer global completion from the presence of one status field.
+
+- R23 acquisition/fallback refinement: A browser-only probe proves H5P2063669 contains an interactive question book behind an outer `Completion requirements` page, while H5P1839769 contains the recipe in a visible about:blank frame. Reuse rendered-frame acquisition for embedded activity types, omit question bodies and never invoke controls; an empty module shell cannot count as a successful detail read. If an actual failed source read remains unresolved, let the existing independent purpose reviewer check whether separately observed library/textbook context positively proves irrelevance. Record its exact quote and retain relevant/ambiguous failures; never cache failed-source facts or infer a deadline/completion from failure. R21 completed1030/1030 with correct RW/TBD facts but9 unresolved,53.78min and197 model calls; not accepted.
+
+- R24: R23 reveals four loaded H5P Drag-the-Words activities mistaken for empty shells because question-body filtering also removed their controls. A read-only browser probe of2206878/2206883 confirms one visible question interface and a visible Check button in each. Retain an explicitly labeled reader observation of that interface and its visible action labels, without reading questions or invoking actions. Apply this only to actual visible H5P question interfaces; keep ordinary frame text and LTI fingerprints unchanged, and still fail truly empty shells. R23 becomes diagnostic after this observed defect and the source probe; do not call its later duration a clean benchmark or accept incomplete coverage.
+
+- R24 external-error refinement: R23 final classification exposes a Pearson Literatur.pdf HTTP404 rendered as chrome browser error content, previously accepted as a successful metadata read. Detect browser-owned error documents in visible external frames and fail acquisition explicitly. Verify bibliography/reference purpose from the native appendix/index context through the existing reviewer; neither HTTP failure nor absence of a date establishes no_deadline. Add a browser regression for a failed embedded navigation, and replay the actual observed source before packaging.
+
+- R25: The clean R24 desktop run ends1030/1030 with one gap: Luna proposes the inaccessible appendix bibliography as a resource but its independent Luna review rejects the context; the final failed-source fallback restarts Luna at attempt1. Use the already configured source-search escalation policy for this final unresolved failed-source review, beginning at attempt2 and retaining the attempt3 ceiling. Do not loosen quotation, purpose, grading, access or completeness gates; the stronger reviewer can still retain a genuine gap. Reproduce the primary rejection in a focused regression, replay the actual failed-source set plus possible-task counterexamples, then repeat exact desktop acceptance. R24 remains unaccepted; no launcher promotion.
+
+- R25 date-proof refinement: The explicit final source review also catches an old poster submission classified no_deadline using the blank native Fälligkeitsdatum field despite a dated closing instruction in the actual page. An empty index field must not override dated activity instructions. Reject that insufficient proof in both extraction and cache when activity text contains dates, require semantic date reconciliation with actual activity evidence through the existing retry policy, and preserve genuinely undated tasks with opening dates only. Add extraction/cache regression and replay the actual source; do not hard-code this course or deadline.
+
+- R26 user-approved scope: Default broad deadline/graded-task overviews to the current semester; include historical courses only when explicitly requested, including named historical courses/terms. Extract that request distinction once, then use the existing read-only semantic resolver against the complete enrolled catalog, native term/date metadata and inspected course content. No institution-specific semester calendar, course allowlist, or assumption that a missing end date means current. Persist exclusions and show the actual scope in the answer. Unresolved scope stays visibly incomplete and never broadens silently. Date-anchor scope caching. Preserve exhaustive activity verification inside the selected scope. R25 all-enrollment acceptance was interrupted by desktop before-quit at06:26:59 and has no canonical answer; keep it unaccepted.
+
+- R27 temporal regression found during R26 source audit: the natural shared-month phrase `vom 8. bis einschließlich 9. September 2026` lost its first endpoint and became today-through-9. Expand only explicit shared-month/year range syntax before existing date validation, preserving both actual endpoints and conflicting/invalid-date rejection. Add German numeric/named and English range tests plus year-boundary ordering; do not reinterpret source years or invent deadlines. R26 selected all8 correct courses but cannot pass its requested date-window gate; repeat the identical natural desktop request after the source fix.
+
+- R27 acceptance complete for the user-selected default current semester: real installed desktop14b572ea audits8current/38excluded and101/101 activities with exact8–9Sep2026 window, correctRW23:45/source-backed status andMAES3TBD; all101 facts reviewed.125.837sworker,6calls,0retries,55proofhits. Fresh Mathe5c14241d resolvesMAES3/16activities withTBD,67.747s,5calls,0retries. Full1079tests/4skips and types pass. Campaign evaluatoraccept and source/output/permission/regression/coverage gates passed. Exact imagebaa33ec8692f91918f1ce9be41e103f8f3fe2e26ef2091b8fa0fe3a9e6a9d2e9 installed and normal launcher verified,35runtime hashes+host archive verified. Explicit historical scope is integration-tested, but full46 historical desktop acceptance was not repeated onR27; earlier partial/interrupted rounds remain documented. Independent dev work was not interrupted.
+
+- R28 historical-scope regression: installed R27 explicit all-enrollment request was narrowed to allgemeine Infokurse, yielding6/46 courses. A quoted phrase alone proves presence, not a whole-request restriction. Before applying a nonempty course query, use one bounded independent source-search review of the original request to distinguish restriction from additive inclusion; reject ambiguous/unquoted reviews. Preserve explicit named subjects and specific historical terms, current-semester default and historical opt-in. Reproduce the faulty extraction in tests, replay the exact real wording and counterexamples, then rerun full desktop scope. The earlier current-semester acceptance remains separately recorded; do not call this historical baseline passed.
+
+## Source search and deadline reliability
+
+- [x] Retain one original time boundary across calendar, acquisition and quiz
+  selection, including shared-month ranges and unsettled source dates.
+- [x] Resolve uncertain course/activity names through bounded, read-only semantic
+  search with observed identities, source quotations and verified caching.
+- [x] Enumerate all enrolled courses and all selected-course activities. Default
+  broad obligation requests to the source-confirmed current semester; include
+  historical enrollments only when explicitly requested and persist exclusions.
+- [x] Verify deadline, personal-status and resource-purpose evidence, including
+  embedded metadata and actual failed-source handling; stop after three failed
+  validation attempts and expose genuine gaps.
+- [x] Publish meaningful source progress and preserve the canonical-answer
+  handoff; recover desktop stream subscriptions after heartbeat reconnects.
+- [x] Verify the current-semester and colloquial mathematics cases in the actual
+  installed desktop; retain source and UI evidence separately.
+- [x] Reject additive inclusion phrases used as whole-request restrictions,
+  preserve explicit historical inclusion for named subjects, and verify the
+  interpretation independently before narrowing a course query.
+- [x] Execute the explicit historical-enrollment desktop verification and record
+  its actual partial result: all enrollments inventoried, seven unresolved facts.
+- [x] Obtain complete historical source coverage and reliable long-run desktop
+  delivery before promoting this candidate as fully accepted.
+
+See [validation results](../semantic-source-search-validation.md).
+
+## Remaining reliability completion
+
+- [x] Distinguish opening/grading metadata from closing instructions in undated-task validation.
+- [x] Reconcile already-read source evidence and positive resource purpose without hiding actual gaps.
+- [x] Preserve the canonical answer and reliable desktop terminal delivery.
+- [x] Patch dependency advisories with isolated installs and run repository checks.
+- [x] Recover misdirected external task links through bounded observed navigation, with native identifier matching, independent semantic review when ambiguous, and rejection of optional cookies only.
+- [x] Reject generic external-home evidence in direct classification, model extraction and legacy proof caching.
+- [x] Recover transient empty external/embedded metadata within the existing three-acquisition limit; retain authentication and quiz boundaries.
+- [x] Require task-focused external source content; a matching identifier in a chapter link list cannot satisfy acquisition or cache validation.
+- [x] Keep date fields empty for non-deadline facts and reject unsupported legacy date quotations.
+- [x] Distinguish a cited textbook used to prepare/consult for a separate test from an assessed reading deliverable; verify actual failed resource cards and negative reading/interactive cases.
+- [x] Require actual task/deadline metadata with the requested external identity; reject title-only embedded launch shells and retry them within the existing acquisition limit. Avoid re-navigation after a fresh correct landing.
+- [x] Pass historical/current-semester/Mathe desktop gates before local promotion (R37: 46/1,030, 8/101, 1/16; exact canonical desktop answers and independent source review passed).

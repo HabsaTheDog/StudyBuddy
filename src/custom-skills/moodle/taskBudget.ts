@@ -21,6 +21,17 @@ const DEFAULT_BUDGET: TaskBudget = {
 export function resolveTaskBudget(intent: StudyBuddyIntentDecision | undefined): TaskBudget {
   if (!intent) return DEFAULT_BUDGET;
 
+  if (intent.obligationDiscovery?.requested) {
+    return {
+      maxMoodlePages: intent.obligationDiscovery.exhaustive ? 64 : 24,
+      maxMoodleDepth: 3,
+      maxCisPages: 0,
+      maxDownloadedFiles: intent.needsDownloadedFiles ? 12 : 4,
+      maxModelInputChars: 150_000,
+      allowModel: true,
+    };
+  }
+
   switch (intent.intent) {
     case "schedule_answer":
       if (intent.needsCourseMaterial) {

@@ -6,6 +6,7 @@ import { RunDiagnostics } from "../runDiagnostics.js";
 import { createSourceOrchestratorNode, createSourcePlannerNode } from "../sourceOrchestrator.js";
 import { initialAgentState } from "../state.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
+import { classifyStudyBuddyIntent } from "../taskIntent.js";
 
 let runDir: string | null = null;
 
@@ -17,6 +18,65 @@ afterEach(async () => {
 });
 
 describe("sourceOrchestrator", () => {
+  it("finishes the calendar read before starting an exhaustive Moodle obligation audit", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "source-orchestrator-"));
+    const diagnostics = new RunDiagnostics({ runDir });
+    await diagnostics.init();
+    const prompt = "Was muss ich nächste Woche in allen Kursen erledigen?";
+    const config = moodleTestConfig({
+      runDir,
+      prompt,
+      calendarUrl: "https://calendar.example/private-token",
+      diagnostics,
+      intentDecision: classifyStudyBuddyIntent({
+        prompt,
+        stage: "all",
+        diagnosticOnly: false,
+        autoAnswer: false,
+        includeCis: true,
+        hasCisUrls: true,
+        hasCalendarUrl: true,
+      }),
+    });
+    await createSourcePlannerNode(config)();
+    const order: string[] = [];
+    await createSourceOrchestratorNode(config, {
+      calendarNode: async () => {
+        order.push("calendar:start");
+        config.calendarSelection = {
+          status: "success",
+          events: [{
+            source: "calendar_event",
+            uid: "robotics",
+            title: "Robotics Lab",
+            start: "2026-09-07T08:00:00.000Z",
+            end: "2026-09-07T10:00:00.000Z",
+            allDay: false,
+            recurring: false,
+          }],
+          complete: true,
+          missingFields: [],
+          needsCisFallback: false,
+          detail: "Calendar complete.",
+          requestedRange: {
+            start: "2026-09-06T22:00:00.000Z",
+            end: "2026-09-13T21:59:59.999Z",
+          },
+        };
+        order.push("calendar:end");
+        return { moodle_raw_text: "CALENDAR", error_log: null };
+      },
+      scraperNode: async () => {
+        order.push("moodle:start");
+        expect(config.obligationCourseHints).toContain("Robotics Lab");
+        await diagnostics.markSuccess("moodle", { detail: "Moodle ok.", urls: [config.moodleUrl], pages: 1 });
+        return { moodle_raw_text: "MOODLE", error_log: null };
+      },
+    })(initialAgentState);
+
+    expect(order).toEqual(["calendar:start", "calendar:end", "moodle:start"]);
+  });
+
   it("runs Moodle and CIS concurrently when both are needed", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "source-orchestrator-"));
     const diagnostics = new RunDiagnostics({ runDir });

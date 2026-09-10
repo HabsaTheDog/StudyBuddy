@@ -1,3 +1,6 @@
+import { resolveSemanticSearch } from "../../semanticSearch.js";
+import { DRAG_DROP_CONTROLS_JS, buildDragDropFillJs } from "../quizDragDrop.js";
+import { quizRequestTime, quizDateMatches, quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
@@ -164,6 +167,7 @@ const QUESTION_EXTRACTION_JS = String.raw`
           raw_html: optionHtml
         };
       });
+    controls.push(...(${DRAG_DROP_CONTROLS_JS})(node));
     const options = controls
       .filter(control => ["radio", "checkbox"].includes(control.type))
       .map(control => control.option_text)
@@ -296,6 +300,8 @@ export function createQuizReviewNode(
       await client.open(target);
       await client.wait(1_000);
       let metadata = await extractQuizMetadata(client);
+      const dateGate = quizDateGate(config, metadata);
+      if (dateGate) return await stopForQuizPolicy(config, state, target, dateGate, metadata);
       const readDecision = enforceQuizSafetyPolicy(config.quizSafetyPolicy, "read_questions");
       if (readDecision.status !== "allowed") {
         return await stopForQuizPolicy(config, state, target, readDecision, metadata);
@@ -348,7 +354,7 @@ export function createQuizReviewNode(
       }
       const startResult =
         wantsAttempt && beforeStart.questions.length === 0
-          ? await clickSafeStartOrContinue(client)
+          ? await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt })
           : { clicked: false, reason: "not-requested-or-questions-visible" };
       if (startResult.clicked) {
         await client.wait(1_500);
@@ -511,6 +517,7 @@ export function buildQuestionPacket(input: {
       "When controls expose control_id values, return one control_answers entry for every editable control.",
       "For text, number, and select controls, put the exact answer or exact visible select-option text in answer and set selected=false.",
       "For every radio or checkbox control, copy its control_id and option text into answer and set selected=true only for each correct option.",
+      "For dragdrop controls, use the attached question image and the bounds relative to that image to identify each drop zone and draggable option. Place numbers do NOT imply visual order; identify each target by its bounds, including when a previous answer occupies it. Return the exact option value (not its label) as answer for each control_id, with selected=false. Never reuse a non-reusable option within its group.",
       "Never collapse a multi-field Cloze question into one answer and never collapse a multiple-response checkbox question into one option.",
       "If unsure, set confidence below 0.65 or add a risk flag so the orchestrator leaves the answer unchanged.",
     ],
@@ -537,8 +544,27 @@ export async function generateAnswerSpec(
         outputSchema: SUBAGENT_ANSWER_SCHEMA,
         task: "quiz_solver",
         attempt,
+        ...(Array.isArray(packet.image_paths) ? { imagePaths: packet.image_paths as string[] } : {}),
       });
-      return normalizeAnswerSpec(JSON.parse(stripJsonFence(raw)));
+      const answer = normalizeAnswerSpec(JSON.parse(stripJsonFence(raw)));
+      if (!Array.isArray(packet.image_paths) || packet.image_paths.length === 0) return answer;
+      // Visual option transcription and the mapping to response controls need a
+      // second check; a confident first answer is not independent verification.
+      const reviewed = await codex.run([
+        "Independently verify this image-based quiz answer before any response is entered.",
+        "Solve the original question from its image and packet. Explicitly check every claimed equality/calculation,",
+        "read every chosen option from the image, and verify its exact option value and target control bounds.",
+        "Do not assume the proposed answer, existing selections, or numeric place order are correct.",
+        "Return a complete corrected answer JSON with the same schema. If evidence is insufficient, use confidence 0.",
+        `Original packet: ${JSON.stringify(packet)}`,
+        `Proposed answer to check: ${JSON.stringify(answer)}`,
+      ].join("\n"), {
+        outputSchema: SUBAGENT_ANSWER_SCHEMA,
+        task: "quiz_solver",
+        attempt: 2,
+        imagePaths: packet.image_paths as string[],
+      });
+      return normalizeAnswerSpec(JSON.parse(stripJsonFence(reviewed)));
     } catch (error) {
       if (attempt === 1) {
         firstError = error;
@@ -640,7 +666,9 @@ export async function fillVisibleQuestion(
     };
   }
   const result = await client.evalJson<Record<string, unknown>>(
-    buildFillQuestionJs(question, answer),
+    question.response_model?.adapter === "drag-drop-image"
+      ? buildDragDropFillJs(question, answer)
+      : buildFillQuestionJs(question, answer),
   );
   return {
     question_id: question.question_id,
@@ -970,9 +998,41 @@ function toJsonObject(value: unknown): JsonObject {
 export async function discoverQuizTarget(
   config: MoodleRuntimeConfig,
   client: AgentBrowserClient,
+  model?: CodexClient,
 ): Promise<string | null> {
   const visited = new Set<string>();
   const queue: string[] = [config.moodleUrl || config.dashboardUrl];
+  // The configured source may be the Moodle root, which login redirects to the
+  // dashboard. Resolve the enrolled catalog for any discovery entry point;
+  // testing only the configured /my/ path silently bypassed course resolution.
+  let courseScope = quizCourseIdentity(queue[0]);
+  if (model && client.enrolledCourses && !courseScope) {
+    const catalog = await client.enrolledCourses();
+    const resolution = await resolveSemanticSearch({
+      prompt: config.originalUserPrompt || config.prompt, context: JSON.stringify(quizRequestTime(config)),
+      candidates: catalog.courses, runDir: config.runDir, sourceScope: config.baseUrl,
+      cacheDir: path.join(config.runDir, "semantic-cache"),
+      model: { run: (prompt, options) => model.run(prompt, { ...options, task: "source_search" }) },
+      reader: {
+        inspect: async c => {
+          await client.open(c.url);
+          const text = await client.evalJson<string>("(() => { const root = document.querySelector('main,#region-main'); return JSON.stringify((root?.textContent || '').replace(/\\s+/g, ' ').trim()); })()");
+          return { ...c, text: `${c.text ?? ""}\n${text}` };
+        },
+        search: async query => catalog.courses.filter(c => query.toLowerCase().split(/\s+/).some(w => `${c.label} ${c.text}`.toLowerCase().includes(w))),
+      },
+    });
+    if (resolution.status === "resolved") {
+      const selected = catalog.courses.filter(c => resolution.selectedIds.includes(c.id));
+      if (selected.length !== 1) return null;
+      courseScope = quizCourseIdentity(selected[0].url);
+      queue.splice(0, queue.length, selected[0].url);
+    } else {
+      // An unresolved course is not permission to search other courses for a
+      // similarly numbered quiz.
+      return null;
+    }
+  }
   const candidatesByUrl = new Map<string, QuizCandidate>();
   const sourcesDir = path.join(config.runDir, "quiz-discovery-snapshots");
   await mkdir(sourcesDir, { recursive: true });
@@ -1015,7 +1075,9 @@ export async function discoverQuizTarget(
         }
       } else if (
         (link.href.includes("/course/view.php") || link.href.includes("/my/")) &&
-        isRelevantCourseLink(config.prompt, link.label, link.href) &&
+        (courseScope
+          ? quizCourseIdentity(link.href) === courseScope
+          : isRelevantCourseLink(config.prompt, link.label, link.href)) &&
         !visited.has(link.href) &&
         queue.length + visited.size < config.maxPages
       ) {
@@ -1033,7 +1095,32 @@ export async function discoverQuizTarget(
       candidate.order,
     );
   }
-  const selected = selectQuizCandidate(config.prompt, candidates);
+  const requestTime = quizRequestTime(config);
+  let eligible = candidates;
+  const dateEvidence: Array<{ url: string; opensAt?: string | null; closesAt?: string | null; matches: boolean; error?: string }> = [];
+  if (requestTime.status !== "none") {
+    eligible = [];
+    if (requestTime.status === "resolved" && config.quizSafetyPolicy?.allowOpeningQuizPages !== false) {
+      for (const candidate of candidates) {
+        try {
+          await client.open(candidate.url);
+          const metadata = await extractQuizMetadata(client);
+          const matches = quizDateMatches(metadata, requestTime);
+          dateEvidence.push({ url: candidate.url, opensAt: metadata.opensAt, closesAt: metadata.closesAt, matches });
+          if (matches) eligible.push(candidate);
+        } catch {
+          dateEvidence.push({ url: candidate.url, matches: false, error: "date-metadata-unavailable" });
+        }
+      }
+    }
+  }
+  // Dates require a unique match, never a score-based guess between dated activities.
+  const selected = requestTime.status === "none" || eligible.length === 1
+    ? selectQuizCandidate(config.prompt, eligible) : null;
+  await writeFile(path.join(config.runDir, "quiz-target-resolution.json"), JSON.stringify({
+    temporalRequest: requestTime, selectedUrl: selected?.url ?? null, dateEvidence,
+    reason: selected ? "target-selected" : requestTime.status !== "none" ? "no-unique-date-confirmed-target" : "no-matching-target",
+  }, null, 2) + "\n");
   candidates.sort((a, b) => b.score - a.score || a.order - b.order);
   await writeFile(
     path.join(config.runDir, "quiz-candidates.json"),
@@ -1092,6 +1179,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function clickSafeStartOrContinue(
   client: AgentBrowserClient,
+  options: { continueOnly?: boolean } = {},
 ): Promise<{ clicked: boolean; text?: string; ref?: string; reason?: string }> {
   const snapshot = await client.snapshot({ interactive: true, compact: true });
   const startLine = snapshot.snapshot
@@ -1105,7 +1193,8 @@ export async function clickSafeStartOrContinue(
     })
     .filter(
       ({ name, ref, role }) =>
-        Boolean(ref) && /^(?:button|link)$/i.test(role) && isStartOrContinueLabel(name),
+        Boolean(ref) && /^(?:button|link)$/i.test(role) && isStartOrContinueLabel(name) &&
+        (!options.continueOnly || /versuch fortsetzen|continue attempt/i.test(name)),
     )
     .sort((a, b) => startControlScore(b.name) - startControlScore(a.name))[0];
   if (!startLine?.ref) {
@@ -1322,6 +1411,7 @@ function isQuizActivityViewUrl(value: string): boolean {
 
 function quizCandidateTitleQuality(title: string): number {
   const normalized = title.replace(/\s+/g, " ").trim();
+  if (/^https?:\/\//i.test(normalized)) return -10_000;
   const genericPenalty = /^(?:test|quiz|moodle test)$/i.test(normalized) ? 1_000 : 0;
   const semanticBonus = extractUnitNumbers(normalized).size > 0 ? 500 : 0;
   return semanticBonus + normalized.length - genericPenalty;
@@ -1343,6 +1433,13 @@ function requestedOrdinal(prompt: string): number | null {
 function isRelevantCourseLink(prompt: string, label: string, url: string): boolean {
   const haystack = `${label} ${url}`.toLocaleLowerCase("de-AT");
   const lower = prompt.toLocaleLowerCase("de-AT");
+  // Course identifiers come from the request, not a fixed curriculum. Match
+  // complete tokens so e.g. ABC3 cannot resolve to ABC30 or ABC2.
+  const codes = lower.match(/\b[a-z]{2,}\d+[a-z\d]*\b/g) ?? [];
+  if (codes.length) {
+    const tokens = new Set(haystack.match(/[a-z\d]+/g) ?? []);
+    return codes.some(code => tokens.has(code));
+  }
   if (/dyn2|anwendungen der dynamik/.test(lower)) {
     return /dyn2|anwendungen der dynamik/.test(haystack);
   }
@@ -1356,6 +1453,13 @@ function isRelevantCourseLink(prompt: string, label: string, url: string): boole
     return /(^|\W)et2(\W|$)|elektrotechnik\s*2/.test(haystack);
   }
   return /course\/view\.php/.test(url);
+}
+
+function quizCourseIdentity(value: string): string | null {
+  const url = new URL(value);
+  const id = url.searchParams.get("id");
+  return /\/course\/view\.php$/.test(url.pathname) && id
+    ? `${url.origin}${url.pathname}?id=${id}` : null;
 }
 
 export function detectQuizRisks(bodyText: string): string[] {

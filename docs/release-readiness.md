@@ -1,91 +1,81 @@
-# `v0.2.3-alpha` release readiness
+# Consolidated `v0.2.2-alpha` test release
 
-This is the durable, credential-free handoff for the current corrective Study
-Buddy alpha. A green result applies
-only to the exact source commits and artifact hashes in the final assembled
-bundle. Rebuilding any artifact invalidates its previous packaged acceptance.
+## Contract — 2026-09-10
 
-The `1.x` version line remains reserved for the future stable release. Earlier
-public `v0.1.0-alpha.1` and `v0.1.0-alpha.2` releases are historical technical
-previews; unpublished build attempts do not consume additional public versions.
+The owner requested **one installable Windows/Fedora test alpha**, including
+the other agent's completed work and this thread's fixes. Both previous
+`v0.2.2-alpha` and `v0.2.3-alpha` releases are unpublished drafts; consolidate
+them into `v0.2.2-alpha` without altering any public release.
 
-## Release contract
+The latest owner instruction explicitly reduces acceptance for this publication:
+run relevant deterministic checks, CI/security and exact-artifact integrity,
+then publish for hands-on testing. Do not claim full clean-VM, real-account
+Moodle-to-guide, or production readiness. **No stable website promotion.**
+The owner has authorized the GitHub publication; no new VM reset is authorized.
 
-- Version/tag: `0.2.3-alpha` / `v0.2.3-alpha`
-- GitHub state: prerelease
-- Platforms: Windows 11 x64 and Linux x64
-- Windows signing: intentionally unsigned with SmartScreen disclosure
-- macOS: not shipped
-- Source of downloads and updates: `HabsaTheDog/StudyBuddy` GitHub Release assets
-- Website promotion: only after the explicit distribution-ready contract and
-  both exact packaged lanes pass
-- Decision states: `go`, `no-go`, or `blocked`
+## Included source
 
-The final root commit, UI commit, filenames, sizes, and hashes must come from
-the successful workflow's `release-manifest.json` and `SHA256SUMS`; they are not
-predicted in this document.
+Desktop PR #21 is merged after all required GitHub checks passed:
+`6b6d811264cd896fc2abac48810edf9abac81246`.
+The owner refreshed GitHub authorization and the release branch push succeeded.
+Root CI/merge and the exact packaging run are the next gates. No new release
+or stable website promotion has occurred.
 
-## Security and privacy baseline
+Work happens in isolated `release/consolidated-0.2.2-alpha` worktrees. Original
+dirty checkouts remain untouched.
 
-- Saved source usernames, passwords, email identities, bearer calendar links,
-  and private source links use per-record AES-256-GCM encryption. The random
-  master key is protected through Windows DPAPI or Linux Secret Service via
-  Electron `safeStorage`; insecure Linux `basic_text` storage fails closed.
-- Provider subprocesses receive explicit environment allowlists. Portal
-  credentials and arbitrary host secrets are excluded.
-- Usage analytics and conversation sharing are independent opt-in categories
-  that start disabled. Release builds accept only the public PostHog project
-  token, never an administrative credential.
-- Root and UI repositories use secret scanning, push protection, Dependabot,
-  CodeQL, full-history Gitleaks, and protected default branches.
-- Previously disclosed credentials were rotated. GitHub Support confirmation
-  for historical pull-request refs and cached personal-data views remains an
-  external maintainer item and is not represented as complete without the
-  support response.
+- Root: combine `bcd1aba` parallel quiz work, `e2285fa` completed semantic
+  source reliability and dependency work, and the local Moodle server fixes.
+- UI: combine `382f4f1b3` completed workflow/reconnection/dependency work
+  with the owner's finished desktop/runtime changes (checkpoint `adc3fd0c4`).
+- Preserve source-origin validation, credential redaction, native quiz approval
+  and the prohibition on final quiz submission.
+- Fix Windows cache-test assertions to use platform-native paths and apply
+  POSIX permission assertions only where those bits represent permissions.
 
-## Product baseline already established
+## Current evidence
 
-Earlier exact candidates demonstrated the intended Study Buddy identity,
-zero-source onboarding, more-than-three source management, edit/disable/delete,
-browser-backed source checks, optional telemetry delivery, restart persistence,
-offline recovery, Windows SmartScreen behavior, and Fedora AppImage execution.
-Those runs are regression evidence only; they do not approve new
-`0.2.3-alpha` bytes.
+- [x] Root TypeScript and 1,161 tests pass; 4 optional tests skipped.
+- [x] PR review regressions reproduced before fixes: script-only navigation,
+  generic prepare/complete routing, and authorship misread as a deadline.
+  Direct verified navigation avoids anchor click handlers; corrected intent/date
+  boundaries retain obligation and inclusive-deadline positive controls.
+- [x] UI formatting/lint and all 13 workspace typechecks pass.
+- [x] UI release dependency audit has no high/critical findings.
+- [x] Root dependency audit has no findings; links, public-tree and license checks pass.
+- [x] Release contract/asset tests pass, including unpromoted-alpha integrity.
+- [x] Real local Moodle server: 19 checks and 16 tooling tests pass; see
+  [Moodle lab](moodle-test-service.md).
+- [x] UI tests: 3,325 pass; 5 skipped.
+- [x] Desktop PR #21: required CI, tests, CodeQL and Gitleaks pass; merged.
+- [ ] Complete root remote CI/security checks.
+- [ ] Merge root/UI source and record exact default-branch commits.
+- [ ] Build the exact Windows NSIS and Linux AppImage bundle in GitHub Actions.
+- [ ] Verify manifest, hashes, updater payloads, signing disclosure and package contents.
+- [ ] Replace the unpublished draft deliberately; retain old provenance.
+- [ ] Publish one GitHub prerelease, verify public downloads and retire redundant draft.
 
-The release-lab now additionally requires ChatGPT subscription authentication,
-a real streamed response in a newly created packaged desktop thread, bounded
-synthetic file read/edit/create operations, credential cleanup, and restoration
-of the calibrated Windows `clean` and Fedora `clean-wallet` snapshots.
+## Explicit limitations
 
-## Required gates
+Windows is intentionally unsigned. macOS is unsupported. No claim is made that
+all application defects are fixed. Owner testing, full clean Windows/Fedora VM
+acceptance, updater installation and real-account Moodle-to-guide acceptance
+remain pending for these new bytes.
 
-1. Merge the reviewed root release changes through the protected default branch
-   with the exact public UI submodule pin.
-2. Complete root and UI typecheck, test, lint/format, dependency audit, license,
-   SBOM, public-tree, link, submodule, secret-scan, and CodeQL gates.
-3. Build the exact `0.2.3-alpha` Windows and Linux bundle from the final tagged
-   default-branch commit. Verify all manifest, checksum, updater, SBOM, version,
-   platform, and unsigned-state claims.
-4. Complete full-setup packaged acceptance in the disposable Windows and Fedora
-   VMs, including subscription auth and the representative real thread/file
-   workflow. Any mandatory blocked scenario prevents publication.
-5. Prove updater no-downgrade behavior and update from an earlier public alpha
-   into the exact candidate while preserving intended local state.
-6. Stage a complete reviewed GitHub draft with the correct prerelease flag,
-   release notes, expected platform assets, checksums, provenance, SBOMs, and
-   distribution-ready marker.
-7. Verify the website rejects drafts/unpromoted releases, accepts the promoted
-   alpha, preserves the Windows warning, and resolves both platform buttons to
-   the exact approved GitHub asset URLs.
-8. Obtain explicit maintainer approval immediately before making the GitHub
-   draft public and deploying/activating website promotion.
-9. After publication, download through the public path, compare SHA-256, verify
-   updater discovery, and complete a bounded smoke test.
+The local Moodle **server** is verified and stopped when unused. Safe guest
+transport and automated credential entry for the unchanged desktop package are
+not finished; do not weaken normal HTTPS/private-network protections to claim
+a test pass. This is tracked separately from the test-alpha publication.
 
-## Current decision
+Publication must omit `distribution-ready.json`; the website's previously
+approved download remains unchanged. Build automation must not create a
+stable-channel approval simply because compilation passed.
 
-Status: **blocked for publication while preparation is in progress**.
+The root ruleset's obsolete required macOS check was removed to match the
+Windows/Linux source matrix; all security checks, review/merge restrictions
+and bypass settings are unchanged. Prior ruleset JSON is retained in ignored
+local release evidence. The matching workflow change is included in this branch.
 
-The source candidate is being converted to the agreed `0.2.3-alpha` contract.
-No final bundle, exact VM pass, reviewed GitHub draft, or deployed website
-promotion exists yet. Successful source CI alone will not change this decision.
+Historical candidate evidence remains in
+[the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
+Old hashes/passes do not certify this rebuilt version.
