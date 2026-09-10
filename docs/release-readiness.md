@@ -15,6 +15,14 @@ The owner has authorized the GitHub publication; no new VM reset is authorized.
 
 ## Included source
 
+Desktop PR #21 is merged after all required GitHub checks passed:
+`6b6d811264cd896fc2abac48810edf9abac81246`.
+The root release branch is committed locally but not pushed: GitHub rejected
+workflow updates because the current HTTPS OAuth authorization lacks the
+`workflow` scope. Existing SSH Git authentication also failed. The owner must
+complete `gh auth refresh -h github.com -s workflow` locally before resuming.
+No root PR/build/publication or stable website promotion has occurred.
+
 Work happens in isolated `release/consolidated-0.2.2-alpha` worktrees. Original
 dirty checkouts remain untouched.
 
@@ -37,7 +45,8 @@ dirty checkouts remain untouched.
 - [x] Real local Moodle server: 19 checks and 16 tooling tests pass; see
   [Moodle lab](moodle-test-service.md).
 - [x] UI tests: 3,325 pass; 5 skipped.
-- [ ] Complete remote CI/security checks.
+- [x] Desktop PR #21: required CI, tests, CodeQL and Gitleaks pass; merged.
+- [ ] Complete root remote CI/security checks after workflow push authorization.
 - [ ] Merge root/UI source and record exact default-branch commits.
 - [ ] Build the exact Windows NSIS and Linux AppImage bundle in GitHub Actions.
 - [ ] Verify manifest, hashes, updater payloads, signing disclosure and package contents.
@@ -59,6 +68,11 @@ a test pass. This is tracked separately from the test-alpha publication.
 Publication must omit `distribution-ready.json`; the website's previously
 approved download remains unchanged. Build automation must not create a
 stable-channel approval simply because compilation passed.
+
+The root ruleset's obsolete required macOS check was removed to match the
+Windows/Linux source matrix; all security checks, review/merge restrictions
+and bypass settings are unchanged. Prior ruleset JSON is retained in ignored
+local release evidence. The corresponding workflow change is still local.
 
 Historical candidate evidence remains in
 [the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
