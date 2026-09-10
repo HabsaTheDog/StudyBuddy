@@ -12,7 +12,7 @@ This is the waiting list for changes accumulating before the next release freeze
 
 | Change | Status | Focused evidence | Final-batch work still required |
 | --- | --- | --- | --- |
-| Prevent the packaged workflow-only `npm` shim from intercepting Codex provider updates | Implemented; verification in progress | Provider-maintenance regression tests cover Linux/NVM, shim-only fallback, and Windows `npm.cmd` resolution | Holistic review, exact-candidate packaging, and clean Fedora/Windows VM acceptance after the batch is frozen |
+| Prevent the packaged workflow-only `npm` shim from intercepting Codex provider updates | Verified and queued | Exact-commit packaged UI updated an isolated Codex fixture from `0.153.0` to `0.154.0`; provider, Windows/Linux resolution, packaged-runtime, typecheck, and artifact-contract tests passed | Holistic review, final exact-candidate packaging, and clean Fedora/Windows VM acceptance after the batch is frozen |
 
 ## Freeze policy
 
