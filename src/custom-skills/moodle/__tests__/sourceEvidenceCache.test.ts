@@ -95,7 +95,8 @@ it("isolates desktop accounts and keeps anonymous sessions in their workspace", 
   expect(a).toContain(path.join("study-buddy-data", "cache", "sources") + path.sep);
   expect(a).not.toContain("account-a");
   expect(sourceCacheRoot({ ...config, username: "account-b" }, environment)).not.toBe(a);
-  expect(sourceCacheRoot({ ...config, username: undefined }, environment)).toContain(config.runtimeCacheDir);
+  expect(path.dirname(sourceCacheRoot({ ...config, username: undefined }, environment)))
+    .toBe(path.join(config.runtimeCacheDir, "sources"));
   const dir = await root(); await new SourceEvidenceCache(config, dir).write(card, fact);
   expect(await new SourceEvidenceCache({ ...config, username: "account-b" }, dir).read(card)).toBeNull();
 });
