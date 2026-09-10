@@ -25,7 +25,11 @@ export function resolveTemporalRequest(
     .replace(new RegExp(`${rangePrefix}\\.?(\\s*(?:${months.join("|")})\\.?(?:\\s+\\d{4})?\\b)`, "g"), "$1$2.$5 $3$4.$5")
     .replace(new RegExp(`${rangePrefix}(\\.\\d{1,2}\\.(?:\\d{4}\\b)?)`, "g"), "$1$2$5 $3$4$5");
   const today = dateKey(now, timeZone);
-  const until = /\b(?:bis(?:\s+einschließlich)?|spätestens|spaetestens|nicht später als|no later than|by|until|through|up to)\b/i.test(text);
+  let until = /\b(?:bis(?:\s+einschließlich)?|spätestens|spaetestens|nicht später als|no later than|until|through|up to)\b/i.test(text);
+  const bindDeadline = (position: number) => {
+    // "by" must introduce the parsed date, not an author elsewhere in the prompt.
+    if (/\bby\s+(?:(?:the\s+)?end\s+of\s+)?(?:the\s+)?$/.test(text.slice(0, position))) until = true;
+  };
   const base = { resolvedAt: now.toISOString(), timeZone, relation: until ? "until" as const : "on" as const };
   const resolved = (first: string, last = first): TemporalRequest => Object.freeze({
     ...base, status: "resolved", relation: until ? "until" : first === last ? "on" : "range",
@@ -38,6 +42,7 @@ export function resolveTemporalRequest(
   const addDate = (y: number, m: number, d: number, position: number) => {
     const key = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     if (new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) !== key) return false;
+    bindDeadline(position);
     dates.push({ key, position }); return true;
   };
   for (const match of text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
@@ -58,6 +63,10 @@ export function resolveTemporalRequest(
   const relative = /\b(?:übermorgen|uebermorgen|day after tomorrow)\b/.test(text) ? addDays(today, 2)
     : /\b(?:morgen|morgig\w*|tomorrow)\b/.test(text) ? addDays(today, 1)
     : /\b(?:heute|heutig\w*|today)\b/.test(text) ? today : null;
+  if (relative) {
+    const match = text.match(/\b(?:übermorgen|uebermorgen|day after tomorrow|morgen|morgig\w*|tomorrow|heute|heutig\w*|today)\b/);
+    if (match) bindDeadline(match.index!);
+  }
   const unique = [...new Set(dates.sort((a, b) => a.position - b.position).map(d => d.key))];
   if (unique.length > 1) {
     if (/\b(?:vom|von|zwischen|from|between)\b/.test(text) && /\b(?:bis|und|to|and)\b/.test(text) && unique[0] <= unique[1] && unique.length === 2) {
@@ -75,11 +84,15 @@ export function resolveTemporalRequest(
     const day = new Date(`${today}T12:00:00Z`).getUTCDay() || 7;
     const next = /nächste|naechste|kommende|next/.test(text) ? 7 : 0;
     const monday = addDays(today, 1 - day + next);
+    const match = text.match(/\b(?:this week|next week)\b/);
+    if (match) bindDeadline(match.index!);
     return resolved(monday, addDays(monday, 6));
   }
   if (/\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(text)) {
     const names = ["sonntag|sunday", "montag|monday", "dienstag|tuesday", "mittwoch|wednesday", "donnerstag|thursday", "freitag|friday", "samstag|saturday"];
     const wanted = names.findIndex(name => new RegExp(`\\b(?:${name})\\b`).test(text));
+    const match = text.match(new RegExp(`\\b(?:(?:next|this)\\s+)?(?:${names[wanted]})\\b`));
+    if (match) bindDeadline(match.index!);
     const day = new Date(`${today}T12:00:00Z`).getUTCDay();
     let delta = (wanted - day + 7) % 7;
     if (delta === 0 && /nächste|naechste|next/.test(text)) delta = 7;

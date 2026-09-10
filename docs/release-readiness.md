@@ -35,7 +35,11 @@ dirty checkouts remain untouched.
 
 ## Current evidence
 
-- [x] Root TypeScript and 1,146 tests pass; 4 optional tests skipped.
+- [x] Root TypeScript and 1,161 tests pass; 4 optional tests skipped.
+- [x] PR review regressions reproduced before fixes: script-only navigation,
+  generic prepare/complete routing, and authorship misread as a deadline.
+  Direct verified navigation avoids anchor click handlers; corrected intent/date
+  boundaries retain obligation and inclusive-deadline positive controls.
 - [x] UI formatting/lint and all 13 workspace typechecks pass.
 - [x] UI release dependency audit has no high/critical findings.
 - [x] Root dependency audit has no findings; links, public-tree and license checks pass.

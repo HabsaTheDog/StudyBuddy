@@ -5,6 +5,12 @@ import { isAssignmentSubmissionPrompt } from "../interactive/quizIntent.js";
 
 const now = new Date("2026-09-08T17:56:31Z");
 describe("reported request boundaries", () => {
+  it.each(["What room is the lecture on 15 September 2027 taught by Smith?", "By Smith: lecture on 15 September 2027"])("does not treat authorship as a deadline: %s", prompt => {
+    expect(resolveTemporalRequest(prompt, now)).toMatchObject({ relation: "on", start: "2027-09-14T22:00:00.000Z", end: "2027-09-15T21:59:59.999Z" });
+  });
+  it.each(["by tomorrow, 9 September 2026", "by Wednesday", "by the end of this week"])("binds by to an actual relative date: %s", prompt => {
+    expect(resolveTemporalRequest(prompt, now)).toMatchObject({ status: "resolved", relation: "until", start: "2026-09-07T22:00:00.000Z" });
+  });
   it.each([
     "welche minitests und benoteten aufagebn muss ich alle bis morgen abgeben.",
     "Welche benoteten Aufgaben muss ich bis morgen abgeben?",

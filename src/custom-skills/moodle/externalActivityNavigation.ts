@@ -79,7 +79,9 @@ export async function navigateExternalActivity(page: Page, activity: ActivityCar
     visited.add(`${chosen.frameIndex}:${chosen.label}`);
     await config.diagnostics?.log("info", "moodle_crawl", "Follow observed external source navigation", { activityId: activity.id, hop, kind: proposal.kind, selection: structural ? "native-identifier" : "reviewed-model", label: chosen.label });
     const existingPages = new Set(page.context().pages());
-    await target.click({ timeout: 5000 });
+    // Follow the verified destination directly. Even a real HTTPS anchor can
+    // attach a state-changing click handler; read-only acquisition must not run it.
+    await frame.goto(new URL(chosen.href, chosen.origin).href, { waitUntil: "domcontentloaded", timeout: 10000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => undefined);
     await page.waitForTimeout(1500);
     const unexpectedPages = page.context().pages().filter(open => !existingPages.has(open));
@@ -113,7 +115,7 @@ export async function rejectOptionalCookies(page: Page): Promise<void> {
 }
 
 export function safeNavigationHref(href: string, origin: string): boolean {
-  if (/^(?:#.*|javascript:\s*void\(0\);?)$/i.test(href)) return true;
+  if (!href.trim() || href.trim().startsWith("#")) return false;
   try {
     const url = new URL(href, origin);
     return Boolean(href && url.protocol === "https:" && url.origin === origin && !url.username && !url.password && !/(?:submit|attempt|login|logout|delete|enrol|enroll|edit)\b/i.test(url.pathname + url.search));

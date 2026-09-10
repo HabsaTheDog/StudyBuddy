@@ -7,6 +7,12 @@ import {
 } from "../obligationDiscovery.js";
 
 describe("generic obligation discovery policy", () => {
+  it.each(["Complete an explanation of osmosis", "Prepare a summary of chapter 2", "Eine Zusammenfassung vorbereiten"])("keeps ordinary study requests out of obligation discovery: %s", prompt => {
+    expect(classifyObligationDiscovery(prompt).requested).toBe(false);
+  });
+  it.each(["Which assignments must I complete?", "What must I prepare for tomorrow?", "Was muss ich morgen vorbereiten?"])("retains actual obligation questions: %s", prompt => {
+    expect(classifyObligationDiscovery(prompt).requested).toBe(true);
+  });
   it("resolves every calendar course hint independently without a fixed shortlist", () => {
     const courses = [
       { href: "https://moodle.example/course/view.php?id=1", label: "WS2026 AT1 Automatisierungstechnik" },
