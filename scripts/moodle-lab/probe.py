@@ -12,6 +12,16 @@ from urllib.parse import urlencode, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 
 
+class ProbeError(ValueError):
+    """Only locally authored messages, never remote response content or URLs."""
+
+
+def admin_denied(status, content):
+    # Moodle may render exceptions with HTTP 404. A generic missing page is
+    # not authorization evidence: require its specific access-denied error link.
+    return status == 403 or (status in (200, 404) and b'error/admin/accessdenied' in content.lower())
+
+
 class LoginForm(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -26,17 +36,21 @@ class LoginForm(HTMLParser):
 def origin(url):
     parsed = urlsplit(url)
     if parsed.username or parsed.password or parsed.fragment:
-        raise ValueError('Invalid fixture URL')
+        raise ProbeError('Invalid fixture URL')
     return parsed.scheme, parsed.hostname, parsed.port
 
 
 class SameOriginRedirect(HTTPRedirectHandler):
     def __init__(self, expected):
         self.expected = expected
+        self.routes = []
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if origin(newurl) != self.expected:
-            raise ValueError('Cross-origin redirect refused')
+            raise ProbeError('Cross-origin redirect refused')
+        route = {'/login/index.php': 'login', '/admin/index.php': 'admin', '/': 'home',
+                 '/my/': 'dashboard'}.get(urlsplit(newurl).path, 'other')
+        self.routes = (self.routes + [route])[-8:]
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -45,15 +59,16 @@ class MoodleClient:
         self.expected = origin(base)
         if self.expected[0] != 'https':
             if not (local_test and self.expected[0] == 'http' and self.expected[1] == '127.0.0.1'):
-                raise ValueError('HTTPS required outside isolated loopback server tests')
+                raise ProbeError('HTTPS required outside isolated loopback server tests')
         self.base = base.rstrip('/') + '/'
-        self.opener = build_opener(ProxyHandler({}), SameOriginRedirect(self.expected),
+        self.redirects = SameOriginRedirect(self.expected)
+        self.opener = build_opener(ProxyHandler({}), self.redirects,
                                   HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def get(self, path, data=None):
         url = urljoin(self.base, path)
         if origin(url) != self.expected:
-            raise ValueError('Fixture target origin mismatch')
+            raise ProbeError('Fixture target origin mismatch')
         payload = urlencode(data).encode() if data is not None else None
         request = Request(url, data=payload, headers={'User-Agent': 'StudyBuddy-Moodle-Lab/1'})
         try:
@@ -63,7 +78,7 @@ class MoodleClient:
         with response:
             content = response.read(2 * 1024 * 1024 + 1)
             if len(content) > 2 * 1024 * 1024:
-                raise ValueError('Oversized fixture response')
+                raise ProbeError('Oversized fixture response')
             return response.status, response.url, content
 
     def login(self, username, password):
@@ -71,7 +86,11 @@ class MoodleClient:
         parser = LoginForm()
         parser.feed(page.decode('utf-8'))
         if status != 200 or not parser.token:
-            raise ValueError('Expected Moodle login form')
+            indicators = [marker for marker in ('wwwroot', 'reverseproxy', 'maintenance',
+                'Database connection failed', 'Coding error detected', 'HTTPS', 'Page not found')
+                if marker.encode() in page]
+            raise ProbeError(f'Expected Moodle login form: HTTP {status}; indicators={indicators}; '
+                             f'redirectRoutes={self.redirects.routes}')
         return self.get('login/index.php', {
             'username': username, 'password': password, 'logintoken': parser.token,
         })
@@ -102,10 +121,8 @@ def run_probe(config):
         for file in manifest['files']:
             status, _, content = client.get(file['url'])
             checks[lane + '_' + file['name']] = status == 200 and hashlib.sha256(content).hexdigest() == file['sha256']
-        status, _, content = client.get('admin/settings.php?section=securitysettings')
-        checks[lane + '_admin_denied'] = status == 403 or (
-            status == 200 and b'name="s__' not in content and
-            b'you do not currently have permissions' in content.lower())
+        status, _, content = client.get('admin/user.php')
+        checks[lane + '_admin_denied'] = admin_denied(status, content)
     invalid = MoodleClient(base, local_test)
     invalid.login('sb-lab-windows', 'Deliberately-invalid-test-password')
     status, _, content = invalid.get(manifest['pageUrl'])

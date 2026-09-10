@@ -32,12 +32,15 @@ function fixture_pdf(string $text): string {
     return $pdf . "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n";
 }
 
+$stage = 'guards';
 try {
     $input = json_decode(stream_get_contents(STDIN, 16385), true, 16, JSON_THROW_ON_ERROR);
     require_lab(is_array($input) && in_array($input['operation'] ?? '', ['seed', 'inspect', 'reset'], true));
     require_lab(isset($argv[1]) && is_file($argv[1]));
     require($argv[1]);
-    require_lab(($CFG->sb_lab_enabled ?? false) === true);
+    // Moodle initialise_cfg()/get_config() normalises forced scalar settings
+    // to strings after installation. Keep a strict whitelist, not truthiness.
+    require_lab(in_array($CFG->sb_lab_enabled ?? false, [true, 1, '1'], true));
     require_lab(($CFG->dbname ?? '') === 'sb_moodle_lab');
     require_lab(preg_match('/^[a-f0-9]{32}$/D', $input['instance'] ?? '') === 1);
     require_lab(hash_equals($CFG->sb_lab_instance ?? '', $input['instance']));
@@ -86,6 +89,7 @@ try {
     }
 
     if ($operation !== 'inspect') {
+        $stage = 'students';
         $generator = new testing_data_generator();
         foreach ($students as $lane => $student) {
             if (!$student) {
@@ -101,19 +105,23 @@ try {
                 update_internal_user_password($student, $input['passwords'][$lane]);
             }
         }
+        $stage = 'course';
         $course = $generator->create_course([
             'shortname' => $shortname, 'fullname' => 'Study Buddy Synthetic Test Course',
             'idnumber' => $revision, 'format' => 'topics', 'numsections' => 1,
             'visible' => 1, 'enablecompletion' => 0, 'newsitems' => 0,
             'summary' => 'Synthetic fixtures only. Not university material.',
         ]);
+        $stage = 'page';
         $generator->create_module('page', [
             'course' => $course->id, 'section' => 1, 'name' => 'Known facts',
             'content' => '<p>' . $facts . '</p><p>SB-LAB-PAGE-V1</p>', 'contentformat' => FORMAT_HTML,
         ]);
+        $stage = 'folder';
         $folder = $generator->create_module('folder', [
             'course' => $course->id, 'section' => 1, 'name' => 'Synthetic documents',
         ]);
+        $stage = 'files';
         $context = context_module::instance($folder->cmid);
         foreach ($files as $filename => $bytes) {
             get_file_storage()->create_file_from_string([
@@ -121,12 +129,16 @@ try {
                 'itemid' => 0, 'filepath' => '/', 'filename' => $filename,
             ], $bytes);
         }
+        $stage = 'enrolment';
         foreach ($students as $student) {
             require_lab($generator->enrol_user($student->id, $course->id, 'student', 'manual'));
         }
-        rebuild_course_cache($course->id, true);
+        // PostgreSQL records expose numeric IDs as strings; this Moodle API
+        // requires an int when called from our strict-types fixture.
+        rebuild_course_cache((int)$course->id, true);
     }
 
+    $stage = 'inspect';
     require_lab((bool)$course);
     $page = $DB->get_record('page', ['course' => $course->id, 'name' => 'Known facts'], '*', MUST_EXIST);
     require_lab(str_contains($page->content, $facts) && str_contains($page->content, 'SB-LAB-PAGE-V1'));
@@ -146,6 +158,7 @@ try {
     foreach ($students as $student) {
         require_lab((bool)$student && is_enrolled(context_course::instance($course->id), $student));
         require_lab(!has_capability('moodle/site:config', context_system::instance(), $student));
+        require_lab(!has_capability('moodle/user:update', context_system::instance(), $student));
     }
     echo json_encode([
         'ok' => true, 'fixtureRevision' => $revision, 'moodleRelease' => $CFG->release,
@@ -155,7 +168,8 @@ try {
         'files' => $manifest, 'studentPrivilegesVerified' => true,
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $error) {
-    // Do not serialize exceptions: Moodle/DB diagnostics may contain private configuration.
-    fwrite(STDERR, "Moodle fixture operation failed or target guard refused.\n");
+    // Never expose exception messages, stack arguments or configuration.
+    fwrite(STDERR, json_encode(['stage' => $stage, 'errorClass' => get_class($error),
+        'file' => basename($error->getFile()), 'line' => $error->getLine()]) . "\n");
     exit(1);
 }
