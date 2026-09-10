@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { verifyPurposeExclusions, triageNonObligations, classifyDirectEvidence, classifyEvidence, formatObligationInventory, type EvidenceCard } from "../obligationInventory.js";
+import type { Page } from "playwright";
+import { recoverMisroutedExternalActivity, recoverFailedActivityRead, verifyPurposeExclusions, triageNonObligations, classifyDirectEvidence, classifyEvidence, formatObligationInventory, type EvidenceCard } from "../obligationInventory.js";
 import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 import { resolveTemporalRequest } from "../temporalRequest.js";
 const request = resolveTemporalRequest("bis morgen", new Date("2026-09-08T12:00:00Z"));
@@ -41,6 +42,12 @@ it("does not let the model silently omit an activity", async () => {
   expect(m.run).toHaveBeenCalledTimes(3);
   expect(results[0].disposition).toBe("due");
   expect(results[1].disposition).toBe("needs_read");
+});
+
+it("keeps undated fact date fields empty even if the model leaks an evidence option into them", async () => {
+  const source = { ...card, read: true, index: '', landing: 'Read the textbook chapter for the test; no date has been published.' };
+  const result = await classifyEvidence(config, model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: 'e4', evidence: source.landing }), [source]);
+  expect(result[0]).toMatchObject({ disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: source.landing });
 });
 it("retains explicit native no-deadline evidence without interpreting a zero grade as ungraded", () => {
   const lesson = { ...card, kind: "lesson", label: "Reports and the Presentation of Data", index: "Grade: 0\nDeadline: No deadline", read: true, landing: "Introduction: describe financial reports and present data effectively." };
@@ -271,4 +278,130 @@ it("allows genuinely undated tasks with opening dates after considering their ac
   const source = 'Geöffnet: 16. September 2025. No closing deadline is set.';
   const undated = { ...card, read: true, index: 'Fälligkeitsdatum: -', landing: source };
   expect((await classifyEvidence(config, model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: source }), [undated]))[0].disposition).toBe('no_deadline');
+});
+
+it.each([
+  'Geöffnet: Mittwoch, 29. April 2026, 12:50 Hier bitte die Taskliste hochladen.',
+  'Bewertungsstatus Bewertet Bewertung 0,00 / 10,00 Bewertet am Dienstag, 30. Juni 2026, 21:27 Feedback keine Abgabe',
+  'Geöffnet: Montag, 12. Januar 2026, 18:32 Parallel zum Upload erfolgt ein Plagiatscheck.',
+  'Opened: Wednesday, April 29, 2026, 12:50 Upload your worksheet.',
+])("does not retry a blank deadline solely because of administrative metadata: %s", async landing => {
+  const source = { ...card, read: true, index: 'Fälligkeitsdatum: -', landing };
+  const m = model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: source.index });
+  expect((await classifyEvidence(config, m, [source]))[0].disposition).toBe('no_deadline');
+  expect(m.run).toHaveBeenCalledTimes(1);
+});
+
+it("keeps an actual closing instruction after opening and grading metadata", async () => {
+  const source = { ...card, read: true, index: 'Fälligkeitsdatum: -', landing: 'Geöffnet: 1. September 2026, 10:00 Bewertet am 2. September 2026, 12:00 Abgabe bis 9. September 2026.' };
+  expect((await classifyEvidence(config, model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: source.index }), [source]))[0].disposition).toBe('needs_read');
+});
+
+it("reconciles a request to read an already acquired embedded source within the three-attempt limit", async () => {
+  const source = { ...card, kind: 'hvp', course: 'Learning platform examples', label: 'Chart demonstration', index: 'Content Type: Chart', read: true, landing: 'Embedded content from the activity page\nChart One: 1 Two: 2 Three: 3' };
+  const proposal = { ...fact, disposition: 'not_obligation', dueDate: null, dateQuote: '', evidence: source.label };
+  const m = { run: vi.fn()
+    .mockResolvedValueOnce(JSON.stringify({ facts: [{ ...proposal, disposition: 'needs_read', reason: 'Read the chart' }] }))
+    .mockResolvedValueOnce(JSON.stringify({ facts: [proposal] }))
+    .mockResolvedValueOnce(JSON.stringify({ decisions: [{ id: card.id, exclude: true, quote: source.label, reason: 'Demonstration in platform examples' }] })) };
+  expect((await classifyEvidence(config, m, [source]))[0].disposition).toBe('not_obligation');
+  expect(m.run).toHaveBeenNthCalledWith(2, expect.stringContaining('Source requests more evidence'), expect.objectContaining({ attempt: 2 }));
+  const unavailable = model({ ...proposal, disposition: 'needs_read', reason: 'Task-specific content is absent' });
+  expect((await classifyEvidence(config, unavailable, [source]))[0]).toMatchObject({ disposition: 'needs_read', reason: expect.stringContaining('Task-specific content is absent') });
+  expect(unavailable.run).toHaveBeenCalledTimes(3);
+});
+
+it("reclassifies fresh external task evidence and clears stale purpose rejection", async () => {
+  const c = { ...card, kind: 'lti', read: true, landing: 'Generic book home', readAttempts: 1, purposeReviewRejected: true, purposeReviewReason: 'Old source' };
+  const reader = vi.fn().mockResolvedValue(card.index);
+  const result = await recoverMisroutedExternalActivity(config, { isClosed: () => false } as Page, model(fact), c, reader);
+  expect(result).toMatchObject({ disposition: 'due', dueDate: '2026-09-09' });
+  expect(reader).toHaveBeenCalledWith(expect.anything(), c, { navigateExternal: expect.any(Function), needsExternalNavigation: expect.any(Function) });
+  expect(c).toMatchObject({ landing: card.index, readAttempts: 2 });
+  expect(c.purposeReviewRejected).toBeUndefined();
+});
+
+it("bounds missing-target recovery to three total acquisitions and preserves original evidence", async () => {
+  const c = { ...card, kind: 'lti', read: true, landing: 'Generic book home', readAttempts: 1 };
+  const reader = vi.fn().mockRejectedValue(new Error('No verified navigation to the requested external activity'));
+  const page = { isClosed: () => false } as Page;
+  expect(await recoverMisroutedExternalActivity(config, page, model(fact), c, reader)).toBeNull();
+  expect(await recoverMisroutedExternalActivity(config, page, model(fact), c, reader)).toBeNull();
+  expect(reader).toHaveBeenCalledTimes(2);
+  expect(c).toMatchObject({ readAttempts: 3, landing: 'Generic book home' });
+});
+
+it("never navigates native quizzes and stops on an external authentication boundary", async () => {
+  const reader = vi.fn().mockRejectedValue(new Error('External activity requires authentication'));
+  const page = { isClosed: () => false } as Page;
+  expect(await recoverMisroutedExternalActivity(config, page, model(fact), { ...card, kind: 'quiz', read: true }, reader)).toBeNull();
+  expect(reader).not.toHaveBeenCalled();
+  expect(await recoverMisroutedExternalActivity(config, page, model(fact), { ...card, kind: 'lti', read: true }, reader)).toBeNull();
+  expect(reader).toHaveBeenCalledTimes(1);
+});
+
+
+it.each([
+  "External activity browser error page; source unavailable",
+  "External activity metadata unavailable; empty launch page is not deadline evidence",
+  "Embedded activity metadata unavailable; empty module shell is not deadline evidence",
+  "External activity content was not opened; launch page is not deadline evidence",
+])("recovers a transient failed source through a fresh read without inventing a fact: %s", async readError => {
+  const c = { ...card, kind: "lti", failed: true, readError, readAttempts: 1 };
+  const reader = vi.fn().mockResolvedValue("Actual source: deadline 9. September 2026");
+  expect(await recoverFailedActivityRead(config, { isClosed: () => false } as Page, c, reader)).toBe(true);
+  expect(reader).toHaveBeenCalledTimes(1);
+  expect(c).toMatchObject({ failed: false, read: true, readAttempts: 2, landing: "Actual source: deadline 9. September 2026" });
+  expect(c.readError).toBeUndefined();
+});
+it.each(["External activity browser error page; source unavailable", "External activity metadata unavailable; empty launch page"])("stops acquisition after three total attempts and keeps genuine failures unresolved: %s", async readError => {
+  const c = { ...card, failed: true, readError, readAttempts: 1 };
+  const reader = vi.fn().mockRejectedValue(new Error(c.readError));
+  const page = { isClosed: () => false } as Page;
+  expect(await recoverFailedActivityRead(config, page, c, reader)).toBe(false);
+  expect(await recoverFailedActivityRead(config, page, c, reader)).toBe(false);
+  expect(reader).toHaveBeenCalledTimes(2);
+  expect(c).toMatchObject({ failed: true, read: false, readAttempts: 3, landing: "" });
+});
+it("does not retry authentication failures or bypass quiz landing permission", async () => {
+  const reader = vi.fn();
+  const page = { isClosed: () => false } as Page;
+  expect(await recoverFailedActivityRead(config, page, { ...card, failed: true, readError: "External activity requires authentication" }, reader)).toBe(false);
+  const restricted = moodleTestConfig({ quizSafetyPolicy: { ...config.quizSafetyPolicy, allowOpeningQuizPages: false } });
+  expect(await recoverFailedActivityRead(restricted, page, { ...card, kind: "quiz", failed: true, readError: "External activity browser error page" }, reader)).toBe(false);
+  expect(reader).not.toHaveBeenCalled();
+});
+it("honors cancellation before a source retry", async () => {
+  const controller = new AbortController(); controller.abort();
+  const reader = vi.fn();
+  await expect(recoverFailedActivityRead(moodleTestConfig({ abortSignal: controller.signal }), { isClosed: () => false } as Page, { ...card, failed: true, readError: "External activity browser error page" }, reader)).rejects.toThrow();
+  expect(reader).not.toHaveBeenCalled();
+});
+
+it("routes a numbered task's generic external home back to acquisition without repeating model extraction", async () => {
+  const source = { ...card, kind: 'lti', label: '8.4 - Task ***', read: true, landing: '8.4 - Task ***\nExternal source: https://source.example/home\nGeneral book home' };
+  const m = model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: 'General book home' });
+  expect((await classifyEvidence(config, m, [source]))[0]).toMatchObject({ disposition: 'needs_read', reason: expect.stringContaining('does not identify the requested task') });
+  expect(m.run).not.toHaveBeenCalled();
+});
+
+it("does not bypass the external task guard via a direct blank-deadline proof", () => {
+  const source = { ...card, kind: 'lti', label: '8.4 Task ***', read: true, index: 'Due date: no deadline', text: '', context: '', landing: '8.4 Task ***\nExternal source: https://source.example/home\nBook home' };
+  expect(classifyDirectEvidence(config, source)).toBeNull();
+});
+
+it("routes a chapter overview containing the requested task link to fresh acquisition", async () => {
+  const source = { ...card, kind: 'lti', label: '8.4 Task ***', read: true, index: 'Due date: no deadline', text: '', context: '', landing: 'External source: https://source.example/chapter\nMechanics book. Chapter 8. 8.1 Exercise ** 8.4 Exercise *** 8.6 Exercise ****' };
+  const m = model(fact);
+  expect(classifyDirectEvidence(config, source)).toBeNull();
+  expect((await classifyEvidence(config, m, [source]))[0].disposition).toBe('needs_read');
+  expect(m.run).not.toHaveBeenCalled();
+});
+
+it("keeps standalone resource-role evidence subject to independent review, including contradictory graded reading", async () => {
+  const book = { ...card, kind: 'lti', label: 'Lehrbuch', text: 'Lehrbuch', index: 'Topic: Chapter 8\nName: Lehrbuch', context: '', landing: '', read: false, failed: true };
+  const proposed = { ...fact, label: book.label, url: book.url, courseId: book.courseId, course: book.course, disposition: 'not_obligation' as const, evidence: 'Lehrbuch', dueDate: null, dateQuote: '' };
+  const review = { run: vi.fn(async (prompt: string) => JSON.stringify({ decisions: [{ id: card.id, exclude: !prompt.includes('Graded reading report'), quote: 'Lehrbuch', reason: 'Native purpose and any assessed deliverable checked' }] })) };
+  expect(await verifyPurposeExclusions(config, review, [book], [proposed])).toEqual(new Set([card.id]));
+  expect(await verifyPurposeExclusions(config, review, [{ ...book, context: 'Graded reading report due 9 September 2026' }], [proposed])).toEqual(new Set());
 });

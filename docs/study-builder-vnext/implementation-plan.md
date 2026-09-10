@@ -1650,3 +1650,44 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
 - R27 acceptance complete for the user-selected default current semester: real installed desktop14b572ea audits8current/38excluded and101/101 activities with exact8–9Sep2026 window, correctRW23:45/source-backed status andMAES3TBD; all101 facts reviewed.125.837sworker,6calls,0retries,55proofhits. Fresh Mathe5c14241d resolvesMAES3/16activities withTBD,67.747s,5calls,0retries. Full1079tests/4skips and types pass. Campaign evaluatoraccept and source/output/permission/regression/coverage gates passed. Exact imagebaa33ec8692f91918f1ce9be41e103f8f3fe2e26ef2091b8fa0fe3a9e6a9d2e9 installed and normal launcher verified,35runtime hashes+host archive verified. Explicit historical scope is integration-tested, but full46 historical desktop acceptance was not repeated onR27; earlier partial/interrupted rounds remain documented. Independent dev work was not interrupted.
 
 - R28 historical-scope regression: installed R27 explicit all-enrollment request was narrowed to allgemeine Infokurse, yielding6/46 courses. A quoted phrase alone proves presence, not a whole-request restriction. Before applying a nonempty course query, use one bounded independent source-search review of the original request to distinguish restriction from additive inclusion; reject ambiguous/unquoted reviews. Preserve explicit named subjects and specific historical terms, current-semester default and historical opt-in. Reproduce the faulty extraction in tests, replay the exact real wording and counterexamples, then rerun full desktop scope. The earlier current-semester acceptance remains separately recorded; do not call this historical baseline passed.
+
+## Source search and deadline reliability
+
+- [x] Retain one original time boundary across calendar, acquisition and quiz
+  selection, including shared-month ranges and unsettled source dates.
+- [x] Resolve uncertain course/activity names through bounded, read-only semantic
+  search with observed identities, source quotations and verified caching.
+- [x] Enumerate all enrolled courses and all selected-course activities. Default
+  broad obligation requests to the source-confirmed current semester; include
+  historical enrollments only when explicitly requested and persist exclusions.
+- [x] Verify deadline, personal-status and resource-purpose evidence, including
+  embedded metadata and actual failed-source handling; stop after three failed
+  validation attempts and expose genuine gaps.
+- [x] Publish meaningful source progress and preserve the canonical-answer
+  handoff; recover desktop stream subscriptions after heartbeat reconnects.
+- [x] Verify the current-semester and colloquial mathematics cases in the actual
+  installed desktop; retain source and UI evidence separately.
+- [x] Reject additive inclusion phrases used as whole-request restrictions,
+  preserve explicit historical inclusion for named subjects, and verify the
+  interpretation independently before narrowing a course query.
+- [x] Execute the explicit historical-enrollment desktop verification and record
+  its actual partial result: all enrollments inventoried, seven unresolved facts.
+- [x] Obtain complete historical source coverage and reliable long-run desktop
+  delivery before promoting this candidate as fully accepted.
+
+See [validation results](../semantic-source-search-validation.md).
+
+## Remaining reliability completion
+
+- [x] Distinguish opening/grading metadata from closing instructions in undated-task validation.
+- [x] Reconcile already-read source evidence and positive resource purpose without hiding actual gaps.
+- [x] Preserve the canonical answer and reliable desktop terminal delivery.
+- [x] Patch dependency advisories with isolated installs and run repository checks.
+- [x] Recover misdirected external task links through bounded observed navigation, with native identifier matching, independent semantic review when ambiguous, and rejection of optional cookies only.
+- [x] Reject generic external-home evidence in direct classification, model extraction and legacy proof caching.
+- [x] Recover transient empty external/embedded metadata within the existing three-acquisition limit; retain authentication and quiz boundaries.
+- [x] Require task-focused external source content; a matching identifier in a chapter link list cannot satisfy acquisition or cache validation.
+- [x] Keep date fields empty for non-deadline facts and reject unsupported legacy date quotations.
+- [x] Distinguish a cited textbook used to prepare/consult for a separate test from an assessed reading deliverable; verify actual failed resource cards and negative reading/interactive cases.
+- [x] Require actual task/deadline metadata with the requested external identity; reject title-only embedded launch shells and retry them within the existing acquisition limit. Avoid re-navigation after a fresh correct landing.
+- [x] Pass historical/current-semester/Mathe desktop gates before local promotion (R37: 46/1,030, 8/101, 1/16; exact canonical desktop answers and independent source review passed).
