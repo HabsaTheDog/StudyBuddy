@@ -1,12 +1,24 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. Version `0.2.3-alpha` is currently undergoing release-candidate
-validation; the `1.x` line remains reserved for the first full release.
+releases. Version `0.2.2-alpha` consolidates the unpublished corrective candidates
+for owner testing; the `1.x` line remains reserved for the first full release.
 
 ## Unreleased
 
-## 0.2.3-alpha — 2026-08-31
+## 0.2.2-alpha — 2026-09-10
+
+This test alpha combines the previously unpublished 0.2.2 and 0.2.3 candidates.
+It is not promoted to the website stable channel; clean-device and full
+Moodle-to-study-guide acceptance remain pending owner testing.
+
+### Source reliability
+
+- Included the completed semantic course/deadline discovery, external activity
+  recovery, canonical reply delivery and desktop stream reconnection fixes.
+- Added a disposable local Moodle server with synthetic students, protected
+  files and deterministic server acceptance checks. Guest-to-server desktop
+  integration remains separate from the verified server tooling.
 
 ### Fixed
 
@@ -36,9 +48,7 @@ validation; the `1.x` line remains reserved for the first full release.
 - Extended the clean Windows and Fedora release gates with the repaired
   source-runtime path and a targeted Moodle-to-artifact acceptance round.
 
-## 0.2.2-alpha — 2026-08-29
-
-### Fixed
+### Additional fixes
 
 - Repaired the packaged Codex runtime preflight on clean Windows and Linux
   installations so real desktop requests can start without a system Node.js.

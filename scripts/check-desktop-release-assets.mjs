@@ -27,15 +27,15 @@ async function digestFile(path, algorithm, encoding) {
   return createHash(algorithm).update(await readFile(path)).digest(encoding);
 }
 
-export async function validateDesktopReleaseAssets({ directory, version, channel, final = false }) {
+export async function validateDesktopReleaseAssets({ directory, version, channel, final = false, promoted = true }) {
   const expected = expectedBuildAssets(version, channel);
   if (final) {
     expected.push(
       "SHA256SUMS",
-      "distribution-ready.json",
       "release-manifest.json",
       "study-buddy-root.cdx.json",
     );
+    if (promoted) expected.push("distribution-ready.json");
     expected.sort();
   }
 
@@ -103,26 +103,28 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
       throw new Error("Release manifest is invalid or does not describe this release.");
     }
 
-    const distribution = JSON.parse(
-      await readFile(resolve(directory, "distribution-ready.json"), "utf8"),
-    );
-    const releaseManifestSha256 = await digestFile(
-      resolve(directory, "release-manifest.json"),
-      "sha256",
-      "hex",
-    );
-    if (
-      distribution.schemaVersion !== 1 ||
-      distribution.product !== "Study Buddy" ||
-      distribution.version !== version ||
-      distribution.channel !== channel ||
-      distribution.rootCommit !== releaseManifest.rootCommit ||
-      distribution.uiCommit !== releaseManifest.uiCommit ||
-      distribution.releaseManifestSha256 !== releaseManifestSha256 ||
-      distribution.downloads?.windows !== `Study-Buddy-${version}-x64.exe` ||
-      distribution.downloads?.linux !== `Study-Buddy-${version}-x86_64.AppImage`
-    ) {
-      throw new Error("Distribution-ready marker is invalid or does not describe this release.");
+    if (promoted) {
+      const distribution = JSON.parse(
+        await readFile(resolve(directory, "distribution-ready.json"), "utf8"),
+      );
+      const releaseManifestSha256 = await digestFile(
+        resolve(directory, "release-manifest.json"),
+        "sha256",
+        "hex",
+      );
+      if (
+        distribution.schemaVersion !== 1 ||
+        distribution.product !== "Study Buddy" ||
+        distribution.version !== version ||
+        distribution.channel !== channel ||
+        distribution.rootCommit !== releaseManifest.rootCommit ||
+        distribution.uiCommit !== releaseManifest.uiCommit ||
+        distribution.releaseManifestSha256 !== releaseManifestSha256 ||
+        distribution.downloads?.windows !== `Study-Buddy-${version}-x64.exe` ||
+        distribution.downloads?.linux !== `Study-Buddy-${version}-x86_64.AppImage`
+      ) {
+        throw new Error("Distribution-ready marker is invalid or does not describe this release.");
+      }
     }
 
     const checksumLines = (await readFile(resolve(directory, "SHA256SUMS"), "utf8"))
@@ -149,17 +151,18 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const [directory, version, channel, finalFlag] = process.argv.slice(2);
-  if (!directory || !version || !channel) {
+  const [directory, version, channel, ...flags] = process.argv.slice(2);
+  if (!directory || !version || !channel || flags.some(flag => !["--final", "--unpromoted"].includes(flag)) || (flags.includes("--unpromoted") && !flags.includes("--final"))) {
     throw new Error(
-      "Usage: node scripts/check-desktop-release-assets.mjs <directory> <version> <channel> [--final]",
+      "Usage: node scripts/check-desktop-release-assets.mjs <directory> <version> <channel> [--final [--unpromoted]]",
     );
   }
   const result = await validateDesktopReleaseAssets({
     directory,
     version,
     channel,
-    final: finalFlag === "--final",
+    final: flags.includes("--final"),
+    promoted: !flags.includes("--unpromoted"),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

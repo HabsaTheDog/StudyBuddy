@@ -463,7 +463,9 @@ describe("Playwright credential broker", () => {
     expect(serialized).not.toContain("••");
     expect(client.authenticationState).toBe("authenticated");
     await client.close();
-  });
+  // Includes Chromium startup, a deliberately held login response and three
+  // navigations. Keep this bounded without imposing a 5s cold Windows budget.
+  }, 15_000);
 });
 
 function runtimeConfig(origin: string): MoodleRuntimeConfig {

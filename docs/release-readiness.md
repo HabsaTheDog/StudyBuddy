@@ -1,74 +1,65 @@
-# Consolidated `v0.2.2-alpha` release readiness
+# Consolidated `v0.2.2-alpha` test release
 
-## Current decision — 2026-09-10
+## Contract — 2026-09-10
 
-**BLOCKED for publication; preparation continues.** The owner requested one
-combined release after the remaining fixes and acceptance, not separate
-`0.2.2-alpha` and `0.2.3-alpha` publications.
+The owner requested **one installable Windows/Fedora test alpha**, including
+the other agent's completed work and this thread's fixes. Both previous
+`v0.2.2-alpha` and `v0.2.3-alpha` releases are unpublished drafts; consolidate
+them into `v0.2.2-alpha` without altering any public release.
 
-GitHub inspection confirmed:
-- `v0.2.1-alpha` is the newest public release (2026-08-29).
-- `v0.2.2-alpha` and `v0.2.3-alpha` are both unpublished drafts.
-- Both prior sets of fixes are already in the root commit history.
-- Existing source metadata still says `0.2.3-alpha`; change all version contracts
-  together in an isolated release worktree after the included source is frozen.
+The latest owner instruction explicitly reduces acceptance for this publication:
+run relevant deterministic checks, CI/security and exact-artifact integrity,
+then publish for hands-on testing. Do not claim full clean-VM, real-account
+Moodle-to-guide, or production readiness. **No stable website promotion.**
+The owner has authorized the GitHub publication; no new VM reset is authorized.
 
-## One release contract
+## Included source
 
-- Intended version/tag: `0.2.2-alpha` / `v0.2.2-alpha`.
-- Preserve every existing public release and its immutable bytes.
-- Combine the prior draft fixes; retain older candidate provenance as history,
-  not acceptance of a renamed/rebuilt artifact.
-- Support Windows 11 x64 (intentionally unsigned, with warning) and Fedora x64.
-  No macOS or unrelated browser-only acceptance matrix.
-- Complete local Moodle test connectivity and synthetic credential automation,
-  then prove real installed-app source acquisition in both disposable lanes.
-- Run the targeted Moodle-to-study-guide regression selected for this corrective
-  release; do not make model-backed generation mandatory for unrelated patches.
-- Require reviewed default-branch root/UI commits, CI/security gates, exact
-  artifact manifests/checksums, full-setup VM acceptance and updater checks.
-- Keep alpha maturity separate from the tested stable download channel.
-  Promote through matching `distribution-ready.json`, not by clearing prerelease.
-- Publish/promote one complete accepted bundle. Retire the redundant unpublished
-  draft only when its replacement is ready and its provenance has been retained.
-- No new public version is consumed by an internal failed or superseded build.
+Work happens in isolated `release/consolidated-0.2.2-alpha` worktrees. Original
+dirty checkouts remain untouched.
 
-## Source-freeze decision needed
+- Root: combine `bcd1aba` parallel quiz work, `e2285fa` completed semantic
+  source reliability and dependency work, and the local Moodle server fixes.
+- UI: combine `382f4f1b3` completed workflow/reconnection/dependency work
+  with the owner's finished desktop/runtime changes (checkpoint `adc3fd0c4`).
+- Preserve source-origin validation, credential redaction, native quiz approval
+  and the prohibition on final quiz submission.
+- Fix Windows cache-test assertions to use platform-native paths and apply
+  POSIX permission assertions only where those bits represent permissions.
 
-Current root branch: `fix/dev-source-broker-v0.2.3`, HEAD `bcd1aba`.
-PR #48 contains newer Moodle obligation-discovery work. The UI submodule has
-uncommitted desktop environment, backend configuration, provider and
-source-workflow/broker changes belonging to another workstream.
+## Current evidence
 
-The owner has been asked whether to include that work once finalized or exclude
-it from this release. Do not commit, overwrite, discard or implicitly certify
-another agent's dirty changes. Once the scope is settled, create an isolated
-release branch/worktree and record full root/UI commits here.
+- [x] Root TypeScript and 1,146 tests pass; 4 optional tests skipped.
+- [x] UI formatting/lint and all 13 workspace typechecks pass.
+- [x] UI release dependency audit has no high/critical findings.
+- [x] Root dependency audit has no findings; links, public-tree and license checks pass.
+- [x] Release contract/asset tests pass, including unpromoted-alpha integrity.
+- [x] Real local Moodle server: 19 checks and 16 tooling tests pass; see
+  [Moodle lab](moodle-test-service.md).
+- [x] UI tests: 3,325 pass; 5 skipped.
+- [ ] Complete remote CI/security checks.
+- [ ] Merge root/UI source and record exact default-branch commits.
+- [ ] Build the exact Windows NSIS and Linux AppImage bundle in GitHub Actions.
+- [ ] Verify manifest, hashes, updater payloads, signing disclosure and package contents.
+- [ ] Replace the unpublished draft deliberately; retain old provenance.
+- [ ] Publish one GitHub prerelease, verify public downloads and retire redundant draft.
 
-## Remaining work
+## Explicit limitations
 
-- [x] Confirm publication state and choose one intended public version.
-- [x] Real local Moodle server: 19 acceptance checks, 16 tooling tests, live
-  status/probe/reset/stop and cleanup passed; see [Moodle lab](moodle-test-service.md).
-- [ ] Settle source inclusion and freeze full root/UI commits.
-- [ ] Finish safe local guest connectivity without weakening normal HTTPS/DNS
-  protections, and automate synthetic credential entry without logs/argv exposure.
-- [ ] Verify actual course discovery and protected downloads in the installed
-  Windows/Fedora apps. Server HTTP results cannot replace this evidence.
-- [ ] Combine release notes and version metadata; run relevant deterministic
-  source/security/OSS checks and merge reviewed changes.
-- [ ] Build one exact `0.2.2-alpha` Windows/Linux bundle from the final source.
-- [ ] Complete clean packaged acceptance and the selected regression, recording
-  exact hashes. Never relabel prior `0.2.3-alpha` passes as new-artifact passes.
-- [ ] Reconcile owner acceptance and exact-candidate snapshot permissions, then
-  confirm the publication scope immediately before the external operation.
-- [ ] Replace the unpublished candidate assets/provenance deliberately, retire
-  the redundant draft, publish once, and verify public downloads/updater/website.
-- [ ] Record the final public version, hashes, run and residual limitations.
+Windows is intentionally unsigned. macOS is unsupported. No claim is made that
+all application defects are fixed. Owner testing, full clean Windows/Fedora VM
+acceptance, updater installation and real-account Moodle-to-guide acceptance
+remain pending for these new bytes.
 
-Historical standard Windows/Fedora passes and unresolved regression evidence for
-the previous candidate are retained in
+The local Moodle **server** is verified and stopped when unused. Safe guest
+transport and automated credential entry for the unchanged desktop package are
+not finished; do not weaken normal HTTPS/private-network protections to claim
+a test pass. This is tracked separately from the test-alpha publication.
+
+Publication must omit `distribution-ready.json`; the website's previously
+approved download remains unchanged. Build automation must not create a
+stable-channel approval simply because compilation passed.
+
+Historical candidate evidence remains in
 [the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
-They do not establish a GO for this consolidated release. No new build,
-snapshot restore, release deletion, publication or website promotion has been
-performed as part of this consolidation checkpoint.
+Old hashes/passes do not certify this rebuilt version.
