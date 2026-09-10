@@ -17,11 +17,9 @@ The owner has authorized the GitHub publication; no new VM reset is authorized.
 
 Desktop PR #21 is merged after all required GitHub checks passed:
 `6b6d811264cd896fc2abac48810edf9abac81246`.
-The root release branch is committed locally but not pushed: GitHub rejected
-workflow updates because the current HTTPS OAuth authorization lacks the
-`workflow` scope. Existing SSH Git authentication also failed. The owner must
-complete `gh auth refresh -h github.com -s workflow` locally before resuming.
-No root PR/build/publication or stable website promotion has occurred.
+The owner refreshed GitHub authorization and the release branch push succeeded.
+Root CI/merge and the exact packaging run are the next gates. No new release
+or stable website promotion has occurred.
 
 Work happens in isolated `release/consolidated-0.2.2-alpha` worktrees. Original
 dirty checkouts remain untouched.
@@ -46,7 +44,7 @@ dirty checkouts remain untouched.
   [Moodle lab](moodle-test-service.md).
 - [x] UI tests: 3,325 pass; 5 skipped.
 - [x] Desktop PR #21: required CI, tests, CodeQL and Gitleaks pass; merged.
-- [ ] Complete root remote CI/security checks after workflow push authorization.
+- [ ] Complete root remote CI/security checks.
 - [ ] Merge root/UI source and record exact default-branch commits.
 - [ ] Build the exact Windows NSIS and Linux AppImage bundle in GitHub Actions.
 - [ ] Verify manifest, hashes, updater payloads, signing disclosure and package contents.
@@ -72,7 +70,7 @@ stable-channel approval simply because compilation passed.
 The root ruleset's obsolete required macOS check was removed to match the
 Windows/Linux source matrix; all security checks, review/merge restrictions
 and bypass settings are unchanged. Prior ruleset JSON is retained in ignored
-local release evidence. The corresponding workflow change is still local.
+local release evidence. The matching workflow change is included in this branch.
 
 Historical candidate evidence remains in
 [the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
