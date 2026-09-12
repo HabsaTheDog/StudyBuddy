@@ -82,3 +82,22 @@ it("rejects a replacement whose ID and quotation are real but whose unique equiv
   expect(result.status).toBe('ambiguous');
   expect(result.selectedIds).toEqual([]);
 });
+
+
+it("preserves separate native metadata fields without requiring their artificial adjacency", async () => {
+  const input = await fixture([inspect, { ...resolve, evidence: [{ id: "c2", quote: "Course start: 2026-09-01\nMAES3 Mathematik WS2026" }] }]);
+  input.reader.inspect.mockImplementation(async c => ({ ...c, text: "Course start: 2026-09-01\nCategory: Engineering" }));
+  const result = await resolveSemanticSearch(input);
+  expect(result.status).toBe("resolved");
+  expect(result.evidence).toEqual([
+    { id: "c2", quote: "Course start: 2026-09-01" },
+    { id: "c2", quote: "MAES3 Mathematik WS2026" },
+  ]);
+});
+
+it("rejects a fabricated date even beside authentic metadata excerpts", async () => {
+  const bad = { ...resolve, evidence: [{ id: "c2", quote: "MAES3 Mathematik WS2026\nCourse start: 2028-09-01" }] };
+  const input = await fixture([inspect, bad, bad, bad]);
+  input.reader.inspect.mockImplementation(async c => ({ ...c, text: "Course start: 2026-09-01" }));
+  expect((await resolveSemanticSearch(input)).status).toBe("ambiguous");
+});

@@ -286,6 +286,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     headless: config.headless,
     browserBackend: config.browserBackend,
     diagnosticOnly: config.diagnosticOnly,
+    sourceEvidenceOnly: config.sourceEvidenceOnly,
     autoAnswer: config.autoAnswer,
     quizPolicy: config.quizPolicy,
     quizSafetyPolicy: config.quizSafetyPolicy,
