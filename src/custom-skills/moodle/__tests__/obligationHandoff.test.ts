@@ -16,7 +16,7 @@ it("hands the coordinator native dates, attempts and self-study without an answe
   const runDir = await mkdtemp(path.join(os.tmpdir(), "source-handoff-")); dirs.push(runDir);
   const prompt = "What must I do next week? Summarise the self-study sections too.";
   const course = { id: 12, title: "Signals", url: "https://m.example/course/view.php?id=12", status: "audited", reason: "" };
-  const inventory = { schemaVersion: 1 as const, complete: true, scope: "current_semester", range: null, courses: [course], facts: [], gaps: [], answer: "OBSOLETE CANNED ANSWER" };
+  const inventory = { schemaVersion: 1 as const, complete: true, scope: "current_semester", range: null, courses: [course], facts: [{ id: "quiz-3", disposition: "due" as const, dueDate: "2026-09-15", dateQuote: "Closes: 15 September 2026 23:59", evidence: "Your attempt: In progress.", status: "In progress", reason: "Open attempt", dateWarning: "Closing date to be set.", label: "Mini-test", url: "https://m.example/mod/quiz/view.php?id=3", courseId: 12, course: "Signals" }], gaps: [], answer: "OBSOLETE CANNED ANSWER" };
   await writeFile(path.join(runDir, "obligation-inventory.json"), JSON.stringify(inventory));
   await writeFile(path.join(runDir, "course-activities-12.json"), JSON.stringify({
     text: "Self-study: Fourier series. Work examples 1–4 before the lesson.",
@@ -44,6 +44,9 @@ it("hands the coordinator native dates, attempts and self-study without an answe
   expect(artifact.kind).toBe("source_evidence");
   expect(artifact.answer).not.toContain("OBSOLETE CANNED ANSWER");
   expect(artifact.answer).toContain(prompt);
+  expect(artifact.answer).toContain('Source conflict to explain when discussing Mini-test');
+  expect(artifact.answer).toContain('Closing date to be set.');
+  expect(artifact.answer).toContain('Closes: 15 September 2026 23:59');
 });
 
 it("exposes absent native course observations as a gap instead of reusing classified prose", async () => {

@@ -68,6 +68,8 @@ export async function createObligationHandoff(config: MoodleRuntimeConfig, inven
     "Source evidence is ready for the coordinating agent. This is a tool handoff, not the learner's final answer.",
     `Original request: ${config.originalUserPrompt || config.prompt}`,
     `Scope: ${inventory.scope}; requested range: ${JSON.stringify(inventory.range)}.`,
+    ...inventory.facts.filter(fact => fact.dateWarning).map(fact =>
+      `Source conflict to explain when discussing ${fact.label} (${fact.url}): displayed field ${JSON.stringify(fact.dateQuote)}; source note ${JSON.stringify(fact.dateWarning)}. Report the displayed date and personal status, and briefly explain this conflict instead of silently removing either observation.`),
     `Native observations: ${path.join(config.runDir, ANSWER_EVIDENCE_FILE)}`,
     `Calendar: ${path.join(config.runDir, "calendar-events.json")}`,
     `Course outlines and resource links: ${path.join(config.runDir, "course-activities-<course-id>.json")}`,
