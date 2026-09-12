@@ -1,3 +1,4 @@
+import { collectAnswerEvidence } from "../obligationAnswer.js";
 import { enumerateCourseOverview, enumeratePlaywrightOverview } from "../overviewEnumeration.js";
 import { auditObligationInventory } from "../obligationInventory.js";
 import { createCodexClient } from "../codexClient.js";
@@ -140,9 +141,9 @@ export function createScraperNode(config: MoodleRuntimeConfig) {
       await diagnostics?.log("info", "moodle_login", "Moodle login ok.");
       if (config.intentDecision?.obligationDiscovery?.requested && config.intentDecision.wantsQuickAnswer) {
         const inventory = await auditObligationInventory(config, activePage, createCodexClient(config));
-        const raw = [inventory.answer, ...inventory.courses.filter(c => c.status === "audited").map(c =>
-          `[Moodle page]\nTitle: ${c.title}\nURL: ${c.url}\n${c.reason}`), ...inventory.facts.map(f =>
-          `[Moodle page]\nTitle: ${f.label}\nURL: ${f.url}\n${f.disposition}: ${f.evidence}\n${f.reason}`)].join("\n\n");
+        const evidence = await collectAnswerEvidence(config.runDir, inventory);
+        const raw = evidence.sources.map(source =>
+          `[Moodle page]\nTitle: ${source.title}\nURL: ${source.url}\nAccess: ${source.access}\n${source.content}`).join("\n\n");
         await writeFile(path.join(config.runDir, "moodle_raw.txt"), raw);
         return { moodle_raw_text: raw, error_log: null };
       }

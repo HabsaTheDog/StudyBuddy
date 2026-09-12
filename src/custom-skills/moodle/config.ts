@@ -96,11 +96,15 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   let quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
   const stage = input.stage ?? "all";
   const evidenceHandoffOnly = input.evidenceHandoffOnly ?? false;
+  const sourceEvidenceOnly = input.sourceEvidenceOnly ?? false;
+  if (sourceEvidenceOnly && (input.autoAnswer || isDirectQuizAttempt)) {
+    throw new Error("Source evidence mode never opens or changes quiz attempts.");
+  }
   const quizSafetyPolicy = createQuizSafetyPolicy(
     input.quizSafetyPolicy,
     process.env,
   );
-  const intentDecision = classifyStudyBuddyIntent({
+  let intentDecision = classifyStudyBuddyIntent({
     prompt: requestContextPrompt,
     stage,
     diagnosticOnly: input.diagnosticOnly ?? false,
@@ -109,7 +113,16 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     hasCisUrls: cisUrls.length > 0,
     hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
-  if (intentDecision.wantsQuizDiscovery || evidenceHandoffOnly) {
+  if (sourceEvidenceOnly) {
+    intentDecision = { ...intentDecision, intent: "quick_answer", wantsPdf: false, wantsTypstDocument: false,
+      wantsQuickAnswer: true, wantsQuizAssistance: false, wantsQuizDiscovery: true,
+      needsMoodle: true, needsCourseMaterial: true, needsDownloadedFiles: false,
+      obligationDiscovery: { ...intentDecision.obligationDiscovery, requested: true,
+        temporal: intentDecision.obligationDiscovery?.temporal ?? false, exhaustive: true, deep: true,
+        calendarFirst: intentDecision.needsCalendar, scope: intentDecision.obligationDiscovery?.scope ?? "all_relevant" },
+      reason: "Read-only source evidence for agent-composed conversational answers." };
+  }
+  if (intentDecision.wantsQuizDiscovery || evidenceHandoffOnly || sourceEvidenceOnly) {
     quizPolicy = {
       ...quizPolicy,
       requestedAutoAnswer: false,
@@ -208,6 +221,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       ? resolveStudyBuddyWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
       : undefined,
     evidenceHandoffOnly,
+    sourceEvidenceOnly,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || (/\b(?:ausschließlich|ausschliesslich|nur|only)\s+moodle\b|\b(?:nicht den|ohne)\s+kalender\b/i.test(requestContextPrompt) ? "moodle" : process.env.STUDY_BUDDY_SOURCE_MODE)),
     downloadConcurrency: clampConcurrency(

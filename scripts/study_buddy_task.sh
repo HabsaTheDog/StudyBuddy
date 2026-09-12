@@ -55,6 +55,7 @@ ARTIFACT_LOCK_TOKEN=""
 usage() {
   cat >&2 <<'USAGE'
 Usage:
+  study_buddy_task.sh source-evidence "<prompt>" [extra args]
   study_buddy_task.sh prompt "<natural language prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
   study_buddy_task.sh combined "<natural language prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
   study_buddy_task.sh doc "<prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
@@ -1465,6 +1466,11 @@ case "$action" in
     ;;
   output-root)
     printf '%s\n' "$STUDY_BUDDY_OUTPUT_ROOT"
+    ;;
+  source-evidence)
+    [[ $# -ge 1 ]] || { usage; exit 2; }
+    require_nonempty_prompt "$1"
+    run_agent "$1" --source-evidence-only "${@:2}"
     ;;
   prompt)
     [[ $# -ge 1 ]] || { usage; exit 2; }

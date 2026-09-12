@@ -13,6 +13,7 @@ This is the waiting list for changes accumulating before the next release freeze
 | Change | Status | Focused evidence | Final-batch work still required |
 | --- | --- | --- | --- |
 | Prevent the packaged workflow-only `npm` shim from intercepting Codex provider updates | Verified and queued | Exact-commit packaged UI updated an isolated Codex fixture from `0.153.0` to `0.154.0`; provider, Windows/Linux resolution, packaged-runtime, typecheck, and artifact-contract tests passed | Holistic review, final exact-candidate packaging, and clean Fedora/Windows VM acceptance after the batch is frozen |
+| Agent-composed weekly answers from native source handoffs; preserve conflicting quiz dates/status and whole-turn duration | Focused checks passed; desktop acceptance in progress | Native handoff/classification tests; complete root suite; frontend lifecycle and server projection regressions | Complete local desktop run, then holistic frozen-batch review and required final release acceptance |
 
 ## Freeze policy
 

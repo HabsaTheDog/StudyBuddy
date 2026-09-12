@@ -455,3 +455,14 @@ it("budgets exhaustive acquisition independently of a short answer while preserv
   vi.stubEnv('MOODLE_MAX_RUNTIME_MS', '240000');
   expect(createRuntimeConfig(input).maxRuntimeMs).toBe(240000);
 });
+
+it("keeps source-evidence mode read-only even when the conversational prompt contains quiz action words", () => {
+  const config = createRuntimeConfig({
+    prompt: "Please check next week's mini-tests. Do not start or fill any quiz. Summarise self-study.",
+    moodleUrl: "https://moodle.example/my/", sourceEvidenceOnly: true,
+  });
+  expect(config.sourceEvidenceOnly).toBe(true);
+  expect(config.intentDecision).toMatchObject({ wantsQuickAnswer: true, wantsQuizAssistance: false, wantsPdf: false });
+  expect(config.quizPolicy).toMatchObject({ allowAttemptOpen: false, allowAnswerFill: false, allowSaveOrMovePage: false, allowFinalSubmit: false });
+  expect(() => createRuntimeConfig({ prompt: "Solve the quiz", moodleUrl: "https://moodle.example/my/", sourceEvidenceOnly: true, autoAnswer: true })).toThrow("never opens or changes");
+});

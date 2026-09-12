@@ -1,3 +1,4 @@
+import { createObligationHandoff } from "../obligationAnswer.js";
 import { readObligationInventory } from "../obligationInventory.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -78,15 +79,10 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       throwIfAborted(config.abortSignal);
-      const inventory = config.intentDecision?.obligationDiscovery?.requested
+      const inventory = (config.sourceEvidenceOnly || config.intentDecision?.obligationDiscovery?.requested)
         ? await readObligationInventory(config.runDir) : null;
-      if (inventory?.answer) {
-        const validated = validateExtractedData({ document_title: "Obligation overview", language: config.outputLanguage,
-          course: { title: inventory.scope, url: config.dashboardUrl },
-          sources: inventory.facts.map(f => ({ id: f.id, title: f.label, kind: "moodle_page", url: f.url })),
-          sections: inventory.facts.filter(f => f.disposition === "due").map(f => ({ heading: `${f.course}: ${f.label}`, summary: `${f.dueDate}: ${f.status}`, source_ids: [f.id] })),
-          warnings: inventory.gaps,
-        });
+      if (inventory && config.sourceEvidenceOnly) {
+        const validated = await createObligationHandoff(config, inventory);
         await persistExtractedData(config.runDir, validated);
         return { extracted_data: validated, error_log: null };
       }

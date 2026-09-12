@@ -38,6 +38,7 @@ const program = new Command()
   .option("--browser-backend <backend>", "Browser backend: playwright or agent-browser")
   .option("--browser-headed", "Show the browser window for Moodle/CIS scraping")
   .option("--diagnostic-only", "Only test login, page access, source discovery, and diagnostics")
+  .option("--source-evidence-only", "Return native source observations for the coordinating agent; never mutate quiz attempts")
   .option("--auto-answer", "Accepted for quiz compatibility; final quiz submission is never allowed")
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
@@ -93,6 +94,7 @@ const options = program.opts<{
   browserBackend?: "playwright" | "agent-browser";
   browserHeaded?: boolean;
   diagnosticOnly?: boolean;
+  sourceEvidenceOnly?: boolean;
   autoAnswer?: boolean;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
@@ -141,11 +143,14 @@ const visualMode =
       ? "deferred"
       : undefined;
 
-const interactiveRequest =
+if (options.sourceEvidenceOnly && (options.autoAnswer || options.approveQuizRequest || options.approveAssignmentRequest || options.assignmentFile.length)) {
+  throw new Error("Source evidence mode cannot execute quizzes or assignments.");
+}
+const interactiveRequest = !options.sourceEvidenceOnly && (
   options.approveQuizRequest ||
   options.approveAssignmentRequest ||
   (options.autoAnswer && isQuizExecutionPrompt(intentPrompt)) ||
-  isAssignmentExecutionPrompt(intentPrompt);
+  isAssignmentExecutionPrompt(intentPrompt));
 
 const releaseRunLease = await acquireRunLease(options.runDir);
 let releaseRecoverySourceLease: () => Promise<void> = async () => {};
@@ -192,6 +197,7 @@ if (interactiveRequest) {
   browserBackend: options.browserBackend,
   browserHeaded: options.browserHeaded,
   diagnosticOnly: options.diagnosticOnly,
+  sourceEvidenceOnly: options.sourceEvidenceOnly,
   autoAnswer: options.autoAnswer,
   maxRuntimeMs: options.maxRuntimeMs,
   idleTimeoutMs: options.idleTimeoutMs,

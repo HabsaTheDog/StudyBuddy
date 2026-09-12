@@ -58,7 +58,7 @@ export class SourceEvidenceCache {
   constructor(private config: MoodleRuntimeConfig, private root = path.join(sourceCacheRoot(config), "obligations"), private now = Date.now) {}
 
   private fingerprint(card: EvidenceCard): string {
-    return digest(["obligation-proof-v1", this.config.baseUrl, this.config.username, this.config.originalUserPrompt, this.config.outputLanguage,
+    return digest(["obligation-proof-v2-native-date-conflicts", this.config.baseUrl, this.config.username, this.config.originalUserPrompt, this.config.outputLanguage,
       card.id, card.url, card.courseId, card.course, card.courseEnd, card.kind, card.read, card.accessRequirements, evidenceSourceText(card)]);
   }
 

@@ -15,7 +15,7 @@ const ASSESSMENT_KINDS = new Set(["quiz", "assign", "checkmark", "workshop", "of
 export interface ObligationFact {
   id: string; label: string; url: string; courseId: number; course: string;
   disposition: "due" | "completed" | "outside_range" | "no_deadline" | "not_obligation" | "needs_read";
-  dueDate: string | null; dateQuote: string; evidence: string; status: string; reason: string; dateUncertain?: boolean;
+  dueDate: string | null; dateQuote: string; evidence: string; status: string; reason: string; dateUncertain?: boolean; dateWarning?: string;
 }
 export interface ObligationInventory {
   schemaVersion: 1; complete: boolean; scope: string; range: { start: string; end: string } | null;
@@ -329,7 +329,8 @@ export function classifyDirectEvidence(config: MoodleRuntimeConfig, card: Eviden
   const base = { id: card.id, label: card.label, url: card.url, courseId: card.courseId, course: card.course,
     dueDate: null, dateQuote: "", status: "unknown" };
   const unsettled = unsettledDeadline(card);
-  if (unsettled && card.read) return { ...base, disposition: "no_deadline", dateUncertain: true, evidence: unsettled, reason: "Die Quelle lässt den Termin ausdrücklich offen." };
+  // Conflicts need semantic inspection together with actual dates and personal status.
+  if (unsettled) return null;
   // Explicitly ungraded is positive evidence, unlike an absent grade/date.
   if (/\b(?:benotet\w*|bewertet\w*|graded|assessed)\b/i.test(config.originalUserPrompt || config.prompt) && /\b(?:unbewertet|unbenotet|ungraded|not graded)\b/i.test(card.label)) return { ...base, disposition: "not_obligation", evidence: card.label, reason: "Die Aktivität ist ausdrücklich unbewertet." };
   const offlineGrade = card.read && /(?:Grading status\s+Graded|Bewertungsstatus\s+Bewertet)/i.test(card.landing) && /does not require you to submit anything online|keine Online.abgabe/i.test(card.landing);
@@ -498,18 +499,18 @@ export async function classifyEvidence(config: MoodleRuntimeConfig, model: Codex
         "Interactive external exercises with answer/score entry or penalties for solution hints remain possible assessments unless explicitly ungraded. Example titles and textbook footers do not prove non-assessment; retain unknown grading and any missing published deadline after full source reading.",
         "An embedded question book with assessment/submission controls remains a possible task even when its topic is course policies or administration. Judge its actual activity, not only its title.",
         "needs_read requests the activity landing page when the index/course text is insufficient or conflicting. After a successful full landing read, no_deadline means no due date is published in the observed source; grading and status can remain unknown, never invent completion or exclude a possible task merely because grading is unknown. An unread external launcher still requires more acquisition.",
-        "A deadline explicitly marked as a placeholder or to be set/announced is no_deadline after reading its landing page; disclose the uncertainty rather than interpreting the placeholder as a real deadline.",
+        "A template note saying the closing date is to be set must be reconciled with actual native date fields and personal attempts. Preserve an explicitly displayed closing date and disclose the conflicting note in reason. Never discard a completed or in-progress personal status because of a date warning. Use no_deadline only when no usable deadline is established, not merely because such a note exists.",
         `Validation feedback from the previous extraction: ${feedback}`,
         "Use the full actual year. Do not fix apparent source typos. A future date like2028 is not2026. Preserve conflicts in reason.",
         "Report graded assignments, quizzes/minitests and other actionable assessments. not_obligation is for clearly identified learning material, textbooks, technical help, optional question collections, discussion/support forums or administrative services; quote the source that establishes this purpose. Never use missing dates alone as evidence for not_obligation. Assessment modules normally need deadline/status verification, but explicitly ungraded practice, illustrative examples, consent and administrative registration/announcements can be excluded with positive purpose evidence. A failed link read does not invalidate purpose evidence already visible in its course context; it NEVER proves that a relevant task has no deadline or is complete.",
-        `Write status and reason in ${config.outputLanguage}. Keep quotations short and exact; reasons at most one brief sentence.`,
+        `Write reason in ${config.outputLanguage}. For status quote the exact observed personal status in its source language, or unknown if not observed. Read all attempts: a finished attempt does not erase another in-progress attempt. Keep quotations short and exact; reasons at most one brief sentence.`,
         `Original request: ${JSON.stringify(config.originalUserPrompt)}`, `Authoritative time window: ${JSON.stringify(time)}`,
         `Activities: ${JSON.stringify(pending.map(c => ({ id: c.id, course: c.course, kind: c.kind, landingRead: c.read, readFailed: c.failed, source: cardText(c).slice(0, 14000), evidenceOptions: evidenceOptions(c) })))}`,
       ].join("\n"), { task: "source_search", attempt, outputSchema: factSchema }));
       if (!Array.isArray(result.facts)) throw new Error("Invalid activity accounting");
       const facts = pending.map(card => {
         const unsettled = unsettledDeadline(card);
-        if (unsettled && card.read) return { ...unresolved(card, "Die Quelle bezeichnet den Termin ausdrücklich als noch festzulegen."), disposition: "no_deadline", dateUncertain: true, evidence: unsettled } as ObligationFact;
+
         const matches = result.facts.filter((f: { id: string }) => f.id === card.id);
         if (matches.length !== 1) return unresolved(card, "Source ID missing or duplicated in extraction");
         const raw = matches[0];
@@ -540,7 +541,7 @@ export async function classifyEvidence(config: MoodleRuntimeConfig, model: Codex
             raw.disposition = overlaps ? "due" : "outside_range";
           }
         }
-        return { ...raw, status: sourceBackedStatus(card, raw, config.outputLanguage), id: card.id, label: card.label, url: card.url, courseId: card.courseId, course: card.course } as ObligationFact;
+        return { ...raw, ...(unsettled ? { dateUncertain: true, dateWarning: unsettled } : {}), status: sourceBackedStatus(card, raw, config.outputLanguage), id: card.id, label: card.label, url: card.url, courseId: card.courseId, course: card.course } as ObligationFact;
       });
       const verified = await verifyPurposeExclusions(config, model, pending, facts.filter(f => f.disposition === "not_obligation"));
       for (let i = 0; i < facts.length; i++) {
@@ -594,8 +595,8 @@ export function formatObligationInventory(inventory: ObligationInventory, langua
   lines.push("", en ? `Coverage: ${inventory.courses.filter(c => c.status === "audited").length} courses, ${inventory.facts.length} activities; ${inventory.complete ? "complete" : "incomplete"}.` : `Geprüft: ${inventory.courses.filter(c => c.status === "audited").length} Kurse, ${inventory.facts.length} Aktivitäten; ${inventory.complete ? "vollständig" : "unvollständig"}.`);
   if (undated.length) lines.push(en ? `${undated.length} activities have no verified stated deadline; they are not automatically completed.` : `${undated.length} Aktivitäten haben keine bestätigte ausgewiesene Frist; sie gelten dadurch nicht automatisch als erledigt.`);
   const unsettled = inventory.facts.filter(f => f.dateUncertain);
-  if (unsettled.length) lines.push("", en ? "Deadlines left open by the source (these tasks are not cleared):" : "Von der Quelle offengelassene Fristen (diese Aufgaben sind damit nicht erledigt):",
-    ...unsettled.map(f => `- [${cell(f.label)}](${f.url}) — ${cell(f.course)}: ${cell(f.evidence)}`));
+  if (unsettled.length) lines.push("", en ? "Source date warnings (see the displayed dates and personal status above):" : "Terminwidersprüche der Quelle (angezeigte Fristen und Bearbeitungsstatus oben beachten):",
+    ...unsettled.map(f => `- [${cell(f.label)}](${f.url}) — ${cell(f.course)}: ${cell(f.dateWarning || f.evidence)}`));
   if (inventory.gaps.length) lines.push("", ...inventory.gaps.map(g => `- ${g}`));
   return lines.join("\n");
 }

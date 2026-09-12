@@ -64,6 +64,7 @@ export interface MoodleGraphInput {
   resumeExtractionRunDir?: string;
   /** Build a deterministic evidence handoff for a downstream interactive renderer instead of duplicating content generation in Extraction. */
   evidenceHandoffOnly?: boolean;
+  sourceEvidenceOnly?: boolean;
   includeCis?: boolean;
   sourceMode?: SourceMode;
   downloadConcurrency?: number;
@@ -146,6 +147,7 @@ export interface MoodleRuntimeConfig {
   sourceRunDir?: string;
   resumeExtractionRunDir?: string;
   evidenceHandoffOnly: boolean;
+  sourceEvidenceOnly?: boolean;
   includeCis: boolean;
   sourceMode: SourceMode;
   downloadConcurrency: number;

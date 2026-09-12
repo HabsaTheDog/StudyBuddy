@@ -68,10 +68,10 @@ it("uses explicit index dates for old tasks but leaves current or conflicting de
   expect(classifyDirectEvidence(config, { ...card, index: "Kursbeginn: 9. September 2025" })).toBeNull();
 });
 
-it("keeps a template date visibly unresolved instead of excluding the task as due in2028", async () => {
+it("preserves the actual displayed year alongside a template warning", async () => {
   const placeholder = { ...card, read: true, landing: "Schließt: 9. September 2028 <Termin Testschließung noch von den Lehrenden individuell festzulegen>" };
   const result = await classifyEvidence(config, model({ ...fact, disposition: "outside_range", dueDate: "2028-09-09", evidence: placeholder.landing, dateQuote: "Schließt: 9. September 2028" }), [placeholder]);
-  expect(result[0]).toMatchObject({ disposition: "no_deadline", dateUncertain: true, dueDate: null });
+  expect(result[0]).toMatchObject({ disposition: "outside_range", dateUncertain: true, dueDate: "2028-09-09" });
 });
 it("repairs only an invalid detail quote using validation feedback", async () => {
   const detail = { ...card, read: true, landing: card.index };
@@ -124,8 +124,8 @@ it("recognizes graded offline participation without mistaking an ordinary grade 
   expect(classifyDirectEvidence(config, offline)).toMatchObject({ disposition: "completed" });
   expect(classifyDirectEvidence(config, { ...offline, landing: "Submission status Draft Grading status Graded" })).toBeNull();
 });
-it("handles explicitly unsettled landing dates without asking the model to reinterpret the year", () => {
-  expect(classifyDirectEvidence(config, { ...card, read: true, landing: "Schließt: 9. September 2028 <Termin noch individuell festzulegen>" })).toMatchObject({ disposition: "no_deadline", dateUncertain: true, dueDate: null });
+it("defers conflicting date wording to semantic inspection", () => {
+  expect(classifyDirectEvidence(config, { ...card, read: true, landing: "Schließt: 9. September 2028 <Termin noch individuell festzulegen>" })).toBeNull();
 });
 it("uses the checkmark index deadline heading", () => {
   expect(classifyDirectEvidence(config, { ...card, index: "Abgabeende: Mittwoch, 30. September 2026, 03:00" })).toMatchObject({ disposition: "outside_range", dueDate: "2026-09-30" });
@@ -271,4 +271,25 @@ it("allows genuinely undated tasks with opening dates after considering their ac
   const source = 'Geöffnet: 16. September 2025. No closing deadline is set.';
   const undated = { ...card, read: true, index: 'Fälligkeitsdatum: -', landing: source };
   expect((await classifyEvidence(config, model({ ...fact, disposition: 'no_deadline', dueDate: null, dateQuote: '', evidence: source }), [undated]))[0].disposition).toBe('no_deadline');
+});
+
+it("retains a current quiz deadline and in-progress status despite an instructor template note", async () => {
+  const note = "Termin Testschließung noch von den Lehrenden individuell festzulegen";
+  const quiz = { ...card, kind: "quiz", read: true,
+    index: "Testschließung: 9. September 2026, 23:59",
+    landing: `Schließt: 9. September 2026, 23:59 <${note}> Ihre Versuche Versuch 1 Status In Bearbeitung` };
+  const proposed = { ...fact, dateQuote: quiz.index, evidence: "Status In Bearbeitung", status: "In Bearbeitung" };
+  expect(classifyDirectEvidence(config, quiz)).toBeNull();
+  expect((await classifyEvidence(config, model(proposed), [quiz]))[0]).toMatchObject({
+    disposition: "due", dueDate: "2026-09-09", status: "In Bearbeitung", dateUncertain: true,
+    dateWarning: expect.stringContaining(note),
+  });
+});
+it("retains finished attempts independently of an uncertain date", async () => {
+  const quiz = { ...card, kind: "quiz", read: true, index: "",
+    landing: "Termin noch individuell festzulegen. Ihre Versuche Versuch 2 Status Beendet. Versuch 1 Status Beendet. Kein Versuch mehr zugelassen" };
+  const proposed = { ...fact, disposition: "completed", dueDate: null, dateQuote: "", evidence: "Status Beendet", status: "Beendet" };
+  expect((await classifyEvidence(config, model(proposed), [quiz]))[0]).toMatchObject({
+    disposition: "completed", status: "Beendet", dateUncertain: true,
+  });
 });
