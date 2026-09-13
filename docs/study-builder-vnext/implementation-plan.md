@@ -17,7 +17,16 @@ Persist task IDs and policy origins beside existing model-call metrics. This is
 a configuration feature, with no claimed quality or performance improvement and
 no live optimization campaign or release acceptance.
 
-Status: implementing in the current development batch.
+Status: implemented and verified in the current development batch. The catalogue
+exposes 34 concrete operations plus three shared search/repair defaults. All
+1,117 root tests passed (4 skipped), including built-in/custom UI-to-runtime
+parity, production callsite coverage and mocked SDK boundaries for document,
+page and interactive quiz/search clients. Three profile-editor browser diagnostics
+passed, as did nine shared profile/schema tests, the server handoff/lifecycle
+checks, CLI metric aggregation, root typecheck, `vp check`, and fork typecheck.
+No live-model quality/performance claim or packaged desktop acceptance is made.
+See [`../model-task-profiles.md`](../model-task-profiles.md) for the configuration
+and measurement contract.
 
 ## Semantic source search — 2026-09-08
 

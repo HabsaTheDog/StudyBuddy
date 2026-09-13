@@ -89,7 +89,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
       }
       const response = await codex.run(buildGeneratorPrompt(config, state), {
         task: repairMode ? "artifact_repair" : "artifact_builder",
-          operation: repairMode ? "html_repair" : "html_build",
+        operation: repairMode ? "html_repair" : "html_build",
         // Escalation is task-local: earlier content and validator retries must
         // not turn the first HTML repair into a fourth repair attempt.
         attempt: state.generator_retry_count + 1,

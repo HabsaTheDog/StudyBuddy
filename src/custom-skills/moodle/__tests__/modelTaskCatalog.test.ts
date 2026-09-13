@@ -32,6 +32,30 @@ describe("model task integration", () => {
     }
   });
 
+  it("keeps every custom task's displayed inheritance and explicit override consistent with the CLI", async () => {
+    const profiles = await import(path.resolve("t3code-fork/packages/shared/src/studyBuddyProfiles.ts"));
+    const profile = profiles.duplicateStudyBuddyProfile(profiles.STUDY_BUDDY_BUILT_IN_PROFILES[1], "custom-parity");
+    profile.taskOverrides = {};
+    for (const [role, worker] of Object.entries(profile.roles)) {
+      if (role === "coordinator") continue;
+      Object.assign(worker as object, { model: `gpt-${role}`, retryModel: `gpt-${role}-retry` });
+    }
+    for (const operation of STUDY_BUDDY_MODEL_TASKS) {
+      for (const explicit of [false, true]) {
+        profile.taskOverrides = explicit ? {
+          [operation.id]: { model: "gpt-task", reasoningEffort: "low", retryModel: "gpt-task-retry", retryReasoningEffort: "high" },
+        } : {};
+        const visible = profiles.resolveStudyBuddyTask(profile, operation.id).policy;
+        const overrides = parseModelPolicyOverrides(JSON.stringify(profiles.studyBuddyProfileOverrides(profile)));
+        for (const attempt of [1, 2]) {
+          const actual = resolveTaskModelPolicy({ profile: "custom", task: operation.task, operation: operation.id, attempt, overrides });
+          expect(actual.model).toBe(attempt === 1 ? visible.model : visible.retryModel);
+          expect(actual.reasoningEffort).toBe(attempt === 1 ? visible.reasoningEffort : visible.retryReasoningEffort);
+        }
+      }
+    }
+  });
+
   it("requires concrete task IDs at every production model callsite", async () => {
     const directory = path.resolve("src/custom-skills");
     const files = await readdir(directory, { recursive: true });
@@ -43,9 +67,11 @@ describe("model task integration", () => {
       function visit(node: ts.Node) {
         if (ts.isCallExpression(node) && /(?:codex|model)\.run$/.test(node.expression.getText(source))) {
           const options = node.arguments[1];
-          if (options && ts.isObjectLiteralExpression(options) && !options.properties.some(ts.isSpreadAssignment)) {
+          if (options && ts.isObjectLiteralExpression(options)) {
             const operation = options.properties.find((property) => property.name?.getText(source) === "operation");
-            if (!operation || !ts.isPropertyAssignment(operation)) missing.push(`${file}:${source.getLineAndCharacterOfPosition(node.pos).line + 1}`);
+            if (!operation || !ts.isPropertyAssignment(operation)) {
+              if (!options.properties.some(ts.isSpreadAssignment)) missing.push(`${file}:${source.getLineAndCharacterOfPosition(node.pos).line + 1}`);
+            }
             else {
               function collect(value: ts.Node) {
                 if (ts.isStringLiteral(value)) seen.add(value.text);

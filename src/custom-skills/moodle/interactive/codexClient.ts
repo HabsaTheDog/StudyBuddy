@@ -1,4 +1,7 @@
-import { resolveTaskModelPolicy, type StudyBuddyModelOperation } from "../modelPolicy.js";
+import { appendFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { resolveTaskModelPolicy, taskModelPolicySource, type StudyBuddyModelOperation } from "../modelPolicy.js";
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
@@ -48,10 +51,33 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         ...(selection.model ? { model: selection.model } : {}),
         ...(selection.reasoningEffort ? { modelReasoningEffort: selection.reasoningEffort } : {}),
       });
-      const turn = await thread.run(options?.imagePaths?.length
-        ? [{ type: "text", text: prompt }, ...options.imagePaths.map(imagePath => ({ type: "local_image" as const, path: imagePath }))]
-        : prompt, { outputSchema: options?.outputSchema });
-      return turn.finalResponse;
+      const startedAt = new Date().toISOString();
+      const startedMs = Date.now();
+      const task = options?.task ?? "quiz_solver";
+      const metric = {
+        id: randomUUID(), task, operation: options?.operation ?? task,
+        attempt: options?.attempt ?? 1, model: selection.model ?? "provider-default",
+        reasoningEffort: selection.reasoningEffort ?? "medium", startedAt,
+        policySource: config.executionProfile || config.modelPolicyOverrides || task === "source_search"
+          ? taskModelPolicySource({ profile: config.executionProfile ?? "balanced", task, operation: options?.operation, overrides: config.modelPolicyOverrides, globalModel: config.codexModel, globalReasoningEffort: config.codexReasoningEffort })
+          : "legacy quiz configuration",
+      };
+      let usage = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
+      let status = "failed";
+      try {
+        const turn = await thread.run(options?.imagePaths?.length
+          ? [{ type: "text", text: prompt }, ...options.imagePaths.map(imagePath => ({ type: "local_image" as const, path: imagePath }))]
+          : prompt, { outputSchema: options?.outputSchema });
+        usage = turn.usage ?? usage;
+        status = "completed";
+        return turn.finalResponse;
+      } finally {
+        await appendFile(path.join(config.runDir, "run-model-calls.jsonl"), JSON.stringify({
+          ...metric, status, completedAt: new Date().toISOString(), durationMs: Date.now() - startedMs,
+          inputTokens: usage.input_tokens, cachedInputTokens: usage.cached_input_tokens,
+          outputTokens: usage.output_tokens,
+        }) + "\n", "utf8");
+      }
     },
   };
 }

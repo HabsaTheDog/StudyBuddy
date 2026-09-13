@@ -590,8 +590,8 @@ async function recordCall(input: {
     {
       callId: input.callId,
       task: input.task,
-    operation: input.operation,
-    policySource: input.policySource,
+      operation: input.operation,
+      policySource: input.policySource,
       attempt: input.attempt,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
@@ -622,8 +622,8 @@ async function recordCall(input: {
       {
         callId: input.callId,
         task: input.task,
-    operation: input.operation,
-    policySource: input.policySource,
+        operation: input.operation,
+        policySource: input.policySource,
         inputAmplification,
         inputTokens: usage.input_tokens,
         estimatedPromptTokens,

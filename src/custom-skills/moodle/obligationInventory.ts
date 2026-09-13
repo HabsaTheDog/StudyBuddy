@@ -400,7 +400,7 @@ export async function triageNonObligations(config: MoodleRuntimeConfig, model: C
         "For each exclusion return its exact observed ID and a short verbatim quote (at most 80 characters) proving that purpose. No invented IDs. No explanation needed.",
         `Request: ${JSON.stringify(config.originalUserPrompt)}`,
         JSON.stringify(batch.map(c => ({ id: c.id, kind: c.kind, source: cardText(c).slice(0, 1200) }))),
-      ].join("\n"), { task: "source_search", operation: "obligation_classification", outputSchema: schema }));
+      ].join("\n"), { task: "source_search", operation: "obligation_triage", outputSchema: schema }));
       for (const entry of Array.isArray(raw.exclusions) ? raw.exclusions : []) {
         const c = batch.find(c => c.id === entry.id);
         if (!c || result.some(f => f.id === c.id) || typeof entry.quote !== "string" || entry.quote.length < 4 || !cardText(c).includes(entry.quote)) continue;
@@ -452,7 +452,7 @@ export async function verifyPurposeExclusions(config: MoodleRuntimeConfig, model
           "For exclude true provide one short contiguous quotation proving the purpose. For exclude false explain the missing evidence. Never infer no deadline or completion here. Use observed IDs only.",
           `Request: ${JSON.stringify(config.originalUserPrompt)}`,
           `Activities: ${JSON.stringify(pending.map(c => ({ id: c.id, kind: c.kind, source: cardText(c).slice(0, 14000) })))}`,
-        ].join("\n"), { task: "source_search", operation: "obligation_classification", attempt, outputSchema: schema }));
+        ].join("\n"), { task: "source_search", operation: "obligation_exclusion_review", attempt, outputSchema: schema }));
         const retry: EvidenceCard[] = [];
         for (const card of pending) {
           const matches = (Array.isArray(response.decisions) ? response.decisions : []).filter((e: { id: string }) => e.id === card.id);

@@ -1,4 +1,4 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-09.1-balanced-terra-analysis";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-13.1-task-overrides";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -453,7 +453,10 @@ function nextReasoningEffort(value: StudyBuddyReasoningEffort): StudyBuddyReason
 export function taskModelPolicySource(input: ResolveTaskModelPolicyInput): string {
   if (input.globalModel || input.globalReasoningEffort) return "global override";
   if (input.operation && input.overrides?.[input.operation]) return `task:${input.operation}`;
-  if (input.overrides?.[input.task]) return `task:${input.task}`;
+  if (input.overrides?.[input.task]) {
+    const kind = ["source_search", "content_repair", "artifact_repair"].includes(input.task) ? "task" : "role";
+    return `${kind}:${input.task}`;
+  }
   const parent = input.task === "content_repair" || input.task === "source_search" ? "content_analyzer"
     : input.task === "artifact_repair" ? "artifact_builder" : input.task;
   if (input.overrides?.[parent]) return `role:${parent}`;
