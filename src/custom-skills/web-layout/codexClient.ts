@@ -8,6 +8,8 @@ import { minimalValidStudyBuddyHtml } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 import {
   resolveTaskModelPolicy,
+  taskModelPolicySource,
+  type StudyBuddyModelOperation,
   type StudyBuddyModelTask,
 } from "../shared/modelPolicy.js";
 import {
@@ -33,6 +35,7 @@ export interface CodexClient {
     prompt: string,
     options: {
       task: StudyBuddyModelTask;
+      operation?: StudyBuddyModelOperation;
       attempt?: number;
       outputSchema?: unknown;
       timeoutMs?: number;
@@ -56,14 +59,16 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
     async run(prompt, options) {
       const task = options.task;
       const attempt = Math.max(1, options.attempt ?? 1);
-      const policy = resolveTaskModelPolicy({
+      const policyInput = {
+        operation: options.operation,
         profile: config.executionProfile,
         task,
         attempt,
         globalModel: config.codexModel,
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
-      });
+      };
+      const policy = resolveTaskModelPolicy(policyInput);
       const accessPolicy = resolveCodexTaskAccessPolicy(task);
       const sanitizedPrompt = accessPolicy.leafWorker
         ? `${LEAF_WORKER_BOUNDARY}\n\n${prompt}`
@@ -138,6 +143,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
           callId,
           task,
           attempt,
+          operation: options.operation ?? task,
+          policySource: taskModelPolicySource(policyInput),
           model: policy.model,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
@@ -157,6 +164,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
           callId,
           task,
           attempt,
+          operation: options.operation ?? task,
+          policySource: taskModelPolicySource(policyInput),
           model: policy.model,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
@@ -280,6 +289,8 @@ function createTestCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
 }
 
 async function recordCall(input: {
+  operation: string;
+  policySource: string;
   config: WebLayoutRuntimeConfig;
   callId: string;
   task: StudyBuddyModelTask;
@@ -309,6 +320,8 @@ async function recordCall(input: {
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
     task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
     attempt: input.attempt,
     model: input.model,
     reasoningEffort: input.reasoningEffort,

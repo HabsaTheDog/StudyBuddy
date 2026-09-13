@@ -309,7 +309,7 @@ export async function resolveAssessmentArchitecturePlan(
       const response = await input.codex.run(
         buildAssessmentArchitecturePrompt(input, contract, course, repairError),
         {
-          task: "artifact_planner",
+          task: "artifact_planner", operation: "assessment_planning",
           attempt,
           outputSchema: generatedPlanJsonSchema,
           timeoutMs: 150_000,

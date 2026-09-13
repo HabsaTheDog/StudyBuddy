@@ -275,7 +275,7 @@ export async function resolveObligationScope(config: MoodleRuntimeConfig, model:
       "For a named subject/course or specific historical term return its query and a verbatim supporting request quote. Preserve multiple named subjects and explicit semester restrictions. Merely 'current semester' needs no courseQuery.",
       "Set includeOlder=true ONLY for explicit old/past/historical course inclusion, such as 'auch alte Kurse' or 'all enrollments including previous semesters'. Supply olderQuote verbatim. 'All courses' alone is not historical opt-in. A named historical course is already an explicit requested course restriction.",
       `Request: ${JSON.stringify(prompt)}`, `Available course count: ${courses.length}`,
-    ].join("\n"), { task: "source_search", outputSchema: schema }));
+    ].join("\n"), { task: "source_search", operation: "obligation_scope", outputSchema: schema }));
     if (typeof value.courseQuery !== "string" || typeof value.quote !== "string" || typeof value.includeOlder !== "boolean" || typeof value.olderQuote !== "string") throw new Error("Invalid scope response");
     if (value.includeOlder && (!value.olderQuote.trim() || !prompt.includes(value.olderQuote))) throw new Error("Unverified historical opt-in");
     if (value.courseQuery) {
@@ -287,7 +287,7 @@ export async function resolveObligationScope(config: MoodleRuntimeConfig, model:
         "For 'all Mathe tasks, including older semesters', Mathe remains a restriction applying to the whole request. Preserve multiple requested subjects; if the proposed query drops one, return ambiguous rather than unrestricted.",
         "If a complete, faithful restriction cannot be established and the request is not genuinely unrestricted, return ambiguous. Supply a short verbatim quote from the original request supporting the decision.",
         `Original request: ${JSON.stringify(prompt)}`, `Proposed course query: ${JSON.stringify(value.courseQuery)}`,
-      ].join("\n"), { task: "source_search", outputSchema: { type: "object", additionalProperties: false, required: ["decision", "quote"], properties: {
+      ].join("\n"), { task: "source_search", operation: "obligation_scope_review", outputSchema: { type: "object", additionalProperties: false, required: ["decision", "quote"], properties: {
         decision: { type: "string", enum: ["restriction", "unrestricted", "ambiguous"] }, quote: { type: "string" },
       } } }));
       if (typeof review.quote !== "string" || !review.quote.trim() || !prompt.includes(review.quote)) throw new Error("Unverified scope review");
@@ -400,7 +400,7 @@ export async function triageNonObligations(config: MoodleRuntimeConfig, model: C
         "For each exclusion return its exact observed ID and a short verbatim quote (at most 80 characters) proving that purpose. No invented IDs. No explanation needed.",
         `Request: ${JSON.stringify(config.originalUserPrompt)}`,
         JSON.stringify(batch.map(c => ({ id: c.id, kind: c.kind, source: cardText(c).slice(0, 1200) }))),
-      ].join("\n"), { task: "source_search", outputSchema: schema }));
+      ].join("\n"), { task: "source_search", operation: "obligation_classification", outputSchema: schema }));
       for (const entry of Array.isArray(raw.exclusions) ? raw.exclusions : []) {
         const c = batch.find(c => c.id === entry.id);
         if (!c || result.some(f => f.id === c.id) || typeof entry.quote !== "string" || entry.quote.length < 4 || !cardText(c).includes(entry.quote)) continue;
@@ -452,7 +452,7 @@ export async function verifyPurposeExclusions(config: MoodleRuntimeConfig, model
           "For exclude true provide one short contiguous quotation proving the purpose. For exclude false explain the missing evidence. Never infer no deadline or completion here. Use observed IDs only.",
           `Request: ${JSON.stringify(config.originalUserPrompt)}`,
           `Activities: ${JSON.stringify(pending.map(c => ({ id: c.id, kind: c.kind, source: cardText(c).slice(0, 14000) })))}`,
-        ].join("\n"), { task: "source_search", attempt, outputSchema: schema }));
+        ].join("\n"), { task: "source_search", operation: "obligation_classification", attempt, outputSchema: schema }));
         const retry: EvidenceCard[] = [];
         for (const card of pending) {
           const matches = (Array.isArray(response.decisions) ? response.decisions : []).filter((e: { id: string }) => e.id === card.id);
@@ -506,7 +506,7 @@ export async function classifyEvidence(config: MoodleRuntimeConfig, model: Codex
         `Write reason in ${config.outputLanguage}. For status quote the exact observed personal status in its source language, or unknown if not observed. Read all attempts: a finished attempt does not erase another in-progress attempt. Keep quotations short and exact; reasons at most one brief sentence.`,
         `Original request: ${JSON.stringify(config.originalUserPrompt)}`, `Authoritative time window: ${JSON.stringify(time)}`,
         `Activities: ${JSON.stringify(pending.map(c => ({ id: c.id, course: c.course, kind: c.kind, landingRead: c.read, readFailed: c.failed, source: cardText(c).slice(0, 14000), evidenceOptions: evidenceOptions(c) })))}`,
-      ].join("\n"), { task: "source_search", attempt, outputSchema: factSchema }));
+      ].join("\n"), { task: "source_search", operation: "obligation_classification", attempt, outputSchema: factSchema }));
       if (!Array.isArray(result.facts)) throw new Error("Invalid activity accounting");
       const facts = pending.map(card => {
         const unsettled = unsettledDeadline(card);

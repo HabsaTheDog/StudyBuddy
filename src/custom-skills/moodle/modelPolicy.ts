@@ -2,15 +2,8 @@ export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-09.1-balanced-terra-ana
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
-export type StudyBuddyModelTask =
-  | "source_search"
-  | "content_analyzer"
-  | "content_repair"
-  | "quiz_solver"
-  | "artifact_planner"
-  | "artifact_builder"
-  | "artifact_repair"
-  | "quality_reviewer";
+import { STUDY_BUDDY_MODEL_TASKS, type StudyBuddyModelTask, type StudyBuddyModelOperation, type StudyBuddyModelPolicyKey } from "../shared/modelTaskCatalog.js";
+export type { StudyBuddyModelTask, StudyBuddyModelOperation, StudyBuddyModelPolicyKey } from "../shared/modelTaskCatalog.js";
 
 export type StudyBuddyReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -24,12 +17,13 @@ export interface StudyBuddyTaskModelPolicy {
 }
 
 export type StudyBuddyModelPolicyOverrides = Partial<
-  Record<StudyBuddyModelTask, Partial<StudyBuddyTaskModelPolicy>>
+  Record<StudyBuddyModelPolicyKey, Partial<StudyBuddyTaskModelPolicy>>
 >;
 
 export interface ResolveTaskModelPolicyInput {
   profile: StudyBuddyExecutionProfile;
   task: StudyBuddyModelTask;
+  operation?: StudyBuddyModelOperation | undefined;
   attempt?: number;
   globalModel?: string;
   globalReasoningEffort?: StudyBuddyReasoningEffort;
@@ -298,7 +292,18 @@ export function resolveTaskModelPolicy(
       ? "quality"
       : input.profile;
   const base = PROFILE_POLICIES[profile][input.task];
-  const override = input.overrides?.[input.task];
+  const operation = input.operation && STUDY_BUDDY_MODEL_TASKS.find((entry) => entry.id === input.operation);
+  if (input.operation && (!operation || operation.task !== input.task)) {
+    throw new Error(`Unknown or mismatched model task ${input.operation} (${input.task}).`);
+  }
+  const inheritedTask = input.task === "content_repair" || input.task === "source_search"
+    ? "content_analyzer"
+    : input.task === "artifact_repair" ? "artifact_builder" : input.task;
+  const override = {
+    ...input.overrides?.[inheritedTask],
+    ...input.overrides?.[input.task],
+    ...(input.operation ? input.overrides?.[input.operation] : undefined),
+  };
   const configured: StudyBuddyTaskModelPolicy = {
     ...base,
     ...override,
@@ -369,7 +374,7 @@ export function parseModelPolicyOverrides(
     throw new Error("Expected profile overrides to be a JSON object.");
   }
 
-  const tasks: StudyBuddyModelTask[] = [
+  const tasks: StudyBuddyModelPolicyKey[] = [
     "source_search",
     "content_analyzer",
     "content_repair",
@@ -378,7 +383,11 @@ export function parseModelPolicyOverrides(
     "artifact_builder",
     "artifact_repair",
     "quality_reviewer",
+    ...STUDY_BUDDY_MODEL_TASKS.map((entry) => entry.id),
   ];
+  for (const key of Object.keys(parsed)) {
+    if (!tasks.includes(key as StudyBuddyModelPolicyKey)) throw new Error(`Unknown model task override: ${key}`);
+  }
   const result: StudyBuddyModelPolicyOverrides = {};
   for (const task of tasks) {
     const raw = (parsed as Record<string, unknown>)[task];
@@ -438,4 +447,15 @@ function nextReasoningEffort(value: StudyBuddyReasoningEffort): StudyBuddyReason
     case "xhigh":
       return "xhigh";
   }
+}
+
+/** Origin of the selected model/effort, persisted beside usage for task-level comparisons. */
+export function taskModelPolicySource(input: ResolveTaskModelPolicyInput): string {
+  if (input.globalModel || input.globalReasoningEffort) return "global override";
+  if (input.operation && input.overrides?.[input.operation]) return `task:${input.operation}`;
+  if (input.overrides?.[input.task]) return `task:${input.task}`;
+  const parent = input.task === "content_repair" || input.task === "source_search" ? "content_analyzer"
+    : input.task === "artifact_repair" ? "artifact_builder" : input.task;
+  if (input.overrides?.[parent]) return `role:${parent}`;
+  return `built-in:${input.profile === "custom" ? "balanced" : input.profile === "auto" ? "quality" : input.profile}`;
 }

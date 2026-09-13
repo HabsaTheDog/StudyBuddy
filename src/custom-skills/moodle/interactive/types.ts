@@ -1,3 +1,4 @@
+import type { StudyBuddyExecutionProfile, StudyBuddyModelPolicyOverrides } from "../modelPolicy.js";
 import type { TemporalRequest } from "../temporalRequest.js";
 import type { AgentState, SourceCoverage } from "./state.js";
 import type {
@@ -40,7 +41,8 @@ export interface MoodleGraphInput {
   assignmentFiles?: string[] | undefined;
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
   codexModel?: string | undefined;
-  executionProfile?: string | undefined;
+  executionProfile?: StudyBuddyExecutionProfile | undefined;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides | undefined;
   codexReasoningEffort?: string | undefined;
   quizSolverModel?: string | undefined;
   quizSolverReasoningEffort?: StudyBuddyReasoningEffort | undefined;
@@ -116,6 +118,9 @@ export interface MoodleRuntimeConfig {
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
   codexModel?: string | undefined;
   quizSolverModelPolicy?: QuizSolverModelPolicy | undefined;
+  executionProfile?: StudyBuddyExecutionProfile | undefined;
+  codexReasoningEffort?: StudyBuddyReasoningEffort | undefined;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides | undefined;
 }
 
 export type BrowserBackend = "agent-browser" | "playwright";

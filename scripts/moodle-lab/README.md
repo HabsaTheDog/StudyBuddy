@@ -1,7 +1,8 @@
 # Synthetic Moodle fixture tooling
 
-Status: local tooling implemented; **real-Moodle runtime and packaged-app
-acceptance pending**. See [checkpoint](../../docs/moodle-test-service.md).
+Status, 2026-09-10: **real Moodle server acceptance passed** (19 checks),
+including live service controls and cleanup; 16 lightweight tests pass.
+**Packaged-app integration is still pending.** See [checkpoint](../../docs/moodle-test-service.md).
 The owner chose local-only development containers, not Proxmox or a tunnel.
 
 ## Verified inputs
@@ -37,10 +38,11 @@ reset refusal and successful deterministic re-seeding. It removes only its own
 recorded container IDs, associated anonymous volumes, internal network and
 temporary fixture/credential files. A cleanup failure is an error, not a pass.
 
-The JSON result contains only named checks and a coarse failure stage. The
+The JSON result contains named checks and credential-safe failure diagnostics;
+stderr reports named phases and elapsed seconds during startup. The
 runner suppresses raw subprocess output so credentials cannot enter receipts.
-A failure stage is not a diagnosis; investigate using synthetic data with a
-redaction review. It does not run AI generation or test the packaged app.
+Diagnostics omit exception messages/arguments and raw HTTP response contents.
+It does not run AI generation or test the packaged app.
 
 ## On-demand local service
 
@@ -53,6 +55,7 @@ python3 scripts/moodle-lab/lab.py serve --archive study-buddy-data/moodle-lab/ca
 This uses the same acceptance runner above, then keeps the verified service
 alive until stopped. It prints a loopback URL only after server acceptance
 passes. If startup is refused or any check fails, it does not advertise readiness.
+Initial bootstrap/acceptance took roughly 75 seconds on the verified workstation.
 In another terminal:
 
 ```sh

@@ -15,7 +15,7 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
     try {
       const response = await codex.run(buildPlannerPrompt(config, state), {
         outputSchema: layoutSpecJsonSchema,
-        task: "artifact_planner",
+        task: "artifact_planner", operation: "html_planning",
         attempt: state.retry_count + 1,
       });
       const parsed = layoutSpecSchema.parse(JSON.parse(stripJsonFence(response))) as JsonObject;

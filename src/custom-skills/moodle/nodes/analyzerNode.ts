@@ -196,6 +196,7 @@ async function analyzeWholeRequest(
   const response = await codex.run(await buildAnalyzerPrompt(config, state), {
     outputSchema: extractedDataJsonSchema,
     task: state.error_log ? "content_repair" : "content_analyzer",
+          operation: state.error_log ? "content_extraction_repair" : "content_extraction",
     attempt: state.error_log ? Math.max(1, state.retry_count) : state.retry_count + 1,
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
@@ -350,6 +351,7 @@ async function analyzeCourseChapters(
               {
                 outputSchema: extractedDataJsonSchema,
                 task: invalidKeys.has(focus.key) ? "content_repair" : "content_analyzer",
+          operation: invalidKeys.has(focus.key) ? "content_extraction_repair" : "content_extraction",
                 attempt: invalidKeys.has(focus.key)
                   ? Math.max(1, state.retry_count)
                   : state.retry_count + 1,
@@ -675,6 +677,7 @@ async function analyzeDenseChapter(
         const response = await codex.run(prompt, {
           outputSchema: chapterFragmentJsonSchema,
           task: repairing ? "content_repair" : "content_analyzer",
+          operation: repairing ? "content_extraction_repair" : "content_extraction",
           // A first local repair is attempt 1 of the repair task. Counting the
           // preceding analyzer call as repair attempt 1 skipped the balanced
           // Terra repair lane and escalated every ordinary validation miss to

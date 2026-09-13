@@ -30,3 +30,17 @@ describe("Quiz Solver model selection", () => {
     expect(resolveCodexModelSelection(config)).toEqual({ model: "gpt-global" });
   });
 });
+
+describe("interactive task overrides", () => {
+  it("uses the selected profile for search and separate answer/review tasks", () => {
+    const worker = (model: string) => ({ model, reasoningEffort: "low" as const, escalationModel: `${model}-retry`, escalationEffort: "high" as const });
+    const config = {
+      executionProfile: "custom" as const,
+      modelPolicyOverrides: { source_search: worker("gpt-search"), quiz_answer: worker("gpt-answer"), quiz_verification: worker("gpt-review") },
+    };
+    expect(resolveCodexModelSelection(config, "source_search", 1, "source_selection")).toEqual({ model: "gpt-search", reasoningEffort: "low" });
+    expect(resolveCodexModelSelection(config, "quiz_solver", 1, "quiz_answer").model).toBe("gpt-answer");
+    expect(resolveCodexModelSelection(config, "quiz_solver", 2, "quiz_verification").model).toBe("gpt-review-retry");
+    expect(resolveCodexModelSelection({ ...config, codexModel: "gpt-global" }, "quiz_solver", 2, "quiz_verification").model).toBe("gpt-global");
+  });
+});

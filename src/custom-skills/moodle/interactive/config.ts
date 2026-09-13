@@ -1,3 +1,4 @@
+import { parseReasoningEffort } from "../modelPolicy.js";
 import { requestTimeBoundary } from "../temporalRequest.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -159,6 +160,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     approvedAssignmentPermission: input.approvedAssignmentPermission,
     codexModel: trimOptional(input.codexModel) ?? trimOptional(environment.STUDY_BUDDY_CODEX_MODEL),
     quizSolverModelPolicy: createQuizSolverModelPolicy(input),
+    executionProfile: input.executionProfile,
+    codexReasoningEffort: parseReasoningEffort(input.codexReasoningEffort),
+    modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
 

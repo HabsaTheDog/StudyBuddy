@@ -7,15 +7,18 @@ import argparse
 from contextlib import ExitStack
 import hashlib
 import json
+import re
 from pathlib import Path
 import secrets
 import shutil
+import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
 
-from probe import run_probe
+from probe import ProbeError, run_probe
 
 
 SOURCE_SHA256 = '52ef3f988831c6759e1d1d8552248eb3da832b658123ede548d65379de46a6e5'
@@ -43,7 +46,28 @@ def available_memory():
     raise RuntimeError('Cannot verify memory reserve')
 
 
+def fixture_diagnostic(result):
+    """Only bounded structural fields, never subprocess messages or raw stderr."""
+    try:
+        diagnostic = json.loads(result.stderr.strip().splitlines()[-1])
+        if (diagnostic.get('stage') in ('guards', 'students', 'course', 'page', 'folder', 'files', 'enrolment', 'inspect')
+                and re.fullmatch(r'[A-Za-z_\\]{1,100}', diagnostic.get('errorClass', ''))
+                and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}\.php', diagnostic.get('file', ''))
+                and type(diagnostic.get('line')) is int):
+            return {key: diagnostic[key] for key in ('stage', 'errorClass', 'file', 'line')}
+    except (ValueError, IndexError, TypeError, AttributeError):
+        pass
+    return {'stage': 'unknown'}
+
+
 def run(archive, on_ready=None):
+    started = time.monotonic()
+
+    def progress(stage):
+        print(json.dumps({'phase': stage, 'elapsedSeconds': round(time.monotonic() - started, 1)}),
+              file=sys.stderr, flush=True)
+        return stage
+
     available = available_memory()
     if available < 9 * 1024**3:
         raise PreflightError(f'Insufficient host reserve: {available / 1024**3:.1f} GiB available; '
@@ -85,7 +109,7 @@ def run(archive, on_ready=None):
             passwords = {lane: 'Aa1!' + secrets.token_urlsafe(30) for lane in ('windows', 'fedora')}
             instance = secrets.token_hex(16)
             network = command(['podman', 'network', 'create', '--internal', name]).stdout.strip()
-            phase = 'database'
+            phase = progress('database')
             db = command(['podman', 'create', '--pull=never', '--name', name + '-db',
                 '--network', name, '--network-alias', 'db', '--memory', '256m', '--memory-swap', '256m',
                 '--cpus', '1', '--security-opt=no-new-privileges',
@@ -101,21 +125,27 @@ def run(archive, on_ready=None):
                 time.sleep(1)
             else:
                 raise RuntimeError('Database readiness timed out')
-            phase = 'web'
+            phase = progress('web')
+            # Moodle validates SERVER_PORT against wwwroot. Use the same port
+            # inside and outside the container, not random-host-port -> 8080.
+            # Podman fails safely if another process claims it before creation.
+            with socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                port = listener.getsockname()[1]
             web = command(['podman', 'create', '--pull=never', '--name', name + '-web',
-                '--network', name, '-p', '127.0.0.1::8080', '--memory', '512m', '--memory-swap', '512m',
+                '--network', name, '-p', f'127.0.0.1:{port}:{port}', '--memory', '512m', '--memory-swap', '512m',
                 '--cpus', '1', '--security-opt=no-new-privileges', '--entrypoint', 'php',
                 '-v', f'{source}:/app:Z', '-v', f'{data_dir}:/data:Z',
                 '-v', f'{fixtures}:/lab:ro,Z', PHP_IMAGE,
                 '-d', 'max_input_vars=5000', '-d', 'memory_limit=256M',
-                '-S', '0.0.0.0:8080', '-t', '/app/public']).stdout.strip()
+                '-S', f'0.0.0.0:{port}', '-t', '/app/public']).stdout.strip()
             containers.append(web)
             command(['podman', 'start', web])
-            endpoint = command(['podman', 'port', web, '8080/tcp']).stdout.strip()
-            if not endpoint.startswith('127.0.0.1:') or '\n' in endpoint:
+            endpoint = command(['podman', 'port', web, f'{port}/tcp']).stdout.strip()
+            if endpoint != f'127.0.0.1:{port}':
                 raise RuntimeError('Expected loopback-only test listener')
             base = 'http://' + endpoint
-            phase = 'bootstrap'
+            phase = progress('bootstrap')
             command(['podman', 'exec', '-i', web, 'php', '-d', 'max_input_vars=5000',
                 '/lab/bootstrap.php', '/app', '/data'], data=json.dumps({
                     'instance': instance, 'baseUrl': base, 'isolatedLoopbackTest': True,
@@ -128,12 +158,12 @@ def run(archive, on_ready=None):
                 return command(['podman', 'exec', '-i', web, 'php', '/lab/fixture.php', '/app/config.php'],
                                data=json.dumps(payload), allow_failure=True, timeout=120)
 
-            phase = 'seed'
+            phase = progress('seed')
             seeded = fixture('seed')
             if seeded.returncode:
-                raise RuntimeError('Fixture seed failed')
+                return {'ok': False, 'phase': phase, 'diagnostic': fixture_diagnostic(seeded)}
             manifest = json.loads(seeded.stdout)
-            phase = 'http-probe'
+            phase = progress('http-probe')
             initial = run_probe({'baseUrl': base, 'isolatedLoopbackTest': True,
                                  'manifest': manifest, 'passwords': passwords})
             checks.update(initial['checks'])
@@ -142,10 +172,10 @@ def run(archive, on_ready=None):
             checks['unconfirmed_reset_refused'] = fixture('reset').returncode != 0
             checks['duplicate_seed_refused'] = fixture('seed').returncode != 0
             checks['inspect_after_refusals'] = fixture('inspect').returncode == 0
-            phase = 'reset'
+            phase = progress('reset')
             reset = fixture('reset', confirm='reset-synthetic-course-only')
             if reset.returncode:
-                raise RuntimeError('Fixture reset failed')
+                return {'ok': False, 'phase': phase, 'diagnostic': fixture_diagnostic(reset)}
             after = json.loads(reset.stdout)
             checks['reset_content_identical'] = [(f['name'], f['sha256']) for f in manifest['files']] == [
                 (f['name'], f['sha256']) for f in after['files']]
@@ -159,6 +189,8 @@ def run(archive, on_ready=None):
                 phase = 'serve'
                 on_ready(receipt, base, after, passwords, fixture)
             return receipt
+        except ProbeError as error:
+            return {'ok': False, 'phase': phase, 'reason': str(error), 'checks': checks}
         except Exception as error:
             # Only locally authored phase/class names enter the receipt.
             return {'ok': False, 'phase': phase, 'errorClass': type(error).__name__, 'checks': checks}

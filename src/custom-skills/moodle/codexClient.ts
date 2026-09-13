@@ -13,6 +13,8 @@ import {
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
   resolveTaskModelPolicy,
+  taskModelPolicySource,
+  type StudyBuddyModelOperation,
   type StudyBuddyModelTask,
 } from "./modelPolicy.js";
 import { invalidateCodexRuntimeCache } from "./codexRuntime.js";
@@ -26,6 +28,7 @@ export interface CodexClient {
   run(prompt: string, options?: {
     outputSchema?: unknown;
     task?: StudyBuddyModelTask;
+    operation?: StudyBuddyModelOperation;
     attempt?: number;
     /** Preselected evidence images attached to the initial turn without a tool round. */
     localImages?: string[];
@@ -280,6 +283,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         );
       }
       const policyInput = {
+        operation: options?.operation,
         profile: config.executionProfile,
         task,
         attempt,
@@ -339,6 +343,8 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             callId,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource: taskModelPolicySource(policyInput),
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             timeoutMs: policy.timeoutMs,
@@ -371,6 +377,8 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             callId,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource: taskModelPolicySource(policyInput),
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
@@ -403,6 +411,8 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             callId,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource: taskModelPolicySource(policyInput),
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
@@ -504,6 +514,8 @@ function shouldTryModelFallback(
 }
 
 async function recordCall(input: {
+  operation: string;
+  policySource: string;
   config: MoodleRuntimeConfig;
   callId: string;
   task: StudyBuddyModelTask;
@@ -545,6 +557,8 @@ async function recordCall(input: {
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
     task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
     attempt: input.attempt,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
@@ -576,6 +590,8 @@ async function recordCall(input: {
     {
       callId: input.callId,
       task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
       attempt: input.attempt,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
@@ -606,6 +622,8 @@ async function recordCall(input: {
       {
         callId: input.callId,
         task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
         inputAmplification,
         inputTokens: usage.input_tokens,
         estimatedPromptTokens,

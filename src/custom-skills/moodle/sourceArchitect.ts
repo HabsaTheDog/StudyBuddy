@@ -342,7 +342,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
       const basePrompt = buildArchitectPrompt(config, state, available, briefs, round);
       const response = await codex.run(basePrompt, {
         outputSchema: decisionSchema,
-        task: "artifact_planner",
+        task: "artifact_planner", operation: "source_planning",
         attempt: 1,
       });
       decision = validateDecision(
@@ -369,7 +369,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
           "Preserve exact catalog URLs, but split unrelated assessed topics into precise modules. Do not use '/' or '|' in any module title.",
         ].join("\n\n"), {
           outputSchema: decisionSchema,
-          task: "artifact_planner",
+          task: "artifact_planner", operation: "source_planning",
           attempt: 1,
         });
         decision = validateDecision(

@@ -6,7 +6,7 @@ import threading
 import unittest
 from urllib.parse import parse_qs
 
-from probe import LoginForm, MoodleClient, run_probe
+from probe import LoginForm, MoodleClient, admin_denied, run_probe
 
 
 DATA = b'SB-LAB-NOTES-V1 synthetic content'
@@ -42,6 +42,15 @@ class FakeMoodle(BaseHTTPRequestHandler):
 
 
 class ProbeTests(unittest.TestCase):
+    def test_admin_denial_requires_real_permission_error_not_missing_page(self):
+        denied = b'<a href="https://docs.moodle.org/501/en/error/admin/accessdenied">More information</a>'
+        self.assertTrue(admin_denied(404, denied))
+        self.assertTrue(admin_denied(403, b'Forbidden'))
+        self.assertFalse(admin_denied(404, b'Page not found'))
+        self.assertFalse(admin_denied(404, b'error/admin/sectionerror'))
+        self.assertFalse(admin_denied(500, denied))
+        self.assertFalse(admin_denied(200, b'User administration'))
+
     def test_rejects_http_outside_explicit_loopback_test(self):
         for url, local in [('http://127.0.0.1', False), ('http://192.168.1.9', True), ('http://example.com', True)]:
             with self.assertRaises(ValueError):

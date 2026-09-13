@@ -795,7 +795,7 @@ async function reviewQuestionBatch(
       const response = await input.codex.run(
         buildQuestionReviewPrompt(input, batch, context, repairError),
         {
-          task: "quality_reviewer",
+          task: "quality_reviewer", operation: "question_review",
           attempt,
           outputSchema: modelReviewSetJsonSchema,
           timeoutMs: 180_000,

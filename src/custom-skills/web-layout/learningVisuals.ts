@@ -290,7 +290,7 @@ export async function resolveLearningVisuals(input: {
     const response = await input.codex.run(
       buildPrompt(input.config.language, batch, contract),
       {
-        task: "content_analyzer",
+        task: "content_analyzer", operation: "visual_selection",
         // Batch ordinal describes independent parallel work. Attempt is local
         // to this exact batch and increases only if that batch is retried.
         attempt: batchMetadata.attempt,
@@ -432,7 +432,7 @@ async function refineCropsAgainstPreviews(input: {
       const response = await input.codex.run(
         buildCropRefinementPrompt(input.config.language, batch),
         {
-          task: "content_analyzer",
+          task: "content_analyzer", operation: "visual_selection",
           attempt: 1,
           outputSchema: planJsonSchema,
           timeoutMs: 150_000,

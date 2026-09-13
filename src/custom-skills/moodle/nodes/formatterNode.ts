@@ -61,6 +61,7 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
       const typst = await codex.run(buildFormatterPrompt(config, state), {
         task: state.error_log ? "artifact_repair" : "artifact_builder",
+          operation: state.error_log ? "document_repair" : "document_build",
         attempt: state.retry_count + 1,
       });
       const document = normalizeGeneratedTypstComponents(

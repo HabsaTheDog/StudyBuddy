@@ -46,7 +46,7 @@ export function createRequestEvaluatorNode(config: MoodleRuntimeConfig, codex: C
     try {
       contract = validateContractBoundary(RequestContractSchema.parse(JSON.parse(await codex.run(
         buildRequestEvaluatorPrompt(config, state),
-        { outputSchema: requestContractJsonSchema, task: "artifact_planner", attempt: 1 },
+        { outputSchema: requestContractJsonSchema, task: "artifact_planner", operation: "request_evaluation", attempt: 1 },
       ))), config, state);
     } catch (firstError) {
       try {
@@ -57,7 +57,7 @@ export function createRequestEvaluatorNode(config: MoodleRuntimeConfig, codex: C
           "Return the complete contract only. Do not add requirements merely because they are common in a generic study guide.",
         ].join("\n\n"), {
           outputSchema: requestContractJsonSchema,
-          task: "artifact_planner",
+          task: "artifact_planner", operation: "request_evaluation",
           attempt: 2,
         }))), config, state);
       } catch (repairError) {

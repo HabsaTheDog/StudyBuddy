@@ -387,6 +387,7 @@ async function buildChunkedModelContent(
         {
           outputSchema: studyGuideContentJsonSchema,
           task: state.error_log ? "content_repair" : "content_analyzer",
+          operation: state.error_log ? "learning_content_repair" : "learning_content",
           // content_retry_count counts failed node passes. The first pass that
           // switches from analysis to the dedicated repair task is therefore
           // attempt 1 for that task, not its escalated attempt 2.

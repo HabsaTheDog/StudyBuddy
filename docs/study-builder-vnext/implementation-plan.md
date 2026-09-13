@@ -1,5 +1,24 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Task-level model assignments — 2026-09-13
+
+Implement the approved profile architecture: keep role defaults, expose concrete
+workflow tasks with explicit primary/retry overrides and reset-to-inherit, and
+route search and repair through the same resolver. Preserve existing backend
+built-in model choices, access policies, validation gates and retry limits.
+The editor must display the effective policy, including inherited settings.
+Use a canonical task registry with a generated desktop copy and a parity test;
+the packaged workflow must remain independent of the source checkout.
+
+Validation: deterministic policy precedence, legacy-profile decoding, built-in
+UI/runtime parity, task-callsite coverage, custom handoff and interactive search
+routing, plus scoped editor browser diagnostics and root/fork typechecks.
+Persist task IDs and policy origins beside existing model-call metrics. This is
+a configuration feature, with no claimed quality or performance improvement and
+no live optimization campaign or release acceptance.
+
+Status: implementing in the current development batch.
+
 ## Semantic source search — 2026-09-08
 
 User approved the concrete semantic fallback plan. Campaign:

@@ -190,7 +190,7 @@ export async function resolveLearningProgressionPlan(input: {
   let firstResponse: string | undefined;
   try {
     firstResponse = await input.codex.run(prompt, {
-      task: "content_analyzer",
+      task: "content_analyzer", operation: "learning_progression",
       attempt: 1,
       outputSchema: planJsonSchema,
       timeoutMs: 180_000,
@@ -208,7 +208,7 @@ export async function resolveLearningProgressionPlan(input: {
       const repairedResponse = await input.codex.run(
         buildLearningProgressionRepairPrompt(prompt, firstResponse, failures[0]!),
         {
-          task: "content_repair",
+          task: "content_repair", operation: "learning_progression_repair",
           attempt: 1,
           outputSchema: planJsonSchema,
           timeoutMs: 120_000,

@@ -542,7 +542,7 @@ export async function generateAnswerSpec(
     try {
       const raw = await codex.run(prompt, {
         outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver",
+        task: "quiz_solver", operation: "quiz_answer",
         attempt,
         ...(Array.isArray(packet.image_paths) ? { imagePaths: packet.image_paths as string[] } : {}),
       });
@@ -560,7 +560,7 @@ export async function generateAnswerSpec(
         `Proposed answer to check: ${JSON.stringify(answer)}`,
       ].join("\n"), {
         outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver",
+        task: "quiz_solver", operation: "quiz_verification",
         attempt: 2,
         imagePaths: packet.image_paths as string[],
       });

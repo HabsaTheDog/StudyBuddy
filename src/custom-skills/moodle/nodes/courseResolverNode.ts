@@ -240,7 +240,7 @@ async function chooseShortlist(
 ): Promise<CourseCandidate[]> {
   try {
     const response = await codex.run(shortlistPrompt(config.prompt, candidates), {
-      task: "source_search",
+      task: "source_search", operation: "course_selection",
       attempt: 1,
       outputSchema: shortlistSchema,
     });
@@ -306,7 +306,7 @@ async function chooseFromEvidence(
   );
   try {
     const response = await codex.run(primary, {
-      task: "source_search",
+      task: "source_search", operation: "course_selection",
       attempt: 1,
       outputSchema: decisionSchema,
     });
@@ -328,7 +328,7 @@ async function chooseFromEvidence(
       );
       try {
         const response = await codex.run(compact, {
-          task: "source_search",
+          task: "source_search", operation: "course_selection",
           attempt: 1,
           outputSchema: decisionSchema,
         });

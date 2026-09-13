@@ -1,135 +1,66 @@
-# `v0.2.3-alpha` release readiness
+# Published `v0.2.2-alpha` owner-testing release
 
-This is the durable, credential-free handoff for the current corrective Study
-Buddy alpha. A green result applies
-only to the exact source commits and artifact hashes in the final assembled
-bundle. Rebuilding any artifact invalidates its previous packaged acceptance.
+## Decision — 2026-09-10
 
-The `1.x` version line remains reserved for the future stable release. Earlier
-public `v0.1.0-alpha.1` and `v0.1.0-alpha.2` releases are historical technical
-previews; unpublished build attempts do not consume additional public versions.
+**Published for hands-on testing; not promoted to the stable website channel.**
+The owner explicitly requested focused automated checks and one installable
+Windows/Fedora alpha instead of exhaustive clean-VM acceptance.
 
-## Release contract
+Release: https://github.com/HabsaTheDog/StudyBuddy/releases/tag/v0.2.2-alpha
 
-- Version/tag: `0.2.3-alpha` / `v0.2.3-alpha`
-- GitHub state: prerelease
-- Platforms: Windows 11 x64 and Linux x64
-- Windows signing: intentionally unsigned with SmartScreen disclosure
-- macOS: not shipped
-- Source of downloads and updates: `HabsaTheDog/StudyBuddy` GitHub Release assets
-- Website promotion: only after the explicit distribution-ready contract and
-  both exact packaged lanes pass
-- Decision states: `go`, `no-go`, or `blocked`
+- Root commit: `77b8730a4b1166fdccad3fa4942a11c2930f0445` (PR #49).
+- UI commit: `6b6d811264cd896fc2abac48810edf9abac81246` (desktop PR #21).
+- Build: https://github.com/HabsaTheDog/StudyBuddy/actions/runs/34491919586
+- Root CI: https://github.com/HabsaTheDog/StudyBuddy/actions/runs/34491183059
+- Windows: `Study-Buddy-0.2.2-alpha-x64.exe`, intentionally unsigned.
+- Fedora: `Study-Buddy-0.2.2-alpha-x86_64.AppImage`.
+- macOS remains unsupported.
 
-The final root commit, UI commit, filenames, sizes, and hashes must come from
-the successful workflow's `release-manifest.json` and `SHA256SUMS`; they are not
-predicted in this document.
+## Completed
 
-## Security and privacy baseline
+- Combined both unpublished candidates, completed semantic-source work,
+  parallel quiz and desktop/runtime fixes, and local Moodle server fixes.
+- Fixed Windows path assertions and bounded cold-start integration test
+  timeouts without cleanup racing a child process.
+- Reproduced and fixed review findings for script-only source navigation,
+  generic prepare/complete intent routing and deadline/authorship confusion.
+- Local root: 1,161 tests pass, 4 optional tests skipped; TypeScript passes.
+- Local UI: 3,325 tests pass, 5 skipped; all 13 workspace typechecks and lint pass.
+- Required root/UI GitHub CI, Windows/Linux tests, CodeQL, secret scan,
+  repository policy and release dependency audits pass.
+- GitHub built both installers and assembled manifests, SBOMs and updater files.
+- All local checksums match. All ten GitHub asset hashes and sizes match local
+  bytes; anonymous release API and both public download URLs succeed (HTTP 200).
+- Static package inspection confirms the Windows x64 payload, Linux x86-64
+  identity, version and Study Buddy-specific GitHub updater configuration.
+- The replaced 0.2.2 draft and removed 0.2.3 draft have verified local backups.
+  Existing public releases are unchanged; the historical 0.2.3 tag is retained.
+- No `distribution-ready.json` was published; no website promotion/deployment.
+- Original dirty source checkouts and the personal installed app are preserved.
 
-- Saved source usernames, passwords, email identities, bearer calendar links,
-  and private source links use per-record AES-256-GCM encryption. The random
-  master key is protected through Windows DPAPI or Linux Secret Service via
-  Electron `safeStorage`; insecure Linux `basic_text` storage fails closed.
-- Provider subprocesses receive explicit environment allowlists. Portal
-  credentials and arbitrary host secrets are excluded.
-- Usage analytics and conversation sharing are independent opt-in categories
-  that start disabled. Release builds accept only the public PostHog project
-  token, never an administrative credential.
-- Root and UI repositories use secret scanning, push protection, Dependabot,
-  CodeQL, full-history Gitleaks, and protected default branches.
-- Previously disclosed credentials were rotated. GitHub Support confirmation
-  for historical pull-request refs and cached personal-data views remains an
-  external maintainer item and is not represented as complete without the
-  support response.
+## Exact installer hashes
 
-## Product baseline already established
+```text
+4bb664fd105f47dc67809bb2921a01b330f28552618d48365944f2b55aaa010e  Study-Buddy-0.2.2-alpha-x64.exe
+0dcc4fad61368c0dbf3f495faaedfcc0b60db33bf1d06a139cdabce61ce3bc66  Study-Buddy-0.2.2-alpha-x86_64.AppImage
+```
 
-Earlier exact candidates demonstrated the intended Study Buddy identity,
-zero-source onboarding, more-than-three source management, edit/disable/delete,
-browser-backed source checks, optional telemetry delivery, restart persistence,
-offline recovery, Windows SmartScreen behavior, and Fedora AppImage execution.
-Those runs are regression evidence only; they do not approve new
-`0.2.3-alpha` bytes.
+## Explicitly remaining
 
-The release-lab now additionally requires ChatGPT subscription authentication,
-a real streamed response in a newly created packaged desktop thread, bounded
-synthetic file read/edit/create operations, credential cleanup, and restoration
-of the calibrated Windows `clean` and Fedora `clean-wallet` snapshots.
+This is not a claim that all application defects are fixed. Owner testing,
+full clean Windows/Fedora VM acceptance, installed update-cycle testing and
+real-account Moodle-to-guide acceptance remain pending for these exact bytes.
+No new VM snapshot was reverted for this reduced-acceptance publication.
 
-## Required gates
+The local Moodle server passes 19 real checks and 16 tooling tests. Safe guest
+transport and automated credentials for the unchanged desktop package are still
+unfinished; see [Moodle lab](moodle-test-service.md). Keep normal HTTPS/private
+network protections intact. Script-only external navigation fails closed.
 
-1. Merge the reviewed root release changes through the protected default branch
-   with the exact public UI submodule pin.
-2. Complete root and UI typecheck, test, lint/format, dependency audit, license,
-   SBOM, public-tree, link, submodule, secret-scan, and CodeQL gates.
-3. Build the exact `0.2.3-alpha` Windows and Linux bundle from the final tagged
-   default-branch commit. Verify all manifest, checksum, updater, SBOM, version,
-   platform, and unsigned-state claims.
-4. Complete full-setup packaged acceptance in the disposable Windows and Fedora
-   VMs, including subscription auth and the representative real thread/file
-   workflow. Any mandatory blocked scenario prevents publication.
-5. Prove updater no-downgrade behavior and update from an earlier public alpha
-   into the exact candidate while preserving intended local state.
-6. Stage a complete reviewed GitHub draft with the correct prerelease flag,
-   release notes, expected platform assets, checksums, provenance, SBOMs, and
-   distribution-ready marker.
-7. Verify the website rejects drafts/unpromoted releases, accepts the promoted
-   alpha, preserves the Windows warning, and resolves both platform buttons to
-   the exact approved GitHub asset URLs.
-8. Obtain explicit maintainer approval immediately before making the GitHub
-   draft public and deploying/activating website promotion.
-9. After publication, download through the public path, compare SHA-256, verify
-   updater discovery, and complete a bounded smoke test.
+No further version is published automatically. A public fix must increment the
+patch; never overwrite these published assets or retag this version.
 
-## Current decision
-
-Status (2026-09-08): **blocked for publication: targeted Moodle-to-artifact
-acceptance has no recorded successful result**.
-
-- Root commit: `0b039abc16b5feb084c8f8c23ac1edfb9f10755d`.
-- UI commit: `24b13681688d3994329ff222759078dd349d812e`.
-- Build: [33491078741](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/33491078741), successful.
-- Root commit checks: successful, including repository policy, pinned UI,
-  Windows/Linux verification, Gitleaks and CodeQL.
-- Windows installer SHA-256:
-  `3b2f6e1e46046d61e7a2852b69efa399689e69c544e95c2736dfbf5849080ef6`.
-- Linux AppImage SHA-256:
-  `13f22eeecf3c86da8011eb3378f3c7e4f4c2521e375902b01d301ca159629820`.
-- Windows standard packaged acceptance: **pass**, 16 scenarios.
-- Fedora standard packaged acceptance: **pass**, 17 scenarios.
-- Both lanes exercised subscription-authenticated synthetic file operations,
-  packaged source-broker/runtime probes, source lifecycle, telemetry,
-  persistence and an upgrade from public `0.2.1-alpha` to these exact bytes.
-- Windows was restored to `clean`; Fedora was restored to `clean-wallet` and
-  booted to verify app/profile/test-workspace absence. Both VMs are shut down.
-- Local evidence: `~/.local/share/study-buddy/release-lab/runs/0.2.3-alpha-run-33491078741/`.
-- GitHub has the complete draft and matching asset digests. Authentication is
-  working. Publication and website promotion were authorized by the maintainer
-  but have not been performed.
-- Bundle checksum verification passed for all ten listed assets. The remote
-  annotated tag resolves to the root commit above.
-- The local website release-selector suite passed (6 tests). The deployed site
-  was inspected and still advertises `0.2.1-alpha`; the draft is excluded.
-  This is not post-publication acceptance of `0.2.3-alpha`.
-- Release-lab helper suite: 41 tests passed. Release-manager skill validation
-  passed after documenting the distinction between generic and targeted gates.
-
-### Remaining release-specific gate
-
-The reported defect concerns a Moodle-backed study guide. The successful saved
-thread exercised synthetic file read/edit/create; the deterministic broker
-probe verifies runtime/environment wiring. Neither proves Moodle acquisition
-through generation of a validated artifact. No successful exact-candidate
-Moodle-to-artifact record was found in the release evidence.
-
-Run that targeted request with an authorized test course/account through the
-exact packaged candidate and record terminal workflow and artifact validation.
-Diagnose any failure before publication. Guest tests used synthetic sources;
-their temporary subscription credentials have been removed. Institution
-credentials were not transferred into the lab.
-
-Afterward, reconcile the draft notes, publish the same accepted bytes, and
-verify anonymous downloads/checksums and deployed website links. Do not repeat
-passing standard scenarios merely because this regression record was missing.
-New development in the dirty checkout is outside this immutable candidate.
+The detailed local receipt and superseded draft backups are under
+`study-buddy-data/releases/0.2.2-alpha-consolidated/`.
+Historical prior-candidate evidence remains in
+[the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).

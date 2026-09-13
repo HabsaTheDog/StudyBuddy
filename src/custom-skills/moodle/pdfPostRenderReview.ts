@@ -267,7 +267,7 @@ export async function reviewRenderedPdf(
         const response = await input.codex.run(
           buildModelReviewPrompt(allowedPages),
           {
-            task: "quality_reviewer",
+            task: "quality_reviewer", operation: "pdf_review",
             attempt: 1,
             outputSchema: modelVisualReviewSchema,
             localImages: pair.map((entry) => entry.path),

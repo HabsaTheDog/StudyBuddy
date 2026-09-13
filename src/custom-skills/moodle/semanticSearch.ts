@@ -114,7 +114,7 @@ export async function resolveSemanticSearch(input: {
       `Feedback: ${feedback}`,
     ].join("\n");
     try {
-      const decision = JSON.parse(await input.model.run(prompt, { task: "source_search", attempt: invalid + 1, outputSchema: decisionSchema }));
+      const decision = JSON.parse(await input.model.run(prompt, { task: "source_search", operation: "source_selection", attempt: invalid + 1, outputSchema: decisionSchema }));
       if (!Array.isArray(decision.ids) || decision.ids.some((id: unknown) => typeof id !== "string" || !catalog.has(id))) throw new Error("Unknown source ID");
       const ids: string[] = [...new Set<string>(decision.ids)];
       trace.push({ ...decision, step });
@@ -151,7 +151,7 @@ export async function resolveSemanticSearch(input: {
             `Original reference: ${input.prompt}`, `Context: ${input.context ?? ""}`,
             `Proposed replacement: ${JSON.stringify(decision)}`,
             `Alternatives: ${JSON.stringify([...catalog.values()].map(c => ({ id: c.id, label: c.label, text: c.text?.slice(0, 1000) })))}`,
-          ].join("\n"), { task: "source_search", outputSchema: { type: "object", additionalProperties: false, required: ["supported", "reason"], properties: { supported: { type: "boolean" }, reason: { type: "string" } } } }));
+          ].join("\n"), { task: "source_search", operation: "source_verification", outputSchema: { type: "object", additionalProperties: false, required: ["supported", "reason"], properties: { supported: { type: "boolean" }, reason: { type: "string" } } } }));
           trace.push({ action: "equivalence_review", ...review });
           if (review.supported !== true) return persist({ status: "ambiguous", selectedIds: [], evidence: [], reason: String(review.reason || "Unique equivalence is not established"), method: "model" });
         }

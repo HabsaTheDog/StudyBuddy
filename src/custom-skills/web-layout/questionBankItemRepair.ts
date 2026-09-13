@@ -141,7 +141,7 @@ async function resolveCompleteRepairBatch(
   let pending = batch;
   for (let attempt = 1; attempt <= 3 && pending.length > 0; attempt += 1) {
     const response = await input.codex.run(buildRepairPrompt(input, pending), {
-      task: "content_repair", attempt, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
+      task: "content_repair", operation: "question_repair", attempt, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
     });
     const candidate = modelRepairBatchSchema.parse(JSON.parse(stripJsonFence(response)));
     const expected = new Map(pending.map((target) => [itemKey(target.item), target]));

@@ -197,6 +197,7 @@ async function analyzePracticeResource(
           buildPracticeVisualPrompt(config, resource.title, batch.map((entry) => entry.page), priorError),
           {
             task: attempt === 1 ? "content_analyzer" : "content_repair",
+          operation: attempt === 1 ? "visual_selection" : "visual_selection_repair",
             attempt,
             outputSchema: modelResponseJsonSchema,
             localImages: batch.map((entry) => entry.path),

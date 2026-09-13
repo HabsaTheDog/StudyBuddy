@@ -4,6 +4,7 @@ import {
   parseModelPolicyOverrides,
   parseReasoningEffort,
   resolveTaskModelPolicy,
+  taskModelPolicySource,
 } from "../modelPolicy.js";
 
 describe("modelPolicy", () => {
@@ -158,5 +159,35 @@ describe("modelPolicy", () => {
     expect(parseExecutionProfile("QUALITY")).toBe("quality");
     expect(parseReasoningEffort("none")).toBe("minimal");
     expect(() => parseExecutionProfile("turbo")).toThrow("Expected execution profile");
+  });
+});
+
+describe("task policy inheritance", () => {
+  const worker = (model: string) => ({ model, reasoningEffort: "low", retryModel: `${model}-retry`, retryReasoningEffort: "high" });
+  const overrides = parseModelPolicyOverrides(JSON.stringify({
+    content_analyzer: worker("gpt-default"),
+    solution_generation: worker("gpt-solution"),
+    content_repair: worker("gpt-repair"),
+    learning_content_repair: worker("gpt-learning-repair"),
+  }));
+
+  it("selects an operation override without changing sibling work or retry budgets", () => {
+    const input = { profile: "custom" as const, task: "content_analyzer" as const, operation: "solution_generation" as const, overrides };
+    expect(resolveTaskModelPolicy(input)).toMatchObject({ model: "gpt-solution", timeoutMs: 120_000 });
+    expect(resolveTaskModelPolicy({ ...input, attempt: 2 })).toMatchObject({ model: "gpt-solution-retry", reasoningEffort: "high", timeoutMs: 180_000 });
+    expect(resolveTaskModelPolicy({ ...input, operation: "content_extraction" })).toMatchObject({ model: "gpt-default" });
+    expect(taskModelPolicySource(input)).toBe("task:solution_generation");
+    expect(resolveTaskModelPolicy({ ...input, attempt: 2, globalModel: "gpt-global" }).model).toBe("gpt-global");
+  });
+
+  it("inherits repair/search roles and supports a specialized repair override", () => {
+    expect(resolveTaskModelPolicy({ profile: "custom", task: "source_search", operation: "source_selection", overrides }).model).toBe("gpt-default");
+    expect(resolveTaskModelPolicy({ profile: "custom", task: "content_repair", operation: "content_extraction_repair", overrides }).model).toBe("gpt-repair");
+    expect(resolveTaskModelPolicy({ profile: "custom", task: "content_repair", operation: "learning_content_repair", overrides }).model).toBe("gpt-learning-repair");
+  });
+
+  it("rejects unknown policy keys and mismatched operations instead of silently ignoring them", () => {
+    expect(() => parseModelPolicyOverrides(JSON.stringify({ typo: worker("gpt-test") }))).toThrow("Unknown model task");
+    expect(() => resolveTaskModelPolicy({ profile: "balanced", task: "artifact_builder", operation: "solution_generation" })).toThrow("mismatched");
   });
 });

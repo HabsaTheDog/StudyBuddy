@@ -457,7 +457,7 @@ export async function resolveAssessmentSolutions(input: {
     const generatedResponse = await input.codex.run(
       buildAssessmentSolutionPrompt(input, task, contentContract),
       {
-        task: "content_analyzer",
+        task: "content_analyzer", operation: "solution_generation",
         attempt: index + 1,
         outputSchema: generatedSetJsonSchema,
         timeoutMs: 180_000,
@@ -470,7 +470,7 @@ export async function resolveAssessmentSolutions(input: {
     const reviewResponse = await input.codex.run(
       buildAssessmentSolutionReviewPrompt(input, task, solution, contentContract),
       {
-        task: "quality_reviewer",
+        task: "quality_reviewer", operation: "solution_verification",
         attempt: index + 1,
         outputSchema: reviewSetJsonSchema,
         timeoutMs: 180_000,
@@ -569,7 +569,7 @@ async function attachAssessmentVisuals(input: {
     const response = await input.codex.run(
       buildVisualCropPrompt(input.config.language, evidence, input.visualContract),
       {
-        task: "content_analyzer",
+        task: "content_analyzer", operation: "solution_generation",
         attempt: 1,
         outputSchema: visualPlanSetJsonSchema,
         timeoutMs: 120_000,

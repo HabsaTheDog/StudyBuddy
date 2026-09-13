@@ -1,4 +1,4 @@
-import { resolveTaskModelPolicy } from "../modelPolicy.js";
+import { resolveTaskModelPolicy, type StudyBuddyModelOperation } from "../modelPolicy.js";
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
@@ -11,7 +11,7 @@ export type CodexTask = "quiz_solver" | "source_search";
 export interface CodexClient {
   run(
     prompt: string,
-    options?: { outputSchema?: unknown; task?: CodexTask; attempt?: number; imagePaths?: string[] },
+    options?: { outputSchema?: unknown; task?: CodexTask; operation?: StudyBuddyModelOperation; attempt?: number; imagePaths?: string[] },
   ): Promise<string>;
 }
 
@@ -37,7 +37,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   });
   return {
     async run(prompt, options) {
-      const selection = resolveCodexModelSelection(config, options?.task, options?.attempt);
+      const selection = resolveCodexModelSelection(config, options?.task, options?.attempt, options?.operation);
       const thread = codex.startThread({
         workingDirectory: config.runDir,
         skipGitRepoCheck: true,
@@ -57,12 +57,13 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
 }
 
 export function resolveCodexModelSelection(
-  config: Pick<MoodleRuntimeConfig, "codexModel" | "quizSolverModelPolicy">,
+  config: Pick<MoodleRuntimeConfig, "codexModel" | "quizSolverModelPolicy" | "executionProfile" | "codexReasoningEffort" | "modelPolicyOverrides">,
   task?: CodexTask,
   attempt = 1,
+  operation?: StudyBuddyModelOperation,
 ): { model?: string; reasoningEffort?: ModelReasoningEffort } {
-  if (task === "source_search") {
-    const policy = resolveTaskModelPolicy({ profile: "balanced", task, attempt, globalModel: config.codexModel });
+  if (task && (config.executionProfile || config.modelPolicyOverrides || task === "source_search")) {
+    const policy = resolveTaskModelPolicy({ profile: config.executionProfile ?? "balanced", task, operation, attempt, globalModel: config.codexModel, globalReasoningEffort: config.codexReasoningEffort, overrides: config.modelPolicyOverrides });
     return { model: policy.model, reasoningEffort: policy.reasoningEffort === "minimal" ? "low" : policy.reasoningEffort };
   }
   if (task === "quiz_solver" && config.quizSolverModelPolicy) {

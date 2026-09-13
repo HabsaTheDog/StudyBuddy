@@ -81,7 +81,7 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
         previousReview?.reviewError ?? null,
       ), {
         outputSchema: qualityReviewSchema,
-        task: "quality_reviewer",
+        task: "quality_reviewer", operation: "content_review",
         attempt: state.retry_count + 1,
       });
       const parsed = validateQualityReview(parseJsonObjectOrArray(response));

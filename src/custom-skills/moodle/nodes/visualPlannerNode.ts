@@ -33,7 +33,7 @@ export function createVisualPlannerNode(config: MoodleRuntimeConfig, codex: Code
       }
 
       const response = await codex.run(buildVisualPlannerPrompt(config, state, pageIndex), {
-        task: "artifact_planner",
+        task: "artifact_planner", operation: "visual_planning",
         attempt: 1,
         outputSchema: visualRetrievalPlanJsonSchema,
       });

@@ -1,6 +1,6 @@
 # Local Moodle test service
 
-## Scope and current status — 2026-09-08
+## Scope and current status — 2026-09-10
 
 The owner chose on-demand **local rootless Podman** on the development
 workstation. The earlier Proxmox/tunnel proposal is superseded: do not create
@@ -18,15 +18,37 @@ Verified so far:
 - Official Moodle 5.1.6 archive checksum; PHP/PostgreSQL images downloaded and
   pinned by digest.
 - Both PHP scripts passed PHP 8.4 syntax checks during initial preparation.
-- 13 lightweight tests pass: HTTP cookies, corrupted files, origin rejection,
+- 16 lightweight tests pass: HTTP cookies, corrupted files, origin rejection,
   resource preflight, private control socket, reset guards and credential-free status.
 - Low-memory startup refuses before creating containers.
+- **19 real Moodle checks pass:** student login for both lane accounts, protected
+  page/PDF/text acquisition, exact hashes, anonymous denial, invalid-password
+  rejection, administration denial, reset refusal and identical reseeding.
+- Live service status, probe, reset/re-probe and stop passed. The foreground
+  process exited successfully; no lab containers, network or control socket
+  remained. No desktop VM was started.
+- Post-test container memory was approximately 142 MB combined (one observation,
+  not a peak); hard limits remain 512/256 MiB. Startup and first acceptance took
+  roughly 75 seconds on this workstation.
 
-**Pending:** real Moodle installation/seeding/HTTP acceptance, Windows/Fedora
-packaged acquisition and automated guest credential entry. The host has roughly
-4–5 GiB available RAM with nearly full swap; startup requires 9 GiB to retain
-the owner's 8 GiB reserve. No ongoing Moodle service or test VM was started.
-Do not waive this guard or claim these pending checks passed.
+**Pending:** Windows/Fedora packaged acquisition, a safe local app connection,
+and automated guest credential entry. Real server acceptance does not satisfy
+those desktop gates. The service is stopped when not in use; startup requires
+9 GiB available to retain the owner's 8 GiB reserve.
+
+The redacted local receipt is
+`study-buddy-data/moodle-lab/acceptance-2026-09-10.json` (ignored runtime evidence).
+
+### Runtime fixes verified by acceptance
+
+- Moodle normalises forced boolean configuration to strings: accept only
+  `true`, `1`, or `"1"` for the dedicated lab marker, with all other guards kept.
+- Explicitly cast the PostgreSQL course ID before calling Moodle's typed cache API.
+- Keep the web port identical inside/outside Podman. Different ports trigger
+  Moodle's canonical-URL redirect loop; do not disable that protection.
+- Probe the real `/admin/user.php` endpoint, not a nonexistent settings section.
+  Moodle's HTTP 404 error page counts as denial only with the specific
+  `error/admin/accessdenied` marker; a generic 404 or section error must fail.
 
 ## Lifecycle
 
