@@ -298,7 +298,7 @@ async function analyzeCourseChapters(
       const cachePath = path.join(cacheDir, `${focus.key}.json`);
       const sharedCachePath = path.join(sharedCacheDir, `${fingerprint}.json`);
       const recovered = config.resumeExtractionRunDir && !invalidKeys.has(focus.key)
-        ? await readPersistedChapterHandoff(cachePath, config.outputLanguage)
+        ? await readChapterCache(cachePath, fingerprint)
         : null;
       const cached = invalidKeys.has(focus.key)
         ? null
@@ -2760,6 +2760,6 @@ function focusedRawSource(rawText: string, resources: Array<{ originUrl: string 
 
 async function reserveExtractionAttempt(config: MoodleRuntimeConfig, state: LangGraphAgentState, unit: string): Promise<number> {
   return reserveOperationAttempt({ runDir: config.runDir, resumeRunDir: config.resumeExtractionRunDir,
-    key: `extraction:${unit}`, binding: { request: state.request_contract, language: config.outputLanguage,
+    key: `extraction:${unit}`, binding: { originalPrompt: config.originalUserPrompt, request: state.request_contract, language: config.outputLanguage,
       source: createHash("sha256").update(state.moodle_raw_text).digest("hex") }, signal: config.abortSignal });
 }

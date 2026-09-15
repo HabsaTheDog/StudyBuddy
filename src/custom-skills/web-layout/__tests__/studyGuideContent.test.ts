@@ -290,7 +290,8 @@ describe("study-guide canonical content bank", () => {
         if (prompt.includes("BOUNDED_AUTHOR_OR_DELEGATE")) {
           const chunks = [1, 2, 3, 4].map(number => studyGuideContentSchema.parse(modelChapter(`Chapter ${number}/4`)));
           return JSON.stringify({ mode: "author", groups: [], content: { ...chunks[0],
-            topics: chunks.flatMap(chunk => chunk.topics), sources: chunks.flatMap(chunk => chunk.sources) } });
+            topics: chunks.flatMap(chunk => chunk.topics), sources: chunks.flatMap(chunk => chunk.sources),
+            scopeNote: chunks.map(chunk => chunk.scopeNote).join(" ") } });
         }
         return modelOrReviewResponse(prompt);
       } })({ ...initialWebLayoutState, source_text: languageHandoff(), request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]) });

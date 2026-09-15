@@ -61,8 +61,13 @@ the SDK. Admission remains unthrottled unless the existing concurrency setting i
 configured. Leaf results containing tool calls are rejected and their observed
 usage is retained. This is result rejection, not proof that the provider disabled
 every tool capability. The application still owns source and quiz permissions.
-The document client's inline transport fallback remains separate from the page
-and quiz clients' caller-driven retries; unifying that behavior is pending.
+All three clients use the same bounded transport fallback predicate: capacity,
+unavailable-model and rate-limit failures may dispatch once to a distinct fallback.
+Cancellation, timeout, authentication and invalid-request failures do not receive
+inline fallback. A transport fallback retains its logical call and semantic attempt;
+caller-owned validation recovery consumes the persisted operation budget where
+applicable. Explicit global model/reasoning choices take precedence over legacy
+quiz defaults; legacy profiles without those choices retain their role defaults.
 
 Standard study guides persist a deterministic layout checkpoint and use their
 existing validated content/blueprint renderer. They do not invoke `html_planning`.
@@ -70,7 +75,20 @@ Other page kinds retain that operation; saved task overrides remain valid.
 Question-item repair reserves at most three model dispatches per item and
 request/source binding, persisted before dispatch and carried across resume.
 The final permitted replacement is reviewed before the publication decision.
-This does not yet unify every pipeline's nested retry budget.
+Extraction units, assessment planning, solution generation/review, guide chapters,
+hybrid authoring and progression now also reserve durable operation attempts.
+Successful independent work survives a sibling failure. Solution verification can
+retry a malformed review without regenerating the draft; a rejected draft is
+invalidated before regeneration. Cache identity includes source/request binding
+and effective producing policies; old unbound caches are recomputed, while saved
+profiles remain compatible.
+
+Guide authoring defaults to `hybrid`: the existing `learning_content` operation can
+author a prompt-bounded batch or delegate exact chapter partitions, with one
+level of delegation and bounded parallelism. `STUDY_BUDDY_ARCHITECTURE=fixed` or
+the page CLI's `--architecture fixed` preserves fixed batching for comparison.
+The persisted run configuration includes `architectureMode`. No catalogue entry
+requires a separate AI call merely because it exists.
 
 The coordinator remains configured through the provider model selection. Native
 provider delegation and model-availability probes are not additional workflow
@@ -80,7 +98,11 @@ tasks in this catalogue.
 
 Document and page workers add `operation` and `policySource` to their existing
 `run-metrics.json` model-call entries. Interactive quiz/search workers persist the
-same identifiers and usage in `run-model-calls.jsonl`. No prompts or source
+same identifiers and usage in `run-model-calls.jsonl`. New dispatches also retain
+`logicalCallId`, `transportAttempt` and `usageAvailable`, separating physical
+transport retries from semantic attempts and unknown usage from measured zero.
+Availability probes retain observed usage and duration separately; cached probes
+are not new calls. No prompts or source
 contents are added to these metric records.
 
 Run:
@@ -106,3 +128,11 @@ do not establish model-quality or performance improvements by themselves.
 Acceptance for this development change is deterministic policy/SDK/serialization
 testing plus browser diagnostics of the profile editor. Frozen-candidate packaged
 desktop acceptance remains part of the release process.
+
+Whole-turn accounting is available through `scripts/study-buddy-run-accounting.mjs`;
+the guarded comparison uses `scripts/compare-study-buddy-architectures.mjs`.
+The desktop adapter preserves optional cumulative token counters with the native
+thread ID. Complete coordinator/delegate turn-boundary snapshots and all workflow
+run directories must be supplied explicitly; workflow-only metrics cannot prove
+whole-turn savings. See [the architecture development record](study-builder-vnext/hybrid-architecture-development.md)
+for the export contract and experiment protocol.

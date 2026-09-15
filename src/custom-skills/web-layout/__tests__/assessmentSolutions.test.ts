@@ -22,7 +22,7 @@ import { createWebLayoutRuntimeConfig } from "../config.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 
 describe("assessment visual crops", () => {
-  it("starts each independent solution and verification on attempt one", async () => {
+  it.each(["none", "malformed", "reject"])("starts independent operations on primary and recovers only the failed work (%s)", async (fault) => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "assessment-attempts-"));
     const cwd = vi.spyOn(process, "cwd").mockReturnValue(runDir);
     try {
@@ -32,8 +32,13 @@ describe("assessment visual crops", () => {
         legacyExerciseId: `assessment-source-task-${index}`,
         exercise: { ...fixture.item.exercise, id: `assessment-source-task-${index}` },
       }));
+      let injected = false;
       const run = vi.fn<CodexClient["run"]>(async (prompt, options) => {
         const legacyExerciseId = prompt.match(/"legacyExerciseId":"([^"]+)"/)![1];
+        if (options?.operation === "solution_verification" && !injected && fault !== "none") {
+          injected = true;
+          return fault === "malformed" ? "invalid JSON" : JSON.stringify({ items: [{ legacyExerciseId, approved: false, findings: ["Correct the specific unsupported comparison."] }] });
+        }
         return JSON.stringify({ items: [options?.operation === "solution_generation" ? {
           legacyExerciseId, completeness: "complete", summary: "Evidence-based comparison.",
           steps: ["Identify the documented claim.", "Compare it with the supplied passage."],
@@ -52,7 +57,9 @@ describe("assessment visual crops", () => {
       expect(result.items).toHaveLength(2);
       expect(run.mock.calls.map(([, options]) => [options?.operation, options?.attempt]).sort()).toEqual([
         ["solution_generation", 1], ["solution_generation", 1],
+        ...(fault === "reject" ? [["solution_generation", 2]] : []),
         ["solution_verification", 1], ["solution_verification", 1],
+        ...(fault !== "none" ? [["solution_verification", 2]] : []),
       ]);
     } finally {
       cwd.mockRestore();

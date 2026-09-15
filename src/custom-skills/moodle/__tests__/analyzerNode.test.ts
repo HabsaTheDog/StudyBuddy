@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ModelCallTimeoutError,
   NonRetryableCodexError,
@@ -30,7 +30,15 @@ import {
   readPendingExtractionRepairs,
 } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbort.js";
-import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
+import { moodleTestConfig as baseMoodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
+
+// Durable budgets belong to a run. Independent unit cases must not share the
+// historical fixed /tmp run directory across tests or test invocations.
+let isolatedRunDir: string;
+beforeEach(async () => { isolatedRunDir = await mkdtemp(path.join(os.tmpdir(), "analyzer-case-")); });
+afterEach(async () => { await rm(isolatedRunDir, { recursive: true, force: true }); });
+const moodleTestConfig = (overrides: Parameters<typeof baseMoodleTestConfig>[0] = {}) =>
+  baseMoodleTestConfig({ ...overrides, runDir: overrides?.runDir ?? isolatedRunDir });
 
 describe("analyzerNode", () => {
   it("keeps direct activity and preparation evidence in a bounded obligation handoff", () => {

@@ -11,8 +11,12 @@ prepare a controlled offline comparison plus human test instructions. Preserve
 all charter correctness/permission/publication gates. Do not represent mocked
 measurements as live model performance or packaged desktop acceptance.
 
-Status: implementation in progress. Baseline is `ec337b9`; unrelated dirty UI
-work remains outside these commits. User testing follows development checks.
+Status: implementation complete for human review. Baseline is `ec337b9`; bounded
+authoring and checkpoint implementation is recorded in `79ff78e`, with follow-up
+recovery, accounting and compatibility fixes in the completion commit. Native
+provider accounting depends on local UI commit `e8782f83b`. Unrelated dirty UI
+work remains outside these commits. Development checks passed; live performance
+and exact packaged acceptance remain unestablished. See [human-review.md](./human-review.md).
 
 ## Hybrid agent architecture — 2026-09-15
 
@@ -34,13 +38,14 @@ bounded validation retries, the current state contracts and publication gates.
    Only a deliberately frozen candidate proceeds to packaged Windows/Fedora
    acceptance. No release publication is authorized by this implementation.
 
-Current status: the first phase-1 development batch is implemented: shared SDK
-admission/deadlines, strict leaf-result rejection with observed usage, operation-
-aware preflight and selective compatibility fallback, corrected independent-item
-and quiz-verification attempts, dedicated repair metrics, deterministic standard-
-guide planning, and durable question-item repair budgets including final-round
-validation. Root source ESM scope is restored with `src/package.json`; the latest
-root desktop package metadata is preserved.
+Current status: all implementation phases are complete for human review. The
+existing validated source planner is retained; hybrid guide authoring plans and
+delegates within bounded evidence partitions. Shared operation checkpoints,
+policy-bound caches, localized recovery and cross-client fallback preserve the
+application's permissions, retry ceilings and publication gates. Whole-turn
+accounting and a guarded paired-comparison CLI are available; native coverage
+requires explicit complete thread snapshots. The offline comparison establishes
+call reduction on its fixture only, not live quality or speed improvement.
 
 Validation and remaining work are recorded in
 [`hybrid-architecture-development.md`](./hybrid-architecture-development.md).

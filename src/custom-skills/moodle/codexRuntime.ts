@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { Codex } from "@openai/codex-sdk";
+import { Codex, type Usage } from "@openai/codex-sdk";
 import {
   buildCodexChildEnvironment,
   buildCodexShellEnvironmentConfig,
@@ -34,6 +34,9 @@ export interface CodexModelProbe {
   status: "verified" | "cached" | "failed";
   checkedAt: string;
   error?: string;
+  durationMs?: number;
+  usage?: Usage;
+  usageAvailable?: boolean;
 }
 
 export interface CodexRuntimeReport {
@@ -108,7 +111,7 @@ interface CodexRuntimeDependencies {
     binarySource: CodexBinarySource;
     model: string;
     workingDirectory: string;
-  }) => Promise<void>;
+  }) => Promise<void | Usage>;
 }
 
 interface JavaScriptRuntime {
@@ -265,14 +268,15 @@ export async function preflightCodexRuntime(
       baseReport.modelProbes.push({ model, status: "cached", checkedAt: cached.checkedAt });
       continue;
     }
+    const probeStarted = Date.now();
     try {
-      await runCanary({ binaryPath, binarySource, model, workingDirectory: input.cacheDir });
-      baseReport.modelProbes.push({ model, status: "verified", checkedAt });
+      const usage = await runCanary({ binaryPath, binarySource, model, workingDirectory: input.cacheDir });
+      baseReport.modelProbes.push({ model, status: "verified", checkedAt, durationMs: Date.now() - probeStarted, usage: usage || undefined, usageAvailable: Boolean(usage) });
       cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failedModels.push({ model, error: message, transient: isTransientCanaryError(message) });
-      baseReport.modelProbes.push({ model, status: "failed", checkedAt, error: message });
+      baseReport.modelProbes.push({ model, status: "failed", checkedAt, error: message, durationMs: Date.now() - probeStarted, usageAvailable: false });
     }
   }
 
@@ -289,6 +293,7 @@ export async function preflightCodexRuntime(
     if (fallback && !failedModels.some((item) => item.model === fallback)) {
       const cacheKey = probeCacheKey(binaryPath, effectiveCliVersion, fallback);
       const cached = cache.probes[cacheKey];
+      const probeStarted = Date.now();
       try {
         const alreadyVerified = baseReport.modelProbes.some((probe) =>
           probe.model === fallback && (probe.status === "verified" || probe.status === "cached")
@@ -298,13 +303,13 @@ export async function preflightCodexRuntime(
         } else if (!input.bypassCache && cached?.expiresAt && cached.expiresAt > now) {
           baseReport.modelProbes.push({ model: fallback, status: "cached", checkedAt: cached.checkedAt });
         } else {
-          await runCanary({
+          const usage = await runCanary({
             binaryPath,
             binarySource,
             model: fallback,
             workingDirectory: input.cacheDir,
           });
-          baseReport.modelProbes.push({ model: fallback, status: "verified", checkedAt });
+          baseReport.modelProbes.push({ model: fallback, status: "verified", checkedAt, durationMs: Date.now() - probeStarted, usage: usage || undefined, usageAvailable: Boolean(usage) });
           cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
         }
         baseReport.fallbackApplied = fallback;
@@ -315,7 +320,7 @@ export async function preflightCodexRuntime(
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        baseReport.modelProbes.push({ model: fallback, status: "failed", checkedAt, error: message });
+        baseReport.modelProbes.push({ model: fallback, status: "failed", checkedAt, error: message, durationMs: Date.now() - probeStarted, usageAvailable: false });
       }
     }
   }
@@ -466,7 +471,7 @@ async function defaultRunCanary(input: {
   binarySource: CodexBinarySource;
   model: string;
   workingDirectory: string;
-}): Promise<void> {
+}): Promise<Usage | void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CANARY_TIMEOUT_MS);
   try {
@@ -480,6 +485,7 @@ async function defaultRunCanary(input: {
       workingDirectory: input.workingDirectory,
       skipGitRepoCheck: true,
       sandboxMode: "read-only",
+      approvalPolicy: "never", networkAccessEnabled: false, webSearchMode: "disabled",
       model: input.model,
       modelReasoningEffort: "low",
     });
@@ -499,6 +505,7 @@ async function defaultRunCanary(input: {
     if (result.finalResponse.trim() !== CANARY_RESPONSE) {
       throw new Error(`Unexpected compatibility canary response for ${input.model}.`);
     }
+    return result.usage ?? undefined;
   } finally {
     clearTimeout(timeout);
   }

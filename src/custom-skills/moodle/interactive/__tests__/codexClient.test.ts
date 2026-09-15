@@ -13,17 +13,22 @@ describe("Quiz Solver model selection", () => {
   };
 
   it("uses the Quiz Solver primary model for the first answer attempt", () => {
-    expect(resolveCodexModelSelection(config, "quiz_solver", 1)).toEqual({
+    expect(resolveCodexModelSelection({ ...config, codexModel: undefined }, "quiz_solver", 1)).toEqual({
       model: "gpt-quiz",
       reasoningEffort: "medium",
     });
   });
 
   it("uses the Quiz Solver retry model after a failed answer", () => {
-    expect(resolveCodexModelSelection(config, "quiz_solver", 2)).toEqual({
+    expect(resolveCodexModelSelection({ ...config, codexModel: undefined }, "quiz_solver", 2)).toEqual({
       model: "gpt-quiz-retry",
       reasoningEffort: "high",
     });
+  });
+
+  it("honors an explicit operator override over legacy quiz defaults on every attempt", () => {
+    for (const attempt of [1, 2]) expect(resolveCodexModelSelection({ ...config, codexReasoningEffort: "minimal" }, "quiz_solver", attempt))
+      .toEqual({ model: "gpt-global", reasoningEffort: "minimal" });
   });
 
   it("leaves non-quiz calls on the legacy model selection", () => {

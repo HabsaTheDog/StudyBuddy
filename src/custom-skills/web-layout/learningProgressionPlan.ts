@@ -204,8 +204,10 @@ export async function resolveLearningProgressionPlan(input: {
       if (!kept.length) continue;
       const keptIds = new Set(kept.map(placement => placement.itemId));
       const changed = input.questionBank.items.filter(item => !keptIds.has(item.id));
+      const partialRunDir = path.join(input.config.runDir, "progression-repair", progressionBankHash({ ...input.questionBank, items: changed }));
+      if (changed.length) await mkdir(partialRunDir, { recursive: true });
       const replacement = changed.length ? await resolveLearningProgressionPlan({
-        ...input, questionBank: { ...input.questionBank, items: changed }, fixedStages: previous.stages, incremental: false,
+        ...input, config: { ...input.config, runDir: partialRunDir }, questionBank: { ...input.questionBank, items: changed }, fixedStages: previous.stages, incremental: false,
       }) : undefined;
       if (replacement && !sameStages(replacement.stages, previous.stages)) break;
       const merged = stamp(learningProgressionPlanSchema.parse({ ...previous, bankHash,

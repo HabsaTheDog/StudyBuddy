@@ -190,6 +190,15 @@ describe("Codex runtime preflight", () => {
     expect(runProcess.mock.calls.filter(([, args]) => args[0] === "doctor")).toHaveLength(2);
   });
 
+  it("records canary duration and observed usage outside worker calls", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-probe-accounting-"));
+    const usage = { input_tokens: 12, cached_input_tokens: 2, output_tokens: 4, reasoning_output_tokens: 1 };
+    const report = await preflightCodexRuntime({ cacheDir: tempDir, models: ["observed"], explicitModel: false },
+      healthyDependencies({ runCanary: async () => usage }));
+    expect(report.modelProbes[0]).toMatchObject({ model: "observed", status: "verified", usage, usageAvailable: true });
+    expect(report.modelProbes[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
   it.each(["gpt-compatible", "gpt-healthy"])("uses configured fallback %s only for failed policy-selected models", async (fallbackModel) => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
     const runCanary = vi.fn(async ({ model }: { model: string }) => {

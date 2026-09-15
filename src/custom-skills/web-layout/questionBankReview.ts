@@ -1,3 +1,4 @@
+import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -507,7 +508,7 @@ export async function resolveQuestionBankReviews(input: {
     }
     const cached = forced.has(item.id)
       ? null
-      : await readCachedRecord(cachePath(item, context, evidence, input.config.runDir));
+      : await readCachedRecord(cachePath(item, context, evidence, input.config.runDir, operationPolicyFingerprint(input.config, "question_review")));
     if (cached && recordMatches(cached, item, context, evidence)) records.push(cached);
     else pending.push(item);
   }
@@ -561,7 +562,7 @@ export async function resolveQuestionBankReviews(input: {
       });
       records.push(record);
       await persistCachedRecord(
-        cachePath({ id: record.itemId, contentHash: record.contentHash }, context, evidence, input.config.runDir),
+        cachePath({ id: record.itemId, contentHash: record.contentHash }, context, evidence, input.config.runDir, operationPolicyFingerprint(input.config, "question_review")),
         record,
       );
     }
@@ -909,6 +910,7 @@ function cachePath(
   context: ReviewContext,
   evidence: Extract<QuestionEvidenceCapsuleResult, { status: "available" }>,
   runDir: string,
+  producerPolicy: string,
 ): string {
   const root = process.env.VITEST === "true"
     ? path.join(runDir, "question-bank-review-cache")
@@ -922,7 +924,8 @@ function cachePath(
   return path.join(
     root,
     `${sha256(JSON.stringify({
-      version: "question-bank-item-review-v3-visible-task-feedback",
+      version: "question-bank-item-review-v4-policy",
+      producerPolicy,
       itemId: item.id,
       contentHash: item.contentHash,
       evidenceHash: evidence.evidenceHash,

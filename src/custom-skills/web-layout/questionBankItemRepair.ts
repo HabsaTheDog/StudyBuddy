@@ -1,3 +1,4 @@
+import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
 import { reserveQuestionRepair } from "./questionRepairBudget.js";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
@@ -184,7 +185,8 @@ function repairCachePath(
   target: { item: QuestionBank["items"][number]; review: QuestionBankItemReviewRecord },
 ): string {
   const fingerprint = sha256(JSON.stringify({
-    version: "question-bank-item-repair-v1",
+    version: "question-bank-item-repair-v2-policy",
+    producerPolicy: operationPolicyFingerprint(input.config, "question_repair"),
     itemId: target.item.id,
     contentHash: target.item.contentHash,
     reviewRecordId: target.review.recordId,

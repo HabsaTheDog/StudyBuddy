@@ -109,6 +109,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
 
 export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
   return {
+    architectureMode: config.architectureMode,
     prompt: config.prompt,
     originalUserPrompt: config.originalUserPrompt,
     kind: config.kind,

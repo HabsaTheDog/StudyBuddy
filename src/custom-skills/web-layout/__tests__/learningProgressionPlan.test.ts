@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashRequestContract, minimalRequestContract } from "../../shared/requestContract.js";
 import { buildAdaptiveStudyModel } from "../adaptiveStudyModel.js";
 import { createWebLayoutRuntimeConfig } from "../config.js";
@@ -26,6 +26,32 @@ afterEach(async () => {
 });
 
 describe("request-bound learning progression", () => {
+  it("replans only a changed item while retaining established stages and other placements", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "progression-selective-")); temporaryDirectories.push(runDir);
+    const prompt = "Teach the documented concepts.";
+    const config = createWebLayoutRuntimeConfig({ prompt, kind: "study-guide", language: "en", runDir });
+    const questionBank = buildAdaptiveStudyModel(progressionContent(), "Frozen evidence", "en").questionBank;
+    const requestContract = minimalRequestContract(prompt, ["interactive-study-guide"]);
+    const rowCounts: number[] = [];
+    const run = vi.fn(async (message: string) => {
+      const rows = JSON.parse(/Validated items:\n(\[[\s\S]*?\])\n\nEvidence excerpt:/.exec(message)![1]!) as unknown[][];
+      rowCounts.push(rows.length);
+      return JSON.stringify({ schemaVersion: 2, stages: [{ label: "Evidence practice", description: "Use the documented concepts", intent: "application" }],
+        placements: rows.map((row, index) => ({ itemNumber: index + 1, stageNumber: 1, difficulty: "standard", evidenceReason: "Supported by the supplied objective" })) });
+    });
+    const input = { config, questionBank, sourceText: "Frozen evidence", requestContract, codex: { run } };
+    const original = await resolveLearningProgressionPlan(input);
+    const changed = structuredClone(questionBank);
+    const changedExercise = changed.items[1]!.exercise;
+    if (changedExercise.type !== "cross") throw new Error("Fixture requires a cross question.");
+    changedExercise.prompt += " Explain the source-grounded distinction.";
+    const repaired = await resolveLearningProgressionPlan({ ...input, questionBank: changed });
+    expect(rowCounts).toEqual([2, 1]);
+    expect(repaired.stages).toEqual(original.stages);
+    expect(repaired.placements.find(item => item.itemId === original.placements[0]!.itemId)).toEqual(original.placements[0]);
+    expect(compatibleProgressionPlan(repaired, changed, { originalUserPrompt: prompt, requestContract })).toBe(true);
+  });
+
   it("changes progression for different intent/evidence without using item type or list position as a rule", async () => {
     const content = progressionContent();
     const draft = buildAdaptiveStudyModel(content, "Validated course evidence.", "en");
