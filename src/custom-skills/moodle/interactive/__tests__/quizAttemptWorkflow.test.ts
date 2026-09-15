@@ -37,7 +37,7 @@ async function scenario(count: number, options: {
   const browser = {
     open: vi.fn(async (target: string) => { url = target; drafts.clear(); events.push(`open:${currentIndex()}`); return { stdout: "", stderr: "" }; }),
     getUrl: vi.fn(async () => url),
-    evalJson: vi.fn(async () => true),
+    evalJson: vi.fn(async () => "free"),
     captureQuestionEvidence: vi.fn(async (id: string) => { events.push(`capture:${id}`); return { images: [], errors: [] }; }),
   } as unknown as AgentBrowserClient;
   const deps: QuizAttemptDependencies = {
@@ -81,6 +81,19 @@ async function scenario(count: number, options: {
 function workflow(state: Partial<LangGraphAgentState>): JsonObject { return (state.extracted_data as JsonObject).quiz_workflow as JsonObject; }
 
 describe("capture-first quiz attempt orchestration", () => {
+  it("reports unknown navigation truthfully without solving, reopening or advancing an unsafe page", async () => {
+    const fixture = await scenario(4);
+    vi.mocked(fixture.browser.evalJson).mockResolvedValue("unknown");
+    const result = workflow(await fixture.run());
+    expect(result.capture_complete).toBe(false);
+    expect(result.fill_results).toEqual([expect.objectContaining({ filled: false, persisted: false,
+      reason: "non-revisitable-or-unknown-navigation: cannot safely capture and revisit multiple pages" })]);
+    expect(fixture.deps.solve).not.toHaveBeenCalled();
+    expect(fixture.deps.fill).not.toHaveBeenCalled();
+    expect(fixture.deps.next).not.toHaveBeenCalled();
+    expect(fixture.browser.open).not.toHaveBeenCalled();
+  });
+
   it("captures ten pages before any model call, runs eight independent solvers and verifies every saved answer", async () => {
     let active = 0;
     let peak = 0;

@@ -239,7 +239,12 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
   }
 
   async click(selector: string): Promise<AgentBrowserCommandResult> {
-    await (await this.#getPage()).locator(this.#selector(selector)).first().click();
+    const page = await this.#getPage();
+    await page.locator(this.#selector(selector)).first().click();
+    // A click can finish at navigation commit, before the destination has a
+    // question DOM. Do not extract that transient empty document. Background
+    // polling must not force a networkidle wait for every quiz page.
+    await page.waitForLoadState("domcontentloaded", { timeout: 45_000 });
     return EMPTY_RESULT;
   }
 

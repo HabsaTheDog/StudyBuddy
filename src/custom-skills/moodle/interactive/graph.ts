@@ -94,7 +94,7 @@ export async function runInteractiveMoodleGraph(
     quizUrls: extractQuizResultUrls(state, config),
     ...(quizUrl ? { quizUrl } : {}),
     ...(!ok || state.error_log
-      ? { error: state.error_log || workflowFailureMessage(workflowStatus) }
+      ? { error: state.error_log || workflowFailureMessage(workflowStatus, state) }
       : {}),
   };
 }
@@ -281,7 +281,7 @@ async function runQuizBatch(
     kind: "quiz_batch", done: true, missing_quiz_count: workflow.missing_quiz_count ?? 0,
     permission_request_paths: permissionPaths,
     results: results.map(({ state: childState, ...result }) => ({ ...result,
-      error: childState.error_log,
+      error: childState.error_log || (result.workflowStatus === "completed" || result.workflowStatus === "permission_required" ? null : workflowFailureMessage(result.workflowStatus, childState)),
       quiz_workflow: (childState.extracted_data as JsonObject).quiz_workflow ?? null,
     })),
   } as JsonObject;
@@ -362,7 +362,23 @@ function extractPermissionRequestPaths(config: MoodleRuntimeConfig, state: Agent
   return single ? [single] : [];
 }
 
-function workflowFailureMessage(status: MoodleWorkflowStatus): string {
+export function workflowFailureMessage(status: MoodleWorkflowStatus, state?: AgentState): string {
+  const data = state?.extracted_data as JsonObject | undefined;
+  const quiz = data?.quiz_workflow as JsonObject | undefined;
+  const batch = data?.quiz_batch as JsonObject | undefined;
+  if (quiz && status === "manual_action_required") {
+    const metrics = quiz.metrics as JsonObject | undefined;
+    const reasons = [...new Set([
+      ...(Array.isArray(quiz.issues) ? quiz.issues.filter((issue): issue is string => typeof issue === "string") : []),
+      ...(Array.isArray(quiz.fill_results) ? (quiz.fill_results as JsonObject[]).filter(result => result.persisted !== true).map(result => String(result.reason ?? "unresolved")) : []),
+    ])];
+    return `Quiz incomplete: ${metrics?.verified_answers ?? 0}/${metrics?.captured_questions ?? 0} captured answers verified after reload.${reasons.length ? ` Reasons: ${reasons.join("; ")}.` : ""} No final submission was made.`;
+  }
+  if (batch && Array.isArray(batch.results)) {
+    const failures = (batch.results as JsonObject[]).filter(result => result.workflowStatus !== "completed");
+    const details = failures.map(result => typeof result.error === "string" ? result.error : String(result.workflowStatus ?? "incomplete"));
+    if (details.length) return `Quiz batch incomplete: ${details.join(" | ")}`;
+  }
   if (status === "target_not_found") return "No matching Moodle quiz target was found.";
   if (status === "blocked") return "The Moodle workflow was blocked before completion.";
   if (status === "manual_action_required") return "The Moodle workflow requires manual action.";

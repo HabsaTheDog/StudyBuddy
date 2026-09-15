@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
-import { buildInteractiveMoodleGraph, deriveWorkflowStatus, runInteractiveMoodleGraph } from "../graph.js";
+import { buildInteractiveMoodleGraph, deriveWorkflowStatus, runInteractiveMoodleGraph, workflowFailureMessage } from "../graph.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { initialAgentState, type AgentState, type JsonObject } from "../state.js";
 
@@ -15,6 +15,22 @@ afterEach(async () => {
 });
 
 describe("interactive Moodle graph", () => {
+  it("reports verified counts and actual quiz blockers rather than implying missing user permission", () => {
+    const reason = "non-revisitable-or-unknown-navigation";
+    const state = { ...initialAgentState, extracted_data: { quiz_workflow: {
+      metrics: { verified_answers: 0, captured_questions: 4 }, issues: [reason],
+      fill_results: [{ persisted: false, reason }],
+    } } };
+    const message = workflowFailureMessage("manual_action_required", state);
+    expect(message).toContain("0/4 captured answers verified after reload");
+    expect(message.match(new RegExp(reason, "g"))).toHaveLength(1);
+    expect(message).toContain("No final submission was made");
+    expect(message).not.toContain("requires manual action");
+    expect(workflowFailureMessage("blocked", { ...initialAgentState, extracted_data: { quiz_batch: { results: [
+      { workflowStatus: "manual_action_required", error: message }, { workflowStatus: "completed" },
+    ] } } })).toContain(message);
+  });
+
   it("passes the authenticated navigation browser to the capture/solve/fill attempt workflow", async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-quiz-image-graph-"));
     const browser = { ...fakeBrowser(), captureQuestionImage: vi.fn(async () => {}) };

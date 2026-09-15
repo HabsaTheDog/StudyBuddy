@@ -154,6 +154,7 @@ const QUESTION_EXTRACTION_JS = String.raw`
     const numberMatch = visibleText.match(/(?:Frage|Question)\s+(\d+)/i);
     const questionNumber = numberMatch ? Number(numberMatch[1]) : index + 1;
     const controls = [...node.querySelectorAll("input, textarea, select")]
+      .filter(el => !el.closest(".questionflag"))
       .filter(el => !["hidden", "submit", "button"].includes((el.type || "").toLowerCase()))
       .map((el, controlIndex) => {
         const labels = [...(el.labels || [])].map(label => textOf(label).trim()).filter(Boolean);
@@ -813,6 +814,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
   };
   if (controlPlan.length) {
     const editableControls = [...question.querySelectorAll("input, textarea, select")]
+      .filter(control => !control.closest(".questionflag"))
       .filter(control => !control.disabled && !control.readOnly && !["hidden", "submit", "button"].includes((control.type || "").toLowerCase()));
     const plannedIds = new Set(controlPlan.map(spec => String(spec.control_id || "")));
     const missingIds = editableControls
@@ -891,6 +893,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
     });
   }
   const textControls = [...question.querySelectorAll("input:not([type]), input[type='text'], input[type='number'], textarea")]
+    .filter(el => !el.closest(".questionflag"))
     .filter(el => !el.disabled && !el.readOnly && el.type !== "hidden");
   if (textControls.length) {
     const filledControls = [];
@@ -905,7 +908,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
     return JSON.stringify({ filled: true, reason: "filled-text", control: { count: filledControls.length, matched: filledControls } });
   }
 
-  const choiceControls = [...question.querySelectorAll("input[type='radio'], input[type='checkbox']")].filter(el => !el.disabled);
+  const choiceControls = [...question.querySelectorAll("input[type='radio'], input[type='checkbox']")].filter(el => !el.disabled && !el.closest(".questionflag"));
   const selectedControls = new Set();
   const matchedControls = [];
   for (const expectedSpec of values) {

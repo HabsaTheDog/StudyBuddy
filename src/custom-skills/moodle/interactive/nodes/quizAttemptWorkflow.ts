@@ -33,6 +33,26 @@ interface CapturedQuestion {
 }
 interface CapturedPage { page: QuizPageExtraction; questions: CapturedQuestion[] }
 
+/** Moodle's current-page question buttons need not have hrefs. Count every button,
+ * including disabled buttons, so sequential/unknown multi-page quizzes stay guarded. */
+export async function inspectQuizNavigation(client: AgentBrowserClient, questionCount: number): Promise<"single-page" | "free" | "unknown"> {
+  return client.evalJson(`JSON.stringify((() => {
+    const here = new URL(location.href);
+    const currentPage = Number(here.searchParams.get('page') || 0);
+    const buttons = Array.from(document.querySelectorAll('.qnbutton'));
+    if (currentPage === 0 && buttons.length === ${JSON.stringify(questionCount)} && buttons.length > 0
+      && buttons.every(button => button.getAttribute('data-quiz-page') === '0')) return 'single-page';
+    const revisitable = Array.from(document.querySelectorAll('.qnbutton[href], #mod_quiz_navblock a[href]')).some(a => {
+      try { const u = new URL(a.getAttribute('href'), location.href);
+        return u.origin === here.origin && u.pathname.endsWith('/mod/quiz/attempt.php')
+          && u.searchParams.get('attempt') === here.searchParams.get('attempt')
+          && Number(u.searchParams.get('page') || 0) !== currentPage;
+      } catch { return false; }
+    });
+    return revisitable ? 'free' : 'unknown';
+  })())`);
+}
+
 /** The browser is serial; independent model threads are not. No model waits during capture. */
 export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps: QuizAttemptDependencies) {
   return async (state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> => {
@@ -56,6 +76,7 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
     let peakSolvers = 0;
     let phase = "capture";
     let contextLost = false;
+    let navigationBlocker: string | undefined;
     const safeError = (error: unknown) => redactSensitiveValues(
       error instanceof Error ? error.message : String(error),
       [config.username, config.password, config.cisPassword],
@@ -92,8 +113,7 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
       assertSameAttempt(first.url);
       assertSameAttempt(await client.getUrl());
       // A sequential exam must not be advanced with empty answers: going back may be forbidden.
-      // Standard free-navigation Moodle quizzes expose actual attempt links in their nav block.
-      const revisitable = await client.evalJson<boolean>(`JSON.stringify(Array.from(document.querySelectorAll('.qnbutton[href], #mod_quiz_navblock a[href]')).some(a => { try { const u = new URL(a.getAttribute('href'), location.href); return u.pathname.endsWith('/mod/quiz/attempt.php') && u.searchParams.get('attempt') === new URL(location.href).searchParams.get('attempt'); } catch { return false; } }))`);
+      const layout = await inspectQuizNavigation(client, first.questions.length);
       for (let index = 0; index < Math.max(1, config.maxPages); index++) {
         assertNotAborted();
         assertSameAttempt(page.url);
@@ -128,8 +148,15 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
           await writeFile(path.join(directory, "packet.json"), JSON.stringify(packet, null, 2), { mode: 0o600 });
         }
         await checkpoint();
+        // All questions are already captured. Do not save an empty page just to
+        // visit the summary; solve and fill first, then save once and reload.
+        if (layout === "single-page") { capturedAll = true; break; }
+        if (layout !== "free") {
+          navigationBlocker = "non-revisitable-or-unknown-navigation: cannot safely capture and revisit multiple pages";
+          issues.push(navigationBlocker);
+          break;
+        }
         if (navigation.status !== "allowed") { issues.push(navigation.reason); break; }
-        if (!revisitable) { issues.push("non-revisitable-or-unknown-navigation: capture-first requires free question navigation"); break; }
         assertNotAborted();
         assertSameAttempt(await client.getUrl());
         const move = await next(client);
@@ -158,7 +185,7 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
     await checkpoint();
     const solveStarted = Date.now();
     // Every question is queued together, with bounded workers to respect provider capacity.
-    if (canSolve && !contextLost) {
+    if (canSolve && !contextLost && !navigationBlocker) {
       await mapQuizConcurrent(questions, config.quizSolverConcurrency ?? 8, async (item) => {
         assertNotAborted();
         activeSolvers++;
@@ -171,7 +198,7 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
         } catch (error) { assertNotAborted(); item.error = safeError(error); }
         finally { activeSolvers--; completedSolvers++; await checkpoint(); }
       });
-    } else { issues.push(config.autoAnswer ? (suggestion.reason ?? "solver-unavailable") : "auto-answer-disabled"); }
+    } else if (!canSolve) { issues.push(config.autoAnswer ? (suggestion.reason ?? "solver-unavailable") : "auto-answer-disabled"); }
     const solveMs = Date.now() - solveStarted;
     phase = "fill_and_verify";
     await checkpoint();
@@ -183,6 +210,10 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
       const pageResults: Array<{ item: CapturedQuestion; result: Record<string, unknown> }> = [];
       try {
         assertNotAborted();
+        if (navigationBlocker) {
+          for (const item of captured.questions) results.push({ question_id: item.question.question_id, question_index: item.question.question_index, page_number: index + 1, filled: false, persisted: false, reason: navigationBlocker });
+          continue;
+        }
         await client.open(captured.page.url);
         assertSameAttempt(await client.getUrl());
         const fresh = await extract(client);
@@ -190,7 +221,7 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
           assertNotAborted();
           const current = fresh.questions.find((q) => q.question_id === item.question.question_id);
           let result: Record<string, unknown> = { filled: false, reason: item.error ?? "no-answer-spec" };
-          if (current && item.answer && canSolve && !issues.some((issue) => issue.startsWith("non-revisitable"))) {
+          if (current && item.answer && canSolve) {
             try { result = await fill(client, current, item.answer, config.quizSafetyPolicy); }
             catch (error) { assertNotAborted(); result = { filled: false, reason: safeError(error) }; }
           } else if (!current) { result.reason = "question-missing-on-revisit"; }
@@ -199,17 +230,15 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
           pageResults.push({ item, result });
         }
         const changed = pageResults.some(({ result }) => result.filled === true);
-        // Never advance a sequential/unknown quiz after the capture guard failed.
-        if (issues.some((issue) => issue.startsWith("non-revisitable"))) {
-          if (changed) issues.push("answer-persistence-unverified: navigation unavailable");
-        } else if (pageResults.some(({ result }) => result.filled === true || result.already_answered === true)) {
-          if (changed) {
+        if (pageResults.some(({ result }) => result.filled === true || result.already_answered === true)) {
+          if (changed || (capturedAll && !endUrl && navigation.status === "allowed")) {
             assertNotAborted();
             assertSameAttempt(await client.getUrl());
             if (navigation.status !== "allowed") throw new Error("save-navigation-not-permitted");
             const saved = await next(client);
             if (!saved.clicked) throw new Error("save-navigation-failed");
             assertSameAttempt(await client.getUrl());
+            if (saved.kind === "attempt_summary" && new URL(await client.getUrl()).pathname.endsWith("/summary.php")) endUrl = await client.getUrl();
           }
           assertNotAborted();
           await client.open(captured.page.url);
@@ -237,7 +266,8 @@ export function createQuizAttemptWorkflowNode(config: MoodleRuntimeConfig, deps:
     if (endUrl && !contextLost && !config.abortSignal?.aborted) await client.open(endUrl).catch((error) => issues.push(safeError(error)));
     phase = "done";
     const verified = results.filter((result) => result.persisted === true).length;
-    const stopReason = capturedAll && !contextLost && verified === questions.length && questions.length > 0
+    if (capturedAll && verified === questions.length && questions.length > 0 && !endUrl) issues.push("attempt-summary-not-reached");
+    const stopReason = capturedAll && endUrl && !contextLost && verified === questions.length && questions.length > 0
       ? "attempt-summary-reached" : "questions-unresolved";
     const finalState = update();
     const finalWorkflow = (finalState.extracted_data as JsonObject).quiz_workflow as JsonObject;
