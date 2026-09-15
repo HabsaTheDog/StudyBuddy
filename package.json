@@ -1,70 +1,80 @@
 {
-  "name": "study-buddy-t3code",
-  "desktopName": "study-buddy-t3code",
-  "version": "0.2.1-alpha",
-  "buildVersion": "0.2.1-alpha",
-  "t3codeCommitHash": "6ea54ea0399b",
+  "name": "study-buddy",
+  "version": "0.2.3-alpha",
+  "description": "Local-first, source-grounded AI study workflows for Moodle and FH Technikum Wien student systems.",
+  "license": "MIT",
   "private": true,
-  "packageManager": "pnpm@10.24.0",
-  "description": "Study Buddy desktop build",
-  "author": "Study Buddy",
-  "main": "apps/desktop/dist-electron/main.cjs",
+  "type": "module",
+  "files": [
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "PRIVACY.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "homepage": "https://github.com/HabsaTheDog/StudyBuddy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HabsaTheDog/StudyBuddy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HabsaTheDog/StudyBuddy/issues"
+  },
+  "keywords": [
+    "education",
+    "moodle",
+    "study-tools",
+    "langgraph",
+    "typescript"
+  ],
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "setup:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "moodle:agent": "tsx src/custom-skills/moodle/cli.ts",
+    "moodle:doctor": "tsx src/custom-skills/moodle/doctorCli.ts",
+    "moodle:doctor:version": "tsx src/custom-skills/moodle/doctorCli.ts --version-only --json",
+    "moodle:eval": "tsx src/custom-skills/moodle/evals/cli.ts",
+    "moodle:benchmark": "tsx src/custom-skills/moodle/evals/cli.ts",
+    "moodle:watchdog": "tsx src/custom-skills/moodle/runWatchdogCli.ts",
+    "web-layout:agent": "tsx src/custom-skills/web-layout/cli.ts",
+    "web-layout:bundle": "tsx src/custom-skills/web-layout/bundleCli.ts",
+    "web-layout:benchmark": "tsx src/custom-skills/web-layout/evals/cli.ts",
+    "web-layout:rerender-study-guide": "tsx src/custom-skills/web-layout/rerenderStudyGuideCli.ts",
+    "interactive-study-guide": "tsx src/custom-skills/interactive-study-guide/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "node --test scripts/check-workflow-package.test.mjs && npm run typecheck && npm test",
+    "check:links": "node scripts/check-markdown-links.mjs",
+    "check:public-tree": "node scripts/check-public-tree.mjs",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check:sbom": "node scripts/check-sbom.mjs",
+    "check:submodule-pin": "node scripts/check-submodule-pin.mjs",
+    "check:release-contract": "node --test scripts/check-desktop-release-contract.test.mjs scripts/check-desktop-release-assets.test.mjs",
+    "audit:all": "npm audit --audit-level=high",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:submodule-pin && npm run check:release-contract && npm run audit:all"
+  },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.159",
-    "@effect/platform-bun": "4.0.0-beta.78",
-    "@effect/platform-node": "4.0.0-beta.78",
-    "@effect/platform-node-shared": "4.0.0-beta.78",
-    "@effect/sql-sqlite-bun": "4.0.0-beta.78",
-    "@opencode-ai/sdk": "^1.3.15",
-    "@pierre/diffs": "1.1.20",
-    "effect": "4.0.0-beta.78",
+    "@langchain/langgraph": "^1.4.9",
+    "@openai/codex-sdk": "0.147.0",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
     "ical.js": "^2.2.1",
-    "imapflow": "^1.7.0",
-    "mailparser": "^3.9.15",
-    "node-pty": "^1.1.0",
-    "playwright": "^1.58.2",
-    "sanitize-html": "^2.17.7",
-    "electron-updater": "^6.8.9"
+    "parse5": "^8.0.1",
+    "playwright": "^1.62.1",
+    "tsx": "^4.23.12",
+    "zod": "^4.4.3"
   },
-  "overrides": {
-    "@clerk/clerk-js>@base-org/account": "-",
-    "@clerk/clerk-js>@coinbase/wallet-sdk": "-",
-    "@clerk/clerk-js>@solana/wallet-adapter-base": "-",
-    "@clerk/clerk-js>@solana/wallet-adapter-react": "-",
-    "@clerk/clerk-js>@solana/wallet-standard": "-",
-    "@clerk/clerk-js>@wallet-standard/core": "-",
-    "@effect/atom-react": "4.0.0-beta.78",
-    "@effect/platform-bun": "4.0.0-beta.78",
-    "@effect/platform-node": "4.0.0-beta.78",
-    "@effect/platform-node-shared": "4.0.0-beta.78",
-    "@effect/sql-pg": "4.0.0-beta.78",
-    "@effect/sql-sqlite-bun": "4.0.0-beta.78",
-    "@effect/vitest": "4.0.0-beta.78",
-    "@effect/vitest>@vitest/runner": "-",
-    "@effect/vitest>vitest": "-",
-    "@effect/platform-node>undici": "8.9.0",
-    "brace-expansion@<1.1.18": "1.1.18",
-    "brace-expansion@>=2.0.0 <2.1.4": "2.1.4",
-    "brace-expansion@>=3.0.0 <5.0.9": "5.0.9",
-    "dompurify": "3.4.13",
-    "esbuild": "0.28.1",
-    "fast-uri": "3.1.5",
-    "form-data": "4.0.6",
-    "html-to-text": "10.0.1",
-    "nanoid": "3.3.18",
-    "path-to-regexp@>=4.0.0 <6.3.0": "6.3.0",
-    "postcss": "8.5.26",
-    "tar": "7.5.21",
-    "@types/node": "24.12.4",
-    "effect": "4.0.0-beta.78",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.1.24",
-    "vitest": "npm:@voidzero-dev/vite-plus-test@0.1.24",
-    "yaml": "^2.9.0"
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "postcss": "^8.5.26",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
   },
-  "pnpm": {
-    "patchedDependencies": {
-      "@pierre/diffs@1.1.20": "patches/@pierre%2Fdiffs@1.1.20.patch",
-      "effect@4.0.0-beta.78": "patches/effect@4.0.0-beta.78.patch"
-    }
+  "engines": {
+    "node": ">=22.16"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }
