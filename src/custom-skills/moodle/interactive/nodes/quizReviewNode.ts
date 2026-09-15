@@ -106,24 +106,42 @@ export interface QuizReviewNodeDependencies {
 const QUESTION_EXTRACTION_JS = String.raw`
 (() => {
   const normalize = value => (value || "").replace(/\s+/g, " ").trim();
-  const textOf = node => node ? (node.innerText || node.textContent || "") : "";
+  const textOf = node => {
+    if (!node) return "";
+    const copy = node.cloneNode(true);
+    for (const math of copy.querySelectorAll("mjx-container, math, .MathJax, .MathJax_Display")) {
+      if (!copy.contains(math)) continue;
+      const latex = math.querySelector("annotation[encoding='application/x-tex']")?.textContent;
+      const semantic = latex || math.getAttribute("aria-label") || math.getAttribute("alttext");
+      // Rendered MathJax and its assistive MathML represent the same equation.
+      if (semantic) math.replaceWith(copy.ownerDocument.createTextNode(" " + semantic + " "));
+      else math.querySelectorAll("mjx-assistive-mml, .MJX_Assistive_MathML").forEach(el => el.remove());
+    }
+    for (const script of copy.querySelectorAll("script[type^='math/tex']")) {
+      script.replaceWith(copy.ownerDocument.createTextNode(" " + script.textContent + " "));
+    }
+    copy.querySelectorAll("script, style, .MathJax_Preview").forEach(el => el.remove());
+    return copy.textContent || "";
+  };
   const htmlOf = node => node ? (node.innerHTML || "") : "";
   const mathText = node => {
     if (!node) return "";
     const bits = [];
     for (const math of node.querySelectorAll("mjx-container, math, .MathJax, .MathJax_Display, script[type^='math/tex']")) {
+      if (math.parentElement?.closest("mjx-container, math, .MathJax, .MathJax_Display")) continue;
       bits.push(
+        math.querySelector("annotation[encoding='application/x-tex']")?.textContent ||
         math.getAttribute("aria-label") ||
         math.getAttribute("data-semantic-speech") ||
         math.getAttribute("alttext") ||
-        math.textContent ||
+        textOf(math) ||
         ""
       );
     }
     for (const img of node.querySelectorAll("img[alt], img[title]")) {
       bits.push(img.getAttribute("alt") || img.getAttribute("title") || "");
     }
-    return normalize(bits.join(" "));
+    return normalize([...new Set(bits)].join(" "));
   };
   const optionLetter = text => {
     const match = normalize(text).match(/^([a-z])\s*[.)]/i);
@@ -154,6 +172,7 @@ const QUESTION_EXTRACTION_JS = String.raw`
           value: el.value || "",
           checked: Boolean(el.checked),
           disabled: Boolean(el.disabled),
+          readonly: Boolean(el.readOnly),
           option_text: optionText,
           letter: optionLetter(optionText),
           latex: optionMath,
@@ -510,8 +529,16 @@ export function buildQuestionPacket(input: {
     page_number: input.pageNumber,
     title: input.page.title,
     url: input.page.url,
-    question: input.question,
-    page_body_excerpt: input.page.body_text.slice(0, 6000),
+    question: {
+      question_id: input.question.question_id,
+      question_index: input.question.question_index,
+      question_type: input.question.question_type,
+      prompt: input.question.prompt,
+      prompt_latex: input.question.prompt_latex,
+      options: input.question.options,
+      controls: input.question.controls.map(({ raw_html: _html, ...control }) => control),
+      response_model: input.question.response_model,
+    },
     instructions: [
       "Return only the answer JSON matching the schema.",
       "Use citations from the visible Moodle question/options or known course source text in this packet.",
@@ -536,7 +563,7 @@ export async function generateAnswerSpec(
     "Write learner-facing rationale and risk explanations in the packet's output_language.",
     "Do not invent unsupported answers. If insufficiently sourced, use confidence 0.",
     "",
-    JSON.stringify(packet, null, 2),
+    JSON.stringify(packet),
   ].join("\n");
   const images = Array.isArray(packet.image_paths) ? packet.image_paths as string[] : [];
   const runOperation = async (operation: "quiz_answer" | "quiz_verification", taskPrompt: string) => {
@@ -616,8 +643,12 @@ export async function fillVisibleQuestion(
   answer: AnswerSpec,
   policy?: MoodleRuntimeConfig["quizSafetyPolicy"],
 ): Promise<Record<string, unknown>> {
+  const alreadyMatches = verifyQuestionAnswers(question, answer).verified;
   if (policy) {
-    const fillDecision = enforceQuizSafetyPolicy(policy, "fill_answers", { question, answer });
+    const fillDecision = enforceQuizSafetyPolicy(policy, "fill_answers", {
+      question: alreadyMatches ? undefined : question,
+      answer,
+    });
     if (fillDecision.status !== "allowed") {
       return {
         question_id: question.question_id,
@@ -657,6 +688,19 @@ export async function fillVisibleQuestion(
       answer,
     };
   }
+  // Do not attribute already matching server responses to this run, or trigger
+  // unnecessary change events (especially Moodle's drag/drop keyboard handler).
+  if (alreadyMatches) {
+    return {
+      question_id: question.question_id,
+      question_index: question.question_index,
+      filled: false,
+      already_answered: true,
+      changed: false,
+      reason: "answer-already-matches",
+      answer,
+    };
+  }
   const result = await client.evalJson<Record<string, unknown>>(
     question.response_model?.adapter === "drag-drop-image"
       ? buildDragDropFillJs(question, answer)
@@ -668,6 +712,47 @@ export async function fillVisibleQuestion(
     answer,
     ...result,
   };
+}
+
+/** Compare an answer plan with a fresh extraction after reopening its attempt page. */
+export function verifyQuestionAnswers(
+  question: QuizQuestion,
+  answer: AnswerSpec,
+): { verified: boolean; mismatches: string[] } {
+  const controls = question.controls.filter(control => !control.disabled && !control.readonly &&
+    !control.readOnly && !["hidden", "submit", "button"].includes(String(control.type ?? "").toLowerCase()));
+  const plan = answer.control_answers ?? [];
+  if (!controls.length || plan.length !== controls.length || new Set(plan.map(entry => entry.control_id)).size !== plan.length) {
+    return { verified: false, mismatches: ["complete-control-plan-required"] };
+  }
+  const normalize = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+  const mismatches: string[] = [];
+  const radioGroups = new Map<string, number>();
+  for (const control of controls.filter(control => control.type === "radio")) {
+    const id = String(control.control_id ?? control.id ?? "");
+    const group = String(control.name ?? question.question_id);
+    radioGroups.set(group, (radioGroups.get(group) ?? 0) + (plan.find(entry => entry.control_id === id)?.selected ? 1 : 0));
+  }
+  for (const [group, count] of radioGroups) if (count !== 1) mismatches.push(`invalid-radio-selection:${group}`);
+  for (const control of controls) {
+    const id = String(control.control_id ?? control.id ?? "");
+    const expected = plan.find(entry => entry.control_id === id);
+    if (!id || !expected) { mismatches.push(id || "control-id-missing"); continue; }
+    const type = String(control.type ?? control.tag ?? "").toLowerCase();
+    let matches = false;
+    if (["radio", "checkbox"].includes(type)) {
+      matches = (control.checked === true) === expected.selected;
+    } else if (type.startsWith("select") || control.tag === "select") {
+      const options = Array.isArray(control.options) ? control.options as Array<Record<string, unknown>> : [];
+      const option = options.find(option => normalize(option.value) === normalize(expected.answer) ||
+        normalize(option.text).toLowerCase() === normalize(expected.answer).toLowerCase());
+      matches = Boolean(option && !option.disabled && String(control.value ?? "") === String(option.value ?? ""));
+    } else if (["text", "number", "textarea", "dragdrop"].includes(type)) {
+      matches = String(control.value ?? "") === expected.answer;
+    }
+    if (!matches) mismatches.push(id);
+  }
+  return { verified: mismatches.length === 0, mismatches };
 }
 
 function validateAnswerSpec(answer: AnswerSpec, confidenceThreshold: number): string | null {
@@ -968,6 +1053,9 @@ export function markPageFillPersistence(
   persisted: boolean,
 ): Array<Record<string, unknown>> {
   return results.map((result) => {
+    if (result.already_answered === true) {
+      return { ...result, filled: false, changed: false, persisted };
+    }
     if (result.filled !== true) return result;
     if (persisted) {
       return { ...result, dom_filled: true, persisted: true };
@@ -1172,7 +1260,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function clickSafeStartOrContinue(
   client: AgentBrowserClient,
   options: { continueOnly?: boolean } = {},
-): Promise<{ clicked: boolean; text?: string; ref?: string; reason?: string }> {
+): Promise<{ clicked: boolean; started?: boolean; text?: string; ref?: string; reason?: string }> {
   const snapshot = await client.snapshot({ interactive: true, compact: true });
   const startLine = snapshot.snapshot
     .split("\n")
@@ -1196,7 +1284,30 @@ export async function clickSafeStartOrContinue(
     return { clicked: false, reason: "blocked-final-submit-like-control", text: startLine.name };
   }
   await client.click(browserRefSelector(startLine.ref));
-  return { clicked: true, text: startLine.name, ref: startLine.ref };
+  await client.wait(250);
+  let page = await extractQuizPage(client);
+  if (page.questions.length) return { clicked: true, started: true, text: startLine.name, ref: startLine.ref };
+  // A timed quiz's first button opens a confirmation dialog. The caller has
+  // already checked its attempt policy; this is the second stage of that action.
+  if (!options.continueOnly && !/^(?:versuch beginnen|start attempt)$/i.test(startLine.name.trim())) {
+    const confirmation = await client.snapshot({ interactive: true, compact: true });
+    const entry = Object.entries(confirmation.refs).find(([, details]) =>
+      /^(?:button|link)$/i.test(details.role ?? "") &&
+      /^(?:versuch beginnen|start attempt)$/i.test((details.name ?? "").trim()) &&
+      !isFinalSubmitClickLabel(details.name ?? ""));
+    if (entry) {
+      await client.click(browserRefSelector(entry[0]));
+      await client.wait(250);
+      page = await extractQuizPage(client);
+    }
+  }
+  return {
+    clicked: true,
+    started: page.questions.length > 0,
+    text: startLine.name,
+    ref: startLine.ref,
+    ...(page.questions.length ? {} : { reason: "attempt-start-not-confirmed" }),
+  };
 }
 
 export async function openSafePreviousAttemptReview(
@@ -1283,7 +1394,7 @@ function scoreQuizCandidate(prompt: string, title: string, url: string, index: n
   return score;
 }
 
-function selectQuizCandidate(prompt: string, candidates: QuizCandidate[]): QuizCandidate | null {
+export function selectQuizCandidate(prompt: string, candidates: QuizCandidate[]): QuizCandidate | null {
   const intent = parseQuizTargetIntent(prompt);
   let matching = candidates.filter((candidate) => {
     const units = extractUnitNumbers(candidate.title);

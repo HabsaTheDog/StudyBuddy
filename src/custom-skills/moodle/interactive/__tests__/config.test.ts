@@ -61,6 +61,23 @@ describe("moodle config env loading", () => {
 });
 
 describe("moodle output paths", () => {
+  it("selects only the exact target from multiple quiz grants", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "moodle-workspace-"));
+    process.env.STUDY_BUDDY_WORKSPACE = tempDir;
+    const grants = [1, 2].map(id => ({ requestId: String(id), requestPath: `/tmp/grant-${id}.json`,
+      targetUrl: `https://moodle.example/mod/quiz/view.php?id=${id}`, action: "execute_quiz_attempt" as const,
+      scope: "exact_quiz_attempt" as const, approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }));
+    const config = createRuntimeConfig({ prompt: "Bearbeite Quiz", moodleUrl: grants[1]!.targetUrl, approvedQuizPermissions: grants });
+    createdRunDir = config.runDir;
+    expect(config.approvedQuizPermission).toEqual(grants[1]);
+    expect(config.quizSafetyPolicy?.askBeforeStartingOrContinuingAttempts).toBe(false);
+    const sibling = createRuntimeConfig({ prompt: "Bearbeite Quiz", runDir: config.runDir,
+      moodleUrl: "https://moodle.example/mod/quiz/view.php?id=3", approvedQuizPermissions: grants,
+      quizSafetyPolicy: { askBeforeStartingOrContinuingAttempts: true } });
+    expect(sibling.approvedQuizPermission).toBeUndefined();
+    expect(sibling.quizSafetyPolicy?.askBeforeStartingOrContinuingAttempts).toBe(true);
+    expect(config.quizSolverConcurrency).toBe(8);
+  });
   it("forces credential-bearing runs through Playwright instead of CLI arguments", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "moodle-workspace-"));
     process.env.STUDY_BUDDY_WORKSPACE = tempDir;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { isAssignmentSubmissionPrompt } from "./interactive/quizIntent.js";
+import { isAssignmentSubmissionPrompt, isQuizPrompt } from "./interactive/quizIntent.js";
 import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import { runMoodleGraph } from "./graph.js";
@@ -40,6 +40,7 @@ const program = new Command()
   .option("--diagnostic-only", "Only test login, page access, source discovery, and diagnostics")
   .option("--source-evidence-only", "Return native source observations for the coordinating agent; never mutate quiz attempts")
   .option("--auto-answer", "Accepted for quiz compatibility; final quiz submission is never allowed")
+  .option("--quiz-solver-concurrency <number>", "Maximum parallel quiz question solvers (1..16)", parseNumber)
   .option("--max-runtime-ms <number>", "Hard maximum runtime in milliseconds", parseNumber)
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--stage <stage>", "Pipeline stage: all, extract, or render", parseStage, "all")
@@ -67,7 +68,9 @@ const program = new Command()
   .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
   .option(
     "--approve-quiz-request <path>",
-    "Resume the exact quiz described by a native Study Buddy permission request",
+    "Resume an exact quiz permission request; repeat to approve multiple quizzes",
+    collect,
+    [],
   )
   .option("--assignment-file <path>", "File to upload; repeat for multiple files", collect, [])
   .option(
@@ -96,6 +99,7 @@ const options = program.opts<{
   diagnosticOnly?: boolean;
   sourceEvidenceOnly?: boolean;
   autoAnswer?: boolean;
+  quizSolverConcurrency?: number;
   maxRuntimeMs?: number;
   idleTimeoutMs?: number;
   downloads: boolean;
@@ -124,7 +128,7 @@ const options = program.opts<{
   codexPreflight?: "full" | "version-only" | "off";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   profileOverridesJson?: import("./modelPolicy.js").StudyBuddyModelPolicyOverrides;
-  approveQuizRequest?: string;
+  approveQuizRequest: string[];
   assignmentFile: string[];
   approveAssignmentRequest?: string;
 }>();
@@ -143,11 +147,11 @@ const visualMode =
       ? "deferred"
       : undefined;
 
-if (options.sourceEvidenceOnly && (options.autoAnswer || options.approveQuizRequest || options.approveAssignmentRequest || options.assignmentFile.length)) {
+if (options.sourceEvidenceOnly && (options.autoAnswer || options.approveQuizRequest.length || options.approveAssignmentRequest || options.assignmentFile.length)) {
   throw new Error("Source evidence mode cannot execute quizzes or assignments.");
 }
 const interactiveRequest = !options.sourceEvidenceOnly && (
-  options.approveQuizRequest ||
+  options.approveQuizRequest.length ||
   options.approveAssignmentRequest ||
   (options.autoAnswer && isQuizExecutionPrompt(intentPrompt)) ||
   isAssignmentExecutionPrompt(intentPrompt));
@@ -171,6 +175,7 @@ if (interactiveRequest) {
     browserBackend: options.browserBackend,
     browserHeaded: options.browserHeaded,
     autoAnswer: options.autoAnswer,
+    quizSolverConcurrency: options.quizSolverConcurrency,
     downloads: options.downloads,
     codexModel: options.codexModel,
     executionProfile: options.executionProfile,
@@ -366,7 +371,7 @@ function collectFormat(
 }
 
 function isQuizExecutionPrompt(value: string): boolean {
-  return /\b(?:quiz|test|minitest|kurztest|testblock|selbstcheck|selfcheck)\b/i.test(value);
+  return isQuizPrompt(value);
 }
 
 function isAssignmentExecutionPrompt(value: string): boolean {
@@ -385,23 +390,25 @@ async function runNativeQuizWorkflow(input: {
   browserBackend?: "playwright" | "agent-browser";
   browserHeaded?: boolean;
   autoAnswer?: boolean;
+  quizSolverConcurrency?: number;
   downloads: boolean;
   codexModel?: string;
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   profileOverrides?: import("./modelPolicy.js").StudyBuddyModelPolicyOverrides;
-  approveQuizRequest?: string;
+  approveQuizRequest: string[];
   assignmentFiles: string[];
   approveAssignmentRequest?: string;
   json?: boolean;
 }): Promise<void> {
-  const approvedQuizPermission = input.approveQuizRequest
-    ? await loadApprovedQuizPermission(input.approveQuizRequest)
-    : undefined;
+  const approvedQuizPermissions = await Promise.all(
+    [...new Set(input.approveQuizRequest)].map(requestPath => loadApprovedQuizPermission(requestPath)),
+  );
+  const approvedQuizPermission = approvedQuizPermissions.length === 1 ? approvedQuizPermissions[0] : undefined;
   const approvedAssignmentPermission = input.approveAssignmentRequest
     ? await loadApprovedAssignmentPermission(input.approveAssignmentRequest)
     : undefined;
-  if (approvedQuizPermission && approvedAssignmentPermission) {
+  if (approvedQuizPermissions.length && approvedAssignmentPermission) {
     throw new Error("Quiz and assignment approvals cannot be combined.");
   }
   const primaryQuizSolver = resolveTaskModelPolicy({
@@ -433,6 +440,7 @@ async function runNativeQuizWorkflow(input: {
     browserBackend: input.browserBackend,
     browserHeaded: input.browserHeaded,
     autoAnswer: input.autoAnswer,
+    quizSolverConcurrency: input.quizSolverConcurrency,
     allowFileDownloads: input.downloads,
     codexModel: input.codexModel,
     executionProfile: input.executionProfile,
@@ -443,6 +451,7 @@ async function runNativeQuizWorkflow(input: {
     quizSolverRetryModel: retryQuizSolver.model,
     quizSolverRetryReasoningEffort: retryQuizSolver.reasoningEffort,
     approvedQuizPermission,
+    approvedQuizPermissions,
     assignmentFiles:
       approvedAssignmentPermission?.files.map((file) => file.path) ?? input.assignmentFiles,
     approvedAssignmentPermission,
@@ -452,12 +461,12 @@ async function runNativeQuizWorkflow(input: {
   } else {
     console.log(`Run directory: ${result.runDir}`);
     console.log(`Workflow status: ${result.workflowStatus}`);
-    if (result.permissionRequestPath) {
-      console.log(`Permission request: ${result.permissionRequestPath}`);
+    for (const requestPath of result.permissionRequestPaths ?? (result.permissionRequestPath ? [result.permissionRequestPath] : [])) {
+      console.log(`Permission request: ${requestPath}`);
     }
     if (!result.ok) console.error(result.error || "Moodle interaction failed.");
-    if (result.quizUrl) {
-      console.log(`\n[Quiz in Moodle öffnen](${result.quizUrl})`);
+    for (const quizUrl of result.quizUrls ?? (result.quizUrl ? [result.quizUrl] : [])) {
+      console.log(`\n[Quiz in Moodle öffnen](${quizUrl})`);
     }
   }
   if (!result.ok) process.exitCode = 1;

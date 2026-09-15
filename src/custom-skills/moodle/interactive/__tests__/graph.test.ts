@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
 import { buildInteractiveMoodleGraph, deriveWorkflowStatus, runInteractiveMoodleGraph } from "../graph.js";
 import type { MoodleRuntimeConfig } from "../types.js";
-import { initialAgentState } from "../state.js";
+import { initialAgentState, type AgentState, type JsonObject } from "../state.js";
 
 let workspace: string | null = null;
 
@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe("interactive Moodle graph", () => {
-  it("captures solver images from the same authenticated browser used for quiz navigation", async () => {
+  it("passes the authenticated navigation browser to the capture/solve/fill attempt workflow", async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-quiz-image-graph-"));
     const browser = { ...fakeBrowser(), captureQuestionImage: vi.fn(async () => {}) };
     const codex = { run: vi.fn(async () => JSON.stringify({ confidence: 0, risk_flags: [] })) };
@@ -23,14 +23,18 @@ describe("interactive Moodle graph", () => {
       done: false, page_number: 1, fill_results: [], page: { title: "Diagram", url: "https://moodle.example/mod/quiz/attempt.php?attempt=1", body_text: "Diagram", questions: [
         { question_id: "question-42-1", question_index: 1, question_type: "ddimageortext", prompt: "Place labels", controls: [], options: [], visible_context: "Diagram", response_model: {adapter:"drag-drop-image",support:"supported"} },
       ] } };
+    const attemptFactory = vi.fn((_config, dependencies) => async (state: AgentState) => {
+      expect(dependencies.agentBrowser).toBe(browser);
+      expect(dependencies.codex).toBe(codex);
+      return { ...state, extracted_data: { quiz_workflow: { ...workflow, done: true } } };
+    });
     await buildInteractiveMoodleGraph({ prompt:"Bearbeite Quiz",originalUserPrompt:"Bearbeite Quiz",runDir:workspace,autoAnswer:true,quizSafetyPolicy:{allowSuggestingAnswers:true} } as MoodleRuntimeConfig, {
       browser, codex,
       quizTargetNode: async () => ({ extracted_data: { quiz_workflow: workflow } }),
       quizPageNode: async () => ({}),
-      quizFillNode: async () => ({ extracted_data: { quiz_workflow: { ...workflow, done:true } } }),
+      quizAttemptFactory: attemptFactory,
     }).invoke(initialAgentState);
-    expect(browser.captureQuestionImage).toHaveBeenCalledWith("question-42-1",expect.stringContaining("question.png"));
-    expect(codex.run).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({imagePaths:[expect.stringContaining("question.png")]}));
+    expect(attemptFactory).toHaveBeenCalledOnce();
   });
   it("routes quiz actions through the canonical root graph", async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-interactive-"));
@@ -137,6 +141,107 @@ describe("interactive Moodle graph", () => {
         },
       }),
     ).toBe("target_not_found");
+  });
+
+  it("runs two quiz attempts concurrently in isolated browsers without sharing an exact grant", async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-quiz-batch-"));
+    const targets = [1, 2].map(id => `https://moodle.example/mod/quiz/view.php?id=${id}`);
+    const configs: MoodleRuntimeConfig[] = [];
+    const browsers: AgentBrowserClient[] = [];
+    let entered = 0;
+    let release!: () => void;
+    const bothEntered = new Promise<void>(resolve => { release = resolve; });
+    const result = await runInteractiveMoodleGraph({
+      prompt: `Bearbeite beide Quizzes ${targets.join(" und ")}`, moodleUrl: targets[0],
+      runDir: workspace,
+      quizSafetyPolicy: { askBeforeStartingOrContinuingAttempts: true, allowFillingAnswers: false },
+      approvedQuizPermission: { requestId: "one-only", requestPath: path.join(workspace, "grant.json"),
+        targetUrl: targets[0], action: "execute_quiz_attempt", scope: "exact_quiz_attempt",
+        approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    }, {
+      browser: fakeBrowser(), codex: { run: async () => "{}" },
+      quizTargetNode: async () => ({ extracted_data: { quiz_workflow: {
+        target_url: targets[0], target_urls: targets, done: false, missing_quiz_count: 0,
+      } } }),
+      quizBrowserFactory: config => { configs.push(config); const browser = { ...fakeBrowser(), close: vi.fn(async () => ({ stdout: "", stderr: "" })) }; browsers.push(browser); return browser; },
+      quizPageNode: async () => ({}),
+      quizAttemptFactory: config => async state => {
+        entered += 1;
+        if (entered === 2) release();
+        await bothEntered;
+        return { ...state, extracted_data: { quiz_workflow: { target_url: config.moodleUrl, done: true, stop_reason: "attempt-summary-reached",
+          fill_results: [{ filled: true, persisted: true }], final_submit_clicked: false } },
+          source_coverage: { ...state.source_coverage, moodle: { status: "success", detail: "Fixture pages", urls: [config.moodleUrl], pages: 2 } },
+          final_document: "Saved fixture answers" };
+      },
+    });
+    expect(result.workflowStatus).toBe("completed");
+    expect(entered).toBe(2);
+    expect(browsers[0]).not.toBe(browsers[1]);
+    expect(configs[0].runDir).not.toBe(configs[1].runDir);
+    expect(configs[0].browserSession).not.toBe(configs[1].browserSession);
+    expect(configs[0].browserSessionName).not.toBe(configs[1].browserSessionName);
+    expect(configs[0].approvedQuizPermission?.targetUrl).toBe(targets[0]);
+    expect(configs[1].approvedQuizPermission).toBeUndefined();
+    expect(configs[1].quizSafetyPolicy?.askBeforeStartingOrContinuingAttempts).toBe(true);
+    for (const browser of browsers) expect(browser.close).toHaveBeenCalledOnce();
+    expect(result.state.extracted_data).toMatchObject({ quiz_batch: { results: [
+      { targetUrl: targets[0], workflowStatus: "completed" }, { targetUrl: targets[1], workflowStatus: "completed" },
+    ] } });
+    expect(JSON.parse(await readFile(path.join(workspace, "interaction-progress.json"), "utf8"))).toMatchObject({ savedAnswers: 2 });
+  });
+
+  it("keeps an unfulfilled second quiz visible instead of declaring completion", () => {
+    expect(deriveWorkflowStatus({ ...initialAgentState, extracted_data: { quiz_workflow: {
+      target_url: "https://moodle.example/mod/quiz/view.php?id=1", done: true, missing_quiz_count: 1,
+    } } })).toBe("blocked");
+  });
+
+  it("returns both permission cards with existing child artifact paths", async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-quiz-permissions-"));
+    const targets = [1, 2].map(id => `https://moodle.example/mod/quiz/view.php?id=${id}`);
+    const result = await runInteractiveMoodleGraph({ prompt: "Bearbeite beide Quizzes", moodleUrl: "https://moodle.example/my/", runDir: workspace }, {
+      browser: fakeBrowser(), codex: { run: async () => "{}" }, quizBrowserFactory: () => fakeBrowser(),
+      quizTargetNode: async () => ({ extracted_data: { quiz_workflow: { target_url: targets[0], target_urls: targets, done: false } } }),
+      quizPageNode: async state => {
+        const quiz = (state.extracted_data as JsonObject).quiz_workflow as JsonObject;
+        const index = targets.indexOf(String(quiz.target_url));
+        await writeFile(path.join(workspace!, "quizzes", `quiz-${index + 1}`, "quiz-permission-request.json"), "{}");
+        return { extracted_data: { quiz_workflow: { ...quiz, done: true, pending_permission: { requestId: `request-${index + 1}` } } } };
+      },
+    });
+    expect(result.workflowStatus).toBe("permission_required");
+    expect(result.permissionRequestPaths).toHaveLength(2);
+    for (const file of result.permissionRequestPaths!) expect(await readFile(file, "utf8")).toBe("{}");
+    expect(JSON.parse(await readFile(path.join(workspace, "interaction-result.json"), "utf8"))).toMatchObject({ requiredArtifacts: [
+      "quiz-review.typ", "quiz-review.json", "quizzes/quiz-1/quiz-permission-request.json", "quizzes/quiz-2/quiz-permission-request.json",
+    ] });
+  });
+
+  it.each(["attempt", "browser", "configuration"])("retains a completed sibling when another quiz fails during %s", async failurePoint => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), "study-buddy-quiz-partial-"));
+    const targets = [1, 2].map(id => `https://moodle.example/mod/quiz/view.php?id=${id}`);
+    if (failurePoint === "configuration") {
+      await mkdir(path.join(workspace, "quizzes"));
+      await writeFile(path.join(workspace, "quizzes", "quiz-2"), "fixture blocking directory creation");
+    }
+    const result = await runInteractiveMoodleGraph({ prompt: "Bearbeite beide Quizzes", moodleUrl: "https://moodle.example/my/", runDir: workspace }, {
+      browser: fakeBrowser(), codex: { run: async () => "{}" }, quizBrowserFactory: config => {
+        if (failurePoint === "browser" && config.moodleUrl === targets[1]) throw new Error("Fixture browser disconnected");
+        return fakeBrowser();
+      },
+      quizTargetNode: async () => ({ extracted_data: { quiz_workflow: { target_url: targets[0], target_urls: targets, done: false } } }),
+      quizPageNode: async () => ({}),
+      quizAttemptFactory: config => async () => {
+        if (failurePoint === "attempt" && config.moodleUrl === targets[1]) throw new Error("Fixture browser disconnected");
+        return { extracted_data: { quiz_workflow: { target_url: targets[0], done: true, stop_reason: "attempt-summary-reached", fill_results: [{ filled: true, persisted: true }] } } };
+      },
+    });
+    expect(result.workflowStatus).toBe("failed");
+    expect(result.state.extracted_data).toMatchObject({ quiz_batch: { results: [
+      { workflowStatus: "completed", quiz_workflow: { fill_results: [{ persisted: true }] } },
+      { workflowStatus: "failed", error: expect.any(String) },
+    ] } });
   });
 
   it("redacts credential-like prompt and URL values in persisted configuration", async () => {

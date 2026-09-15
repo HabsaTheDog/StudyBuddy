@@ -1153,11 +1153,20 @@ if (hasWorkflowSummary) {
     ? ["assignment-report.md", "assignment-report.json"]
     : ["quiz-review.typ", "quiz-review.json"];
   if (interaction.workflowStatus === "permission_required") {
-    expectedArtifacts.push(
-      contract === "interactive_assignment"
-        ? "assignment-permission-request.json"
-        : "quiz-permission-request.json",
-    );
+    const permissionPaths = contract === "interactive_assignment"
+      ? ["assignment-permission-request.json"]
+      : interaction.permissionRequestPaths ?? ["quiz-permission-request.json"];
+    const permissionName = contract === "interactive_assignment"
+      ? "assignment-permission-request.json" : "quiz-permission-request.json";
+    if (!Array.isArray(permissionPaths) || permissionPaths.length === 0 ||
+        new Set(permissionPaths).size !== permissionPaths.length || permissionPaths.some(name =>
+          typeof name !== "string" || path.isAbsolute(name) || path.win32.isAbsolute(name) ||
+          path.normalize(name) !== name || name.split(/[\\/]/).some(part => !part || part === "." || part === "..") ||
+          path.basename(name) !== permissionName || !isContainedRegularControl(name))) {
+      contradiction = "Interaction permission paths must name distinct contained permission request files";
+    } else {
+      expectedArtifacts.push(...permissionPaths);
+    }
   }
   if (interaction.schemaVersion !== 1) {
     contradiction = `Unsupported interaction result schema (${interaction.schemaVersion || "unknown"})`;
@@ -1568,7 +1577,26 @@ case "$action" in
     ;;
   quiz-url)
     [[ $# -ge 1 ]] || { usage; exit 2; }
+    for quiz_arg in "$@"; do
+      if [[ "$quiz_arg" == "--help" || "$quiz_arg" == "-h" || "$quiz_arg" == "help" ]]; then
+        usage
+        exit 0
+      fi
+    done
     url="$1"
+    if ! node --input-type=module - "$url" <<'NODE'
+try {
+  const url = new URL(process.argv[2]);
+  const key = /\/mod\/quiz\/view\.php$/.test(url.pathname) ? "id"
+    : /\/mod\/quiz\/attempt\.php$/.test(url.pathname) ? "attempt" : null;
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password ||
+      !key || !/^[1-9]\d*$/.test(url.searchParams.get(key) || "")) process.exit(2);
+} catch { process.exit(2); }
+NODE
+    then
+      echo "quiz-url requires a Moodle quiz view.php?id=… or attempt.php?attempt=… URL." >&2
+      exit 2
+    fi
     shift
     run_agent "bearbeite das Moodle Quiz $url" --max-pages 24 --auto-answer --no-cis "$@"
     ;;

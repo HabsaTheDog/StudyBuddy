@@ -17,6 +17,7 @@ import {
   sanitizeModelVisibleUrl,
 } from "./browserSecurity.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { captureQuizQuestionEvidence, type QuizQuestionEvidence } from "./quizMedia.js";
 
 const EMPTY_RESULT: AgentBrowserCommandResult = { stdout: "", stderr: "" };
 
@@ -74,6 +75,11 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     const page = await this.#getPage();
     const question = page.locator(`[id="${questionId}"]`);
     await question.screenshot({ path: targetPath, animations: "disabled" });
+  }
+
+  async captureQuestionEvidence(questionId: string, directory: string): Promise<QuizQuestionEvidence> {
+    this.#authenticationGate.assertReadable("question evidence");
+    return captureQuizQuestionEvidence(await this.#getPage(), questionId, directory, this.#sensitiveValues());
   }
 
   async doctor(): Promise<AgentBrowserCommandResult> {

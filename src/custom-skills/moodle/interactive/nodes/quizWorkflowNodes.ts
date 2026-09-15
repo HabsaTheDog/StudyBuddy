@@ -5,7 +5,8 @@ import type { AgentBrowserClient } from "../agentBrowserClient.js";
 import { createBrowserClient } from "../browserClient.js";
 import { createBrowserLoginConfig, ensureAgentBrowserLoggedIn } from "../browserAuth.js";
 import type { CodexClient } from "../codexClient.js";
-import { extractQuizUrl, promptWantsQuizAttempt } from "../quizIntent.js";
+import { extractQuizUrls, promptWantsQuizAttempt } from "../quizIntent.js";
+import { requestedQuizCount, resolveQuizTargets } from "../quizTargets.js";
 import {
   enforceQuizSafetyPolicy,
   extractQuizMetadata,
@@ -16,27 +17,20 @@ import type { JsonObject, LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import {
   buildPendingQuizPermissionRequest,
+  assertApprovedQuizTarget,
   claimApprovedQuizPermission,
   persistPendingQuizPermission,
 } from "../quizPermissions.js";
 import {
   appendQuizLinkToReport,
-  buildQuestionPacket,
   buildQuizReviewReport,
-  clickSafeNextPage,
   clickSafeStartOrContinue,
   detectQuizRisks,
-  discoverQuizTarget,
   extractQuizPage,
-  fillVisibleQuestion,
   formatQuizRawText,
-  generateAnswerSpec,
-  markPageFillPersistence,
   persistQuizArtifacts,
   policyDecisionResult,
-  type AnswerSpec,
   type QuizPageExtraction,
-  type QuizQuestion,
 } from "./quizReviewNode.js";
 
 interface QuizWorkflowState {
@@ -48,7 +42,6 @@ interface QuizWorkflowState {
   stop_reason?: string | undefined;
   page?: QuizPageExtraction | undefined;
   metadata?: QuizMetadata | undefined;
-  answers?: AnswerSpec[] | undefined;
   fill_results: Array<Record<string, unknown>>;
   risks: string[];
   start_result?: Record<string, unknown> | undefined;
@@ -80,10 +73,20 @@ export function createQuizTargetNode(
         allowedOrigins: config.moodleLoginAllowedOrigins,
       }),
     );
-    const targetUrl = extractQuizUrl(config.prompt) ?? (await discoverQuizTarget(config, client, dependencies.codex));
-    const workflow: QuizWorkflowState = {
+    const targetUrls = await resolveQuizTargets(config, client, dependencies.codex);
+    const targetUrl = targetUrls[0] ?? null;
+    const requestedCount = extractQuizUrls(config.prompt).length || requestedQuizCount(config.prompt);
+    const missingCount = requestedCount === null ? null : Math.max(0, requestedCount - targetUrls.length);
+    const workflow: QuizWorkflowState & {
+      target_urls: string[];
+      requested_quiz_count: number | null;
+      missing_quiz_count: number | null;
+    } = {
       kind: "quiz_workflow",
       target_url: targetUrl,
+      target_urls: targetUrls,
+      requested_quiz_count: requestedCount,
+      missing_quiz_count: missingCount,
       page_number: 1,
       started: false,
       done: !targetUrl,
@@ -151,7 +154,6 @@ export function createQuizPageNode(
         return await stopQuizWorkflowForPolicy(config, state, workflow, openDecision);
       }
       await client.open(workflow.target_url);
-      await client.wait(2_500);
       metadata = await extractQuizMetadata(client);
       const openedPage: QuizPageExtraction = {
         title: await client.getTitle(),
@@ -188,6 +190,12 @@ export function createQuizPageNode(
 
     const beforeStart = await extractQuizPage(client);
     let permissionClaimed = workflow.permission_claimed === true;
+    if (config.approvedQuizPermission && !permissionClaimed && beforeStart.questions.length > 0 &&
+        promptWantsQuizAttempt(config.prompt)) {
+      assertApprovedQuizTarget(config.approvedQuizPermission, workflow.target_url);
+      await claimApprovedQuizPermission(config.approvedQuizPermission);
+      permissionClaimed = true;
+    }
     let startResult = workflow.start_result ?? {
       clicked: false,
       reason: "already-started-or-not-requested",
@@ -215,34 +223,39 @@ export function createQuizPageNode(
         );
       }
       if (config.approvedQuizPermission && !permissionClaimed) {
+        assertApprovedQuizTarget(config.approvedQuizPermission, workflow.target_url);
         await claimApprovedQuizPermission(config.approvedQuizPermission);
         permissionClaimed = true;
       }
       startResult = await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt });
-      if (startResult.clicked) {
-        await client.wait(1_500);
-        if (metadata.hasActiveAttempt) {
-          // A resumed Moodle attempt opens its last visited page. A request to
-          // work on the quiz must review the full attempt, including saved pages.
-          const attemptUrl = new URL(await client.getUrl());
-          if (/\/mod\/quiz\/attempt\.php$/.test(attemptUrl.pathname) && attemptUrl.searchParams.has("attempt")) {
-            attemptUrl.searchParams.set("page", "0");
-            await client.open(attemptUrl.toString());
-            await client.wait(750);
-          }
-        }
+    }
+    // Both direct attempt links and Moodle's resume control can open a later
+    // page. Rewind only when a real question-navigation anchor permits it.
+    if (workflow.page_number === 1 && promptWantsQuizAttempt(config.prompt) && metadata?.hasActiveAttempt &&
+        (beforeStart.questions.length > 0 || startResult.started)) {
+      const attemptUrl = new URL(await client.getUrl());
+      if (/\/mod\/quiz\/attempt\.php$/.test(attemptUrl.pathname) && Number(attemptUrl.searchParams.get("page") ?? 0) > 0) {
+        const firstPageUrl = await client.evalJson<string | null>(`(() => {
+          const marker = "QUIZ_FIRST_PAGE_URL"; void marker;
+          const current = new URL(location.href);
+          const first = Array.from(document.querySelectorAll('.qnbutton[href], #mod_quiz_navblock a[href]')).map(a => {
+            try { return new URL(a.getAttribute('href'), location.href); } catch { return null; }
+          }).find(url => url && url.origin === current.origin && url.pathname === current.pathname &&
+            url.searchParams.get('attempt') === current.searchParams.get('attempt') && Number(url.searchParams.get('page') ?? 0) === 0);
+          return JSON.stringify(first?.toString() ?? null);
+        })()`);
+        if (typeof firstPageUrl === "string") await client.open(firstPageUrl);
       }
     }
     const page = await extractQuizPage(client);
     const risks = [...new Set([...workflow.risks, ...detectQuizRisks(page.body_text)])];
     const nextWorkflow: QuizWorkflowState = {
       ...workflow,
-      started: workflow.started || Boolean(startResult.clicked) || page.questions.length > 0,
+      started: workflow.started || Boolean(startResult.started) || page.questions.length > 0,
       start_result: startResult,
       permission_claimed: permissionClaimed,
       page,
       metadata,
-      answers: [],
       risks,
       done: page.questions.length === 0,
       stop_reason: page.questions.length === 0 ? "no-visible-questions" : workflow.stop_reason,
@@ -291,239 +304,6 @@ export function createQuizPageNode(
   };
 }
 
-export function createQuizSolverNode(
-  config: MoodleRuntimeConfig,
-  dependencies: QuizWorkflowNodeDependencies = {},
-) {
-  return async function quizSolverNode(
-    state: LangGraphAgentState,
-  ): Promise<Partial<LangGraphAgentState>> {
-    const workflow = getWorkflow(state);
-    if (workflow.done || !workflow.page?.questions.length) {
-      return {};
-    }
-    if (!config.autoAnswer || !dependencies.codex) {
-      return {
-        extracted_data: putWorkflow(state, {
-          ...workflow,
-          answers: [],
-          fill_results: [
-            ...workflow.fill_results,
-            {
-              page_number: workflow.page_number,
-              action: "solver",
-              filled: false,
-              reason: config.autoAnswer ? "codex-client-unavailable" : "auto-answer-disabled",
-            },
-          ],
-        }),
-      };
-    }
-    const pageDir = path.join(
-      config.runDir,
-      "subagent-packets",
-      `page-${String(workflow.page_number).padStart(3, "0")}`,
-    );
-    await mkdir(pageDir, { recursive: true });
-    const answers: AnswerSpec[] = [];
-    for (const question of workflow.page.questions) {
-      const suggestionDecision = enforceQuizSafetyPolicy(
-        config.quizSafetyPolicy,
-        "suggest_answers",
-      );
-      if (suggestionDecision.status !== "allowed") {
-        return await stopQuizWorkflowForPolicy(
-          config,
-          state,
-          {
-            ...workflow,
-            fill_results: [
-              ...workflow.fill_results,
-              {
-                ...policyDecisionResult(suggestionDecision, workflow.page_number),
-                question_id: question.question_id,
-                question_index: question.question_index,
-              },
-            ],
-          },
-          suggestionDecision,
-          workflow.metadata,
-        );
-      }
-      const packet: Record<string, unknown> = {
-        ...buildQuestionPacket({
-          page: workflow.page,
-          question,
-          pageNumber: workflow.page_number,
-        }),
-        output_language: config.outputLanguage,
-      };
-      const questionDir = path.join(
-        pageDir,
-        `question-${String(question.question_index).padStart(3, "0")}`,
-      );
-      await mkdir(questionDir, { recursive: true });
-      const client = dependencies.agentBrowser ?? createBrowserClient(config);
-      if (question.response_model?.adapter === "drag-drop-image" && client.captureQuestionImage) {
-        const imagePath = path.join(questionDir, "question.png");
-        await client.captureQuestionImage(question.question_id, imagePath);
-        packet.image_paths = [imagePath];
-      }
-      await writeFile(
-        path.join(questionDir, "packet.json"),
-        `${JSON.stringify(packet, null, 2)}\n`,
-        "utf8",
-      );
-      const answer = await generateAnswerSpec(dependencies.codex, packet);
-      answers.push(answer);
-      await writeFile(
-        path.join(questionDir, "answer-spec.json"),
-        `${JSON.stringify(answer, null, 2)}\n`,
-        "utf8",
-      );
-    }
-    return {
-      extracted_data: putWorkflow(state, { ...workflow, answers }),
-      error_log: null,
-    };
-  };
-}
-
-export function createQuizFillNode(
-  config: MoodleRuntimeConfig,
-  dependencies: QuizWorkflowNodeDependencies = {},
-) {
-  return async function quizFillNode(
-    state: LangGraphAgentState,
-  ): Promise<Partial<LangGraphAgentState>> {
-    const workflow = getWorkflow(state);
-    if (workflow.done || !workflow.page || !workflow.target_url) {
-      return {};
-    }
-    const client = dependencies.agentBrowser ?? createBrowserClient(config);
-    const pageResults: Array<Record<string, unknown>> = [];
-    const answers = workflow.answers ?? [];
-    for (const question of workflow.page.questions) {
-      const answer = matchAnswer(question, answers);
-      if (!answer) {
-        pageResults.push({
-          page_number: workflow.page_number,
-          question_id: question.question_id,
-          question_index: question.question_index,
-          filled: false,
-          reason: "no-answer-spec",
-        });
-        continue;
-      }
-      pageResults.push({
-        page_number: workflow.page_number,
-        ...(await fillVisibleQuestion(client, question, answer, config.quizSafetyPolicy)),
-      });
-      const lastResult = pageResults[pageResults.length - 1];
-      if (lastResult?.action === "policy" && lastResult.status !== "allowed") {
-        const decision = resultToPolicyDecision(lastResult);
-        return await stopQuizWorkflowForPolicy(
-          config,
-          state,
-          {
-            ...workflow,
-            fill_results: [...workflow.fill_results, ...pageResults],
-          },
-          decision,
-          workflow.metadata,
-        );
-      }
-    }
-
-    const nextDecision = enforceQuizSafetyPolicy(config.quizSafetyPolicy, "save_or_next_page");
-    if (nextDecision.status !== "allowed") {
-      return await stopQuizWorkflowForPolicy(
-        config,
-        state,
-        {
-          ...workflow,
-          fill_results: [...workflow.fill_results, ...markPageFillPersistence(pageResults, false)],
-        },
-        nextDecision,
-        workflow.metadata,
-      );
-    }
-    const navigation = await clickSafeNextPage(client);
-    const persistedPageResults = markPageFillPersistence(pageResults, navigation.clicked);
-    const allResults = [...workflow.fill_results, ...persistedPageResults];
-    allResults.push({ page_number: workflow.page_number, action: "navigation", ...navigation });
-
-    const reachedPageLimit = workflow.page_number >= Math.max(1, config.maxPages);
-    const reachedAttemptSummary = navigation.kind === "attempt_summary";
-    const hasUnpersistedAnswers = persistedPageResults.some(
-      (result) => result.reason === "answer-not-persisted",
-    );
-    const done = !navigation.clicked || reachedPageLimit || reachedAttemptSummary;
-    const nextWorkflow: QuizWorkflowState = {
-      ...workflow,
-      fill_results: allResults,
-      page_number:
-        navigation.clicked && !reachedAttemptSummary
-          ? workflow.page_number + 1
-          : workflow.page_number,
-      done,
-      stop_reason: reachedAttemptSummary
-        ? "attempt-summary-reached"
-        : reachedPageLimit
-          ? "max-pages-reached"
-          : hasUnpersistedAnswers
-            ? "answers-not-persisted"
-            : navigation.clicked
-              ? undefined
-              : String(navigation.reason ?? "no-safe-next-page"),
-    };
-
-    if (!done) {
-      await client.wait(2_500);
-      return {
-        extracted_data: putWorkflow(state, nextWorkflow),
-        error_log: null,
-      };
-    }
-
-    const currentPage = workflow.page;
-    const finalPage = await extractQuizPage(client).catch(() => currentPage);
-    const report = buildQuizReviewReport({
-      page: finalPage,
-      target: workflow.target_url,
-      startResult: workflow.start_result ?? {},
-      metadata: workflow.metadata,
-      risks: workflow.risks,
-      fillResults: allResults,
-    });
-    await persistQuizArtifacts(config, {
-      report,
-      questions: finalPage.questions,
-      candidates: [],
-      targetUrl: finalPage.url || workflow.target_url,
-      finalSubmitClicked: false,
-      metadata: workflow.metadata,
-      risks: workflow.risks,
-      fillResults: allResults,
-      ...(workflow.start_result ? { startResult: workflow.start_result } : {}),
-    });
-    return {
-      final_document: report,
-      moodle_raw_text: formatQuizRawText(finalPage),
-      extracted_data: putWorkflow(state, nextWorkflow),
-      source_coverage: {
-        ...state.source_coverage,
-        moodle: {
-          status: "success",
-          detail: `Completed safe quiz fill workflow across ${workflow.page_number} page(s).`,
-          urls: [finalPage.url || workflow.target_url],
-          pages: workflow.page_number,
-        },
-      },
-      error_log: null,
-    };
-  };
-}
 
 export function isQuizWorkflowDone(state: LangGraphAgentState): boolean {
   return getWorkflow(state).done;
@@ -555,14 +335,6 @@ function putWorkflow(state: LangGraphAgentState, workflow: QuizWorkflowState): J
   const base =
     state.extracted_data && !Array.isArray(state.extracted_data) ? state.extracted_data : {};
   return JSON.parse(JSON.stringify({ ...base, quiz_workflow: workflow })) as JsonObject;
-}
-
-function matchAnswer(question: QuizQuestion, answers: AnswerSpec[]): AnswerSpec | null {
-  return (
-    answers.find((answer) => answer.question_id && answer.question_id === question.question_id) ??
-    answers.find((answer) => Number(answer.question_index) === Number(question.question_index)) ??
-    null
-  );
 }
 
 async function stopQuizWorkflowForPolicy(
@@ -646,14 +418,5 @@ async function stopQuizWorkflowForPolicy(
       },
     },
     error_log: null,
-  };
-}
-
-function resultToPolicyDecision(result: Record<string, unknown>): QuizPolicyDecision {
-  return {
-    status: result.status === "permission_required" ? "permission_required" : "blocked",
-    action: String(result.policy_action ?? "fill_answers") as QuizPolicyDecision["action"],
-    reason: String(result.reason ?? "quiz-policy-blocked"),
-    neededPermission: String(result.needed_permission ?? "quiz_policy_permission"),
   };
 }

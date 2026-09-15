@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   extractAssignmentUrl,
   extractQuizUrl,
+  extractQuizUrls,
+  normalizeQuizUrl,
+  promptWantsQuizAttempt,
   isAssignmentSubmissionPrompt,
   isQuizPrompt,
 } from "../quizIntent.js";
@@ -33,6 +36,31 @@ describe("quizIntent", () => {
     expect(extractQuizUrl("mach https://moodle.technikum-wien.at/mod/quiz/view.php?id=123.")).toBe(
       "https://moodle.technikum-wien.at/mod/quiz/view.php?id=123",
     );
+  });
+
+  it("shares execution recognition and does not start discovery requests", () => {
+    expect(isQuizPrompt("Bitte beide Mini-Tests erledigen")).toBe(true);
+    expect(promptWantsQuizAttempt("Bitte beide Mini-Tests erledigen")).toBe(true);
+    expect(promptWantsQuizAttempt("Find all open quizzes")).toBe(false);
+    expect(promptWantsQuizAttempt("Welche Tests muss ich machen?")).toBe(false);
+  });
+
+  it("finds every explicit quiz after unrelated links and deduplicates navigation parameters", () => {
+    expect(extractQuizUrls("Bearbeite https://example.org/info und (https://moodle.example/mod/quiz/view.php?id=1&lang=de), https://moodle.example/mod/quiz/view.php?id=2. https://moodle.example/mod/quiz/view.php?id=1")).toEqual([
+      "https://moodle.example/mod/quiz/view.php?id=1",
+      "https://moodle.example/mod/quiz/view.php?id=2",
+    ]);
+  });
+
+  it.each([
+    "https://moodle.example/mod/quiz/startattempt.php?id=1",
+    "https://moodle.example/mod/quiz/processattempt.php?attempt=1",
+    "https://moodle.example/mod/quiz/view.php",
+    "https://moodle.example/mod/quiz/view.php?id=0",
+    "https://user:secret@moodle.example/mod/quiz/view.php?id=1",
+    "--help",
+  ])("rejects invalid or action URLs: %s", url => {
+    expect(normalizeQuizUrl(url)).toBeNull();
   });
 
   it("routes assignment submission separately from quizzes", () => {

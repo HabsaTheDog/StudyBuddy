@@ -45,6 +45,32 @@ describe("Study Buddy task intent", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "Kannst du die zwei Mini-Tests in Rechnungswesen bitte erledigen?",
+    "Kannst du meinen Mini-Test machen?",
+    "Ich habe in Rechnungswesen zwei Mini-Tests, die bis nächste Woche offen sind und beide zum aktuellen Stoff gehören. Kannst du sie bitte beide erledigen?",
+    "I have two quizzes in accounting. Can you complete both?",
+    "Kannst du den Mini‑Test ausfüllen?",
+  ])("routes quiz execution without a distance cutoff: %s", prompt => {
+    expect(isExplicitQuizExecutionIntent(prompt)).toBe(true);
+    expect(classifyStudyBuddyIntent({ prompt, stage: "all", diagnosticOnly: false,
+      autoAnswer: false, includeCis: true, hasCisUrls: true })).toMatchObject({
+      intent: "quiz_assist", needsCis: false,
+    });
+  });
+
+  it.each([
+    "Welche Mini-Tests muss ich nächste Woche erledigen?",
+    "Was muss ich für die Tests machen?",
+    "Which quizzes do I have to complete this week?",
+    "Show me the quizzes I need to complete this week.",
+    "List quizzes to complete.",
+    "Welche Quizzes sollte ich machen?",
+    "Bitte den Test nicht starten, nur anschauen.",
+  ])("does not turn obligation discovery or read-only requests into execution: %s", prompt => {
+    expect(isExplicitQuizExecutionIntent(prompt)).toBe(false);
+  });
+
   it("classifies the MEL next-exam prompt as a schedule answer", () => {
     const intent = classifyStudyBuddyIntent({
       prompt: melPrompt,

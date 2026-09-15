@@ -97,7 +97,8 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
       disabled: Boolean(element.disabled) || element.getAttribute("aria-disabled") === "true"
     }))
     .filter(control => !control.disabled);
-  const hasContinueControl = controlDetails.some(control =>
+  const hasContinueControl = (/\/mod\/quiz\/attempt\.php$/.test(location.pathname) &&
+    new URL(location.href).searchParams.has("attempt") && Boolean(document.querySelector(".que, [id^='question-']"))) || controlDetails.some(control =>
     /versuch fortsetzen|continue attempt|attempt in progress/i.test(control.text) ||
     /\/mod\/quiz\/attempt\.php[^\s]*[?&]attempt=/i.test(control.href)
   );
@@ -336,7 +337,10 @@ function enforceAttemptPolicy(
   if (
     metadata?.appearsTimed &&
     metadata.effectiveTimeLimitMinutes !== null &&
-    metadata.effectiveTimeLimitMinutes < policy.minimumTimeLimitMinutes
+    metadata.effectiveTimeLimitMinutes < policy.minimumTimeLimitMinutes &&
+    !(metadata.hasActiveAttempt && !policy.askBeforeStartingOrContinuingAttempts &&
+      !policy.askBeforeTimedQuizzes &&
+      (!metadata.appearsLimitedAttempt || !policy.askBeforeLimitedAttemptQuizzes))
   ) {
     return blocked(action, "timed-quiz-below-minimum-time-limit", "allow_lower_time_limit");
   }

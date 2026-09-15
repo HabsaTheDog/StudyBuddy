@@ -172,14 +172,10 @@ function explicitQuizIntent(prompt: string): boolean {
   if (isQuizDiscoveryIntent(prompt)) {
     return true;
   }
-  if (
-    /\b(?:wann|wo|termin|uhrzeit|raum|schedule|date|time)\b/i.test(prompt) &&
-    !/\b(?:bearbeite|mach|starte|fülle|fuelle|ausfüllen|ausfuellen|solve|fill|answer)\b/i.test(prompt)
-  ) {
-    return false;
-  }
   return isExplicitQuizExecutionIntent(prompt);
 }
+
+export const QUIZ_NOUN = /\b(?:quiz(?:zes)?|tests?|mini[ -]?tests?|kurz[ -]?tests?|moodle[ -]?tests?|testblocks?|multiple choice|self[ -]?(?:checks?|quiz(?:zes)?)|selbst[ -]?(?:tests?|checks?|kontrollen?))\b/i;
 
 export function isExplicitQuizExecutionIntent(prompt: string): boolean {
   if (
@@ -188,19 +184,27 @@ export function isExplicitQuizExecutionIntent(prompt: string): boolean {
   ) {
     return false;
   }
-  const quizNoun = /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|multiple choice|self[ -]?checks?|selbsttests?)\b/i;
-  const executionAction = /\b(?:bearbeit\w*|mach(?:e)?|start\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|solve\w*|fill\w*|answer\w*|complete\w*|hilf\w*|help\w*)\b/i;
-  const nounMatch = quizNoun.exec(prompt);
-  if (!nounMatch) return false;
-  const actionMatch = executionAction.exec(prompt);
-  if (!actionMatch) return false;
-  return Math.abs(actionMatch.index - nounMatch.index) <= 64;
+  const normalized = prompt.replace(/[‐‑–—]/g, "-");
+  if (!QUIZ_NOUN.test(normalized)) return false;
+  const executionAction = /\b(?:bearbeit\w*|mach(?:e|en)?|erledig\w*|start\w*|füll\w*|fuell\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|solve\w*|fill\w*|answer\w*|complete\w*|hilf\w*|help\w*|do)\b/i;
+  let quizMentioned = false;
+  // Keep the noun's context across sentences, e.g. "I have two quizzes in
+  // accounting. Can you complete both?" A character-distance cutoff loses it.
+  for (const sentence of normalized.replace(/https?:\/\/\S+/gi, " quiz ").split(/[.!?;\n]+/)) {
+    const hasQuiz = QUIZ_NOUN.test(sentence);
+    const refersToQuiz = hasQuiz || (quizMentioned && /\b(?:sie|die|diese|beide|alle|das|them|both|these|those|it)\b/i.test(sentence));
+    quizMentioned ||= hasQuiz;
+    if (!refersToQuiz || !executionAction.test(sentence)) continue;
+    if (/\b(?:was|welche\w*|wann|what|which|when|show|list|zeige\w*|liste\w*)\b.*\b(?:muss|müssen|muessen|soll\w*|should|must|need to|have to|to complete|zu erledigen)\b/i.test(sentence)) continue;
+    if (/\b(?:nicht|keine?|never|do not|don.t)\s+(?:(?:die|den|das|these|the)\s+)?(?:quiz\w*|test\w*)?\s*(?:bearbeit\w*|mach\w*|erledig\w*|start\w*|ausfüll\w*|ausfuell\w*|lös\w*|loes\w*|solve\w*|fill\w*|answer\w*|complete\w*)\b/i.test(sentence)) continue;
+    return true;
+  }
+  return false;
 }
 
-function isQuizDiscoveryIntent(prompt: string): boolean {
-  const quizNoun = /\b(?:quiz(?:zes)?|tests?|minitests?|kurztests?|moodle-tests?|testblocks?|self[ -]?checks?|selbsttests?|selbstkontrollen?)\b/i;
+export function isQuizDiscoveryIntent(prompt: string): boolean {
   const discoveryAction = /\b(?:find|list|scan|look through|show|search|discover|available|attemptable|still open|currently open|offen|verfügbar|verfuegbar|durchsuch|auflist|anzeig|finde|suche)\w*\b/i;
-  return quizNoun.test(prompt) && discoveryAction.test(prompt);
+  return QUIZ_NOUN.test(prompt) && discoveryAction.test(prompt);
 }
 
 function decision(

@@ -12,10 +12,15 @@ import type { CodexClient } from "../codexClient.js";
 import {
   clickSafeNextPage,
   clickSafeStartOrContinue,
+  buildQuestionPacket,
+  fillVisibleQuestion,
+  markPageFillPersistence,
+  verifyQuestionAnswers,
   createQuizReviewNode,
   discoverQuizTarget,
   generateAnswerSpec,
 } from "../nodes/quizReviewNode.js";
+import type { QuizQuestion, AnswerSpec } from "../nodes/quizReviewNode.js";
 import { createQuizPageNode, createQuizTargetNode } from "../nodes/quizWorkflowNodes.js";
 import {
   buildPendingQuizPermissionRequest,
@@ -37,6 +42,64 @@ afterEach(async () => {
 });
 
 describe("quizReviewNode", () => {
+  it("keeps solver packets compact while preserving semantic controls and geometry", () => {
+    const question: QuizQuestion = {
+      question_id: "q1", question_index: 1, question_type: "multianswer", prompt: "Find x", prompt_latex: "x^2=4",
+      prompt_html: "<mjx-container>" + "rendered glyph data".repeat(1000) + "</mjx-container>",
+      visible_context: "navigation and duplicate equations", options: ["A", "B"],
+      controls: [{ control_id: "c1", type: "dragdrop", raw_html: "<svg>massive paths</svg>",
+        bounds: { x: 3, y: 2, width: 4, height: 5 }, options: [{ value: "a", text: "A", reusable: false }] }],
+    };
+    const packet = buildQuestionPacket({ page: { title: "Quiz", url: "https://moodle.example/quiz", body_text: "ALL OTHER QUESTIONS".repeat(1000), questions: [question] }, question, pageNumber: 1 });
+    expect(JSON.stringify(packet)).not.toMatch(/rendered glyph|massive paths|ALL OTHER QUESTIONS|navigation and duplicate/);
+    expect(packet.question).toMatchObject({ prompt: "Find x", prompt_latex: "x^2=4", controls: [{ control_id: "c1", bounds: { x: 3 }, options: [{ value: "a" }] }] });
+    expect(question.controls[0]).toHaveProperty("raw_html");
+  });
+
+  it("compares every freshly loaded control and rejects lost saves or incomplete plans", () => {
+    const question: QuizQuestion = { question_id: "q", question_index: 1, question_type: "multianswer", prompt: "", options: [], visible_context: "",
+      controls: [{ control_id: "a", type: "checkbox", checked: true }, { control_id: "b", type: "checkbox", checked: false },
+        { control_id: "s", type: "select-one", value: "v", options: [{ value: "v", text: "Volt" }] },
+        { control_id: "t", type: "text", value: "4" }, { control_id: "d", type: "dragdrop", value: "2" }] };
+    const answer: AnswerSpec = { confidence: 0.99, citations: ["question"], control_answers: [
+      { control_id: "a", answer: "A", selected: true }, { control_id: "b", answer: "B", selected: false },
+      { control_id: "s", answer: "Volt", selected: false }, { control_id: "t", answer: "4", selected: false },
+      { control_id: "d", answer: "2", selected: false }] };
+    expect(verifyQuestionAnswers(question, answer)).toEqual({ verified: true, mismatches: [] });
+    const reloaded = structuredClone(question);
+    reloaded.controls[0].checked = false;
+    reloaded.controls[3].value = "";
+    expect(verifyQuestionAnswers(reloaded, answer)).toEqual({ verified: false, mismatches: ["a", "t"] });
+    expect(verifyQuestionAnswers(question, { ...answer, control_answers: answer.control_answers!.slice(0, 1) }).verified).toBe(false);
+  });
+
+  it("reports matching previous answers without taking credit for new fills", async () => {
+    const client = new FakeQuizBrowserClient();
+    const question: QuizQuestion = { question_id: "q", question_index: 1, question_type: "shortanswer", prompt: "2+2?", options: [], visible_context: "",
+      controls: [{ control_id: "t", type: "text", value: "4" }] };
+    const answer = { confidence: 0.99, citations: ["question"], control_answers: [{ control_id: "t", answer: "4", selected: false }] };
+    const result = await fillVisibleQuestion(client, question, answer);
+    expect(result).toMatchObject({ filled: false, already_answered: true, changed: false });
+    expect(markPageFillPersistence([result], true)[0]).toMatchObject({ filled: false, already_answered: true, persisted: true });
+  });
+
+  it("confirms a timed start dialog and requires actual questions before reporting started", async () => {
+    const client = new FakeQuizBrowserClient();
+    let stage = 0;
+    client.snapshot = async (): Promise<AgentBrowserSnapshot> => ({ origin: "https://moodle.example", refs: stage === 0
+      ? { start: { role: "button", name: "Test versuchen" } }
+      : { begin: { role: "button", name: "Versuch beginnen" }, submit: { role: "button", name: "Submit all and finish" } },
+      snapshot: stage === 0 ? 'button "Test versuchen" [ref=start]' : 'button "Versuch beginnen" [ref=begin]\nbutton "Submit all and finish" [ref=submit]' });
+    client.click = async selector => { client.calls.push(`click:${selector}`); stage++; return ok(); };
+    client.evalJson = async <T>() => ({ title: "Quiz", url: "https://moodle.example/mod/quiz/view.php?id=123", body_text: "", questions: stage >= 2
+      ? [{ question_id: "q", question_index: 1, question_type: "shortanswer", prompt: "2+2", options: [], controls: [], visible_context: "" }] : [] }) as T;
+    expect(await clickSafeStartOrContinue(client)).toMatchObject({ clicked: true, started: true });
+    expect(client.calls.filter(call => call.startsWith("click:"))).toEqual(["click:@start", "click:@begin"]);
+    stage = 0;
+    client.evalJson = async <T>() => ({ title: "Quiz", url: "https://moodle.example/mod/quiz/view.php?id=123", body_text: "", questions: [] }) as T;
+    expect(await clickSafeStartOrContinue(client)).toMatchObject({ clicked: true, started: false, reason: "attempt-start-not-confirmed" });
+    expect(client.calls).not.toContain("click:@submit");
+  });
   it("starts visual verification on its primary and retries only verification", async () => {
     const calls: Array<{ operation?: string; attempt?: number }> = [];
     const codex: CodexClient = { async run(_prompt, options) {
@@ -77,6 +140,20 @@ describe("quizReviewNode", () => {
     } });
     expect(await clickSafeStartOrContinue(noResume, {continueOnly:true})).toMatchObject({clicked:false});
     expect(noResume.calls.some(c=>c.startsWith('click:'))).toBe(false);
+  });
+
+  it.each([true, false])("rewinds an already visible later page only with a real first-page anchor (present: %s)", async revisitable => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-direct-later-page-"));
+    const client = new FakeQuizBrowserClient({ metadataSequence: [{ ...openQuizMetadata(), hasActiveAttempt: true }] });
+    await client.click("@resume");
+    client.calls.length = 0;
+    client.getUrl = async () => "https://moodle.example/mod/quiz/attempt.php?attempt=5&cmid=123&page=3";
+    const originalEval = client.evalJson.bind(client);
+    client.evalJson = async <T>(script?: string) => script?.includes("QUIZ_FIRST_PAGE_URL") && !revisitable
+      ? null as T : originalEval<T>(script);
+    await createQuizPageNode(testConfig(runDir, allowQuizWorkPolicy()), { agentBrowser: client })(quizWorkflowState());
+    expect(client.calls.includes("open:https://moodle.example/mod/quiz/attempt.php?attempt=5&cmid=123&page=0")).toBe(revisitable);
+    expect(client.calls.some(call => call.startsWith("click:"))).toBe(false);
   });
   it("never starts a direct quiz when its date is unconfirmed even under the full work policy", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-date-stop-"));
@@ -534,6 +611,32 @@ describe("quizReviewNode", () => {
     ).rejects.toThrow(/Invalid Moodle quiz page extraction/);
     await expect(claimApprovedQuizPermission(grant)).resolves.toBeUndefined();
   });
+
+  it("claims an exact quiz approval when questions were already open before the run", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-already-open-"));
+    const request = buildPendingQuizPermissionRequest({ targetUrl: "https://moodle.example/mod/quiz/view.php?id=123",
+      decision: { status: "permission_required", action: "start_or_continue_attempt", reason: "quiz-attempt-needs-confirmation", neededPermission: "confirm_quiz_attempt" } });
+    const requestPath = await persistPendingQuizPermission({ runDir } as MoodleRuntimeConfig, request);
+    const grant = await loadApprovedQuizPermission(requestPath);
+    const client = new FakeQuizBrowserClient({ metadataSequence: [{ ...openQuizMetadata(), hasActiveAttempt: true }] });
+    await client.click("@resume");
+    client.calls.length = 0;
+    const result = await createQuizPageNode({ ...testConfig(runDir, allowQuizWorkPolicy()), approvedQuizPermission: grant }, { agentBrowser: client })(quizWorkflowState());
+    expect((result.extracted_data as Record<string, unknown>)?.quiz_workflow).toMatchObject({ started: true, permission_claimed: true });
+    expect(client.calls.some(call => call.startsWith("click:"))).toBe(false);
+    expect(JSON.parse(await readFile(`${requestPath}.consumed`, "utf8"))).toMatchObject({ requestId: grant.requestId });
+  });
+
+  it("does not mark a clicked but unsuccessful start dialog as a started workflow", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-dialog-stalled-"));
+    const client = new FakeQuizBrowserClient();
+    const originalEval = client.evalJson.bind(client);
+    client.evalJson = async <T>(script?: string) => script?.includes("QUIZ_METADATA_EXTRACTION")
+      ? originalEval<T>(script)
+      : { title: "Quiz", url: "https://moodle.example/mod/quiz/view.php?id=123", body_text: "Start attempt", questions: [] } as T;
+    const result = await createQuizPageNode(testConfig(runDir, allowQuizWorkPolicy()), { agentBrowser: client })(quizWorkflowState());
+    expect((result.extracted_data as Record<string, unknown>)?.quiz_workflow).toMatchObject({ started: false, start_result: { clicked: true, started: false } });
+  });
 });
 
 class FakeQuizBrowserClient implements AgentBrowserClient {
@@ -588,6 +691,11 @@ class FakeQuizBrowserClient implements AgentBrowserClient {
   }
 
   async evalJson<T = unknown>(script?: string): Promise<T> {
+    if (script?.includes("QUIZ_FIRST_PAGE_URL")) {
+      const url = new URL(await this.getUrl());
+      url.searchParams.set("page", "0");
+      return url.toString() as T;
+    }
     if (script?.includes("QUIZ_METADATA_EXTRACTION")) {
       const sequence = this.options.metadataSequence ?? [openQuizMetadata()];
       const selected = sequence[Math.min(this.metadataReadCount, sequence.length - 1)];

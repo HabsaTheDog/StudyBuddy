@@ -70,8 +70,12 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     environment.CIS_PASSWORD || environment.MOODLE_PASSWORD
       ? "playwright"
       : requestedCisBrowserBackend;
-  if (input.approvedQuizPermission) {
-    assertApprovedQuizTarget(input.approvedQuizPermission, input.moodleUrl);
+  const approvedQuizPermission = input.approvedQuizPermission ?? input.approvedQuizPermissions?.find((permission) => {
+    try { assertApprovedQuizTarget(permission, input.moodleUrl); return true; }
+    catch { return false; }
+  });
+  if (approvedQuizPermission) {
+    assertApprovedQuizTarget(approvedQuizPermission, input.moodleUrl);
   }
   if (input.approvedAssignmentPermission) {
     assertApprovedAssignmentTarget(input.approvedAssignmentPermission, input.moodleUrl);
@@ -80,7 +84,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     }
   }
   const quizSafetyPolicy = createQuizSafetyPolicy(
-    input.approvedQuizPermission
+    approvedQuizPermission
       ? {
           ...input.quizSafetyPolicy,
           allowStartingOrContinuingAttempts: true,
@@ -153,8 +157,9 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       parsePositiveInteger(environment.MOODLE_BROWSER_MAX_OUTPUT, DEFAULT_BROWSER_MAX_OUTPUT),
     keepBrowserOpen: input.keepBrowserOpen ?? environment.MOODLE_BROWSER_KEEP_OPEN === "true",
     autoAnswer: input.autoAnswer ?? quizSafetyPolicy.allowFillingAnswers,
+    quizSolverConcurrency: Math.max(1, Math.min(32, Math.floor(input.quizSolverConcurrency ?? 8))),
     quizSafetyPolicy,
-    approvedQuizPermission: input.approvedQuizPermission,
+    approvedQuizPermission,
     assignmentFiles: (input.assignmentFiles ?? []).map((file) =>
       resolveStudyBuddyWorkspacePath(file, workspaceRoot),
     ),

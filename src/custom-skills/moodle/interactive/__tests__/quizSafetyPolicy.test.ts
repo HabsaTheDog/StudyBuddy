@@ -213,6 +213,18 @@ describe("quizSafetyPolicy", () => {
     expect(decision.reason).toBe("timed-quiz-below-minimum-time-limit");
   });
 
+  it("continues an already approved active attempt near its deadline", () => {
+    const approved = policy({ allowStartingOrContinuingAttempts: true, askBeforeStartingOrContinuingAttempts: false,
+      askBeforeTimedQuizzes: false, askBeforeLimitedAttemptQuizzes: false });
+    const active = metadata({ hasActiveAttempt: true, availabilityStatus: "open", timeLimitMinutes: 5, appearsTimed: true });
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: active }).status).toBe("allowed");
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: { ...active, hasActiveAttempt: false } }))
+      .toMatchObject({ status: "blocked", reason: "timed-quiz-below-minimum-time-limit" });
+    expect(enforceQuizSafetyPolicy({ ...approved, askBeforeTimedQuizzes: true }, "start_or_continue_attempt", { metadata: active }).status).not.toBe("allowed");
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: { ...active, availabilityStatus: "closed" } }))
+      .toMatchObject({ status: "blocked", reason: "quiz-closed" });
+  });
+
   it("applies the minimum-time policy to the shorter deadline window", () => {
     const result = normalizeQuizMetadata(
       {

@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { MoodleRuntimeConfig } from "./types.js";
 import type { BrowserLoginConfig } from "./browserAuth.js";
+import type { QuizQuestionEvidence } from "./quizMedia.js";
 import {
   BrowserAuthenticationGate,
   isAuthenticationSnapshot,
@@ -25,6 +26,7 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_AGENT_BROWSER_PACKAGE = "agent-browser@0.27.0";
 
 export interface AgentBrowserClient {
+  captureQuestionEvidence?(questionId: string, directory: string): Promise<QuizQuestionEvidence>;
   captureQuestionImage?(questionId: string, targetPath: string): Promise<void>;
   enrolledCourses?(): Promise<CourseInventory>;
   doctor(): Promise<AgentBrowserCommandResult>;

@@ -37,8 +37,11 @@ export interface MoodleGraphInput {
   keepBrowserOpen?: boolean | undefined;
   browserMaxOutput?: number | undefined;
   autoAnswer?: boolean | undefined;
+  /** Independent question threads; browsers remain serialized within each attempt. */
+  quizSolverConcurrency?: number | undefined;
   quizSafetyPolicy?: Partial<QuizSafetyPolicy> | undefined;
   approvedQuizPermission?: ApprovedQuizPermission | undefined;
+  approvedQuizPermissions?: ApprovedQuizPermission[] | undefined;
   assignmentFiles?: string[] | undefined;
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
   codexModel?: string | undefined;
@@ -57,6 +60,7 @@ export interface MoodleGraphResult {
   coverageComplete: boolean;
   runDir: string;
   quizUrl?: string;
+  quizUrls?: string[];
   outputPath?: string;
   pdfPath?: string;
   answerPath?: string;
@@ -64,6 +68,7 @@ export interface MoodleGraphResult {
   state: AgentState;
   sourceCoverage: SourceCoverage;
   permissionRequestPath?: string;
+  permissionRequestPaths?: string[];
   error?: string;
 }
 
@@ -114,6 +119,7 @@ export interface MoodleRuntimeConfig {
   browserMaxOutput?: number | undefined;
   keepBrowserOpen?: boolean | undefined;
   autoAnswer?: boolean | undefined;
+  quizSolverConcurrency?: number | undefined;
   quizSafetyPolicy?: QuizSafetyPolicy | undefined;
   approvedQuizPermission?: ApprovedQuizPermission | undefined;
   assignmentFiles?: string[] | undefined;
