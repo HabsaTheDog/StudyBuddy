@@ -1,5 +1,41 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Hybrid agent architecture — 2026-09-15
+
+Owner approved the architecture review and three-phase implementation proposal.
+Campaign: `study-buddy-data/optimization-campaigns/hybrid-agent-architecture/`.
+Preserve source integrity, independent item/solution review, quiz permissions,
+bounded validation retries, the current state contracts and publication gates.
+
+1. Repair execution semantics and remove confirmed waste: task-local attempts,
+   operation-aware preflight, consistent cancellation/admission, honest repair
+   metrics, final-repair validation, and deterministic standard-guide planning.
+   Establish focused deterministic regressions before each implementation.
+2. Introduce bounded hybrid evidence planning and authoring delegation behind
+   compatibility controls. Retain the catalogue as policy/telemetry vocabulary,
+   not a required sequence of separate model calls. Share validated content and
+   invalidate only affected items. Never select curricula from subject labels.
+3. Compare equivalent frozen evidence with the same model settings, quality
+   gates and injected failures; report coordinator and worker costs separately.
+   Only a deliberately frozen candidate proceeds to packaged Windows/Fedora
+   acceptance. No release publication is authorized by this implementation.
+
+Current status: the first phase-1 development batch is implemented: shared SDK
+admission/deadlines, strict leaf-result rejection with observed usage, operation-
+aware preflight and selective compatibility fallback, corrected independent-item
+and quiz-verification attempts, dedicated repair metrics, deterministic standard-
+guide planning, and durable question-item repair budgets including final-round
+validation. Root source ESM scope is restored with `src/package.json`; the latest
+root desktop package metadata is preserved.
+
+Validation and remaining work are recorded in
+[`hybrid-architecture-development.md`](./hybrid-architecture-development.md).
+The unchanged Git baseline and failing-regression evidence are preserved in the
+campaign input directory. Deterministic tests are development evidence; historical
+run snapshots are not an equivalent-input performance baseline or desktop
+acceptance. The campaign remains open. The installed skill's `scripts/sbtest` is
+used because this checkout does not contain that convenience entry point.
+
 ## Task-level model assignments — 2026-09-13
 
 Implement the approved profile architecture: keep role defaults, expose concrete

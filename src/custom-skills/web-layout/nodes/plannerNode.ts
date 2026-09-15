@@ -13,7 +13,20 @@ const PLANNER_PROMPT_TARGET_CHARS = 50_000;
 export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexClient) {
   return async function plannerNode(state: LangGraphWebLayoutState): Promise<Partial<LangGraphWebLayoutState>> {
     try {
-      const response = await codex.run(buildPlannerPrompt(config, state), {
+      // The standard renderer derives its structure from the validated content
+      // and blueprints. Keep a stable compatibility checkpoint, without asking
+      // a model to produce a layout that the normal path never consumes.
+      const response = config.kind === "study-guide"
+        ? JSON.stringify({
+            title: config.language === "de" ? "Lernumgebung" : "Study guide",
+            language: config.language, kind: "study-guide", audience: "Students",
+            learningGoals: [config.originalUserPrompt],
+            sections: [{ id: "course", title: "Course", purpose: "Render the validated course hierarchy and content.", interactionType: "adaptive-study-guide" }],
+            requiredInteractions: ["Use the validated question bank and assessment blueprint."],
+            dataModel: {}, designDirection: "Standard offline renderer; content and evidence determine the learning structure.",
+            accessibilityNotes: ["Validate the standard renderer at every required viewport."],
+          })
+        : await codex.run(buildPlannerPrompt(config, state), {
         outputSchema: layoutSpecJsonSchema,
         task: "artifact_planner", operation: "html_planning",
         attempt: state.retry_count + 1,

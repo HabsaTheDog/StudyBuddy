@@ -15,6 +15,24 @@ afterEach(async () => {
 });
 
 describe("web layout graph", () => {
+  it("builds a standard study guide without a layout model call and still runs both gates", async () => {
+    await tempWorkspace();
+    const calls: string[] = [];
+    const result = await runWebLayoutGraph({
+      prompt: "Create a source-grounded guide", kind: "study-guide", skipBrowserValidation: true,
+    }, {
+      codex: { run: async (_prompt, options) => { calls.push(options.operation ?? options.task); throw new Error("Unexpected model call"); } },
+      sourceNode: async () => ({ source_text: "Authorized evidence", error_log: null }),
+      studyGuideContentNode: async () => { calls.push("content"); return { study_guide_content: { courseTitle: "Guide", topics: [{ exercises: [] }] }, error_log: null }; },
+      generatorNode: async () => ({ html_document: minimalValidStudyBuddyHtml({title: "Guide", kind: "study-guide", language: "en"}), error_log: null }),
+      qualityReviewerNode: async () => { calls.push("review"); return { error_log: null }; },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual(["content", "review"]);
+    expect(result.validationReportPath).toBeDefined();
+  });
+
   it("routes contract-owned content and visual findings to the semantic builder, not the presentation generator", () => {
     const base = {
       ...initialWebLayoutState,

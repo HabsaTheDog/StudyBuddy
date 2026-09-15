@@ -1,3 +1,4 @@
+import { QuestionRepairBudgetError } from "../questionRepairBudget.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -55,7 +56,7 @@ export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, code
       return {
         error_log: message,
         retry_count: state.retry_count + 1,
-        content_retry_count: state.content_retry_count + 1,
+        content_retry_count: error instanceof QuestionRepairBudgetError ? 3 : state.content_retry_count + 1,
       };
     }
   };
@@ -69,7 +70,7 @@ async function persistAdaptiveStudyModel(
   requestContract: LangGraphWebLayoutState["request_contract"],
   priorError: string | null,
 ): Promise<Pick<LangGraphWebLayoutState, "course_blueprint" | "assessment_blueprint" | "question_bank">> {
-  for (let localRepairAttempt = 0; localRepairAttempt < MAX_ITEM_REPAIR_ROUNDS; localRepairAttempt += 1) {
+  for (let localRepairAttempt = 0; localRepairAttempt <= MAX_ITEM_REPAIR_ROUNDS; localRepairAttempt += 1) {
   const requestContractHash = hashRequestContract(requestContract);
   const structuralCourse = buildCourseBlueprint(content, sourceText, config.language);
   const assessmentPlan = await resolveAssessmentArchitecturePlan({
@@ -256,6 +257,9 @@ async function persistAdaptiveStudyModel(
   const repairBatch = dispositions.items
     .filter((item) => item.action === "repair");
   if (repairBatch.length > 0) {
+    if (localRepairAttempt === MAX_ITEM_REPAIR_ROUNDS) {
+      throw new QuestionRepairBudgetError(`Item-local question repair exhausted ${MAX_ITEM_REPAIR_ROUNDS} bounded semantic rounds without a publishable bank.`);
+    }
     await config.diagnostics?.log(
       "info",
       "planner",

@@ -449,7 +449,7 @@ describe("study-guide canonical content bank", () => {
     expect(repairedChapters).toEqual([]);
   });
 
-  it("repairs one rejected item and reviews only its new hash without chapter repair", async () => {
+  it.each([1, 3, 4])("bounds item repair at three calls and reviews the final replacement (required repairs: %i)", async (requiredRepairs) => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-content-exact-item-repair-"));
     tempDirs.push(runDir);
     const config = createWebLayoutRuntimeConfig({ prompt: "Build an English language study guide", kind: "study-guide", language: "en", runDir });
@@ -483,13 +483,13 @@ describe("study-guide canonical content bank", () => {
           if (!itemsMatch) throw new Error("Malformed review prompt.");
           const items = JSON.parse(itemsMatch[1]) as Array<{ itemId: string; contentHash: string; exercise: { type: string } }>;
           reviewedBatches.push(items);
-          const rejectIndex = rejected ? -1 : 0;
+          const rejectIndex = !rejected || (itemRepairCalls < requiredRepairs && items.some((item) => item.itemId === repairedItemId)) ? 0 : -1;
           return JSON.stringify({ records: items.map((item, index) => {
-            const reject = !rejected && index === rejectIndex;
+            const reject = index === rejectIndex;
             if (reject) {
               rejected = true;
               repairedItemId = item.itemId;
-              rejectedHash = item.contentHash;
+              if (!rejectedHash) rejectedHash = item.contentHash;
             }
             return {
               itemId: item.itemId, contentHash: item.contentHash,
@@ -510,11 +510,18 @@ describe("study-guide canonical content bank", () => {
       },
     })({ ...initialWebLayoutState, source_text: languageHandoff(), request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]) });
 
+    if (requiredRepairs > 3) {
+      expect(result.error_log).toContain("exhausted");
+      expect(result.content_retry_count).toBe(3);
+      expect(itemRepairCalls).toBe(3);
+      expect(reviewedBatches.at(-1)).toHaveLength(1);
+      return;
+    }
     expect(result.error_log).toBeNull();
-    expect(itemRepairCalls).toBe(1);
+    expect(itemRepairCalls).toBe(requiredRepairs);
     expect(chapterRepairCalls).toBe(0);
     expect(assessmentPlanCalls).toBe(1);
-    expect(progressionCalls).toBe(2);
+    expect(progressionCalls).toBe(requiredRepairs + 1);
     expect(reviewedBatches.at(-1)).toHaveLength(1);
     expect(reviewedBatches.at(-1)?.[0]?.itemId).toBe(repairedItemId);
     expect(reviewedBatches.at(-1)?.[0]?.contentHash).not.toBe(rejectedHash);
