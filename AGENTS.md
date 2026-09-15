@@ -1,5 +1,9 @@
 # Study Buddy Agent Rules
 
+This is the active application component under the Study Buddy umbrella now
+used by T3 Code. The original repository is an untouched rollback/reference
+copy. Read `../AGENTS.md` and `../project.json` before changing this component.
+
 - Study Buddy is a universal study agent, not degree-, course-, subject-, or institution-specific. Build reusable modular behavior that adapts to the user's topic, study context, and configured sources; avoid hard-coded curricula, subject templates, or source assumptions.
 - Study Buddy must coexist with independently installed T3 Code. Never share or alter its identity, state, ports, protocols, launchers, artifacts, updater, migrations, or processes unless explicitly requested.
 - `t3code-fork/` belongs exclusively to Study Buddy. Treat `reference repo Study Buddy 1.0/` as read-only.
