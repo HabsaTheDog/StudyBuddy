@@ -69,15 +69,29 @@ describe("model task integration", () => {
           const options = node.arguments[1];
           if (options && ts.isObjectLiteralExpression(options)) {
             const operation = options.properties.find((property) => property.name?.getText(source) === "operation");
-            if (!operation || !ts.isPropertyAssignment(operation)) {
-              if (!options.properties.some(ts.isSpreadAssignment)) missing.push(`${file}:${source.getLineAndCharacterOfPosition(node.pos).line + 1}`);
+            function collect(value: ts.Node) {
+              if (ts.isStringLiteral(value)) seen.add(value.text);
+              ts.forEachChild(value, collect);
             }
-            else {
-              function collect(value: ts.Node) {
-                if (ts.isStringLiteral(value)) seen.add(value.text);
-                ts.forEachChild(value, collect);
-              }
+            if (operation && ts.isPropertyAssignment(operation)) {
               collect(operation.initializer);
+            } else if (operation && ts.isShorthandPropertyAssignment(operation)) {
+              // Retry helpers may accept a concrete operation union. Require a
+              // typed parameter; an arbitrary string is not callsite coverage.
+              let scope: ts.Node | undefined = node.parent;
+              let parameter: ts.ParameterDeclaration | undefined;
+              while (scope && !parameter) {
+                if (ts.isArrowFunction(scope) || ts.isFunctionDeclaration(scope) || ts.isFunctionExpression(scope)) {
+                  parameter = scope.parameters.find((item) => item.name.getText(source) === operation.name.text);
+                }
+                scope = scope.parent;
+              }
+              if (parameter?.type && ts.isUnionTypeNode(parameter.type) &&
+                  parameter.type.types.every((type) => ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal))) {
+                collect(parameter.type);
+              } else missing.push(`${file}: operation must have concrete literal task IDs`);
+            } else if (!options.properties.some(ts.isSpreadAssignment)) {
+              missing.push(`${file}:${source.getLineAndCharacterOfPosition(node.pos).line + 1}`);
             }
           } else if (!options) missing.push(file);
         }

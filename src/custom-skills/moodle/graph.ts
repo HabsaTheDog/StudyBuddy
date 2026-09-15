@@ -1,3 +1,4 @@
+import { STUDY_BUDDY_MODEL_TASKS } from "../shared/modelTaskCatalog.js";
 import { cp, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { END, START, StateGraph } from "@langchain/langgraph";
@@ -68,7 +69,7 @@ import { ExecutionTelemetry } from "./executionTelemetry.js";
 import {
   resolveTaskModelPolicy,
   STUDY_BUDDY_MODEL_POLICY_VERSION,
-  type StudyBuddyModelTask,
+  type StudyBuddyModelOperation,
 } from "./modelPolicy.js";
 import {
   buildResourceManifest,
@@ -213,7 +214,9 @@ export async function runMoodleGraph(
           }));
         codexRuntime = await runtimePreflight(config);
         if (codexRuntime.fallbackApplied) {
-          config.codexModel = codexRuntime.fallbackApplied;
+          // Compatibility substitution is per failed model, never a global
+          // operator override that would silently flatten the entire profile.
+          config.modelCompatibilityFallbacks = codexRuntime.modelFallbacks ?? {};
           await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
         }
       }
@@ -410,31 +413,45 @@ export async function runMoodleGraph(
 }
 
 export function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
-  const tasks: StudyBuddyModelTask[] = config.stage === "render"
-    ? ["artifact_builder", "artifact_repair", "quality_reviewer"]
-    : config.stage === "extract"
-      ? config.evidenceHandoffOnly
-        ? ["artifact_planner"]
-        : [
-          "artifact_planner",
-          "content_analyzer",
-          "content_repair",
-          "quality_reviewer",
-        ]
-      : config.intentDecision?.wantsQuickAnswer
-        ? ["content_analyzer", "content_repair"]
-        : [
-            "artifact_planner",
-            "content_analyzer",
-            "content_repair",
-            "artifact_builder",
-            "artifact_repair",
-            "quality_reviewer",
-          ];
-  return [...new Set(tasks.flatMap((task) => {
+  // Model canaries cover operations reachable in this graph, including their
+  // overrides. Page/quiz workers share roles but belong to different graphs.
+  const reachable = new Set<StudyBuddyModelOperation>();
+  if (config.stage === "render") {
+    reachable.add("document_build");
+    reachable.add("document_repair");
+    reachable.add("pdf_review");
+  } else {
+    for (const entry of STUDY_BUDDY_MODEL_TASKS) {
+      if (entry.task === "source_search") reachable.add(entry.id);
+    }
+    const quickAnswer = config.stage !== "extract" && config.intentDecision?.wantsQuickAnswer;
+    if (!quickAnswer) {
+      reachable.add("request_evaluation");
+      reachable.add("source_planning");
+    }
+    if (config.stage === "extract" && config.evidenceHandoffOnly) {
+      reachable.add("visual_selection");
+      reachable.add("visual_selection_repair");
+    } else {
+      reachable.add("content_extraction");
+      reachable.add("content_extraction_repair");
+      if (!quickAnswer) {
+        reachable.add("visual_planning");
+        reachable.add("content_review");
+        if (config.stage !== "extract") {
+          reachable.add("document_build");
+          reachable.add("document_repair");
+          reachable.add("pdf_review");
+        }
+      }
+    }
+  }
+  const operations = STUDY_BUDDY_MODEL_TASKS.filter((entry) => reachable.has(entry.id));
+  return [...new Set(operations.flatMap(({ task, id: operation }) => {
     const primary = resolveTaskModelPolicy({
       profile: config.executionProfile,
       task,
+      operation,
       attempt: 1,
       globalModel: config.codexModel,
       globalReasoningEffort: config.codexReasoningEffort,
@@ -443,6 +460,7 @@ export function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
     const escalation = resolveTaskModelPolicy({
       profile: config.executionProfile,
       task,
+      operation,
       attempt: 2,
       globalModel: config.codexModel,
       globalReasoningEffort: config.codexReasoningEffort,

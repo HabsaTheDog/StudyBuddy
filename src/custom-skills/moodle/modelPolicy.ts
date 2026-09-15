@@ -28,6 +28,7 @@ export interface ResolveTaskModelPolicyInput {
   globalModel?: string;
   globalReasoningEffort?: StudyBuddyReasoningEffort;
   overrides?: StudyBuddyModelPolicyOverrides;
+  compatibilityFallbacks?: Readonly<Record<string, string>>;
 }
 
 const PROFILE_POLICIES: Record<
@@ -313,10 +314,10 @@ export function resolveTaskModelPolicy(
   };
 
   if ((input.attempt ?? 1) <= 1) {
-    return configured;
+    return applyCompatibilityFallback(configured, input);
   }
 
-  return {
+  return applyCompatibilityFallback({
     ...configured,
     model: input.globalModel ?? configured.escalationModel ?? configured.model,
     reasoningEffort:
@@ -324,7 +325,12 @@ export function resolveTaskModelPolicy(
       configured.escalationEffort ??
       nextReasoningEffort(configured.reasoningEffort),
     timeoutMs: configured.escalationTimeoutMs ?? configured.timeoutMs,
-  };
+  }, input);
+}
+
+function applyCompatibilityFallback(policy: StudyBuddyTaskModelPolicy, input: ResolveTaskModelPolicyInput): StudyBuddyTaskModelPolicy {
+  const replacement = !input.globalModel && input.compatibilityFallbacks?.[policy.model];
+  return replacement ? { ...policy, model: replacement } : policy;
 }
 
 export function parseExecutionProfile(value: string | undefined): StudyBuddyExecutionProfile {
@@ -451,6 +457,12 @@ function nextReasoningEffort(value: StudyBuddyReasoningEffort): StudyBuddyReason
 
 /** Origin of the selected model/effort, persisted beside usage for task-level comparisons. */
 export function taskModelPolicySource(input: ResolveTaskModelPolicyInput): string {
+  if (input.compatibilityFallbacks && !input.globalModel) {
+    const original = resolveTaskModelPolicy({ ...input, compatibilityFallbacks: undefined });
+    if (input.compatibilityFallbacks[original.model]) {
+      return `compatibility:${original.model};${taskModelPolicySource({ ...input, compatibilityFallbacks: undefined })}`;
+    }
+  }
   if (input.globalModel || input.globalReasoningEffort) return "global override";
   if (input.operation && input.overrides?.[input.operation]) return `task:${input.operation}`;
   if (input.overrides?.[input.task]) {

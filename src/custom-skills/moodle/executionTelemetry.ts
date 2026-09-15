@@ -63,6 +63,7 @@ export interface ExecutionMetricsSnapshot {
     modelDurationMs: number;
     modelQueueWaitMs: number;
     retries: number;
+    repairCalls: number;
     toolCalls: number;
     leafToolPolicyViolations: number;
   };
@@ -120,6 +121,7 @@ export class ExecutionTelemetry {
         modelDurationMs: 0,
         modelQueueWaitMs: 0,
         retries: 0,
+        repairCalls: 0,
         toolCalls: 0,
         leafToolPolicyViolations: 0,
       },
@@ -200,6 +202,7 @@ export class ExecutionTelemetry {
       this.snapshot.totals.modelDurationMs += metric.durationMs;
       this.snapshot.totals.modelQueueWaitMs += metric.queueWaitMs ?? 0;
       if (metric.attempt > 1) this.snapshot.totals.retries += 1;
+      if (metric.task.endsWith("_repair") || metric.operation?.endsWith("_repair")) this.snapshot.totals.repairCalls += 1;
       this.snapshot.totals.toolCalls += metric.toolCalls ?? 0;
       if (metric.leafWorker && (metric.toolCalls ?? 0) > 0) {
         this.snapshot.totals.leafToolPolicyViolations += 1;

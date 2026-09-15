@@ -9,13 +9,14 @@ export function summarizeModelTasks(calls) {
     const key = JSON.stringify([task, call.model, call.reasoningEffort]);
     const row = groups.get(key) ?? {
       task, model: call.model, reasoningEffort: call.reasoningEffort,
-      calls: 0, retries: 0, failures: 0, durationMs: 0,
-      inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, policySources: [],
+      calls: 0, retries: 0, repairCalls: 0, failures: 0, durationMs: 0,
+      inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, queueWaitMs: 0, policySources: [],
     };
     row.calls++;
     row.retries += Number(call.attempt > 1);
+    row.repairCalls += Number(call.task?.endsWith("_repair") || call.operation?.endsWith("_repair") || false);
     row.failures += Number(call.status !== "completed");
-    for (const metric of ["durationMs", "inputTokens", "cachedInputTokens", "outputTokens"]) row[metric] += call[metric] ?? 0;
+    for (const metric of ["durationMs", "inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "queueWaitMs"]) row[metric] += call[metric] ?? 0;
     if (call.policySource && !row.policySources.includes(call.policySource)) row.policySources.push(call.policySource);
     groups.set(key, row);
   }

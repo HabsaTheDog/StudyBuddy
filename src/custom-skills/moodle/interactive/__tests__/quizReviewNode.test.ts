@@ -37,6 +37,22 @@ afterEach(async () => {
 });
 
 describe("quizReviewNode", () => {
+  it("starts visual verification on its primary and retries only verification", async () => {
+    const calls: Array<{ operation?: string; attempt?: number }> = [];
+    const codex: CodexClient = { async run(_prompt, options) {
+      calls.push({ operation: options?.operation, attempt: options?.attempt });
+      if (options?.operation === "quiz_verification" && options.attempt === 1) return "not-json";
+      return JSON.stringify({ answer: "4", confidence: 0.95, risk_flags: [], control_answers: [] });
+    } };
+    await expect(generateAnswerSpec(codex, { question: "2+2?", image_paths: ["observed.png"] }))
+      .resolves.toMatchObject({ answer: "4" });
+    expect(calls).toEqual([
+      { operation: "quiz_answer", attempt: 1 },
+      { operation: "quiz_verification", attempt: 1 },
+      { operation: "quiz_verification", attempt: 2 },
+    ]);
+  });
+
   it("resumes the same attempt at page zero so earlier saved responses are included", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-resume-full-quiz-"));
     const client = new FakeQuizBrowserClient({

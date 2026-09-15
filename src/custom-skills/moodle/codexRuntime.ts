@@ -55,6 +55,7 @@ export interface CodexRuntimeReport {
   requestedModels: string[];
   effectiveModels: string[];
   fallbackApplied: string | null;
+  modelFallbacks?: Record<string, string>;
   warnings: string[];
 }
 
@@ -285,11 +286,16 @@ export async function preflightCodexRuntime(
 
   if (compatibilityFailures.length > 0 && input.fallbackModel && !input.explicitModel) {
     const fallback = input.fallbackModel.trim();
-    if (fallback && !requestedModels.includes(fallback)) {
+    if (fallback && !failedModels.some((item) => item.model === fallback)) {
       const cacheKey = probeCacheKey(binaryPath, effectiveCliVersion, fallback);
       const cached = cache.probes[cacheKey];
       try {
-        if (!input.bypassCache && cached?.expiresAt && cached.expiresAt > now) {
+        const alreadyVerified = baseReport.modelProbes.some((probe) =>
+          probe.model === fallback && (probe.status === "verified" || probe.status === "cached")
+        );
+        if (alreadyVerified) {
+          // A healthy model already used by another task needs no second canary.
+        } else if (!input.bypassCache && cached?.expiresAt && cached.expiresAt > now) {
           baseReport.modelProbes.push({ model: fallback, status: "cached", checkedAt: cached.checkedAt });
         } else {
           await runCanary({
@@ -302,7 +308,8 @@ export async function preflightCodexRuntime(
           cache.probes[cacheKey] = { expiresAt: now + cacheTtlMs, checkedAt };
         }
         baseReport.fallbackApplied = fallback;
-        baseReport.effectiveModels = [fallback];
+        baseReport.modelFallbacks = Object.fromEntries(compatibilityFailures.map((item) => [item.model, fallback]));
+        baseReport.effectiveModels = unique(requestedModels.map((model) => baseReport.modelFallbacks?.[model] ?? model));
         warnings.push(
           `Configured compatibility fallback ${fallback} replaced policy-selected model(s): ${compatibilityFailures.map((item) => item.model).join(", ")}.`,
         );

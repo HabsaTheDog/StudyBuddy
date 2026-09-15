@@ -112,6 +112,6 @@ describe("Moodle image drag and drop", () => {
     const codex = {run:vi.fn().mockResolvedValueOnce(JSON.stringify({...corrected,control_answers:[{control_id:"p1",answer:"1",selected:false}]})).mockResolvedValueOnce(JSON.stringify(corrected))};
     const result = await generateAnswerSpec(codex,{image_paths:["/run/question.png"],question:{prompt:"Match the values"}});
     expect(result.control_answers).toEqual(corrected.control_answers);
-    expect(codex.run).toHaveBeenNthCalledWith(2,expect.stringContaining("Independently verify"),expect.objectContaining({attempt:2,imagePaths:["/run/question.png"]}));
+    expect(codex.run).toHaveBeenNthCalledWith(2,expect.stringContaining("Independently verify"),expect.objectContaining({operation:"quiz_verification",attempt:1,imagePaths:["/run/question.png"]}));
   });
 });

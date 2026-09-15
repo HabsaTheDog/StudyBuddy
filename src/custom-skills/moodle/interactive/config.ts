@@ -105,6 +105,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   });
 
   return {
+    abortSignal: input.abortSignal,
     prompt: input.prompt,
     originalUserPrompt,
     temporalRequest: requestTimeBoundary(originalUserPrompt, input.prompt),

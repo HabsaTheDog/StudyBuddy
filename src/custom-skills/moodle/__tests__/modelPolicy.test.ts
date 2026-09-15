@@ -8,6 +8,14 @@ import {
 } from "../modelPolicy.js";
 
 describe("modelPolicy", () => {
+  it("substitutes only incompatible models without flattening task policies", () => {
+    const input = { profile: "balanced", task: "content_analyzer", operation: "solution_generation", compatibilityFallbacks: { "gpt-5.6-terra": "gpt-compatible" } } as const;
+    expect(resolveTaskModelPolicy(input).model).toBe("gpt-compatible");
+    expect(resolveTaskModelPolicy({ ...input, attempt: 2 }).model).toBe("gpt-5.6-sol");
+    expect(resolveTaskModelPolicy({ ...input, globalModel: "gpt-operator" }).model).toBe("gpt-operator");
+    expect(taskModelPolicySource(input)).toBe("compatibility:gpt-5.6-terra;built-in:balanced");
+  });
+
   it("keeps each built-in worker matrix role-specific", () => {
     const cases = [
       ["fast", "artifact_planner", "gpt-5.6-luna", "high", "gpt-5.6-terra", "high"],

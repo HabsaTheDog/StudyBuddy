@@ -458,7 +458,7 @@ export async function resolveAssessmentSolutions(input: {
       buildAssessmentSolutionPrompt(input, task, contentContract),
       {
         task: "content_analyzer", operation: "solution_generation",
-        attempt: index + 1,
+        attempt: 1,
         outputSchema: generatedSetJsonSchema,
         timeoutMs: 180_000,
         localImages: localImage,
@@ -471,7 +471,7 @@ export async function resolveAssessmentSolutions(input: {
       buildAssessmentSolutionReviewPrompt(input, task, solution, contentContract),
       {
         task: "quality_reviewer", operation: "solution_verification",
-        attempt: index + 1,
+        attempt: 1,
         outputSchema: reviewSetJsonSchema,
         timeoutMs: 180_000,
         localImages: localImage,

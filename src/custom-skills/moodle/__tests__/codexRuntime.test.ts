@@ -190,20 +190,22 @@ describe("Codex runtime preflight", () => {
     expect(runProcess.mock.calls.filter(([, args]) => args[0] === "doctor")).toHaveLength(2);
   });
 
-  it("uses one configured fallback only for policy-selected models", async () => {
+  it.each(["gpt-compatible", "gpt-healthy"])("uses configured fallback %s only for failed policy-selected models", async (fallbackModel) => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "codex-runtime-"));
     const runCanary = vi.fn(async ({ model }: { model: string }) => {
       if (model === "gpt-new") throw new Error("requires a newer version of Codex");
     });
     const report = await preflightCodexRuntime({
       cacheDir: tempDir,
-      models: ["gpt-new"],
+      models: ["gpt-new", "gpt-healthy"],
       explicitModel: false,
-      fallbackModel: "gpt-compatible",
+      fallbackModel,
     }, healthyDependencies({ runCanary }));
 
-    expect(report.fallbackApplied).toBe("gpt-compatible");
-    expect(report.effectiveModels).toEqual(["gpt-compatible"]);
+    expect(report.fallbackApplied).toBe(fallbackModel);
+    expect(report.effectiveModels).toEqual([...new Set([fallbackModel, "gpt-healthy"])]);
+    expect(report.modelFallbacks).toEqual({ "gpt-new": fallbackModel });
+    expect(runCanary).toHaveBeenCalledTimes(fallbackModel === "gpt-healthy" ? 2 : 3);
   });
 
   it("never replaces an explicitly selected model", async () => {

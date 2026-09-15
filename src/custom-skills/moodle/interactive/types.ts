@@ -17,6 +17,7 @@ export interface QuizSolverModelPolicy {
 }
 
 export interface MoodleGraphInput {
+  abortSignal?: AbortSignal;
   prompt: string;
   /** Exact, untranslated user request. Language is resolved from this boundary value. */
   originalUserPrompt?: string | undefined;
@@ -76,6 +77,7 @@ export type MoodleWorkflowStatus =
 
 export interface MoodleRuntimeConfig {
   readonly temporalRequest?: TemporalRequest;
+  abortSignal?: AbortSignal;
   prompt: string;
   originalUserPrompt: string;
   outputLanguage: SupportedLanguage;

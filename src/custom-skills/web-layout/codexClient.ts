@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { acquireModelCallControl } from "../shared/modelCallControl.js";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
@@ -91,35 +93,37 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         ? path.join(leafWorkspaceRoot, task)
         : config.runDir;
       await mkdir(workingDirectory, { recursive: true });
-      const thread = codex.startThread({
-        workingDirectory,
-        skipGitRepoCheck: true,
-        model: policy.model,
-        modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
-        sandboxMode: accessPolicy.sandboxMode,
-        approvalPolicy: accessPolicy.approvalPolicy,
-        networkAccessEnabled: accessPolicy.networkAccessEnabled,
-        webSearchMode: accessPolicy.webSearchMode,
+      const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
+      const control = await acquireModelCallControl({
+        task, model: policy.model, timeoutMs, signal: config.abortSignal,
+        pauseRuntimeBudget: config.executionTelemetry ? () => config.executionTelemetry!.pauseRuntimeBudget() : undefined,
       });
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
-      const callId = `${task}-${attempt}-${startedMs}`;
-      const timeoutController = new AbortController();
-      const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
-      const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
-      const signal = combineSignals(config.abortSignal, timeoutController.signal);
-      await config.diagnostics?.log("info", "planner", `Starting ${task} model call.`, {
-        task,
-        attempt,
-        model: policy.model,
-        reasoningEffort: policy.reasoningEffort,
-        requestCharacters,
-        schemaCharacters,
-        leafWorker: accessPolicy.leafWorker,
-      });
+      const callId = `${task}-${attempt}-${randomUUID()}`;
+      const signal = control.signal;
       let observedToolUsage = emptyToolUsage();
       let observedUsage: Usage | null = null;
       try {
+        await config.diagnostics?.log("info", "planner", `Starting ${task} model call.`, {
+          task,
+          attempt,
+          model: policy.model,
+          reasoningEffort: policy.reasoningEffort,
+          requestCharacters,
+          schemaCharacters,
+          leafWorker: accessPolicy.leafWorker,
+        });
+        const thread = codex.startThread({
+          workingDirectory,
+          skipGitRepoCheck: true,
+          model: policy.model,
+          modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
+          sandboxMode: accessPolicy.sandboxMode,
+          approvalPolicy: accessPolicy.approvalPolicy,
+          networkAccessEnabled: accessPolicy.networkAccessEnabled,
+          webSearchMode: accessPolicy.webSearchMode,
+        });
         const input: string | UserInput[] = localImages.length > 0
           ? [
               { type: "text", text: sanitizedPrompt },
@@ -135,6 +139,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         });
         observedToolUsage = summarizeCodexToolUsage(turn.items);
         observedUsage = turn.usage;
+        signal.throwIfAborted();
         if (accessPolicy.leafWorker && observedToolUsage.toolCalls > 0) {
           throw new Error(`${task} leaf worker used ${observedToolUsage.toolCalls} prohibited tool(s).`);
         }
@@ -149,6 +154,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
           reasoningEffort: policy.reasoningEffort,
           startedAt,
           startedMs,
+          queuedAt: control.queuedAt,
+          queueWaitMs: control.queueWaitMs,
           requestCharacters,
           schemaCharacters,
           leafWorker: accessPolicy.leafWorker,
@@ -158,7 +165,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         });
         return turn.finalResponse;
       } catch (error) {
-        const timedOut = timeoutController.signal.aborted && !config.abortSignal?.aborted;
+        const timedOut = control.timedOut();
         await recordCall({
           config,
           callId,
@@ -170,6 +177,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
           reasoningEffort: policy.reasoningEffort,
           startedAt,
           startedMs,
+          queuedAt: control.queuedAt,
+          queueWaitMs: control.queueWaitMs,
           requestCharacters,
           schemaCharacters,
           leafWorker: accessPolicy.leafWorker,
@@ -182,7 +191,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         }
         throw error;
       } finally {
-        clearTimeout(timeout);
+        await control.release();
       }
     },
   };
@@ -299,6 +308,8 @@ async function recordCall(input: {
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   startedAt: string;
   startedMs: number;
+  queuedAt: string;
+  queueWaitMs: number;
   requestCharacters: number;
   schemaCharacters: number;
   leafWorker: boolean;
@@ -328,6 +339,8 @@ async function recordCall(input: {
     startedAt: input.startedAt,
     completedAt: new Date().toISOString(),
     durationMs: Math.max(0, Date.now() - input.startedMs),
+    queuedAt: input.queuedAt,
+    queueWaitMs: input.queueWaitMs,
     requestCharacters: input.requestCharacters,
     schemaCharacters: input.schemaCharacters,
     leafWorker: input.leafWorker,
@@ -352,19 +365,4 @@ function emptyToolUsage(): CodexToolUsage {
     mcpToolCalls: 0,
     webSearches: 0,
   };
-}
-
-function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
-  const active = signals.filter((signal): signal is AbortSignal => Boolean(signal));
-  if (active.length === 0) return new AbortController().signal;
-  if (active.length === 1) return active[0];
-  const controller = new AbortController();
-  for (const signal of active) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
-  }
-  return controller.signal;
 }

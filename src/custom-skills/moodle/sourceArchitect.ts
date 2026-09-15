@@ -370,7 +370,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
         ].join("\n\n"), {
           outputSchema: decisionSchema,
           task: "artifact_planner", operation: "source_planning",
-          attempt: 1,
+          attempt: 2,
         });
         decision = validateDecision(
           repairedResponse,

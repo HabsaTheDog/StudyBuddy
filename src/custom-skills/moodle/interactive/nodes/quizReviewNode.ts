@@ -1,3 +1,4 @@
+import { NonRetryableCodexError } from "../../codexClient.js";
 import { resolveSemanticSearch } from "../../semanticSearch.js";
 import { DRAG_DROP_CONTROLS_JS, buildDragDropFillJs } from "../quizDragDrop.js";
 import { quizRequestTime, quizDateMatches, quizDateGate } from "../quizTargetDate.js";
@@ -537,45 +538,36 @@ export async function generateAnswerSpec(
     "",
     JSON.stringify(packet, null, 2),
   ].join("\n");
-  let firstError: unknown;
-  for (const attempt of [1, 2]) {
-    try {
-      const raw = await codex.run(prompt, {
-        outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver", operation: "quiz_answer",
-        attempt,
-        ...(Array.isArray(packet.image_paths) ? { imagePaths: packet.image_paths as string[] } : {}),
-      });
-      const answer = normalizeAnswerSpec(JSON.parse(stripJsonFence(raw)));
-      if (!Array.isArray(packet.image_paths) || packet.image_paths.length === 0) return answer;
-      // Visual option transcription and the mapping to response controls need a
-      // second check; a confident first answer is not independent verification.
-      const reviewed = await codex.run([
-        "Independently verify this image-based quiz answer before any response is entered.",
-        "Solve the original question from its image and packet. Explicitly check every claimed equality/calculation,",
-        "read every chosen option from the image, and verify its exact option value and target control bounds.",
-        "Do not assume the proposed answer, existing selections, or numeric place order are correct.",
-        "Return a complete corrected answer JSON with the same schema. If evidence is insufficient, use confidence 0.",
-        `Original packet: ${JSON.stringify(packet)}`,
-        `Proposed answer to check: ${JSON.stringify(answer)}`,
-      ].join("\n"), {
-        outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver", operation: "quiz_verification",
-        attempt: 2,
-        imagePaths: packet.image_paths as string[],
-      });
-      return normalizeAnswerSpec(JSON.parse(stripJsonFence(reviewed)));
-    } catch (error) {
-      if (attempt === 1) {
-        firstError = error;
-        continue;
+  const images = Array.isArray(packet.image_paths) ? packet.image_paths as string[] : [];
+  const runOperation = async (operation: "quiz_answer" | "quiz_verification", taskPrompt: string) => {
+    for (const attempt of [1, 2]) {
+      try {
+        const response = await codex.run(taskPrompt, {
+          outputSchema: SUBAGENT_ANSWER_SCHEMA,
+          task: "quiz_solver", operation, attempt,
+          ...(images.length ? { imagePaths: images } : {}),
+        });
+        return normalizeAnswerSpec(JSON.parse(stripJsonFence(response)));
+      } catch (error) {
+        if (error instanceof NonRetryableCodexError || (error instanceof Error && error.name === "AbortError")) throw error;
+        if (attempt === 2) throw new Error(`${operation} failed with both its primary and retry policies.`, { cause: error });
       }
-      throw new Error("Quiz Solver failed with both its primary and retry policies.", {
-        cause: error,
-      });
     }
-  }
-  throw new Error("Quiz Solver failed without producing an answer.", { cause: firstError });
+    throw new Error(`${operation} failed without producing an answer.`);
+  };
+  const answer = await runOperation("quiz_answer", prompt);
+  if (!images.length) return answer;
+  // Verification has its own primary/retry policy. A failed verification must
+  // not regenerate an already valid answer or skip the configured primary.
+  return runOperation("quiz_verification", [
+    "Independently verify this image-based quiz answer before any response is entered.",
+    "Solve the original question from its image and packet. Explicitly check every claimed equality/calculation,",
+    "read every chosen option from the image, and verify its exact option value and target control bounds.",
+    "Do not assume the proposed answer, existing selections, or numeric place order are correct.",
+    "Return a complete corrected answer JSON with the same schema. If evidence is insufficient, use confidence 0.",
+    `Original packet: ${JSON.stringify(packet)}`,
+    `Proposed answer to check: ${JSON.stringify(answer)}`,
+  ].join("\n"));
 }
 
 function normalizeAnswerSpec(value: unknown): AnswerSpec {

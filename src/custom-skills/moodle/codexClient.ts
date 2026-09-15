@@ -18,7 +18,7 @@ import {
   type StudyBuddyModelTask,
 } from "./modelPolicy.js";
 import { invalidateCodexRuntimeCache } from "./codexRuntime.js";
-import { acquireModelCallAdmission } from "./modelCallScheduler.js";
+import { acquireModelCallControl } from "../shared/modelCallControl.js";
 import {
   buildCodexChildEnvironment,
   buildCodexShellEnvironmentConfig,
@@ -290,6 +290,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         globalModel: config.codexModel,
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
+        compatibilityFallbacks: config.modelCompatibilityFallbacks,
       } as const;
       const selectedPolicy = resolveTaskModelPolicy(policyInput);
       const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
@@ -300,32 +301,23 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       ]);
 
       for (const [candidateIndex, policy] of policies.entries()) {
-        const admission = await (async () => {
-          const resumeRuntimeBudget = config.executionTelemetry?.pauseRuntimeBudget();
-          try {
-            return await acquireModelCallAdmission({
-              task,
-              model: policy.model,
-              signal: config.abortSignal,
-              onWait: async (position, activeSlots) => {
-                await config.diagnostics?.log(
-                  "info",
-                  "model",
-                  `${task} is queued for configured model admission.`,
-                  { task, model: policy.model, queuePosition: position, activeSlots },
-                );
-              },
-            });
-          } finally {
-            resumeRuntimeBudget?.();
-          }
-        })();
+        const selectionAttempt = candidateIndex === 0 ? attempt
+          : selectedPolicy.model === primaryPolicy.model ? 2 : 1;
+        const policySource = taskModelPolicySource({ ...policyInput, attempt: selectionAttempt });
+        const control = await acquireModelCallControl({
+          task, model: policy.model, timeoutMs: policy.timeoutMs, signal: config.abortSignal,
+          pauseRuntimeBudget: config.executionTelemetry ? () => config.executionTelemetry!.pauseRuntimeBudget() : undefined,
+          onWait: async (position, activeSlots) => {
+            await config.diagnostics?.log("info", "model", `${task} is queued for configured model admission.`,
+              { task, model: policy.model, queuePosition: position, activeSlots });
+          },
+        });
         const startedAt = new Date().toISOString();
         const startedMs = Date.now();
         const callId = `${task}-${attempt}-${randomUUID()}`;
-        const timeoutController = new AbortController();
-        const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
-        const signal = combineSignals(config.abortSignal, timeoutController.signal);
+        const signal = control.signal;
+        let observedUsage: Usage | null = null;
+        let observedToolUsage = emptyToolUsage();
         try {
           const thread = (accessPolicy.leafWorker ? leafCodex : codex).startThread({
             workingDirectory: accessPolicy.isolatedWorkingDirectory
@@ -344,11 +336,11 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             task,
             attempt,
             operation: options?.operation ?? task,
-            policySource: taskModelPolicySource(policyInput),
+            policySource,
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             timeoutMs: policy.timeoutMs,
-            queueWaitMs: admission.queueWaitMs,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             promptCharacterBudget,
@@ -372,19 +364,25 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             signal,
           });
           const toolUsage = summarizeCodexToolUsage(turn.items);
+          observedUsage = turn.usage;
+          observedToolUsage = toolUsage;
+          signal.throwIfAborted();
+          if (accessPolicy.leafWorker && toolUsage.toolCalls > 0) {
+            throw new NonRetryableCodexError(`${task} leaf worker used ${toolUsage.toolCalls} prohibited tool(s).`, "invalid_request");
+          }
           await recordCall({
             config,
             callId,
             task,
             attempt,
             operation: options?.operation ?? task,
-            policySource: taskModelPolicySource(policyInput),
+            policySource,
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
-            queuedAt: admission.queuedAt,
-            queueWaitMs: admission.queueWaitMs,
+            queuedAt: control.queuedAt,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             attachedImages: localImages.length,
@@ -393,17 +391,9 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             status: "completed",
             usage: turn.usage,
           });
-          if (accessPolicy.leafWorker && toolUsage.toolCalls > 0) {
-            await config.diagnostics?.log(
-              "warn",
-              "model",
-              `${task} leaf worker used ${toolUsage.toolCalls} prohibited tool(s); the result is retained but flagged for prompt-policy regression.`,
-              { task, callId, ...toolUsage },
-            );
-          }
           return turn.finalResponse;
         } catch (error) {
-          const timeoutReached = timeoutController.signal.aborted && !config.abortSignal?.aborted;
+          const timeoutReached = control.timedOut();
           const status = timeoutReached ? "timeout" : config.abortSignal?.aborted ? "canceled" : "failed";
           const classification = status === "failed" ? classifyCodexError(error) : null;
           await recordCall({
@@ -412,20 +402,20 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             task,
             attempt,
             operation: options?.operation ?? task,
-            policySource: taskModelPolicySource(policyInput),
+            policySource,
             model: policy.model,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
-            queuedAt: admission.queuedAt,
-            queueWaitMs: admission.queueWaitMs,
+            queuedAt: control.queuedAt,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             attachedImages: localImages.length,
             leafWorker: accessPolicy.leafWorker,
-            toolUsage: emptyToolUsage(),
+            toolUsage: observedToolUsage,
             status,
-            usage: null,
+            usage: observedUsage,
             errorCategory: classification?.category ?? status,
           });
           const fallback = policies[candidateIndex + 1];
@@ -453,7 +443,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
               task,
               model: policy.model,
               timeoutMs: policy.timeoutMs,
-              queueWaitMs: admission.queueWaitMs,
+              queueWaitMs: control.queueWaitMs,
             });
             if (
               config.stage === "extract" &&
@@ -480,8 +470,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           }
           throw error;
         } finally {
-          clearTimeout(timeout);
-          await admission.release();
+          await control.release();
         }
       }
 
@@ -641,10 +630,6 @@ function emptyToolUsage(): CodexToolUsage {
     mcpToolCalls: 0,
     webSearches: 0,
   };
-}
-
-function combineSignals(primary: AbortSignal | undefined, timeout: AbortSignal): AbortSignal {
-  return primary ? AbortSignal.any([primary, timeout]) : timeout;
 }
 
 /** Replace lone UTF-16 surrogates produced by some PDF text extractors. */

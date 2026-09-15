@@ -177,6 +177,7 @@ export interface MoodleRuntimeConfig {
   runtimeCacheDir: string;
   executionProfile: StudyBuddyExecutionProfile;
   modelPolicyOverrides?: StudyBuddyModelPolicyOverrides;
+  modelCompatibilityFallbacks?: Record<string, string>;
   outputLanguage: SupportedLanguage;
   outputLanguageReason: LanguageResolutionReason;
   executionTelemetry?: ExecutionTelemetry;

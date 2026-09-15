@@ -320,6 +320,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     codexModelExplicit: config.codexModelExplicit,
     executionProfile: config.executionProfile,
     modelPolicyOverrides: config.modelPolicyOverrides,
+    modelCompatibilityFallbacks: config.modelCompatibilityFallbacks,
   };
 }
 

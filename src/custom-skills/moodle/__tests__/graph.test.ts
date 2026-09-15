@@ -108,6 +108,25 @@ describe("moodle graph retry routing", () => {
     )).rejects.toThrow("integrity pair is incomplete");
   });
 
+  it("preflights concrete overrides and inherited search models for evidence extraction", () => {
+    const models = resolvePreflightModels(moodleTestConfig({
+      stage: "extract", evidenceHandoffOnly: true,
+      modelPolicyOverrides: {
+        source_search: { model: "search-primary", escalationModel: "search-fallback" },
+        request_evaluation: { model: "request-primary", escalationModel: "request-fallback" },
+        content_extraction: { model: "unused-teaching-model" },
+        html_planning: { model: "unused-page-model" },
+        assessment_planning: { model: "unused-assessment-model" },
+      },
+    }));
+    expect(models).toEqual(expect.arrayContaining([
+      "search-primary", "search-fallback", "request-primary", "request-fallback",
+    ]));
+    expect(models).not.toContain("unused-teaching-model");
+    expect(models).not.toContain("unused-page-model");
+    expect(models).not.toContain("unused-assessment-model");
+  });
+
   it("preflights the PDF visual reviewer for render-only runs", () => {
     const models = resolvePreflightModels(moodleTestConfig({
       stage: "render",
