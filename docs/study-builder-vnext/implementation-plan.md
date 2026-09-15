@@ -1,5 +1,19 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Completion through human review — 2026-09-15
+
+Owner explicitly requested finishing the remaining implementation before their
+human testing. Keep the existing source planner's validated acquisition loop;
+add a bounded author-or-delegate path over exact evidence chapters, with a fixed
+compatibility mode. Persist operation ownership and policy provenance, unify
+transport fallback and logical-call metrics, localize progression repair, and
+prepare a controlled offline comparison plus human test instructions. Preserve
+all charter correctness/permission/publication gates. Do not represent mocked
+measurements as live model performance or packaged desktop acceptance.
+
+Status: implementation in progress. Baseline is `ec337b9`; unrelated dirty UI
+work remains outside these commits. User testing follows development checks.
+
 ## Hybrid agent architecture — 2026-09-15
 
 Owner approved the architecture review and three-phase implementation proposal.

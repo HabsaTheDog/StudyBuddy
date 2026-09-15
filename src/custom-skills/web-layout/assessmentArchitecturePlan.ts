@@ -1,3 +1,4 @@
+import { reserveOperationAttempt, operationPolicyFingerprint, OperationBudgetError } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -160,7 +161,7 @@ export interface AssessmentArchitectureContractContext {
 
 export interface AssessmentArchitectureInput {
   codex: CodexClient;
-  config: Pick<WebLayoutRuntimeConfig, "runDir" | "language" | "originalUserPrompt" | "diagnostics">;
+  config: Pick<WebLayoutRuntimeConfig, "runDir" | "language" | "originalUserPrompt" | "diagnostics"> & Partial<WebLayoutRuntimeConfig>;
   requestContract: RequestContract;
   requestContractHash: string;
   sourceText: string;
@@ -264,6 +265,7 @@ export async function resolveAssessmentArchitecturePlan(
   const course = normalizeCourse(input.course);
   const courseHash = sha256(canonicalJson(course));
   const evidenceHash = sha256(input.sourceText);
+  const producerPolicy = operationPolicyFingerprint(input.config, "assessment_planning");
   const semanticCacheKey = assessmentArchitectureCacheKey({
     contractHash: contract.contractHash,
     originalPromptHash: contract.originalPromptHash,
@@ -279,8 +281,10 @@ export async function resolveAssessmentArchitecturePlan(
     semanticCacheKey,
   };
   const localPath = path.join(input.config.runDir, PLAN_FILE);
+  const policyPath = path.join(input.config.runDir, "assessment-architecture-policy.json");
+  const localPolicy = await readFile(policyPath, "utf8").catch(() => "");
   const local = await readBoundPlan(localPath);
-  if (local) {
+  if (local && localPolicy === producerPolicy) {
     const localStatus = localPlanStatus(local, expectedBinding);
     if (localStatus === "reuse") {
       assertCompatiblePlan(local, expectedBinding, input.sourceText, course, contract);
@@ -293,12 +297,13 @@ export async function resolveAssessmentArchitecturePlan(
     );
   }
   const sharedPath = process.env.VITEST === "true"
-    ? path.join(input.config.runDir, ".assessment-architecture-cache", `${semanticCacheKey}.json`)
-    : path.join(process.cwd(), "study-buddy-data", "cache", "web-layout", "assessment-architecture", `${semanticCacheKey}.json`);
+    ? path.join(input.config.runDir, ".assessment-architecture-cache", `${semanticCacheKey}-${producerPolicy}.json`)
+    : path.join(process.cwd(), "study-buddy-data", "cache", "web-layout", "assessment-architecture", `${semanticCacheKey}-${producerPolicy}.json`);
   const cached = await readBoundPlan(sharedPath);
   if (cached) {
     assertCompatiblePlan(cached, expectedBinding, input.sourceText, course, contract);
     await persistPlan(localPath, cached);
+    await writeFile(policyPath, producerPolicy);
     return cached;
   }
 
@@ -310,7 +315,8 @@ export async function resolveAssessmentArchitecturePlan(
         buildAssessmentArchitecturePrompt(input, contract, course, repairError),
         {
           task: "artifact_planner", operation: "assessment_planning",
-          attempt,
+          attempt: await reserveOperationAttempt({ runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir,
+            key: "assessment-planning", binding: { contract: contract.contractHash, courseHash, evidenceHash }, signal: input.config.abortSignal }),
           outputSchema: generatedPlanJsonSchema,
           timeoutMs: 150_000,
         },
@@ -318,7 +324,7 @@ export async function resolveAssessmentArchitecturePlan(
       const generated = generatedPlanSchema.parse(JSON.parse(stripJsonFence(response)));
       const plan = bindGeneratedPlan(generated, expectedBinding, input.sourceText, course);
       assertCompatiblePlan(plan, expectedBinding, input.sourceText, course, contract);
-      await Promise.all([persistPlan(localPath, plan), persistPlan(sharedPath, plan)]);
+      await Promise.all([persistPlan(localPath, plan), persistPlan(sharedPath, plan), writeFile(policyPath, producerPolicy)]);
       await input.config.diagnostics?.log(
         "info",
         "planner",
@@ -326,6 +332,7 @@ export async function resolveAssessmentArchitecturePlan(
       );
       return plan;
     } catch (error) {
+      if (error instanceof OperationBudgetError || input.config.abortSignal?.aborted) throw error;
       finalError = error;
       repairError = architectureErrorMessage(error);
       await input.config.diagnostics?.log(

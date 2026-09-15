@@ -300,6 +300,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         selectedPolicy.model === primaryPolicy.model ? escalationPolicy : primaryPolicy,
       ]);
 
+      const logicalCallId = randomUUID();
       for (const [candidateIndex, policy] of policies.entries()) {
         const selectionAttempt = candidateIndex === 0 ? attempt
           : selectedPolicy.model === primaryPolicy.model ? 2 : 1;
@@ -333,6 +334,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           });
           await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
             operation: options?.operation ?? task,
@@ -373,6 +375,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           await recordCall({
             config,
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
             operation: options?.operation ?? task,
@@ -399,6 +402,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           await recordCall({
             config,
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
             operation: options?.operation ?? task,
@@ -479,7 +483,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   };
 }
 
-function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
+export function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
   const seen = new Set<string>();
   return policies.filter((policy) => {
     if (seen.has(policy.model)) return false;
@@ -488,7 +492,7 @@ function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
   });
 }
 
-function shouldTryModelFallback(
+export function shouldTryModelFallback(
   status: "completed" | "failed" | "timeout" | "canceled",
   classification: CodexErrorClassification | null,
 ): boolean {
@@ -507,6 +511,8 @@ async function recordCall(input: {
   policySource: string;
   config: MoodleRuntimeConfig;
   callId: string;
+  logicalCallId: string;
+  transportAttempt: number;
   task: StudyBuddyModelTask;
   attempt: number;
   model: string;
@@ -545,6 +551,9 @@ async function recordCall(input: {
     : 0;
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
+    logicalCallId: input.logicalCallId,
+    transportAttempt: input.transportAttempt,
+    usageAvailable: input.usage !== null,
     task: input.task,
     operation: input.operation,
     policySource: input.policySource,

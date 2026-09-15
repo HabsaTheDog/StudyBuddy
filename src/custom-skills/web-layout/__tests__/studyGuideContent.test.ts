@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createWebLayoutRuntimeConfig } from "../config.js";
+import { createWebLayoutRuntimeConfig as createBaseWebLayoutRuntimeConfig } from "../config.js";
+// These regressions characterize the fixed compatibility path. Hybrid
+// authoring and its real content gates have separate cases below.
+const createWebLayoutRuntimeConfig = (input: Parameters<typeof createBaseWebLayoutRuntimeConfig>[0]) =>
+  createBaseWebLayoutRuntimeConfig({ architectureMode: "fixed", ...input });
 import { alignGeneratedBatchTopics, bindStudyGuideEvidenceRefs, buildEvidenceChunks, buildStudyGuideContentPrompt, createStudyGuideContentNode, normalizeSourceReferences } from "../nodes/studyGuideContentNode.js";
 import { deriveStudyGuideRequirements } from "../studyGuideProfile.js";
 import { initialWebLayoutState } from "../state.js";
@@ -271,6 +275,37 @@ describe("study-guide canonical content bank", () => {
     expect(JSON.stringify(content.topics[0]!.exercises)).toBe(beforeExercises);
     expect(validateStudyGuideChapterQuality(content).join("\n"))
       .not.toContain("does not preserve a recognizable concept");
+  });
+
+  it("compares fixed and hybrid authoring with identical evidence and real content/review gates", async () => {
+    const samples: Array<Record<string, unknown>> = [];
+    const outputs: StudyGuideContent[] = [];
+    for (const architectureMode of ["fixed", "hybrid"] as const) {
+      const runDir = await mkdtemp(path.join(os.tmpdir(), `web-${architectureMode}-comparison-`)); tempDirs.push(runDir);
+      const config = createWebLayoutRuntimeConfig({ prompt: "Build an English language study guide", kind: "study-guide", language: "en", runDir, architectureMode });
+      const calls: Array<{ operation: string | undefined; attempt: number | undefined; promptCharacters: number }> = [];
+      const started = Date.now();
+      const result = await createStudyGuideContentNode(config, { run: async (prompt, options) => {
+        calls.push({ operation: options.operation, attempt: options.attempt, promptCharacters: prompt.length });
+        if (prompt.includes("BOUNDED_AUTHOR_OR_DELEGATE")) {
+          const chunks = [1, 2, 3, 4].map(number => studyGuideContentSchema.parse(modelChapter(`Chapter ${number}/4`)));
+          return JSON.stringify({ mode: "author", groups: [], content: { ...chunks[0],
+            topics: chunks.flatMap(chunk => chunk.topics), sources: chunks.flatMap(chunk => chunk.sources) } });
+        }
+        return modelOrReviewResponse(prompt);
+      } })({ ...initialWebLayoutState, source_text: languageHandoff(), request_contract: minimalRequestContract(config.originalUserPrompt, [config.kind]) });
+      expect(result.error_log).toBeNull();
+      const content = studyGuideContentSchema.parse(result.study_guide_content);
+      expect(validateStudyGuideContentQuality(content, deriveStudyGuideRequirements(languageHandoff()))).toEqual([]);
+      outputs.push(content);
+      samples.push({ architectureMode, surface: "deterministic-workflow", fixture: "four-language-units", calls,
+        testHarnessMs: Date.now() - started, tokenUsage: null, qualityGates: { contentSchema: true, contentQuality: true, independentQuestionReview: true },
+        note: "Canned identical content and reviewer decisions; timings are test harness time, not live model performance." });
+    }
+    expect(outputs[1]).toEqual(outputs[0]);
+    const callCount = (sample: Record<string, unknown>) => (sample.calls as Array<{ operation: string }>).filter(call => call.operation === "learning_content").length;
+    expect(callCount(samples[0]!)).toBe(4); expect(callCount(samples[1]!)).toBe(1);
+    if (process.env.STUDY_BUDDY_ARCHITECTURE_REPORT) await writeFile(process.env.STUDY_BUDDY_ARCHITECTURE_REPORT, JSON.stringify({ samples }, null, 2));
   });
 
   it("uses bounded parallel content-analyzer calls and preserves chapter order", async () => {

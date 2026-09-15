@@ -21,6 +21,21 @@ afterEach(async () => {
 
 describe("task model SDK boundary", () => {
   for (const lane of ["document", "page", "interactive"] as const) {
+    it(`records bounded transport fallback separately from semantic attempts for ${lane}`, async () => {
+      const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-transport-test-")); runDirs.push(runDir);
+      const recordModelCall = vi.fn(); sdk.startThread.mockReturnValue({ run: sdk.run });
+      sdk.run.mockRejectedValueOnce(new Error("Selected model is at capacity")).mockResolvedValueOnce({ finalResponse: "{}", items: [], usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 2, reasoning_output_tokens: 0 } });
+      const operation = lane === "interactive" ? "quiz_verification" : "solution_generation";
+      const task = lane === "interactive" ? "quiz_solver" : "content_analyzer";
+      const config = { runDir, executionProfile: "custom", stage: "render", executionTelemetry: { recordModelCall, pauseRuntimeBudget: () => () => {} }, modelPolicyOverrides: { [operation]: { model: "primary", escalationModel: "fallback", reasoningEffort: "minimal" } } };
+      const client = lane === "document" ? createDocumentClient(config as never) : lane === "page" ? createPageClient(config as never) : createInteractiveClient(config as never);
+      expect(await client.run("Frozen evidence", { operation, task: task as never })).toBe("{}");
+      const calls = lane === "interactive" ? (await readFile(path.join(runDir, "run-model-calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)) : recordModelCall.mock.calls.map(([entry]) => entry);
+      expect(calls.map(call => [call.model, call.attempt, call.transportAttempt, call.usageAvailable])).toEqual([["primary", 1, 1, false], ["fallback", 1, 2, true]]);
+      expect(new Set(calls.map(call => call.logicalCallId)).size).toBe(1);
+      expect(sdk.startThread.mock.calls[0]![0].modelReasoningEffort).toBe("minimal");
+    });
+
     it(`bounds and records a timed-out ${lane} SDK call`, async () => {
       const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-deadline-test-")); runDirs.push(runDir);
       const recordModelCall = vi.fn();

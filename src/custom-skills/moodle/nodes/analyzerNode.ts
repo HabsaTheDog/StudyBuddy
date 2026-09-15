@@ -1,3 +1,4 @@
+import { reserveOperationAttempt, operationPolicyFingerprint } from "../../shared/operationCheckpoint.js";
 import { createObligationHandoff } from "../obligationAnswer.js";
 import { readObligationInventory } from "../obligationInventory.js";
 import { createHash } from "node:crypto";
@@ -197,7 +198,7 @@ async function analyzeWholeRequest(
     outputSchema: extractedDataJsonSchema,
     task: state.error_log ? "content_repair" : "content_analyzer",
     operation: state.error_log ? "content_extraction_repair" : "content_extraction",
-    attempt: state.error_log ? Math.max(1, state.retry_count) : state.retry_count + 1,
+    attempt: Math.max(1, await reserveExtractionAttempt(config, state, "whole") - (state.error_log ? 1 : 0)),
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
   return validateAnalyzerResponse(response, config);
@@ -352,9 +353,7 @@ async function analyzeCourseChapters(
                 outputSchema: extractedDataJsonSchema,
                 task: invalidKeys.has(focus.key) ? "content_repair" : "content_analyzer",
                 operation: invalidKeys.has(focus.key) ? "content_extraction_repair" : "content_extraction",
-                attempt: invalidKeys.has(focus.key)
-                  ? Math.max(1, state.retry_count)
-                  : state.retry_count + 1,
+                attempt: Math.max(1, await reserveExtractionAttempt(config, state, focus.key) - (invalidKeys.has(focus.key) ? 1 : 0)),
                 localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
             ), config);
@@ -575,6 +574,7 @@ async function analyzeDenseChapter(
     // failed sliceNeedsRepair and silently reused the same cached fragment.
     let sliceRepairFeedback = repairFeedback;
     const fingerprintBase = {
+      producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
@@ -682,9 +682,7 @@ async function analyzeDenseChapter(
           // preceding analyzer call as repair attempt 1 skipped the balanced
           // Terra repair lane and escalated every ordinary validation miss to
           // Sol. Only a failed repair itself may advance to attempt 2.
-          attempt: repairing
-            ? Math.max(1, state.retry_count + localAttempt)
-            : state.retry_count + 1,
+          attempt: Math.max(1, await reserveExtractionAttempt(config, state, `${focus.key}:${slice.key}`) - (repairing ? 1 : 0)),
           localImages,
         });
         throwIfAborted(config.abortSignal);
@@ -701,7 +699,7 @@ async function analyzeDenseChapter(
         break;
       } catch (error) {
         throwIfAborted(config.abortSignal);
-        if (error instanceof ModelCallTimeoutError) throw error;
+        if (error instanceof ModelCallTimeoutError || isNonRetryableCodexError(error)) throw error;
         if (localAttempt + 1 >= localAttempts) throw error;
         localRepairFeedback =
           `Validator-Diagnose für den einmaligen lokalen Reparaturversuch: ${
@@ -2351,6 +2349,8 @@ function chapterFingerprint(
     .filter((resource) => focus.resourceIds.includes(resource.id))
     .map((resource) => ({ id: resource.id, checksum: resource.checksum, status: resource.status }));
   return createHash("sha256").update(JSON.stringify({
+    producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
+    requestContract: state.request_contract,
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
     outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
@@ -2756,4 +2756,10 @@ function focusedRawSource(rawText: string, resources: Array<{ originUrl: string 
       return url ? urls.has(url) : false;
     })
     .join("\n\n");
+}
+
+async function reserveExtractionAttempt(config: MoodleRuntimeConfig, state: LangGraphAgentState, unit: string): Promise<number> {
+  return reserveOperationAttempt({ runDir: config.runDir, resumeRunDir: config.resumeExtractionRunDir,
+    key: `extraction:${unit}`, binding: { request: state.request_contract, language: config.outputLanguage,
+      source: createHash("sha256").update(state.moodle_raw_text).digest("hex") }, signal: config.abortSignal });
 }

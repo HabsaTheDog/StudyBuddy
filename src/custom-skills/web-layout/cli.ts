@@ -42,6 +42,7 @@ const program = new Command()
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
   .option("--codex-reasoning-effort <effort>", "Global Codex reasoning effort", parseReasoningEffort)
+  .option("--architecture <mode>", "Authoring architecture: hybrid or fixed")
   .option("--execution-profile <profile>", "Execution profile: fast, balanced, quality, or custom", parseExecutionProfile, "balanced")
   .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
   .option("--json", "Print machine-readable JSON result")
@@ -68,6 +69,7 @@ const options = program.opts<{
   idleTimeoutMs?: number;
   codexModel?: string;
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  architecture?: "fixed" | "hybrid";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   profileOverridesJson?: StudyBuddyModelPolicyOverrides;
   json?: boolean;
@@ -96,6 +98,7 @@ const result = await runWebLayoutGraph({
   idleTimeoutMs: options.idleTimeoutMs,
   codexModel: options.codexModel,
   codexReasoningEffort: options.codexReasoningEffort,
+  architectureMode: options.architecture,
   executionProfile: options.executionProfile,
   modelPolicyOverrides: options.profileOverridesJson,
 });

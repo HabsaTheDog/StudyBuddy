@@ -1,3 +1,4 @@
+import { checkpointOperation, operationPolicyFingerprint, semanticHash, reserveOperationAttempt } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -377,7 +378,9 @@ export async function resolveAssessmentSolutions(input: {
   ]));
 
   const fingerprint = assessmentSolutionSemanticCacheKey(contentContract, {
-    version: "assessment-solutions-v5-open-item-contract",
+    version: "assessment-solutions-v6-policy-evidence",
+    sourceHash: semanticHash(input.sourceText),
+    policies: ["solution_generation", "solution_verification"].map(operation => operationPolicyFingerprint(input.config, operation as "solution_generation" | "solution_verification")),
     language: input.config.language,
     tasks: tasks.map((item) => ({
       id: item.legacyExerciseId,
@@ -435,10 +438,12 @@ export async function resolveAssessmentSolutions(input: {
   );
   const itemCacheDir = path.join(path.dirname(sharedPath), "items");
   await mkdir(itemCacheDir, { recursive: true });
-  const resolvedItems = await Promise.all(tasks.map(async (task, index) => {
+  const settledItems = await Promise.allSettled(tasks.map(async (task, index) => {
     const taskContract = taskContracts.get(task.id)!;
     const itemFingerprint = assessmentSolutionSemanticCacheKey(contentContract, {
-      version: "assessment-solution-item-v4-open-item-contract",
+      version: "assessment-solution-item-v5-policy-evidence",
+      sourceHash: semanticHash(input.sourceText),
+      policies: ["solution_generation", "solution_verification"].map(operation => operationPolicyFingerprint(input.config, operation as "solution_generation" | "solution_verification")),
       language: input.config.language,
       taskContract,
       topic: relevantTopicContext(input.content, task.topicId),
@@ -454,58 +459,69 @@ export async function resolveAssessmentSolutions(input: {
       return cachedItem;
     }
     const localImage = localImages[index] ? [localImages[index]!] : [];
-    const generatedResponse = await input.codex.run(
-      buildAssessmentSolutionPrompt(input, task, contentContract),
-      {
-        task: "content_analyzer", operation: "solution_generation",
-        attempt: 1,
-        outputSchema: generatedSetJsonSchema,
-        timeoutMs: 180_000,
-        localImages: localImage,
-      },
-    );
-    const generated = generatedSetSchema.parse(JSON.parse(stripJsonFence(generatedResponse)));
-    assertExactCoverage(generated.items, [task.legacyExerciseId]);
-    const solution = generated.items[0]!;
-    const reviewResponse = await input.codex.run(
-      buildAssessmentSolutionReviewPrompt(input, task, solution, contentContract),
-      {
-        task: "quality_reviewer", operation: "solution_verification",
-        attempt: 1,
-        outputSchema: reviewSetJsonSchema,
-        timeoutMs: 180_000,
-        localImages: localImage,
-      },
-    );
-    const reviewed = reviewSetSchema.parse(JSON.parse(stripJsonFence(reviewResponse)));
-    assertExactCoverage(reviewed.items, [task.legacyExerciseId]);
-    const review = reviewed.items[0]!;
-    if (
-      solution.completeness !== "complete" ||
-      solution.missingEvidence.length > 0 ||
-      !review.approved
-    ) {
-      throw new Error([
-        "Assessment solutions failed the publication gate.",
-        `${solution.legacyExerciseId}: ${[
-          ...(solution.completeness === "complete" ? [] : ["Musterlösung ist unvollständig."]),
-          ...solution.missingEvidence,
-          ...review.findings,
-        ].join(" · ")}`,
-      ].join("\n"));
-    }
-    const resolved = reviewedSolutionSchema.parse({
-      ...solution,
-      solutionOrigin: "study_buddy_generated",
-      contractBinding: persistedTaskBinding(taskContract),
-      review: {
-        status: "approved",
-        findings: review.findings,
+    const draftName = `solution-draft-${itemFingerprint}.json`;
+    const resolved = await checkpointOperation({
+      runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir,
+      key: `solution:${task.id}`, binding: { taskContract, sourceHash: semanticHash(input.sourceText), topic: relevantTopicContext(input.content, task.topicId) },
+      policy: semanticHash([operationPolicyFingerprint(input.config, "solution_generation"), operationPolicyFingerprint(input.config, "solution_verification")]),
+      signal: input.config.abortSignal, validate: value => reviewedSolutionSchema.parse(value),
+      run: async (attempt, previousError) => {
+        let solution: z.infer<typeof generatedSolutionSchema> | undefined;
+        for (const root of [input.config.runDir, input.config.resumeRunDir].filter((value): value is string => Boolean(value))) {
+          try {
+            const draft = JSON.parse(await readFile(path.join(root, draftName), "utf8"));
+            if (draft.fingerprint !== itemFingerprint || draft.valueHash !== semanticHash(draft.value)) throw new Error("Solution draft binding mismatch.");
+            if (draft.usable) solution = generatedSolutionSchema.parse(draft.value);
+            break; // A local rejection tombstone supersedes a resumed draft.
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
+        }
+        const persistDraft = async (usable: boolean) => writeFile(path.join(input.config.runDir, draftName), JSON.stringify({
+          fingerprint: itemFingerprint, usable, value: solution, valueHash: semanticHash(solution),
+        }) + "\n", { mode: 0o600 });
+        if (!solution) {
+          const generatedResponse = await input.codex.run(
+            buildAssessmentSolutionPrompt({ ...input, priorError: previousError ?? input.priorError }, task, contentContract),
+            { task: "content_analyzer", operation: "solution_generation", attempt: await reserveOperationAttempt({
+                runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir, key: `solution-generation:${task.id}`,
+                binding: { taskContract, sourceHash: semanticHash(input.sourceText) }, signal: input.config.abortSignal }),
+              outputSchema: generatedSetJsonSchema, timeoutMs: 180_000, localImages: localImage },
+          );
+          const generated = generatedSetSchema.parse(JSON.parse(stripJsonFence(generatedResponse)));
+          assertExactCoverage(generated.items, [task.legacyExerciseId]);
+          solution = generated.items[0]!;
+          if (solution.completeness !== "complete" || solution.missingEvidence.length > 0) {
+            throw new Error(`Assessment solutions failed completeness: ${solution.missingEvidence.join("; ")}`);
+          }
+          await persistDraft(true);
+        }
+        const reviewResponse = await input.codex.run(
+          buildAssessmentSolutionReviewPrompt(input, task, solution, contentContract),
+          { task: "quality_reviewer", operation: "solution_verification", attempt: await reserveOperationAttempt({
+              runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir, key: `solution-verification:${task.id}`,
+              binding: { taskContract, sourceHash: semanticHash(input.sourceText) }, signal: input.config.abortSignal }),
+            outputSchema: reviewSetJsonSchema, timeoutMs: 180_000, localImages: localImage },
+        );
+        const reviewed = reviewSetSchema.parse(JSON.parse(stripJsonFence(reviewResponse)));
+        assertExactCoverage(reviewed.items, [task.legacyExerciseId]);
+        const review = reviewed.items[0]!;
+        if (!review.approved) {
+          await persistDraft(false);
+          throw new Error(`Assessment solutions failed the publication gate: ${review.findings.join("; ")}`);
+        }
+        return reviewedSolutionSchema.parse({
+          ...solution, solutionOrigin: "study_buddy_generated", contractBinding: persistedTaskBinding(taskContract),
+          review: { status: "approved", findings: review.findings },
+        });
       },
     });
     await writeFile(itemCachePath, `${JSON.stringify(resolved, null, 2)}\n`, "utf8");
     return resolved;
   }));
+  const failedItem = settledItems.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failedItem) throw failedItem.reason;
+  const resolvedItems = settledItems.map(result => (result as PromiseFulfilledResult<AssessmentReferenceSolution>).value);
   const itemsWithTaskEvidence = await attachAssessmentVisuals({
     config: input.config,
     codex: input.codex,

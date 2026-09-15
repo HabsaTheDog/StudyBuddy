@@ -12,6 +12,9 @@ export interface ModelTokenUsage {
 
 export interface ModelCallMetric extends ModelTokenUsage {
   id: string;
+  logicalCallId?: string;
+  transportAttempt?: number;
+  usageAvailable?: boolean;
   task: StudyBuddyModelTask;
   operation?: string;
   policySource?: string;

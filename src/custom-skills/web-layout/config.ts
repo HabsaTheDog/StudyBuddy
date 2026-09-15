@@ -61,6 +61,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   }
 
   return {
+    architectureMode: parseArchitectureMode(input.architectureMode ?? process.env.STUDY_BUDDY_ARCHITECTURE),
     prompt: input.prompt,
     originalUserPrompt,
     kind: parseKind(input.kind ?? "auto"),
@@ -223,4 +224,10 @@ export function safeSlug(value: string): string {
     .replace(/[^a-z0-9äöüß_-]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80) || "web-layout";
+}
+
+export function parseArchitectureMode(value: string | undefined): "fixed" | "hybrid" {
+  if (value === undefined || value === "hybrid") return "hybrid";
+  if (value === "fixed") return "fixed";
+  throw new Error("architectureMode must be fixed or hybrid.");
 }

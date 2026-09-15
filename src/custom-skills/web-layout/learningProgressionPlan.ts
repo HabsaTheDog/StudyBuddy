@@ -1,3 +1,4 @@
+import { operationPolicyFingerprint, semanticHash, reserveOperationAttempt } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +17,8 @@ const intentSchema = z.enum(["minimum", "foundation", "application", "depth", "a
 const difficultySchema = z.enum(["basic", "standard", "advanced", "assessment"]);
 
 const persistedProgressionPlanSchema = z.object({
+  producerPolicy: z.string().optional(),
+  sourceHash: z.string().optional(),
   schemaVersion: z.literal(1),
   contractHash: z.string().regex(/^[a-f0-9]{64}$/),
   originalPromptHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -171,11 +174,16 @@ export async function resolveLearningProgressionPlan(input: {
   sourceText: string;
   questionBank: QuestionBank;
   requestContract: RequestContract;
+  fixedStages?: LearningProgressionPlan["stages"];
+  incremental?: boolean;
 }): Promise<LearningProgressionPlan> {
   const binding = { originalUserPrompt: input.config.originalUserPrompt, requestContract: input.requestContract };
   const context = progressionContext(binding);
   const bankHash = progressionBankHash(input.questionBank);
-  const fingerprint = sha256(JSON.stringify({ version: "learning-progression-v2", ...context, bankHash }));
+  const producerPolicy = semanticHash([operationPolicyFingerprint(input.config, "learning_progression"), operationPolicyFingerprint(input.config, "learning_progression_repair")]);
+  const sourceHash = sha256(input.sourceText);
+  const stamp = (plan: LearningProgressionPlan): LearningProgressionPlan => ({ ...plan, producerPolicy, sourceHash });
+  const fingerprint = sha256(JSON.stringify({ version: "learning-progression-v3-local", ...context, bankHash, producerPolicy, sourceHash, fixedStages: input.fixedStages }));
   const cacheRoot = process.env.VITEST === "true"
     ? path.join(input.config.runDir, "learning-progression-cache")
     : path.join(process.cwd(), "study-buddy-data", "cache", "web-layout", "learning-progression");
@@ -185,21 +193,46 @@ export async function resolveLearningProgressionPlan(input: {
     await persistRun(input.config.runDir, cached);
     return cached;
   }
+  if (input.incremental !== false) {
+    for (const root of [input.config.runDir, input.config.resumeRunDir].filter((value): value is string => Boolean(value))) {
+      const previous = await readPlan(path.join(root, "learning-progression-plan.json"));
+      if (!previous || previous.producerPolicy !== producerPolicy || previous.sourceHash !== sourceHash || !progressionBindingMatches(previous, binding)) continue;
+      const kept = input.questionBank.items.flatMap(item => {
+        const placement = matchingProgressionPlacement(previous, item, binding);
+        return placement ? [placement] : [];
+      });
+      if (!kept.length) continue;
+      const keptIds = new Set(kept.map(placement => placement.itemId));
+      const changed = input.questionBank.items.filter(item => !keptIds.has(item.id));
+      const replacement = changed.length ? await resolveLearningProgressionPlan({
+        ...input, questionBank: { ...input.questionBank, items: changed }, fixedStages: previous.stages, incremental: false,
+      }) : undefined;
+      if (replacement && !sameStages(replacement.stages, previous.stages)) break;
+      const merged = stamp(learningProgressionPlanSchema.parse({ ...previous, bankHash,
+        placements: [...kept, ...(replacement?.placements ?? [])] }));
+      if (!compatibleProgressionPlan(merged, input.questionBank, binding)) throw new Error("Incremental progression lost exact bank coverage.");
+      await persistAdaptivePlan(cachePath, input.config.runDir, merged);
+      await persistDiagnostic(input.config.runDir, "adaptive", [`Retained ${kept.length} unchanged placements; planned ${changed.length} changed items.`]);
+      return merged;
+    }
+  }
   const prompt = buildLearningProgressionPrompt(input, context, bankHash);
   const failures: string[] = [];
   let firstResponse: string | undefined;
   try {
     firstResponse = await input.codex.run(prompt, {
       task: "content_analyzer", operation: "learning_progression",
-      attempt: 1,
+      attempt: await reserveOperationAttempt({ runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir,
+        key: `progression:${bankHash}`, binding: { sourceHash, contract: context.contractHash }, signal: input.config.abortSignal }),
       outputSchema: planJsonSchema,
       timeoutMs: 180_000,
     });
-    const plan = materializeModelDecision(firstResponse, input, context, bankHash);
+    const plan = stamp(materializeModelDecision(firstResponse, input, context, bankHash));
     await persistAdaptivePlan(cachePath, input.config.runDir, plan);
     await persistDiagnostic(input.config.runDir, "adaptive", []);
     return plan;
   } catch (error) {
+    if (input.config.abortSignal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
     failures.push(errorMessage(error));
   }
 
@@ -209,17 +242,19 @@ export async function resolveLearningProgressionPlan(input: {
         buildLearningProgressionRepairPrompt(prompt, firstResponse, failures[0]!),
         {
           task: "content_repair", operation: "learning_progression_repair",
-          attempt: 1,
+          attempt: Math.max(1, await reserveOperationAttempt({ runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir,
+            key: `progression:${bankHash}`, binding: { sourceHash, contract: context.contractHash }, signal: input.config.abortSignal }) - 1),
           outputSchema: planJsonSchema,
           timeoutMs: 120_000,
         },
       );
-      const plan = materializeModelDecision(repairedResponse, input, context, bankHash);
+      const plan = stamp(materializeModelDecision(repairedResponse, input, context, bankHash));
       await persistAdaptivePlan(cachePath, input.config.runDir, plan);
       await persistDiagnostic(input.config.runDir, "repaired", failures);
       return plan;
     } catch (error) {
-      failures.push(errorMessage(error));
+      if (input.config.abortSignal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+    failures.push(errorMessage(error));
     }
   }
 
@@ -236,7 +271,7 @@ export async function resolveLearningProgressionPlan(input: {
 }
 
 export function buildLearningProgressionPrompt(
-  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "sourceText" | "questionBank" | "requestContract">,
+  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "sourceText" | "questionBank" | "requestContract" | "fixedStages">,
   context = progressionContext({
     originalUserPrompt: input.config.originalUserPrompt,
     requestContract: input.requestContract,
@@ -245,6 +280,7 @@ export function buildLearningProgressionPrompt(
 ): string {
   const prefix = [
     "LEARNING_PROGRESSION_PLANNER",
+    input.fixedStages ? `Retain these exact stage labels, descriptions, intents and order. Classify only the changed items below; unchanged item placements remain authoritative: ${JSON.stringify(input.fixedStages)}` : "",
     "Create an evidence- and request-adaptive learning progression for the supplied validated question bank. Return JSON only.",
     "Choose between one and five coherent stages. Course-appropriate labels are welcome, but do not use a subject template, fixed stage count, question-type ladder, per-stage quota, or array position as pedagogy.",
     "Place every numbered item exactly once. Base placement and difficulty on the original request, evaluated contract, evidenced objectives, source task, answer contract, prerequisite demand, transfer depth, realistic estimated solving time, and documented assessment role. Short foundation work should usually prepare learners for substantial applications, while a long difficult task may carry more preparation value than several short prompts. Do not turn estimated time into a fixed quota or deterministic type ladder. Two items with the same type may belong to different stages; different types may belong to the same stage.",
@@ -336,7 +372,7 @@ function progressionPlannerItemView(
 
 function materializeModelDecision(
   response: string,
-  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "questionBank" | "requestContract">,
+  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "questionBank" | "requestContract" | "fixedStages">,
   context: ReturnType<typeof progressionContext>,
   bankHash: string,
 ): LearningProgressionPlan {
@@ -365,6 +401,7 @@ function materializeModelDecision(
     ...stage,
     id: `stage-${index + 1}`,
   }));
+  if (input.fixedStages && !sameStages(stages, input.fixedStages)) throw new Error("Local progression repair changed the established stages.");
   return learningProgressionPlanSchema.parse({
     schemaVersion: 1,
     ...context,
@@ -402,7 +439,7 @@ function buildLearningProgressionRepairPrompt(
 }
 
 function neutralProgressionPlan(
-  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "questionBank" | "requestContract">,
+  input: Pick<Parameters<typeof resolveLearningProgressionPlan>[0], "config" | "questionBank" | "requestContract" | "fixedStages">,
   context: ReturnType<typeof progressionContext>,
   bankHash: string,
 ): LearningProgressionPlan {
@@ -491,4 +528,11 @@ function stripJsonFence(value: string): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function sameStages(left: LearningProgressionPlan["stages"], right: LearningProgressionPlan["stages"]): boolean {
+  return left.length === right.length && left.every((stage, index) => {
+    const other = right[index]!;
+    return stage.id === other.id && stage.label === other.label && stage.description === other.description && stage.intent === other.intent;
+  });
 }

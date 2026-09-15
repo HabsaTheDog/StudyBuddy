@@ -15,6 +15,7 @@ import {
   type StudyBuddyModelTask,
 } from "../shared/modelPolicy.js";
 import {
+  classifyCodexError, shouldTryModelFallback, uniqueModelPolicies, NonRetryableCodexError,
   resolveCodexTaskAccessPolicy,
   resolveModelPromptCharacterBudget,
   summarizeCodexToolUsage,
@@ -70,7 +71,11 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
       };
-      const policy = resolveTaskModelPolicy(policyInput);
+      const selectedPolicy = resolveTaskModelPolicy(policyInput);
+      const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
+      const alternateAttempt = selectedPolicy.model === primaryPolicy.model ? 2 : 1;
+      const policies = uniqueModelPolicies([selectedPolicy, resolveTaskModelPolicy({ ...policyInput, attempt: alternateAttempt })]);
+      const logicalCallId = randomUUID();
       const accessPolicy = resolveCodexTaskAccessPolicy(task);
       const sanitizedPrompt = accessPolicy.leafWorker
         ? `${LEAF_WORKER_BOUNDARY}\n\n${prompt}`
@@ -93,6 +98,8 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         ? path.join(leafWorkspaceRoot, task)
         : config.runDir;
       await mkdir(workingDirectory, { recursive: true });
+      for (const [candidateIndex, policy] of policies.entries()) {
+      const policySource = taskModelPolicySource({ ...policyInput, attempt: candidateIndex === 0 ? attempt : alternateAttempt });
       const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
       const control = await acquireModelCallControl({
         task, model: policy.model, timeoutMs, signal: config.abortSignal,
@@ -141,15 +148,16 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         observedUsage = turn.usage;
         signal.throwIfAborted();
         if (accessPolicy.leafWorker && observedToolUsage.toolCalls > 0) {
-          throw new Error(`${task} leaf worker used ${observedToolUsage.toolCalls} prohibited tool(s).`);
+          throw new NonRetryableCodexError(`${task} leaf worker used ${observedToolUsage.toolCalls} prohibited tool(s).`, "invalid_request");
         }
         await recordCall({
           config,
           callId,
+          logicalCallId, transportAttempt: candidateIndex + 1,
           task,
           attempt,
           operation: options.operation ?? task,
-          policySource: taskModelPolicySource(policyInput),
+          policySource,
           model: policy.model,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
@@ -169,10 +177,11 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         await recordCall({
           config,
           callId,
+          logicalCallId, transportAttempt: candidateIndex + 1,
           task,
           attempt,
           operation: options.operation ?? task,
-          policySource: taskModelPolicySource(policyInput),
+          policySource,
           model: policy.model,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
@@ -189,10 +198,17 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         if (timedOut) {
           throw new Error(`${task} model call timed out after ${timeoutMs}ms.`);
         }
+        const classification = classifyCodexError(error);
+        if (!config.abortSignal?.aborted && policies[candidateIndex + 1] && shouldTryModelFallback("failed", classification)) continue;
+        if (!classification.retryable && !(error instanceof NonRetryableCodexError)) {
+          throw new NonRetryableCodexError(error instanceof Error ? error.message : String(error), classification.category);
+        }
         throw error;
       } finally {
         await control.release();
       }
+      }
+      throw new Error("Model candidates exhausted.");
     },
   };
 }
@@ -302,6 +318,8 @@ async function recordCall(input: {
   policySource: string;
   config: WebLayoutRuntimeConfig;
   callId: string;
+  logicalCallId: string;
+  transportAttempt: number;
   task: StudyBuddyModelTask;
   attempt: number;
   model: string;
@@ -330,6 +348,7 @@ async function recordCall(input: {
   const freshInputTokens = Math.max(0, usage.input_tokens - usage.cached_input_tokens);
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
+    logicalCallId: input.logicalCallId, transportAttempt: input.transportAttempt, usageAvailable: input.usage !== null,
     task: input.task,
     operation: input.operation,
     policySource: input.policySource,

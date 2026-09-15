@@ -1,3 +1,4 @@
+import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -683,6 +684,7 @@ function sourceArchitectCachePath(
   catalog: ResourceCatalog | null,
 ): string {
   const key = createHash("sha256").update(JSON.stringify({
+    producerPolicy: operationPolicyFingerprint(config, "source_planning"),
     version: SOURCE_ARCHITECT_CACHE_VERSION,
     prompt: config.prompt.trim(),
     outputLanguage: config.outputLanguage,
