@@ -88,8 +88,48 @@ Canonical run suffixes under the reported thread's `study-buddy-data/runs/`:
 warnings and one formula-image download failure; screenshots and extracted TeX
 remain available. This repair does not claim those media warnings are resolved.
 
-Desktop First-Try acceptance remains pending: the running Study Buddy Electron
-instance has no automation connection,
-and permission to restart only that app was requested. Browser/pipeline evidence
-is not desktop acceptance. Independent T3 Code and unrelated active work were
-not changed. No release, publication, or pushed-source claim is made.
+## Authorized desktop First-Try — 2026-09-16
+
+After the owner approved restarting only Study Buddy, the official desktop-dev
+launcher opened the actual Electron shell with automation enabled. Existing
+Study Buddy state was preserved; independent T3 Code was untouched. Native
+reactivation and CDP focus emulation were needed for reliable automation input.
+This was not a substitute browser tab or packaged-release acceptance.
+
+Fresh Quick Chat `88bc15fc-a911-40a3-ae8c-bd072ccb3aa8` used the base Balanced
+profile, unchanged Full access / Help during quizzes settings, and one prompt:
+
+> Please fill both Elektrotechnik 2 self-check quizzes and leave them ready for me to review, without final submission: https://moodle.technikum-wien.at/mod/quiz/view.php?id=2246315 and https://moodle.technikum-wien.at/mod/quiz/view.php?id=2246333.
+
+No follow-up repair prompt was sent. The visible desktop turn completed in
+**5m 3s**, from 08:13:01 to 08:18:04 UTC. Both quiz workers overlapped and
+completed successfully; there was one workflow run and no model-call retries.
+
+| Self-check | Captured / reload verified | Newly filled / already matching | Peak solvers | Worker duration |
+| --- | --- | --- | --- | --- |
+| 1 | 13/13 | 0 / 13 | 8 | 124.074 s |
+| 2 | 6/6 | 1 / 5 | 6 | 235.668 s |
+
+All 19 responses were persisted, both attempts reached their summaries, and
+neither was finally submitted. The native final response reported those exact
+counts and linked both quizzes. The previously held three-phase answer passed
+the unchanged solver/verifier gate this time (confidence 0.96, no risk flags).
+Its rationale still uses the standard positive phase-sequence convention: this
+is persistence/integration acceptance, **not proof of mathematical correctness
+or reliable uncertainty calibration**. Existing answers were deliberately
+reused, so this is not a clean-blank 19-answer test; earlier live evidence covers
+new writes and deterministic fixtures cover empty same-page attempts.
+
+Leaf-model telemetry: 38 completed calls, 727,331 input tokens including
+302,336 cached tokens, and 28,533 output tokens. These figures exclude the outer
+desktop agent; they are not a whole-turn token total. Quiz 2 spent 200.561 s in
+solving/verification, versus 29.773 s capture and 5.333 s fill/verify. Parallelism
+works, but this does not establish an overall speed or cost improvement.
+
+Canonical run under that fresh thread: `study-buddy-data/runs/`
+`please-fill-both-elektrotechnik-2-self-check-quizzes-and-leave-them-ready-for-me/`
+`2026-09-16T08-13-28-120Z`. Desktop screenshots are in the campaign's
+`evidence/desktop-running.png` and `evidence/desktop-completed.png`.
+Worker inspection found no remaining active workflow after completion. The app
+was left open. Source repair `7f070f8` and this evidence are local only; no push,
+merge, publication, or packaged Windows/Fedora release acceptance is claimed.
