@@ -76,7 +76,9 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
       const alternateAttempt = selectedPolicy.model === primaryPolicy.model ? 2 : 1;
       const policies = uniqueModelPolicies([selectedPolicy, resolveTaskModelPolicy({ ...policyInput, attempt: alternateAttempt })]);
       const logicalCallId = randomUUID();
-      const accessPolicy = resolveCodexTaskAccessPolicy(task);
+      // This client returns text; the graph owns file writes, tools and delegation.
+      // Even HTML builders must not rediscover skills or recursively launch workflows.
+      const accessPolicy = resolveCodexTaskAccessPolicy("artifact_planner");
       const sanitizedPrompt = accessPolicy.leafWorker
         ? `${LEAF_WORKER_BOUNDARY}\n\n${prompt}`
         : prompt;

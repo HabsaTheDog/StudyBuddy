@@ -31,8 +31,7 @@ Reference stays separate from the independently installed T3 Code application.
    with exact evidence and remaining release gates. No tag/publication.
 
 Status: implemented and locally verified. The owner connected Codex and Gemini;
-Gemini completed a real conversation. Full desktop pipeline acceptance remains
-pending after the workstation reboot. Claude has no subscription and is covered
+Gemini completed a real conversation. Desktop acceptance has resumed; Gemini has produced a validated worksheet and both providers passed image understanding. Codex artifact acceptance is being rerun after two runtime fixes. Claude has no subscription and is covered
 by deterministic regressions, as requested. **Not production-merge accepted.**
 
 ## Implementation
@@ -131,9 +130,7 @@ Testing uses the regular Study Buddy development profile at
   `985e556f-8fa1-421c-be78-3d3972d53d4f`, reached native tool execution but did
   not start the artifact workflow before a workstation reboot interrupted it.
   It is not a successful pipeline round; no artifact or worker token totals
-  are claimed. Its persisted session still says running, but no process or
-  workflow worker exists. Stop/clear that exact test turn through the desktop
-  before a replacement run; do not alter unrelated chats or edit the database.
+  are claimed. The persisted turn outlived its process. The desktop Stop action now clears an absent or recovered idle runtime; this exact turn was stopped through the UI before replacement.
 - That run exposed Unix socket failures in child Node/tsx commands because
   Antigravity's inherited TMPDIR included the full workspace/profile path.
   Runtime temp roots now use a short, profile-specific hash; per-process
@@ -156,18 +153,54 @@ run hit one 5-second CLI timeout; that case passed alone and in the complete
 bounded rerun. Provider/backend regression: 726 passed, 4 skipped. Full web
 suite: 1,188 passed, with 3 additional new Gemini recovery tests passed separately.
 All 13 workspace typechecks and full formatting/lint checks passed. These are
-source checks; the temp-path fix and saved-account restart still need fresh
-desktop confirmation.
+source checks. The resumed desktop confirmed short temp paths work and saved Gemini authentication survives restart.
 
-After reboot, no graphical session for the owner was available: Electron failed
-with `Missing X server or $DISPLAY`. The failed development launcher was stopped.
-An owner desktop login was requested; existing provider credentials are retained.
-Do not substitute a browser page for this pending desktop acceptance.
+## Resumed desktop checks, 2026-09-22
+
+The owner restored the graphical session. All following live lanes use the
+actual `pnpm study-buddy:app` Electron shell and its regular development profile.
+No additional provider login was needed.
+
+- UI `86b160ffe`: Stop now closes persisted running turns whose native process
+  no longer exists, including idle sessions recovered after reboot. Reactor:
+  40 tests passed; the original interrupted Gemini turn was stopped in the app.
+- UI `bef466f76`: worksheet previews permit local form handlers. CSP continues
+  to forbid network form submissions. Three policy tests and two real Chromium
+  regressions cover both sandbox variants, successful local checking and denied
+  navigation. Gemini's generated worksheet opened through its chat attachment;
+  all five correct answers were accepted in the desktop preview. Generated
+  artifact bytes were not patched.
+- Gemini worksheet `857f8084-0800-4998-ad33-78ddebb1cf40`: Balanced,
+  Gemini 3.8 Flash (Medium), 286 seconds app duration, 91 seconds pipeline.
+  Planner, builder and reviewer completed; original prompt preserved; no
+  retries or repairs; HTML validation passed at four viewport sizes; 706,917
+  byte published artifact. All three model calls report unknown token usage.
+  The coordinator's long final summary described some examples inaccurately;
+  the actual artifact and its checks are the authoritative evidence.
+- Gemini image `8fc530d6-6130-4f48-bdd4-26e428a60765`: Balanced, 15 seconds.
+  Codex image `fcff7884-9dc7-4165-9c05-cdc6a61536bc`: Balanced, 5 seconds.
+  Both read the attached K7 card, three blue squares, two red circles, 18 Ω,
+  36 V and correctly calculated 2 A. The expected data was in the image,
+  not the prompt. Clipboard paste, attachment persistence and native vision
+  were exercised through the real desktop composer.
+- Codex worksheet `b4cc38aa-56d5-4e99-9e2c-fb03a43efe29` failed: first
+  builder timeout after 240 seconds; retry terminated by the 300-second idle
+  watchdog. Both app and worker ended; no valid HTML or pass is claimed.
+  Investigation found dropped CODEX_HOME in native shell children and a
+  non-leaf HTML builder loading the global workflow skill. The generated
+  account policy now propagates CODEX_HOME, and web-layout text builders use
+  isolated read-only workers with a no-tools boundary. Regressions also reject
+  unexpected tool calls. Fresh rerun: `0a954161-aaeb-442b-8b46-9eb39d110a3b`.
+
+Latest source checks: root 156 files, 1,244 tests passed, four skipped;
+11 focused model/worker regressions; five account-policy tests; all 13 fork
+workspace typechecks and full lint/format passed. Browser regression initially
+could not find its downloaded Chromium executable; rerun with installed Chrome
+passed. These are development checks, not packaged acceptance.
 
 ## Remaining acceptance and handoff
 
-1. Restore the owner's graphical desktop session and launch Study Buddy with
-   its regular authenticated profile; stop the reboot-interrupted test turn.
+1. Finish the fresh Codex artifact rerun and any affected Gemini checks.
 2. Run fresh conversations plus equivalent source-to-artifact workflows with
    Codex and Gemini; inspect prompts, internal parallel workers, native
    question/approval handling, cancellation, artifact content and model changes.
