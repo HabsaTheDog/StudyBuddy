@@ -1,3 +1,4 @@
+import { createWorkflowModelRuntime } from "../../shared/workflowModelRuntime.js";
 import os from "node:os";
 import { mkdir } from "node:fs/promises";
 import { acquireModelCallControl } from "../../shared/modelCallControl.js";
@@ -16,7 +17,7 @@ import {
   taskModelPolicySource,
   type StudyBuddyModelOperation,
 } from "../modelPolicy.js";
-import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
+import { type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
   buildCodexChildEnvironment,
@@ -55,7 +56,7 @@ export function buildNestedCodexConfig(environment: Record<string, string>) {
 
 export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const environment = buildCodexProcessEnvironment();
-  const codex = new Codex({
+  const codex = createWorkflowModelRuntime({
     env: environment,
     config: buildNestedCodexConfig(environment),
   });

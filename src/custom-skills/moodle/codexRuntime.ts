@@ -1,3 +1,4 @@
+import { createWorkflowModelRuntime, workflowModelBridgeEnvironment } from "../shared/workflowModelRuntime.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -140,6 +141,28 @@ export async function preflightCodexRuntime(
   input: CodexRuntimePreflightInput,
   dependencies: CodexRuntimeDependencies = {},
 ): Promise<CodexRuntimeReport> {
+  const bridge = workflowModelBridgeEnvironment();
+  if (bridge) {
+    const checkedAt = new Date().toISOString();
+    const started = Date.now();
+    const result = await createWorkflowModelRuntime({}).startThread({model:bridge.model}).run(
+      `Reply with exactly ${CANARY_RESPONSE}.`, {signal:AbortSignal.timeout(CANARY_TIMEOUT_MS)});
+    if (result.finalResponse.trim() !== CANARY_RESPONSE) throw new Error(`Selected ${bridge.provider} runtime preflight failed: invalid canary response.`);
+    const report: CodexRuntimeReport = {
+      schemaVersion:1, checkedAt, status:"verified", preflightMode:"full",
+      sdkVersion:"not-applicable", bundledCliVersion:"not-applicable", effectiveCliVersion:"server-managed",
+      binarySource:"override", binaryPath:`provider:${bridge.provider}`, globalCliVersion:null, latestStableVersion:null,
+      updateAvailable:false, updateCommand:"Manage the provider in Study Buddy settings.",
+      doctorChecks:[{id:"provider-canary",status:"verified",summary:`Authenticated ${bridge.provider} worker completed the runtime canary.`}],
+      modelProbes:[{model:bridge.model,status:"verified",checkedAt,durationMs:Date.now()-started,usageAvailable:false}],
+      requestedModels:[bridge.model],effectiveModels:[bridge.model],fallbackApplied:null,warnings:[],
+    };
+    if (input.runDir) {
+      await mkdir(input.runDir,{recursive:true});
+      await writeFile(path.join(input.runDir,"provider-runtime.json"),JSON.stringify({...report,provider:bridge.provider},null,2));
+    }
+    return report;
+  }
   const now = dependencies.now?.() ?? Date.now();
   const checkedAt = new Date(now).toISOString();
   const mode = input.mode ?? "full";

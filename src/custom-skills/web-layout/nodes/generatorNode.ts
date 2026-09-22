@@ -1,3 +1,5 @@
+import { workflowModelBridgeEnvironment } from "../../shared/workflowModelRuntime.js";
+import { htmlTextRepairView, htmlTextRepairSchema, applyHtmlTextRepair } from "../htmlTextRepair.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { offlineHtmlRules, studyBuddyDesignGuidelines } from "../designGuidelines.js";
@@ -87,14 +89,16 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         await mkdir(path.dirname(repairPath), { recursive: true });
         await writeFile(repairPath, state.html_document, "utf8");
       }
+      const nativeRepair = repairMode && workflowModelBridgeEnvironment() !== null;
       const response = await codex.run(buildGeneratorPrompt(config, state), {
+        ...(nativeRepair ? {outputSchema:htmlTextRepairSchema} : {}),
         task: repairMode ? "artifact_repair" : "artifact_builder",
         operation: repairMode ? "html_repair" : "html_build",
         // Escalation is task-local: earlier content and validator retries must
         // not turn the first HTML repair into a fourth repair attempt.
         attempt: state.generator_retry_count + 1,
       });
-      const responseHtml = stripHtmlFence(response);
+      const responseHtml = nativeRepair ? applyHtmlTextRepair(state.html_document, response) : stripHtmlFence(response);
       const stagedHtml = repairMode ? await readFile(repairPath, "utf8") : "";
       const rawHtml = repairMode && !hasCompleteHtmlStructure(responseHtml)
         ? stagedHtml
@@ -202,8 +206,14 @@ export function buildGeneratorPrompt(
   state: Pick<LangGraphWebLayoutState, "source_text" | "request_contract" | "layout_spec" | "html_document" | "error_log" | "validation_report"> & { study_guide_content?: JsonObject },
 ): string {
   const repairMode = Boolean(state.error_log && state.html_document.trim());
+  const nativeRepair = repairMode && workflowModelBridgeEnvironment() !== null;
   return [
-    repairMode
+    nativeRepair ? [
+      "Repair the supplied Study Buddy HTML presentation and runtime code using exact text replacements.",
+      "Return JSON {edits:[{before,after}]}. Each before fragment must occur exactly once in the supplied code. Do not use tools or read files.",
+      "Make only changes needed for the validator findings. Preserve content, questions, answer keys and interactions. Immutable learning data has been omitted; never edit its placeholder or script tags.",
+      `Editable HTML view:\n${htmlTextRepairView(state.html_document)}`,
+    ].join("\n") : repairMode
       ? [
           "Repair the existing Study Buddy interactive learning webpage in place.",
           `The complete last-known-good artifact is staged at ${REPAIR_DOCUMENT_PATH}, relative to the working directory.`,

@@ -1,5 +1,15 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Provider-independent execution — 2026-09-22
+
+Implement the owner's Codex, Claude and Gemini/Antigravity integration request
+under `../provider-support.md`. Carry the selected provider through every internal
+worker without changing evidence acquisition, question permissions, state fields,
+three-validation-retry ceiling or publication gates. Provider configuration is
+an execution concern; no subject-specific behavior is introduced. Validate prompt,
+schema, cancellation and provider routing at the transport boundary and exercise
+the actual desktop where authenticated accounts are available.
+
 ## Completion through human review — 2026-09-15
 
 Owner explicitly requested finishing the remaining implementation before their

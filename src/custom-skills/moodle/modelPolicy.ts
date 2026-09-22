@@ -1,3 +1,4 @@
+import { workflowModelBridgeEnvironment } from "../shared/workflowModelRuntime.js";
 export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-13.1-task-overrides";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
@@ -305,10 +306,11 @@ export function resolveTaskModelPolicy(
     ...input.overrides?.[input.task],
     ...(input.operation ? input.overrides?.[input.operation] : undefined),
   };
+  const nativeModel = workflowModelBridgeEnvironment()?.model;
   const configured: StudyBuddyTaskModelPolicy = {
     ...base,
     ...override,
-    model: input.globalModel ?? override?.model ?? base.model,
+    model: nativeModel ?? input.globalModel ?? override?.model ?? base.model,
     reasoningEffort:
       input.globalReasoningEffort ?? override?.reasoningEffort ?? base.reasoningEffort,
   };
@@ -319,7 +321,7 @@ export function resolveTaskModelPolicy(
 
   return applyCompatibilityFallback({
     ...configured,
-    model: input.globalModel ?? configured.escalationModel ?? configured.model,
+    model: nativeModel ?? input.globalModel ?? configured.escalationModel ?? configured.model,
     reasoningEffort:
       input.globalReasoningEffort ??
       configured.escalationEffort ??
@@ -329,6 +331,7 @@ export function resolveTaskModelPolicy(
 }
 
 function applyCompatibilityFallback(policy: StudyBuddyTaskModelPolicy, input: ResolveTaskModelPolicyInput): StudyBuddyTaskModelPolicy {
+  if (workflowModelBridgeEnvironment()) return policy;
   const replacement = !input.globalModel && input.compatibilityFallbacks?.[policy.model];
   return replacement ? { ...policy, model: replacement } : policy;
 }

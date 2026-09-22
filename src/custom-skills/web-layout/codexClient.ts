@@ -1,10 +1,10 @@
+import { createWorkflowModelRuntime } from "../shared/workflowModelRuntime.js";
 import { randomUUID } from "node:crypto";
 import { acquireModelCallControl } from "../shared/modelCallControl.js";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Codex } from "@openai/codex-sdk";
 import type { ModelReasoningEffort, Usage, UserInput } from "@openai/codex-sdk";
 import { minimalValidStudyBuddyHtml } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
@@ -52,7 +52,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
     return createTestCodexClient(config);
   }
   const codexEnvironment = buildCodexChildEnvironment();
-  const codex = new Codex({
+  const codex = createWorkflowModelRuntime({
     env: codexEnvironment,
     config: buildCodexShellEnvironmentConfig(codexEnvironment),
   });

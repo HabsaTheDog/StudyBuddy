@@ -1,10 +1,10 @@
+import { createWorkflowModelRuntime } from "../shared/workflowModelRuntime.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  Codex,
   type ModelReasoningEffort,
   type ThreadItem,
   type Usage,
@@ -196,7 +196,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const codexOptions = config.codexPath ? { codexPathOverride: config.codexPath } : {};
   const codexEnvironment = buildCodexChildEnvironment();
   const shellEnvironmentConfig = buildCodexShellEnvironmentConfig(codexEnvironment);
-  const codex = new Codex({
+  const codex = createWorkflowModelRuntime({
     ...codexOptions,
     env: codexEnvironment,
     config: shellEnvironmentConfig,
@@ -208,7 +208,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
     "study-buddy",
     "SKILL.md",
   );
-  const leafCodex = new Codex({
+  const leafCodex = createWorkflowModelRuntime({
     ...codexOptions,
     env: codexEnvironment,
     config: {

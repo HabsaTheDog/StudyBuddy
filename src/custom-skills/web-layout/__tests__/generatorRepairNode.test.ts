@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CodexClient } from "../codexClient.js";
 import { minimalValidStudyBuddyHtml } from "../htmlShell.js";
 import { createGeneratorNode } from "../nodes/generatorNode.js";
@@ -11,6 +11,7 @@ import type { WebLayoutRuntimeConfig } from "../types.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -26,7 +27,11 @@ describe("targeted artifact repair", () => {
     });
     const result = await node({
       ...initialWebLayoutState,
-      html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "study-guide", language: "de" }),
+      html_document: minimalValidStudyBuddyHtml({
+        title: "Guide",
+        kind: "study-guide",
+        language: "de",
+      }),
       error_log: "HTML validation failed: horizontal overflow",
       validation_report: {
         ok: false,
@@ -55,7 +60,11 @@ describe("targeted artifact repair", () => {
     const node = createGeneratorNode(config(runDir), codex);
     const result = await node({
       ...initialWebLayoutState,
-      html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "study-guide", language: "de" }),
+      html_document: minimalValidStudyBuddyHtml({
+        title: "Guide",
+        kind: "study-guide",
+        language: "de",
+      }),
       error_log: "Semantic quality review failed: preserve answers",
       validation_report: { ok: true, issues: [] },
     });
@@ -64,6 +73,40 @@ describe("targeted artifact repair", () => {
     expect(result.error_log).toBeNull();
     expect(result.artifact_repair_stage).toBe(2);
     expect(result.html_document).toContain("Repaired Guide");
+  });
+
+  it("repairs native-provider HTML with bounded text edits and no file tools", async () => {
+    for (const [key, value] of Object.entries({
+      URL: "http://127.0.0.1:12345/api/study-buddy/model",
+      TOKEN: "fixture",
+      PROVIDER: "antigravity",
+      MODEL: "gemini-test",
+      THREAD: "owner",
+    }))
+      vi.stubEnv(`STUDY_BUDDY_MODEL_BRIDGE_${key}`, value);
+    const runDir = await temporaryDirectory();
+    const node = createGeneratorNode(config(runDir), {
+      async run(prompt, options) {
+        expect(options.task).toBe("artifact_repair");
+        expect(options.outputSchema).toBeDefined();
+        expect(prompt).not.toContain("Use your file tools");
+        return JSON.stringify({
+          edits: [{ before: "<title>Guide</title>", after: "<title>Repaired Guide</title>" }],
+        });
+      },
+    });
+    const result = await node({
+      ...initialWebLayoutState,
+      html_document: minimalValidStudyBuddyHtml({
+        title: "Guide",
+        kind: "study-guide",
+        language: "de",
+      }),
+      error_log: "Semantic quality review failed: improve title",
+      validation_report: { ok: true, issues: [] },
+    });
+    expect(result.error_log).toBeNull();
+    expect(result.html_document).toContain("<title>Repaired Guide</title>");
   });
 
   it("uses the generator-local retry count for model escalation", async () => {
@@ -84,7 +127,11 @@ describe("targeted artifact repair", () => {
       retry_count: 6,
       validator_retry_count: 3,
       generator_retry_count: 0,
-      html_document: minimalValidStudyBuddyHtml({ title: "Guide", kind: "study-guide", language: "de" }),
+      html_document: minimalValidStudyBuddyHtml({
+        title: "Guide",
+        kind: "study-guide",
+        language: "de",
+      }),
       error_log: "Semantic quality review failed: preserve answers",
       validation_report: { ok: true, issues: [] },
     });

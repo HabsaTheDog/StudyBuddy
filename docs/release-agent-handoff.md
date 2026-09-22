@@ -18,6 +18,17 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Provider-support intake, 2026-09-22
+
+The local root branch `feat/provider-support` and UI branch
+`feat/study-buddy-provider-support` (UI commit `b4bef0b81`) add three-provider setup and native workers.
+Carry this branch explicitly in the release inventory; it is not silently part
+of the published development branch. See [provider support](provider-support.md)
+for scope, exact verification and the **pending authenticated desktop acceptance**.
+Local tests and actual installation passed; no production-merge/release acceptance,
+remote availability, deployment or publication is claimed. Push the reviewed UI
+commit before its parent pointer only when a push is authorized.
+
 ## Development handoff, 2026-09-14
 
 Decision for release publication: **NO-GO / not yet accepted**. This is a source
