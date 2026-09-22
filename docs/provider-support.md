@@ -91,6 +91,24 @@ initialization with `loggedIn:false` remains unauthenticated. No successful
 Claude model response is claimed. The final rebuilt Electron instance confirms
 that all three installed providers correctly show sign-in required.
 
+## Settings cleanup, 2026-09-22
+
+Local UI follow-up `20d96c744` replaces the duplicated onboarding and management
+cards with one ordered list: Codex, Claude, Google Gemini. Each default provider
+opens its own install/account dialog; model management and technical details
+remain under Advanced. Unsupported default placeholders are hidden, custom
+instances remain available, and model rows deduplicate exact model IDs. Gemini
+uses its provider icon. The initial onboarding still offers all three providers.
+
+Validation: 10 focused settings/setup tests passed, full lint/format passed and
+all 13 workspace typecheck tasks passed. The actual Study Buddy Electron renderer
+confirmed exactly three default provider headings, one provider per connection
+dialog, and working Advanced expansion. Settings and a connection dialog were
+also checked at 390px width without horizontal document overflow. Desktop and
+narrow screenshots are retained in
+`study-buddy-data/provider-acceptance/evidence/settings-clean-{desktop,narrow}.png`.
+These checks do not replace the pending authenticated pipeline acceptance.
+
 ## Remaining acceptance and handoff
 
 1. Owner signs in through AI connections in the isolated Study Buddy desktop.
