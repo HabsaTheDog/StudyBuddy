@@ -88,7 +88,8 @@ failed attempt is counted as an acceptance pass.
 The real Claude attempt exposed a false-positive signed-in status inherited
 from the original provider probe. A regression now proves that local SDK
 initialization with `loggedIn:false` remains unauthenticated. No successful
-Claude model response is claimed.
+Claude model response is claimed. The final rebuilt Electron instance confirms
+that all three installed providers correctly show sign-in required.
 
 ## Remaining acceptance and handoff
 
@@ -102,10 +103,9 @@ Claude model response is claimed.
 4. At deliberate batch freeze, retain the full release review and exact-candidate
    Fedora/Windows packaged acceptance gates. No version bump, tag or publication.
 
-UI dependency commit: `b4bef0b81` (local only).
+Implementation commits: root `ed219ee`, UI dependency `b4bef0b81` (local only).
 
 Development branches are local only: root `feat/provider-support`, UI
 `feat/study-buddy-provider-support`. Neither is pushed, merged, deployed or
 release-accepted by this task. The independently installed T3 Code was not used
 as the test application or modified.
-
