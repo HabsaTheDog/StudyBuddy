@@ -21,13 +21,20 @@ claim it is pushed or silently include it in a candidate.
 ## Provider-support intake, 2026-09-22
 
 The local root branch `feat/provider-support` and UI branch
-`feat/study-buddy-provider-support` (UI commit `b4bef0b81`) add three-provider setup and native workers.
+`feat/study-buddy-provider-support` (latest local UI commit `44fedd992`) add three-provider setup and native workers, settings cleanup and acceptance-driven hardening.
 Carry this branch explicitly in the release inventory; it is not silently part
 of the published development branch. See [provider support](provider-support.md)
 for scope, exact verification and the **pending authenticated desktop acceptance**.
 Local tests and actual installation passed; no production-merge/release acceptance,
 remote availability, deployment or publication is claimed. Push the reviewed UI
 commit before its parent pointer only when a push is authorized.
+
+Codex and Gemini are now connected. A real Gemini conversation passed; the first
+artifact lane was interrupted by workstation reboot and exposed an inherited
+TMPDIR socket-length defect, now fixed with regression coverage. Fresh desktop
+pipeline acceptance is blocked by the missing graphical login. Claude has no
+subscription; the owner explicitly requested deterministic robustness coverage
+instead of a live account lane. Preserve this distinction in release evidence.
 
 ## Development handoff, 2026-09-14
 

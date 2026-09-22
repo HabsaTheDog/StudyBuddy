@@ -71,4 +71,31 @@ describe("selected-provider workflow execution", () => {
       workflowModelBridgeEnvironment({ STUDY_BUDDY_MODEL_BRIDGE_URL: "http://127.0.0.1:12345" }),
     ).toThrow("incomplete");
   });
+
+  it.each(["claudeAgent", "antigravity"])("cancels an in-flight %s worker without a fallback request", async (provider) => {
+    bridge(provider, "selected-model");
+    const controller = new AbortController();
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const request = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      expect(init.signal).toBe(controller.signal);
+      init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      started();
+    }));
+    vi.stubGlobal("fetch", request);
+    const result = createWorkflowModelRuntime({}).startThread({}).run("Evidence", { signal: controller.signal });
+    const rejected = expect(result).rejects.toThrow("cancelled by user");
+    await entered;
+    controller.abort(new Error("cancelled by user"));
+    await rejected;
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["claudeAgent", "antigravity"])("rejects malformed %s worker responses", async (provider) => {
+    bridge(provider, "selected-model");
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ text: 42 })));
+    vi.stubGlobal("fetch", request);
+    await expect(createWorkflowModelRuntime({}).startThread({}).run("Evidence")).rejects.toThrow("Invalid workflow provider response");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });

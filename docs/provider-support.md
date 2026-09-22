@@ -30,8 +30,10 @@ Reference stays separate from the independently installed T3 Code application.
 6. Review final diffs, make scoped local commits and update development backlog
    with exact evidence and remaining release gates. No tag/publication.
 
-Status: implemented and locally verified; authenticated cross-provider desktop
-pipeline acceptance is pending owner sign-in. **Not production-merge accepted.**
+Status: implemented and locally verified. The owner connected Codex and Gemini;
+Gemini completed a real conversation. Full desktop pipeline acceptance remains
+pending after the workstation reboot. Claude has no subscription and is covered
+by deterministic regressions, as requested. **Not production-merge accepted.**
 
 ## Implementation
 
@@ -109,12 +111,69 @@ narrow screenshots are retained in
 `study-buddy-data/provider-acceptance/evidence/settings-clean-{desktop,narrow}.png`.
 These checks do not replace the pending authenticated pipeline acceptance.
 
+## Authenticated acceptance and hardening, 2026-09-22
+
+The owner authorized live Codex/Gemini testing and explicitly replaced live
+Claude acceptance with robustness checks because no Claude subscription exists.
+The hardening changes are in local UI commit `44fedd992`.
+Testing uses the regular Study Buddy development profile at
+`output/t3-study-buddy-t3-home`, not the earlier isolated installation profile.
+
+- Codex reported authenticated subscription access in the actual Electron app.
+- Gemini's saved Google login was verified without another OAuth login.
+  A fresh Gemini 3.8 Flash (Medium) conversation completed in 12 seconds with
+  the exact original prompt and Unicode symbols preserved. Thread:
+  `1cc636d2-44fd-4e6b-bc7c-877407f916c2`. This is conversation evidence only.
+- The first conversation revealed that changing the provider reset Balanced
+  to the user's default custom profile. Model changes now preserve the selected
+  profile ID. The next desktop draft and persisted thread both retained Balanced.
+- A fresh Gemini worksheet thread,
+  `985e556f-8fa1-421c-be78-3d3972d53d4f`, reached native tool execution but did
+  not start the artifact workflow before a workstation reboot interrupted it.
+  It is not a successful pipeline round; no artifact or worker token totals
+  are claimed. Its persisted session still says running, but no process or
+  workflow worker exists. Stop/clear that exact test turn through the desktop
+  before a replacement run; do not alter unrelated chats or edit the database.
+- That run exposed Unix socket failures in child Node/tsx commands because
+  Antigravity's inherited TMPDIR included the full workspace/profile path.
+  Runtime temp roots now use a short, profile-specific hash; per-process
+  isolation, close-time cleanup and startup orphan cleanup remain intact.
+  Startup also removes obsolete temp files in the old profile location.
+- Gemini's inexpensive health probe overwrote saved authenticated state after
+  restart. The reference T3 saved-account merge behavior is now backported,
+  preserving explicit sign-out, disabled state, errors and auth-method changes.
+  The connection card also offers Check connection for an unchecked saved login.
+- Claude workers reject error envelopes even when they contain stale structured
+  output, and cover account failures, malformed output, schema mismatch, exact
+  multiline/Unicode prompts and tool/hook restrictions. Client regressions cover
+  in-flight cancellation and malformed native responses for Claude and Gemini.
+
+Evidence is retained in `study-buddy-data/provider-acceptance/evidence/live/`:
+the initial lane ledger, full test logs, desktop launch diagnostics and focused
+regressions. Root manifest/typecheck passed; all 1,241 root tests passed with
+4 skipped after limiting test concurrency to two workers. The initial concurrent
+run hit one 5-second CLI timeout; that case passed alone and in the complete
+bounded rerun. Provider/backend regression: 726 passed, 4 skipped. Full web
+suite: 1,188 passed, with 3 additional new Gemini recovery tests passed separately.
+All 13 workspace typechecks and full formatting/lint checks passed. These are
+source checks; the temp-path fix and saved-account restart still need fresh
+desktop confirmation.
+
+After reboot, no graphical session for the owner was available: Electron failed
+with `Missing X server or $DISPLAY`. The failed development launcher was stopped.
+An owner desktop login was requested; existing provider credentials are retained.
+Do not substitute a browser page for this pending desktop acceptance.
+
 ## Remaining acceptance and handoff
 
-1. Owner signs in through AI connections in the isolated Study Buddy desktop.
+1. Restore the owner's graphical desktop session and launch Study Buddy with
+   its regular authenticated profile; stop the reboot-interrupted test turn.
 2. Run fresh conversations plus equivalent source-to-artifact workflows with
-   Codex, Claude and Gemini; inspect prompts, internal parallel workers, native
+   Codex and Gemini; inspect prompts, internal parallel workers, native
    question/approval handling, cancellation, artifact content and model changes.
+   Include image evidence, model/profile switching and restart persistence.
+   Claude's live account lane is explicitly unavailable, not a required owner
+   subscription purchase; retain deterministic coverage and report that limit.
    Do not treat mocks, CLI-only probes or browser-only runs as this evidence.
 3. Investigate any real-account failures before calling this production-merge
    ready. No real provider quality, timing or token-cost comparison exists yet.
