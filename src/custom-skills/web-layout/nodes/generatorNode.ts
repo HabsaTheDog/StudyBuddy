@@ -1,6 +1,5 @@
-import { workflowModelBridgeEnvironment } from "../../shared/workflowModelRuntime.js";
 import { htmlTextRepairView, htmlTextRepairSchema, applyHtmlTextRepair } from "../htmlTextRepair.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { offlineHtmlRules, studyBuddyDesignGuidelines } from "../designGuidelines.js";
 import { applyOfflineSecurityPolicy, stripHtmlFence } from "../htmlShell.js";
@@ -89,20 +88,16 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         await mkdir(path.dirname(repairPath), { recursive: true });
         await writeFile(repairPath, state.html_document, "utf8");
       }
-      const nativeRepair = repairMode && workflowModelBridgeEnvironment() !== null;
       const response = await codex.run(buildGeneratorPrompt(config, state), {
-        ...(nativeRepair ? {outputSchema:htmlTextRepairSchema} : {}),
+        ...(repairMode ? {outputSchema:htmlTextRepairSchema} : {}),
         task: repairMode ? "artifact_repair" : "artifact_builder",
         operation: repairMode ? "html_repair" : "html_build",
         // Escalation is task-local: earlier content and validator retries must
         // not turn the first HTML repair into a fourth repair attempt.
         attempt: state.generator_retry_count + 1,
       });
-      const responseHtml = nativeRepair ? applyHtmlTextRepair(state.html_document, response) : stripHtmlFence(response);
-      const stagedHtml = repairMode ? await readFile(repairPath, "utf8") : "";
-      const rawHtml = repairMode && !hasCompleteHtmlStructure(responseHtml)
-        ? stagedHtml
-        : responseHtml;
+      const responseHtml = repairMode ? applyHtmlTextRepair(state.html_document, response) : stripHtmlFence(response);
+      const rawHtml = responseHtml;
       if (repairMode && rawHtml === state.html_document) {
         throw new Error(
           `Model did not modify the staged repair artifact ${REPAIR_DOCUMENT_PATH}.`,
@@ -110,6 +105,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
       }
       const html = applyOfflineSecurityPolicy(rawHtml);
       assertCompleteHtmlResponse(html);
+      if (repairMode) await writeFile(repairPath, html, "utf8");
       await config.diagnostics?.log(
         "info",
         "generator",
@@ -206,24 +202,13 @@ export function buildGeneratorPrompt(
   state: Pick<LangGraphWebLayoutState, "source_text" | "request_contract" | "layout_spec" | "html_document" | "error_log" | "validation_report"> & { study_guide_content?: JsonObject },
 ): string {
   const repairMode = Boolean(state.error_log && state.html_document.trim());
-  const nativeRepair = repairMode && workflowModelBridgeEnvironment() !== null;
   return [
-    nativeRepair ? [
+    repairMode ? [
       "Repair the supplied Study Buddy HTML presentation and runtime code using exact text replacements.",
       "Return JSON {edits:[{before,after}]}. Each before fragment must occur exactly once in the supplied code. Do not use tools or read files.",
       "Make only changes needed for the validator findings. Preserve content, questions, answer keys and interactions. Immutable learning data has been omitted; never edit its placeholder or script tags.",
       `Editable HTML view:\n${htmlTextRepairView(state.html_document)}`,
-    ].join("\n") : repairMode
-      ? [
-          "Repair the existing Study Buddy interactive learning webpage in place.",
-          `The complete last-known-good artifact is staged at ${REPAIR_DOCUMENT_PATH}, relative to the working directory.`,
-          `Use your file tools to inspect and edit only ${REPAIR_DOCUMENT_PATH}. Do not reproduce the complete HTML in your response.`,
-          "Make the smallest coherent changes that resolve every supplied finding while preserving all unrelated working content and interactions.",
-          "Do not rewrite, summarize, add, or remove learning content, sources, question IDs, answers, or assessment rules. This role repairs presentation and runtime defects only.",
-          "Inspect the structured validator details first. Prefer a local CSS/DOM fix tied to the reported offending selector over broad restyling.",
-          "After saving the repaired file, respond with exactly UPDATED_DOCUMENT_HTML.",
-        ].join("\n")
-      : "Generate one complete Study Buddy interactive learning webpage.\nOutput raw HTML only. Do not wrap it in Markdown fences. Do not include explanations outside the HTML.",
+    ].join("\n")      : "Generate one complete Study Buddy interactive learning webpage.\nOutput raw HTML only. Do not wrap it in Markdown fences. Do not include explanations outside the HTML.",
     offlineHtmlRules(),
     studyBuddyDesignGuidelines(),
     "Media source rules:",

@@ -40,7 +40,8 @@ export function htmlTextRepairView(html: string): string {
       "<!-- IMMUTABLE LEARNING DATA OMITTED -->" +
       view.slice(range.end);
   }
-  return view;
+  return view.replace(/data:[^;\s"'<>]+;base64,[A-Za-z0-9+/=_-]+/g,
+    (_value, offset) => `data:application/x-study-buddy-omitted,asset-${offset}`);
 }
 
 /** Apply exact, unique replacements locally; never grant a worker arbitrary file access. */

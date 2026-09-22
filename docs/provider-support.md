@@ -198,6 +198,32 @@ workspace typechecks and full lint/format passed. Browser regression initially
 could not find its downloaded Chromium executable; rerun with installed Chrome
 passed. These are development checks, not packaged acceptance.
 
+### Final recovery changes
+
+- All providers now repair HTML through schema-validated, exact unique text
+  edits applied by the workflow. Codex no longer receives file-edit instructions
+  in a read-only worker. Embedded learning banks remain protected and base64
+  media is omitted from the editable prompt. This fixes the mismatch exposed
+  by the Fast diagnostic's attempted heading repair.
+- Design guidance explicitly uses the requested language for section labels;
+  English generation is no longer told to use German labels.
+- The HTML CLI forwards SIGINT/SIGTERM to its graph and active model request.
+  A subprocess regression observes request disconnection, exit status 1 and
+  release of the run lease, with no second model call.
+- Built-in Balanced retries its artifact builder on Terra/high after Sol;
+  custom profiles retain their explicit choices. Terra completed a real build
+  in the Fast diagnostic after Luna timed out. The output still failed its
+  language review and old repair contract, so that round is not a pass.
+  Policy version: `2026-09-22.1-provider-recovery`; UI `63248c0b6`.
+- Final checks: 1,246 root tests passed, four skipped; 31 focused model/repair/
+  cancellation checks and 12 shared-profile tests; all typechecks and lint pass.
+- A clean desktop relaunch needed `XDG_SESSION_TYPE=x11` after native Wayland
+  startup hung. This still launches the actual Study Buddy Electron shell via
+  `pnpm study-buddy:app`, with the same authenticated profile. Wayland startup
+  is not certified by the subsequent X11 acceptance.
+- Final live lanes: Codex Balanced `f0b259ad-549e-40f4-bbe0-2d315af998d1`;
+  Gemini image-to-exercise `0a2f2ec9-7ba1-4138-82f3-3759a397e84f`.
+
 ## Remaining acceptance and handoff
 
 1. Finish the fresh Codex artifact rerun and any affected Gemini checks.

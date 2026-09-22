@@ -29,7 +29,7 @@ describe("modelPolicy", () => {
       ["balanced", "content_analyzer", "gpt-5.6-terra", "medium", "gpt-5.6-sol", "medium"],
       ["balanced", "content_repair", "gpt-5.6-terra", "high", "gpt-5.6-sol", "medium"],
       ["balanced", "quiz_solver", "gpt-5.6-terra", "high", "gpt-5.6-sol", "high"],
-      ["balanced", "artifact_builder", "gpt-5.6-sol", "medium", "gpt-5.6-sol", "high"],
+      ["balanced", "artifact_builder", "gpt-5.6-sol", "medium", "gpt-5.6-terra", "high"],
       ["balanced", "artifact_repair", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],
       ["balanced", "quality_reviewer", "gpt-5.6-terra", "medium", "gpt-5.6-terra", "medium"],
       ["quality", "artifact_planner", "gpt-5.6-sol", "high", "gpt-5.6-sol", "xhigh"],

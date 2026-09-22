@@ -1,5 +1,5 @@
 import { workflowModelBridgeEnvironment } from "../shared/workflowModelRuntime.js";
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-13.1-task-overrides";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-22.1-provider-recovery";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -202,7 +202,9 @@ const PROFILE_POLICIES: Record<
       model: "gpt-5.6-sol",
       reasoningEffort: "medium",
       timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      // A different builder recovered the real native timeout; avoid retrying
+      // the same stalled model with more reasoning. Validation remains mandatory.
+      escalationModel: "gpt-5.6-terra",
       escalationEffort: "high",
       escalationTimeoutMs: 6 * 60_000,
     },

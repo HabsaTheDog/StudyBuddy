@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,10 +51,8 @@ describe("targeted artifact repair", () => {
     const codex: CodexClient = {
       async run(_prompt, options) {
         tasks.push(options.task);
-        const repairPath = path.join(runDir, ".repair", "document.html");
-        const html = await readFile(repairPath, "utf8");
-        await writeFile(repairPath, html.replace("Guide", "Repaired Guide"), "utf8");
-        return "UPDATED_DOCUMENT_HTML";
+        expect(options.outputSchema).toBeDefined();
+        return JSON.stringify({ edits: [{ before: "<title>Guide</title>", after: "<title>Repaired Guide</title>" }] });
       },
     };
     const node = createGeneratorNode(config(runDir), codex);
@@ -115,10 +113,8 @@ describe("targeted artifact repair", () => {
     const codex: CodexClient = {
       async run(_prompt, options) {
         attempts.push(options.attempt ?? -1);
-        const repairPath = path.join(runDir, ".repair", "document.html");
-        const html = await readFile(repairPath, "utf8");
-        await writeFile(repairPath, html.replace("Guide", "Repaired Guide"), "utf8");
-        return "UPDATED_DOCUMENT_HTML";
+        expect(options.outputSchema).toBeDefined();
+        return JSON.stringify({ edits: [{ before: "<title>Guide</title>", after: "<title>Repaired Guide</title>" }] });
       },
     };
     const node = createGeneratorNode(config(runDir), codex);

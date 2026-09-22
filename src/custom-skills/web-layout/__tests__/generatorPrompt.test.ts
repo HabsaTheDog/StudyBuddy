@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach } from "vitest";
@@ -17,6 +17,13 @@ afterEach(async () => {
 });
 
 describe("generator prompt", () => {
+  it("keeps section-label guidance in the requested language", () => {
+    const config = createWebLayoutRuntimeConfig({prompt:"English worksheet",kind:"worksheet",language:"en"});
+    const prompt = buildGeneratorPrompt(config, initialWebLayoutState);
+    expect(prompt).toContain("For English use Learning content");
+    expect(prompt).toContain("Never mix languages in labels");
+  });
+
   it("renders English study guides deterministically without a model call", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-english-study-guide-"));
     tempDirs.push(runDir);
@@ -239,7 +246,7 @@ describe("generator prompt", () => {
     expect(prompt).not.toContain("Implement one coherent primary learning interaction");
   });
 
-  it("uses a staged file for repairs instead of placing the complete HTML in the prompt", async () => {
+  it("provides editable runtime code while omitting embedded media for repairs", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-repair-prompt-"));
     tempDirs.push(runDir);
     const config = createWebLayoutRuntimeConfig({
@@ -256,9 +263,9 @@ describe("generator prompt", () => {
       error_log: "Answer persistence is broken.",
     });
 
-    expect(prompt).toContain(".repair/document.html");
-    expect(prompt).toContain("edit only .repair/document.html");
-    expect(prompt).not.toContain("function keepMe(){}");
+    expect(prompt).toContain("exact text replacements");
+    expect(prompt).not.toContain("Use your file tools");
+    expect(prompt).toContain("function keepMe(){}");
     expect(prompt).not.toContain("QUJDREVGRw==");
   });
 
@@ -299,20 +306,18 @@ describe("generator prompt", () => {
     });
 
     expect(result.html_document).toBeUndefined();
-    expect(result.error_log).toContain("did not modify the staged repair artifact");
+    expect(result.error_log).toContain("HTML generator failed");
     expect(result.generator_retry_count).toBe(1);
   });
 
-  it("loads a complete in-place repair without requiring the model to emit the full document", async () => {
+  it("applies bounded edits locally without requiring a worker to write files", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "web-layout-staged-repair-"));
     tempDirs.push(runDir);
     const config = createWebLayoutRuntimeConfig({ prompt: "Repair the guide", kind: "worksheet", runDir });
     const original = "<!doctype html><html><head><style></style></head><body><main>Old</main><script></script></body></html>";
-    const repaired = original.replace("Old", "Repaired");
     const result = await createGeneratorNode(config, {
       run: async () => {
-        await writeFile(path.join(runDir, ".repair", "document.html"), repaired, "utf8");
-        return "UPDATED_DOCUMENT_HTML";
+        return JSON.stringify({edits:[{before:"<main>Old</main>",after:"<main>Repaired</main>"}]});
       },
     })({
       ...initialWebLayoutState,
@@ -322,7 +327,7 @@ describe("generator prompt", () => {
 
     expect(result.error_log).toBeNull();
     expect(result.html_document).toContain("Repaired");
-    await expect(readFile(path.join(runDir, ".repair", "document.html"), "utf8")).resolves.toBe(repaired);
+    expect(await readFile(path.join(runDir, ".repair", "document.html"), "utf8")).toContain("<main>Repaired</main>");
   });
 });
 

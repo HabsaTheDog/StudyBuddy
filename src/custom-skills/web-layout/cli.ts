@@ -77,6 +77,11 @@ const options = program.opts<{
 
 const prompt = program.args.join(" ");
 const releaseRunLease = await acquireRunLease(options.runDir ?? options.resumeRunDir);
+const cancellation = new AbortController();
+const onInterrupt = () => cancellation.abort(new Error("Workflow canceled by SIGINT."));
+const onTerminate = () => cancellation.abort(new Error("Workflow canceled by SIGTERM."));
+process.on("SIGINT", onInterrupt);
+process.on("SIGTERM", onTerminate);
 try {
 const result = await runWebLayoutGraph({
   prompt,
@@ -101,7 +106,7 @@ const result = await runWebLayoutGraph({
   architectureMode: options.architecture,
   executionProfile: options.executionProfile,
   modelPolicyOverrides: options.profileOverridesJson,
-});
+}, { signal: cancellation.signal });
 
 const publishedDeliverables = result.ok
   ? await publishStudyBuddyDeliverables({
@@ -128,6 +133,8 @@ if (options.json) {
   process.exitCode = 1;
 }
 } finally {
+  process.off("SIGINT", onInterrupt);
+  process.off("SIGTERM", onTerminate);
   await releaseRunLease();
 }
 

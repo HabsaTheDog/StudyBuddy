@@ -29,6 +29,7 @@ import {
 const MAX_RETRIES = 3;
 
 export interface WebLayoutGraphDependencies {
+  signal?: AbortSignal;
   codex?: CodexClient;
   sourceNode?: ReturnType<typeof createSourceNode>;
   plannerNode?: ReturnType<typeof createPlannerNode>;
@@ -79,6 +80,7 @@ export async function runWebLayoutGraph(
       config,
       abortController,
       () => graph.invoke(state),
+      dependencies.signal,
     )) as WebLayoutState;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -622,11 +624,16 @@ async function withRuntimeGuard<T>(
   config: WebLayoutRuntimeConfig,
   abortController: AbortController,
   run: () => Promise<T>,
+  externalSignal?: AbortSignal,
 ): Promise<T> {
   let heartbeat: NodeJS.Timeout | null = null;
   let guard: NodeJS.Timeout | null = null;
   const startedAt = Date.now();
+  const cancel = () => abortController.abort(externalSignal?.reason ?? new Error("Workflow canceled."));
+  externalSignal?.addEventListener("abort", cancel, { once: true });
+  if (externalSignal?.aborted) cancel();
   try {
+    abortController.signal.throwIfAborted();
     heartbeat = setInterval(() => {
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
       const idleSeconds = config.diagnostics
@@ -650,6 +657,7 @@ async function withRuntimeGuard<T>(
     }, 1_000);
     return await raceWithAbort(run(), abortController.signal);
   } finally {
+    externalSignal?.removeEventListener("abort", cancel);
     if (heartbeat) {
       clearInterval(heartbeat);
     }
