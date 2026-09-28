@@ -12,6 +12,7 @@ import { acquireRunLease } from "../shared/runLease.js";
 import { installCliBrokenPipeGuard } from "../shared/cliErrorGuard.js";
 import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
 import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
+import { connectWorkflowContext } from "../shared/workflowContext.js";
 
 installCliBrokenPipeGuard();
 
@@ -75,20 +76,23 @@ const options = program.opts<{
   json?: boolean;
 }>();
 
-const prompt = program.args.join(" ");
+let prompt = program.args.join(" ");
 const releaseRunLease = await acquireRunLease(options.runDir ?? options.resumeRunDir);
 const cancellation = new AbortController();
 const onInterrupt = () => cancellation.abort(new Error("Workflow canceled by SIGINT."));
 const onTerminate = () => cancellation.abort(new Error("Workflow canceled by SIGTERM."));
 process.on("SIGINT", onInterrupt);
 process.on("SIGTERM", onTerminate);
+let context: Awaited<ReturnType<typeof connectWorkflowContext>> = null;
 try {
+context = await connectWorkflowContext(cancellation);
+if (context) prompt = context.originalUserPrompt;
 const result = await runWebLayoutGraph({
   prompt,
-  originalUserPrompt: options.originalUserPrompt,
+  originalUserPrompt: context?.originalUserPrompt ?? options.originalUserPrompt,
   kind: options.kind,
   sourceFiles: options.sourceFile,
-  assetFiles: options.asset,
+  assetFiles: [...new Set([...(context?.images ?? []), ...options.asset])],
   sourceRunDir: options.sourceRunDir,
   resumeRunDir: options.resumeRunDir,
   requestName: options.requestName,
@@ -133,6 +137,7 @@ if (options.json) {
   process.exitCode = 1;
 }
 } finally {
+  context?.dispose();
   process.off("SIGINT", onInterrupt);
   process.off("SIGTERM", onTerminate);
   await releaseRunLease();

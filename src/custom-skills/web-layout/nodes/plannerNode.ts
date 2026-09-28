@@ -7,6 +7,7 @@ import type { CodexClient } from "../codexClient.js";
 import { adaptiveLearningInteractionGuidance } from "../learningInteractionGuidance.js";
 import { studyGuideBlockGuidance } from "../studyGuideBlockContract.js";
 import { balancedExcerpt } from "../modelText.js";
+import { sourceEvidenceImages } from "../config.js";
 
 const PLANNER_PROMPT_TARGET_CHARS = 50_000;
 
@@ -28,6 +29,7 @@ export function createPlannerNode(config: WebLayoutRuntimeConfig, codex: CodexCl
           })
         : await codex.run(buildPlannerPrompt(config, state), {
         outputSchema: layoutSpecJsonSchema,
+        localImages: sourceEvidenceImages(config),
         task: "artifact_planner", operation: "html_planning",
         attempt: state.retry_count + 1,
       });
@@ -67,7 +69,9 @@ export function buildPlannerPrompt(config: WebLayoutRuntimeConfig, state: Pick<L
     adaptiveLearningInteractionGuidance(),
     config.kind === "study-guide" ? studyGuideBlockGuidance() : "",
     "Do not invent authoring systems, editable content builders, imports, exports, source search/filter interfaces, or modal source browsers unless the user explicitly requested them.",
-    config.sourceMode === "prompt"
+    sourceEvidenceImages(config).length
+      ? "The attached images are primary source evidence. Read their visible content directly; do not infer relationships from decorative shapes or invent missing labels."
+      : config.sourceMode === "prompt"
       ? "Only the user prompt is available. Plan a clearly labelled demo without course-specific factual claims, citations, or source-management UI."
       : "Plan source-aware citations only for sources actually present in the supplied handoff or files.",
     "Return JSON matching the supplied Structured Output schema, with no Markdown fences and no prose.",

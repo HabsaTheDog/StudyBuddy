@@ -14,10 +14,18 @@ describe("web-layout CLI cancellation", () => {
     const disconnected = new Promise<void>((resolve) => { closed = resolve; });
     let calls = 0;
     const server = createServer((request, response) => {
-      calls++;
-      request.resume();
-      response.on("close", closed);
-      entered();
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        if (JSON.parse(body).context) {
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ turnId: "active", originalUserPrompt: "Original request: α\nCreate a simple worksheet", images: [] }));
+          return;
+        }
+        calls++;
+        response.on("close", closed);
+        entered();
+      });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as { port: number }).port;
@@ -36,6 +44,9 @@ describe("web-layout CLI cancellation", () => {
       expect(await exited).toBe(1);
       await disconnected;
       expect(calls).toBe(1);
+      const config = JSON.parse(await readFile(path.join(runDir, "config.json"), "utf8"));
+      expect(config.prompt).toBe("Original request: α\nCreate a simple worksheet");
+      expect(config.originalUserPrompt).toBe(config.prompt);
       expect(await readFile(path.join(runDir, "run-summary.md"), "utf8")).toContain("SIGTERM");
       await expect(readFile(path.join(runDir, ".study-buddy-active-run.json"))).rejects.toThrow();
     } finally {

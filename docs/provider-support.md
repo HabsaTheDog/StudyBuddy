@@ -224,6 +224,38 @@ passed. These are development checks, not packaged acceptance.
 - Final live lanes: Codex Balanced `f0b259ad-549e-40f4-bbe0-2d315af998d1`;
   Gemini image-to-exercise `0a2f2ec9-7ba1-4138-82f3-3759a397e84f`.
 
+## Original-request and workspace hardening, 2026-09-29
+
+The September 22 final lanes exposed two additional acceptance failures:
+
+- Codex `f0b259ad-549e-40f4-bbe0-2d315af998d1` completed a validated worksheet,
+  but published it under the application root after changing directory. The
+  Quick Chat preview correctly rejected that out-of-workspace attachment.
+- Gemini `0a2f2ec9-7ba1-4138-82f3-3759a397e84f` generated an image-based exercise,
+  but its coordinator replaced the original request with a paraphrase that
+  invented a relationship between decorative shapes and electrical values.
+  The downstream review could not identify that contaminated source contract.
+
+Neither lane is counted as desktop end-to-end acceptance. Their outputs remain
+unmodified as diagnostic evidence.
+
+The follow-up sends each Codex thread's workspace and thread ID through native
+shell configuration. Authenticated workflow context now supplies the exact
+active user request and its image attachments, excluding queued future turns.
+Voice transcripts are recovered from the original turn event without changing
+visible chat messages. Standalone CLI calls retain their explicit input.
+The HTML planner, builder and reviewer receive the actual source images;
+branding is excluded. A workflow monitor aborts when its owning turn stops or
+changes. Preview filesystem boundaries remain enforced.
+
+Verification: 1,254 root tests passed, four skipped; 890 provider/text-generation/
+orchestration regressions passed, four skipped; 43 affected projection/startup/
+checkpoint tests passed; lint and all 13 fork typechecks passed. New cases cover
+Unicode, queued messages, voice input isolation, authenticated context access,
+loopback enforcement, image propagation, cancellation and run-lease cleanup.
+The source desktop is running through X11 with its existing accounts.
+Fresh final desktop lanes are recorded below as they reach terminal acceptance.
+
 ## Remaining acceptance and handoff
 
 1. Finish the fresh Codex artifact rerun and any affected Gemini checks.

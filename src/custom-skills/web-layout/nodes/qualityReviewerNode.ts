@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { sourceEvidenceImages } from "../config.js";
 import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
 import type { LangGraphWebLayoutState } from "../state.js";
@@ -56,6 +57,7 @@ export function createQualityReviewerNode(config: WebLayoutRuntimeConfig, codex:
       );
       const reviewScope = htmlReviewScope(requestContract);
       const response = await codex.run(buildPrompt(config, state, bundledHtml, requestContract, reviewScope), {
+        localImages: sourceEvidenceImages(config),
         task: "quality_reviewer", operation: "html_review",
         attempt: state.quality_retry_count + 1,
         outputSchema: qualityReviewSchema,

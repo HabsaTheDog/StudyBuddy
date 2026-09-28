@@ -1,5 +1,6 @@
 import { htmlTextRepairView, htmlTextRepairSchema, applyHtmlTextRepair } from "../htmlTextRepair.js";
 import { mkdir, writeFile } from "node:fs/promises";
+import { sourceEvidenceImages } from "../config.js";
 import path from "node:path";
 import { offlineHtmlRules, studyBuddyDesignGuidelines } from "../designGuidelines.js";
 import { applyOfflineSecurityPolicy, stripHtmlFence } from "../htmlShell.js";
@@ -89,6 +90,7 @@ export function createGeneratorNode(config: WebLayoutRuntimeConfig, codex: Codex
         await writeFile(repairPath, state.html_document, "utf8");
       }
       const response = await codex.run(buildGeneratorPrompt(config, state), {
+        localImages: sourceEvidenceImages(config),
         ...(repairMode ? {outputSchema:htmlTextRepairSchema} : {}),
         task: repairMode ? "artifact_repair" : "artifact_builder",
         operation: repairMode ? "html_repair" : "html_build",

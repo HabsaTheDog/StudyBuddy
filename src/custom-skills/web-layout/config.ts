@@ -19,6 +19,11 @@ export const DEFAULT_WEBP_QUALITY = 84;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CANONICAL_STUDY_BUDDY_LOGO_PATH = path.resolve(MODULE_DIR, "../../../CI/logo.png");
 
+export function sourceEvidenceImages(config: Pick<WebLayoutRuntimeConfig, "assetFiles">): string[] {
+  return config.assetFiles.filter((file) => path.resolve(file) !== CANONICAL_STUDY_BUDDY_LOGO_PATH
+    && /\.(png|jpe?g|webp)$/i.test(file));
+}
+
 export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRuntimeConfig {
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
