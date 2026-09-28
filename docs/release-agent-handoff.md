@@ -18,23 +18,29 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
-## Provider-support intake, 2026-09-22
+## Provider-support intake, 2026-09-29
 
-The local root branch `feat/provider-support` and UI branch
-`feat/study-buddy-provider-support` (latest local UI commit `0c0ec97bc`) add three-provider setup and native workers, settings cleanup and acceptance-driven hardening.
-Carry this branch explicitly in the release inventory; it is not silently part
-of the published development branch. See [provider support](provider-support.md)
-for scope, exact verification and the **pending authenticated desktop acceptance**.
-Local tests and actual installation passed; no production-merge/release acceptance,
-remote availability, deployment or publication is claimed. Push the reviewed UI
-commit before its parent pointer only when a push is authorized.
+Local root branch `feat/provider-support` and UI branch
+`feat/study-buddy-provider-support` (latest UI `a1435c669`) add three-provider
+install/connect, optional onboarding, cleaned Settings and provider-independent
+workflow workers. Carry this branch explicitly in the release inventory; it is
+not silently part of the published development branch. See
+[provider support](provider-support.md) for exact source/native acceptance.
 
-Codex and Gemini are now connected. A real Gemini conversation passed; the first
-artifact lane was interrupted by workstation reboot and exposed an inherited
-TMPDIR socket-length defect, now fixed with regression coverage. Fresh desktop
-pipeline acceptance has resumed. Gemini produced a validated worksheet; both providers passed real image checks. Codex builder timeouts and detached-child cancellation remain acceptance findings. Claude has no
-subscription; the owner explicitly requested deterministic robustness coverage
-instead of a live account lane. Preserve this distinction in release evidence.
+Codex and Gemini passed fresh authenticated desktop artifact workflows with
+usable answer checkers, original request/image preservation and correct Quick
+Chat output placement. Root: 1,254 passed, four skipped; backend: 890 passed,
+four skipped; 104 final adapter/instruction checks; all typechecks/lint passed.
+Failed earlier lanes remain documented. All retained test lanes are terminal.
+Claude installation and deterministic worker/auth/error checks passed; no live
+subscription exists, and the owner explicitly accepted deterministic coverage.
+Native token usage and packaged Wayland/Windows/Fedora behavior are not inferred
+from the final X11 source checks.
+
+The work is committed locally, not pushed, merged, deployed or release-accepted.
+Push the reviewed UI dependency before its parent pointer only when authorized.
+The entire batch still needs deliberate freeze, holistic final review and clean
+Fedora/Windows acceptance on an exact package before publication approval.
 
 ## Development handoff, 2026-09-14
 

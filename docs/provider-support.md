@@ -254,26 +254,70 @@ checkpoint tests passed; lint and all 13 fork typechecks passed. New cases cover
 Unicode, queued messages, voice input isolation, authenticated context access,
 loopback enforcement, image propagation, cancellation and run-lease cleanup.
 The source desktop is running through X11 with its existing accounts.
-Fresh final desktop lanes are recorded below as they reach terminal acceptance.
+Fresh final desktop lanes:
 
-## Remaining acceptance and handoff
+- Codex `8393be44-1c9d-449c-9cb1-b1553d9cf79d`: **desktop-dev pass**,
+  Balanced, 299 seconds app duration / 258 seconds pipeline. Four leaf model
+  calls, 72,126 input and 13,202 output tokens reported; no transport/task
+  retry, one bounded repair for a missing Study Buddy identity mark. Original
+  prompt matched exactly; run and published attachment stayed in Quick Chat.
+  The actual desktop preview rejected a wrong answer, accepted all five correct
+  answers (27, 30, 25, 92, 180), opened solutions, and reset answers successfully.
+  Published HTML: 715,470 bytes; SHA-256
+  `102bdb582c65bb9795f3aa17f4eca2bf90b9f76b90303ba6f0e79f063cf0e3d9`.
+- Gemini `65ee19e1-5b42-4f27-be83-40c9cb07b39f`: **failed artifact contract**,
+  Balanced, 15 seconds, zero workflow calls/tokens. The card values and current
+  were correct, but the response was chat text with a static answer disclosure.
+  No HTML workflow was launched, so this is not pipeline acceptance. The shared
+  coordinator instructions now explicitly require a validated published artifact
+  for a requested working answer checker, even without the words HTML/file.
+  Ordinary explanations and requests restricted to chat remain conversational.
+  All 104 affected profile/Codex/Gemini/Claude instruction-adapter checks passed.
+  No follow-up repair was sent to this thread.
+- Gemini `6329087b-2296-4bdb-9133-de75027b6dc1`: **desktop-dev pass**,
+  Balanced, 159 seconds app / 59 seconds pipeline. Three native workers, zero
+  retries or repairs; token usage is unavailable for all three calls. Exact
+  original prompt and current image attachment were preserved, even though
+  the coordinator reused an old expanded command. The published file correctly
+  shows K7, 36 V, 18 Ω and 2 A without inventing a shape/value relationship.
+  Desktop preview rejected 3 A and accepted 4 A for its 60 V / 15 Ω practice
+  question. The step-by-step explanation is present and correct. Published
+  HTML: 695,576 bytes; SHA-256
+  `f0422600a4973f9e629c802fdcc067bad9e3202c30341a6dbbdb8d0d3da10892`.
 
-1. Finish the fresh Codex artifact rerun and any affected Gemini checks.
-2. Run fresh conversations plus equivalent source-to-artifact workflows with
-   Codex and Gemini; inspect prompts, internal parallel workers, native
-   question/approval handling, cancellation, artifact content and model changes.
-   Include image evidence, model/profile switching and restart persistence.
-   Claude's live account lane is explicitly unavailable, not a required owner
-   subscription purchase; retain deterministic coverage and report that limit.
-   Do not treat mocks, CLI-only probes or browser-only runs as this evidence.
-3. Investigate any real-account failures before calling this production-merge
-   ready. No real provider quality, timing or token-cost comparison exists yet.
-4. At deliberate batch freeze, retain the full release review and exact-candidate
-   Fedora/Windows packaged acceptance gates. No version bump, tag or publication.
+All 14 retained lanes are terminal. No active workflow worker remains for the
+final lanes; `sbtest a` reports an empty inventory. Standalone web-layout runs
+are not fully discovered by `sbtest i`, so run-events, metrics, summaries and
+process state were inspected directly as well. The final lane ledger and
+reviewed screenshots are under `study-buddy-data/provider-acceptance/evidence/live/`.
+The one canceled historical run with stale `running` metrics remains preserved
+as failure evidence; it has no live process. Independent T3 state was untouched.
 
-Implementation commits: root `ed219ee`, UI dependency `b4bef0b81` (local only).
+## Acceptance and release handoff
+
+The provider feature's source/native desktop acceptance is complete for Codex
+and Gemini, including real chat, image evidence, model/profile selection,
+restart persistence, pipeline workers, bounded HTML repair and usable artifact
+previews. Cancellation has deterministic owner-turn/SIGTERM/HTTP-disconnect
+coverage and a retained native Gemini stop lane; detached arbitrary shell
+commands remain distinct from supervised artifact workers.
+
+Claude installation/authentication/worker/error behavior has deterministic
+coverage and actual installation evidence. No authenticated Claude generation
+is claimed: the owner has no subscription and explicitly accepted this limit.
+Gemini worker token usage is unavailable. No comparative quality, token-cost,
+or runtime improvement is inferred from these different diagnostic workloads.
+
+Implementation commits include root `e57c512` and UI `36b46555f`, followed by UI
+`a1435c669` for the answer-checking artifact contract. These build on the scoped
+provider/setup/settings/repair commits recorded above.
 
 Development branches are local only: root `feat/provider-support`, UI
 `feat/study-buddy-provider-support`. Neither is pushed, merged, deployed or
-release-accepted by this task. The independently installed T3 Code was not used
-as the test application or modified.
+release-accepted by this task. Push the reviewed UI dependency before the root
+pointer only when authorized. No version bump, tag or publication occurred.
+
+At deliberate batch freeze, retain the holistic release review and clean
+Fedora/Windows acceptance on one exact packaged candidate. Source and native
+development checks do not certify a packaged release. The final X11 checks do
+not certify the earlier problematic native Wayland startup path.
