@@ -16,7 +16,7 @@ import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
 import { decideRenderStrategy } from "../renderStrategy.js";
 import { writeRunProgress } from "../runProgress.js";
 import { throwIfAborted } from "../runtimeAbort.js";
-import { normalizeInlineMathSource } from "../typstInlineMath.js";
+import { cleanVisibleMathText, normalizeInlineMathSource } from "../typstInlineMath.js";
 
 const FORMATTER_PROMPT_RESERVE = 1_024;
 
@@ -47,12 +47,12 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
       if (!state.error_log && decision.strategy === "deterministic") {
-        const document = renderDeterministicStudyDocument(
+        const generated = renderDeterministicStudyDocument(
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
           { prompt: config.prompt, profile: config.artifactIntent.profile },
         );
-        const validation = await validateGeneratedDocument(document, config);
+        const validation = await validateDeterministicDocument(generated, config);
         if (!validation.ok) {
           await config.diagnostics?.log(
             "warn",
@@ -64,6 +64,13 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
             reason: `Deterministic renderer validation failed: ${validation.error}`,
           };
         } else {
+          const document = validation.document;
+          if (validation.downgradedMath > 0) {
+            await config.diagnostics?.log(
+              "warn", "formatter",
+              `Rendered ${validation.downgradedMath} unparseable math expression(s) as readable text after bounded Typst diagnostics.`,
+            );
+          }
           await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
           return {
             final_document: document,
@@ -122,18 +129,19 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         (error instanceof ModelCallTimeoutError || error instanceof FormatterPromptCapacityError)
       ) {
         try {
-          const document = renderDeterministicStudyDocument(
+          const generated = renderDeterministicStudyDocument(
             validateExtractedData(state.extracted_data),
             config.diagnostics?.getCoverage() ?? emptyCoverage(),
             { prompt: config.prompt, profile: config.artifactIntent.profile },
           );
-          const validation = await validateGeneratedDocument(document, config);
+          const validation = await validateDeterministicDocument(generated, config);
           if (!validation.ok) {
             await config.diagnostics?.log(
               "warn", "formatter",
               `Deterministic fallback validation failed: ${validation.error}`,
             );
           } else {
+            const document = validation.document;
             await config.diagnostics?.log(
               "warn", "formatter",
               "LLM formatter could not complete; validated deterministic document fallback succeeded.",
@@ -199,6 +207,47 @@ async function validateGeneratedDocument(
     signal: config.abortSignal,
   });
   return validation.ok ? { ok: true } : validation;
+}
+
+async function validateDeterministicDocument(
+  generated: string,
+  config: MoodleRuntimeConfig,
+): Promise<{ ok: true; document: string; downgradedMath: number } | { ok: false; error: string }> {
+  let document = generated;
+  for (let downgradedMath = 0; downgradedMath <= 16; downgradedMath += 1) {
+    const validation = await validateGeneratedDocument(document, config);
+    if (validation.ok) return { ok: true, document, downgradedMath };
+    if (downgradedMath === 16) return validation;
+    const repaired = replaceFailingInlineMathWithReadableText(document, validation.error);
+    if (!repaired || repaired === document) return validation;
+    document = repaired;
+  }
+  return { ok: false, error: "Deterministic Typst validation exhausted its bounded recovery attempts." };
+}
+
+export function replaceFailingInlineMathWithReadableText(
+  document: string,
+  compilerError: string,
+): string | null {
+  const location = /document\.typ:(\d+):(\d+)/.exec(compilerError);
+  if (!location) return null;
+  const lineIndex = Number(location[1]) - 1;
+  const column = Number(location[2]);
+  const lines = document.split("\n");
+  const line = lines[lineIndex];
+  if (!line) return null;
+  const marked = [...line.matchAll(/\$[^$\n]+\$/g)].find((match) => {
+    const start = match.index ?? -1;
+    return start <= column && column < start + match[0].length;
+  });
+  if (!marked || marked.index === undefined) return null;
+  const original = marked[0];
+  const visible = cleanVisibleMathText(original.slice(1, -1)).trim();
+  if (!visible) return null;
+  lines[lineIndex] = line.slice(0, marked.index) +
+    `#text(${JSON.stringify(visible)})` +
+    line.slice(marked.index + original.length);
+  return lines.join("\n");
 }
 
 function requiresPreview(document: string): boolean {

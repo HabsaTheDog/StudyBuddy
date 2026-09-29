@@ -219,6 +219,7 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\nu\b/g, "nu")
     .replace(/\\Delta\b/g, "Delta")
     .replace(/\bint(?=_|\b)/g, "integral")
+    .replace(/(?<![A-Za-z])j([xytT])\b/g, "j $1")
     // Typst reads `xy` as one (undefined) identifier, whereas textbook
     // notation commonly uses it for the product of coordinate variables.
     .replace(/(?<![A-Za-z])([xyz])([xyz])\b/g, "$1 $2")

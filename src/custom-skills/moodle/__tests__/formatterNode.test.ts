@@ -8,6 +8,7 @@ import {
   FormatterPromptCapacityError,
   normalizeGeneratedTypstComponents,
   normalizeGeneratedTypstMath,
+  replaceFailingInlineMathWithReadableText,
 } from "../nodes/formatterNode.js";
 import {
   moodleExtractedData,
@@ -29,6 +30,17 @@ const validateTypstMock = vi.mocked(validateTypst);
 describe("formatterNode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("downgrades only the compiler-identified inline math span", () => {
+    const document = 'before\n#text("Text ")$ e^(3jx) $#text(" und ")$ x=2 $\nafter';
+    const repaired = replaceFailingInlineMathWithReadableText(
+      document,
+      "error: unknown variable: jx\n  ┌─ /tmp/document.typ:2:23",
+    );
+    expect(repaired).toContain('#text("e^(3jx)")');
+    expect(repaired).toContain('$ x=2 $');
+    expect(replaceFailingInlineMathWithReadableText(document, "error without source location")).toBeNull();
   });
 
   it("strips Typst fences, validates, and clears repair errors", async () => {

@@ -71,6 +71,14 @@ describe("Typst inline mathematics", () => {
       .resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("separates the imaginary unit from adjacent variables", async () => {
+    const expression = formatFormulaMath("e^(3jx)e^(3jT)");
+    expect(expression).toContain("j x");
+    expect(expression).toContain("j T");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("normalizes abbreviated integral notation in a worked solution", async () => {
     const expression = formatFormulaMath("a_0=1/pi int_(-pi)^pi g(x) dif x");
     expect(expression).toContain("integral_");

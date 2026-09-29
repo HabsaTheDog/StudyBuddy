@@ -4,10 +4,11 @@ import path from "node:path";
 import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
+import { replaceFailingInlineMathWithReadableText } from "../nodes/formatterNode.js";
 import { initialSourceCoverage } from "../runDiagnostics.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateTypst } from "../validation.js";
-import { moodleExtractedData } from "./support/moodleTestBlocks.js";
+import { moodleExtractedData, studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 let runDir: string | null = null;
 
@@ -19,6 +20,16 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("uses a readable text fallback for a compiler-identified malformed equation", async () => {
+    const supportFiles = await getStudyBuddyTypstSupportFiles();
+    const original = studyBuddyTypstDocument("$ badunknown(x) $");
+    const failed = await validateTypst(original, supportFiles);
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    const repaired = replaceFailingInlineMathWithReadableText(original, failed.error);
+    expect(repaired).not.toBeNull();
+    await expect(validateTypst(repaired!, supportFiles)).resolves.toEqual({ ok: true });
+  }, 30_000);
   it("renders math in example titles as content, not a literal string", async () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
