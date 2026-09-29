@@ -466,6 +466,11 @@ describe("analyzerNode", () => {
     );
   });
 
+  it("drops stray control bytes from a valid analyzer formula before semantic review", () => {
+    expect(normalizeAnalyzerFormulaSyntax("grad f(x,y,z) = (ln z + 2y,\u007f2x,\u007fx/z)"))
+      .toBe("grad f(x,y,z) = (ln z + 2y,2x,x/z)");
+  });
+
   it("replaces support-only selection with every bounded direct source", () => {
     const candidate = (id: string, resourceId: string, sourceRole: string) => ({
       id,

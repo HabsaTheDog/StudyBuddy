@@ -1787,6 +1787,10 @@ function normalizeFragmentReferences(
 
 export function normalizeAnalyzerFormulaSyntax(value: string): string {
   return value
+    // Structured model output can contain stray C0/DEL control bytes. They
+    // have no mathematical meaning and must not turn a valid formula into a
+    // semantic repair loop or a broken PDF.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/\bdot\s*\.\s*double\s*\((bold\([^()]+\)|[^()]+)\)/g, "ddot($1)")
     .replace(/\$/g, " ")
     .replace(/\s+/g, " ")
