@@ -133,6 +133,19 @@ describe("Typst inline mathematics", () => {
     ).resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("hides unmatched math delimiters in prose without changing prices", async () => {
+    const content = renderTypstInlineText(
+      "Daraus folgt $f_x=4x^3-y sin(xy). Das Heft kostet $5.",
+      formatFormulaMath,
+    );
+
+    expect(content).not.toContain("$f");
+    expect(content).toContain("fₓ=4x³-y sin(xy)");
+    expect(content).toContain("$5");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("cleans visible raw notation in ordinary prose and metadata", () => {
     expect(cleanVisibleMathText("tau_1 <= tau_1B / S; N/mm^2; pi dot d^2"))
       .toBe("τ₁ ≤ τ₁B / S; N/mm²; π · d²");

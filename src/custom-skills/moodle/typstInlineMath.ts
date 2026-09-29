@@ -17,6 +17,10 @@ export function renderTypstInlineText(
 export function cleanVisibleMathText(value: string): string {
   return normalizeVisibleLatex(unwrapVisibleMathCalls(value))
     .replace(/`/g, "")
+    // Paired math delimiters are consumed by splitInlineMarkup. A remaining
+    // dollar sign in a prose fragment is an orphaned delimiter, not Typst
+    // math; keep ordinary prices such as "$5" readable.
+    .replace(/\$(?!\d+(?:[.,]\d+)?(?=[\s.,;:!?)]|$))/g, "")
     .replace(/\b(?:->|→)\(([^()]+)\)/g, (_, value: string) => `bold(${value.trim()})`)
     .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "$1\u0308")
     .replace(
@@ -372,6 +376,9 @@ function splitInlineMarkup(value: string): InlinePart[] {
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
+    // A missing closing delimiter must not consume the next price or formula
+    // in a later sentence as its partner.
+    if (match[0].startsWith("$") && /[.!?]\s+[A-ZÄÖÜ]/.test(match[0])) continue;
     if (index > cursor) parts.push({ kind: "text", value: value.slice(cursor, index) });
     const marked = match[0];
     const inner = marked.slice(1, -1);
