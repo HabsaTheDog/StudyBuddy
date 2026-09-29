@@ -399,7 +399,7 @@ function renderFormula(data: ExtractedData, formula: LearningFormula): string {
   const lines = readableFormulaLines(formula.typst);
   const compact = lines.some((line) => line.length > 68);
   return `#sb-formula(
-  name: ${typstString(formula.name)},
+  name: [${proseText(formula.name)}],
   variables: ${stringTuple(formula.variables)},
   units: ${stringTuple(formula.units)},
   source: ${sourceReferenceList(data, formula.source_ids) ?? typstString(data.language === "en" ? "General subject theory" : "Allgemeine Fachtheorie")},
@@ -422,7 +422,7 @@ function readableFormulaLines(value: string): string[] {
 
 function renderExample(data: ExtractedData, example: WorkedExample): string {
   return `#sb-example(
-  title: ${typstString(example.learning_goal)},
+  title: [${proseText(example.learning_goal)}],
   result: [${proseText(example.result)}],
 )[
   #text(weight: "bold")[${data.language === "en" ? "Starting point" : "Ausgangslage"}:] ${proseText(example.prompt)}
@@ -458,6 +458,7 @@ function renderReadableExampleStep(value: string): string {
     value.length < 75 ||
     equalityParts.length < 4 ||
     calculation.includes(";") ||
+    /#[^#\n]+#|\$[^$\n]+\$|`[^`\n]+`/.test(value) ||
     /(?:gegeben|gesucht|starting point|given)/i.test(label)
   ) return text(value);
 

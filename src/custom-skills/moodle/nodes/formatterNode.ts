@@ -3,6 +3,7 @@ import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
 import {
   isNonRetryableCodexError,
+  ModelCallTimeoutError,
   resolveModelPromptBodyCharacterBudget,
 } from "../codexClient.js";
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
@@ -29,7 +30,19 @@ export class FormatterPromptCapacityError extends Error {
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
-      const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
+      const baseDecision = config.renderStrategyDecision ?? decideRenderStrategy(config);
+      const rawExamples = !Array.isArray(state.extracted_data) &&
+        typeof state.extracted_data === "object" && state.extracted_data !== null
+        ? state.extracted_data["worked_examples"]
+        : undefined;
+      const exampleCount = Array.isArray(rawExamples) ? rawExamples.length : 0;
+      const decision = config.renderStrategy === "auto" && !state.error_log &&
+        baseDecision.strategy === "llm_formatter" && exampleCount >= 12
+        ? {
+          strategy: "deterministic" as const,
+          reason: `Auto mode selected validated deterministic rendering for ${exampleCount} worked examples; avoids a large formatter prompt and timeout.`,
+        }
+        : baseDecision;
       config.renderStrategyDecision = decision;
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
@@ -104,6 +117,41 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
       };
     } catch (error) {
       throwIfAborted(config.abortSignal);
+      if (
+        config.renderStrategy === "auto" &&
+        (error instanceof ModelCallTimeoutError || error instanceof FormatterPromptCapacityError)
+      ) {
+        try {
+          const document = renderDeterministicStudyDocument(
+            validateExtractedData(state.extracted_data),
+            config.diagnostics?.getCoverage() ?? emptyCoverage(),
+            { prompt: config.prompt, profile: config.artifactIntent.profile },
+          );
+          const validation = await validateGeneratedDocument(document, config);
+          if (!validation.ok) {
+            await config.diagnostics?.log(
+              "warn", "formatter",
+              `Deterministic fallback validation failed: ${validation.error}`,
+            );
+          } else {
+            await config.diagnostics?.log(
+              "warn", "formatter",
+              "LLM formatter could not complete; validated deterministic document fallback succeeded.",
+            );
+            config.renderStrategyDecision = {
+              strategy: "deterministic",
+              reason: `Validated fallback after ${error instanceof Error ? error.name : "formatter failure"}.`,
+            };
+            await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
+            return { final_document: document, error_log: null };
+          }
+        } catch (fallbackError) {
+          await config.diagnostics?.log(
+            "warn", "formatter",
+            `Deterministic fallback could not run: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+          );
+        }
+      }
       if (
         error instanceof FormatterPromptCapacityError ||
         isNonRetryableCodexError(error) ||

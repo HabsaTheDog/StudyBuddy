@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexClient } from "../codexClient.js";
-import { resolveModelPromptBodyCharacterBudget } from "../codexClient.js";
+import { ModelCallTimeoutError, resolveModelPromptBodyCharacterBudget } from "../codexClient.js";
 import { validateTypst } from "../validation.js";
 import {
   buildFormatterPrompt,
@@ -78,6 +78,66 @@ describe("formatterNode", () => {
       final_document: studyBuddyTypstDocument(),
       error_log: null,
     });
+  });
+
+  it("delivers a validated deterministic document when the auto formatter times out", async () => {
+    validateTypstMock.mockResolvedValueOnce({ ok: true });
+    const codex: CodexClient = {
+      async run() {
+        throw new ModelCallTimeoutError({
+          task: "artifact_builder", model: "slow-model", timeoutMs: 240_000, queueWaitMs: 0,
+        });
+      },
+    };
+    const result = await createFormatterNode(moodleTestConfig({ renderStrategy: "auto" }), codex)(
+      moodleTestState({ extracted_data: moodleExtractedData(), error_log: null, retry_count: 0 }),
+    );
+
+    expect(result.error_log).toBeNull();
+    expect(result.final_document).toContain("#sb-document(");
+    expect(validateTypstMock).toHaveBeenCalledOnce();
+  });
+
+  it("renders a large worked-example set deterministically in auto mode without a model call", async () => {
+    validateTypstMock.mockResolvedValueOnce({ ok: true });
+    const codex: CodexClient = {
+      async run() { throw new Error("LLM formatter must not be called for this large document"); },
+    };
+    const examples = Array.from({ length: 12 }, (_, index) => ({
+      origin: "source" as const,
+      learning_goal: `Aufgabe ${index + 1}`,
+      prompt: `Löse Aufgabe ${index + 1}.`,
+      steps: ["Gegebenes einsetzen.", "Ergebnis prüfen."],
+      result: "Ergebnis geprüft.",
+      source_ids: [],
+    }));
+    const config = moodleTestConfig({ renderStrategy: "auto" });
+    const result = await createFormatterNode(config, codex)(moodleTestState({
+      extracted_data: moodleExtractedData({ worked_examples: examples }),
+      error_log: null,
+      retry_count: 0,
+    }));
+
+    expect(result.error_log).toBeNull();
+    expect(result.final_document).toContain("#sb-document(");
+    expect(config.renderStrategyDecision?.strategy).toBe("deterministic");
+    expect(validateTypstMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not override an explicitly requested LLM formatter after a timeout", async () => {
+    const codex: CodexClient = {
+      async run() {
+        throw new ModelCallTimeoutError({
+          task: "artifact_builder", model: "slow-model", timeoutMs: 240_000, queueWaitMs: 0,
+        });
+      },
+    };
+    const result = await createFormatterNode(moodleTestConfig({ renderStrategy: "llm_formatter" }), codex)(
+      moodleTestState({ extracted_data: moodleExtractedData(), error_log: null, retry_count: 0 }),
+    );
+
+    expect(result.error_log).toContain("model call timed out");
+    expect(validateTypstMock).not.toHaveBeenCalled();
   });
 
   it("canonicalizes analyzer math shorthand before validating the complete document", async () => {

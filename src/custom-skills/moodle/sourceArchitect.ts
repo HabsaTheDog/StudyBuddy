@@ -61,7 +61,7 @@ interface ResourceCatalog {
   entries: CatalogEntry[];
 }
 
-const SOURCE_ARCHITECT_CACHE_VERSION = "2026-08-16.3-complete-practice-coverage";
+const SOURCE_ARCHITECT_CACHE_VERSION = "2026-09-29.2-evidence-pages-and-overview-support";
 export const MAX_LEARNING_MODULES = 24;
 const REQUEST_LIMITS: Record<MoodleRuntimeConfig["executionProfile"], number> = {
   auto: 10,
@@ -151,9 +151,16 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
   ): Promise<Partial<LangGraphAgentState>> {
     const round = state.source_architect_decision.round + 1;
     const catalog = await readCatalog(config.runDir);
+    const evidencedResourceIds = new Set(
+      state.evidence_package.records.map((record) => record.resourceId),
+    );
     const acquiredUrls = new Set(
       state.resource_manifest.resources
-        .filter((resource) => Boolean(resource.localPath) || resource.status === "acquired")
+        .filter((resource) =>
+          Boolean(resource.localPath) ||
+          resource.status === "acquired" ||
+          evidencedResourceIds.has(resource.id)
+        )
         .map((resource) => canonicalizeResourceUrl(resource.originUrl)),
     );
     const failedAttemptUrls = new Set(
@@ -802,10 +809,16 @@ async function readCatalog(runDir: string): Promise<ResourceCatalog | null> {
 }
 
 function buildBriefs(state: LangGraphAgentState) {
+  const recordsByResource = new Map<string, LangGraphAgentState["evidence_package"]["records"]>();
+  for (const record of state.evidence_package.records) {
+    const records = recordsByResource.get(record.resourceId) ?? [];
+    records.push(record);
+    recordsByResource.set(record.resourceId, records);
+  }
   return state.resource_manifest.resources
-    .filter((resource) => resource.localPath)
+    .filter((resource) => resource.localPath || recordsByResource.has(resource.id))
     .map((resource) => {
-      const records = state.evidence_package.records.filter((record) => record.resourceId === resource.id);
+      const records = recordsByResource.get(resource.id) ?? [];
       const sample = records.map((record) => record.content).join(" ").replace(/\s+/g, " ").slice(0, 700);
       return {
         resourceId: resource.id,
@@ -1175,8 +1188,10 @@ function validateDecision(
     ),
     MAX_LEARNING_MODULES,
   );
-  const architectureRequests = learningArchitecture.modules
-    .flatMap((module) => module.resourceUrls)
+  const architectureRequests = [
+    ...learningArchitecture.modules.flatMap((module) => module.resourceUrls),
+    ...learningArchitecture.supportResources.flatMap((support) => support.resourceUrls),
+  ]
     .map((url) => allowed.get(canonicalizeResourceUrl(url)))
     .filter((url): url is string => Boolean(url));
   const requestedUrls = [...new Set([
@@ -1265,13 +1280,20 @@ function isAdministrativeContainerModule(
   module: LearningArchitecture["modules"][number],
   catalogByUrl: Map<string, CatalogEntry>,
 ): boolean {
+  const entries = module.resourceUrls
+    .map((url) => catalogByUrl.get(canonicalizeResourceUrl(url)))
+    .filter((entry): entry is CatalogEntry => Boolean(entry));
+  if (
+    module.priority !== "essential" &&
+    entries.length > 0 &&
+    entries.every((entry) => entry.role === "overview")
+  ) {
+    return true;
+  }
   if (!/\b(?:lv[- ]*)?(?:kommunikation|communication|course information|kursinformation|organisation|organization)\b/i
     .test(module.title)) {
     return false;
   }
-  const entries = module.resourceUrls
-    .map((url) => catalogByUrl.get(canonicalizeResourceUrl(url)))
-    .filter((entry): entry is CatalogEntry => Boolean(entry));
   return entries.length > 0 && entries.every((entry) =>
     !entry.topic &&
     ["overview", "formula", "administrative", "sample_exam", "supplementary"]
@@ -1291,20 +1313,44 @@ function ensureSelectedOverviewCoverage(
     ]
       .map(canonicalizeResourceUrl),
   );
-  const missing = catalog.filter((entry) =>
+  const selectedMissing = catalog.filter((entry) =>
     (entry.selected || entry.priority >= 900 ||
       (entry.role === "primary_lecture" && Boolean(entry.topic))) &&
     ["primary_lecture", "overview"].includes(entry.role) &&
     !represented.has(canonicalizeResourceUrl(entry.href))
   );
+  const overviewMissing = selectedMissing.filter((entry) => entry.role === "overview");
+  const supportResources = architecture.supportResources.map((support) => ({
+    ...support,
+    resourceUrls: [...support.resourceUrls],
+  }));
+  if (overviewMissing.length > 0) {
+    const overviewUrls = overviewMissing.map((entry) => entry.href);
+    const general = supportResources.find((support) => support.purpose === "general_reference");
+    if (general) {
+      general.resourceUrls = [...new Set([...general.resourceUrls, ...overviewUrls])];
+    } else {
+      supportResources.push({
+        id: "course-overview-reference",
+        title: "Course overview reference",
+        purpose: "general_reference",
+        resourceUrls: overviewUrls,
+      });
+    }
+  }
+  const baseArchitecture = {
+    ...architecture,
+    supportResources,
+  };
+  const missing = selectedMissing.filter((entry) => entry.role !== "overview");
   if (missing.length === 0) {
     return learningArchitectureSchema.parse({
-      ...architecture,
-      modules: sortArchitectureModulesByCatalog(architecture.modules, catalog),
+      ...baseArchitecture,
+      modules: sortArchitectureModulesByCatalog(baseArchitecture.modules, catalog),
     });
   }
 
-  const originalModules = architecture.modules.map((module) => ({
+  const originalModules = baseArchitecture.modules.map((module) => ({
     ...module,
     resourceUrls: [...module.resourceUrls],
   }));
@@ -1348,11 +1394,11 @@ function ensureSelectedOverviewCoverage(
     language,
   }).modules.slice(0, remainingSlots);
   const candidate = {
-    ...architecture,
+    ...baseArchitecture,
     modules: sortArchitectureModulesByCatalog([...originalModules, ...derived], catalog),
   };
   const validated = validateLearningArchitectureModelJson(candidate);
-  return validated.success ? validated.data : architecture;
+  return validated.success ? validated.data : baseArchitecture;
 }
 
 function sortArchitectureModulesByCatalog(

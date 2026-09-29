@@ -220,6 +220,38 @@ describe("courseResolverNode", () => {
     expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
   });
 
+  it("rejects a numbered-course guess when the requested checkmark lists are absent", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
+    const candidates = [
+      candidate("DYN", 11, "Physikalische Grundlagen der Dynamik"),
+      candidate("MAES", 12, "Mathematik für Engineering Science 3"),
+    ];
+    const reader = fakeReader(candidates, {
+      DYN: "Block 1: Translation. Block 3: Rotation. Block 8: Übungen. Block 9: Prüfung.",
+      MAES: "Kreuzerlliste zu Themen 1–3. Kreuzerlliste zu Themen 8–9.",
+    });
+    let calls = 0;
+    const codex: CodexClient = {
+      async run() {
+        calls += 1;
+        if (calls === 1) return JSON.stringify({ candidate_ids: ["DYN"], reasoning: "Numbered blocks." });
+        if (calls === 2) return JSON.stringify({
+          selected_id: "DYN", confidence: "medium", reasoning: "Matching block numbers.", alternatives: [],
+        });
+        throw new Error("Further semantic search unavailable");
+      },
+    };
+    const config = resolverConfig("Erstelle ein PDF aus den Kreuzerllisten der Themen 1–3 und 8–9.");
+
+    const result = await createCourseResolverNode(config, codex, { reader })();
+
+    expect(config.targetCourseUrls).toBeUndefined();
+    expect(result.error_log).toMatch(/^Course resolution ambiguous:/);
+    const artifact = JSON.parse(await readFile(path.join(runDir, "course-resolution.json"), "utf8"));
+    expect(artifact).toMatchObject({ selected: null, status: "ambiguous" });
+    expect(artifact.detail).toContain("does not show the requested checkmark lists");
+  });
+
   it("fits four long Moodle probes inside the analyzer budget before the model call", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "course-resolver-"));
     const candidates = [

@@ -11,6 +11,73 @@ import { validateTypst } from "../validation.js";
 import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 describe("Typst inline mathematics", () => {
+  it("renders hash-delimited analyzer mathematics as inline math", async () => {
+    const content = renderTypstInlineText(
+      "Rand #y=x#, #0<=x<=4#: #f(x,x)=x^2+4#. Der Wert ist #20#.",
+      formatFormulaMath,
+    );
+
+    expect(content).toContain("$y=x$");
+    expect(content).toContain("$f(x,x)=x^2+4$");
+    expect(content).not.toContain("#f(x,x)");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders LaTeX-marked prose without exposing source syntax", async () => {
+    const content = renderTypstInlineText(
+      String.raw`Für \(f(x)=\frac{x_1}{x_2}\) gilt \(n\ge1\) und \(\sum_{n=1}^\infty a_n\).`,
+      formatFormulaMath,
+    );
+    expect(content).not.toContain(String.raw`\(`);
+    expect(content).not.toContain(String.raw`\frac`);
+    expect(content).toContain("∑");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups angle-bracket inner products inside a fraction", async () => {
+    const expression = formatFormulaMath("c_n = frac(<f,p_n>,<p_n,p_n>)");
+    expect(expression).toContain("frac((⟨f,p_n⟩),(⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups LaTeX angle-bracket inner products inside a fraction", async () => {
+    const expression = formatFormulaMath(String.raw`c_n = frac(\langle f,p_n \rangle,\langle p_n,p_n \rangle)`);
+    expect(expression).toContain("frac((⟨f,p_n⟩),(⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups analyzer angle.l/rangle inner products inside a curried fraction", async () => {
+    const expression = formatFormulaMath("c_n = frac(angle.l f,p_n rangle)(angle.l p_n,p_n rangle)");
+    expect(expression).toContain("frac((⟨f,p_n⟩), (⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes real-plane set difference from LaTeX", async () => {
+    const expression = formatFormulaMath(String.raw`\mathbb{R}^2\setminus\{(0,0)\}`);
+    expect(expression).toBe("RR^2 without {(0,0)}");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders adjacent coordinate variables as multiplication", async () => {
+    const expression = formatFormulaMath("f(x,y,z) = x ln z + 2xy");
+    expect(expression).toContain("2x y");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes abbreviated integral notation in a worked solution", async () => {
+    const expression = formatFormulaMath("a_0=1/pi int_(-pi)^pi g(x) dif x");
+    expect(expression).toContain("integral_");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("renders dollar and backtick math as real inline math", async () => {
     const content = renderTypstInlineText(
       "Gegeben sind $A_{net} = A - ΔA = 23 µm$ und `gamma_(M2) = 1.25`; danach folgt Text.",

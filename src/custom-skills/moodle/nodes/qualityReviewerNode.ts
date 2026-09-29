@@ -142,15 +142,17 @@ export function buildQualityReviewPrompt(
     resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) -
       QUALITY_REVIEW_PROMPT_MARGIN,
   );
-  const compose = (mode: "standard" | "bounded" | "minimal") => {
+  const compose = (mode: "standard" | "bounded" | "minimal" | "coverage") => {
     // This node validates the extraction handoff, not a renderer preview. A
     // prefix slice of final_document can silently omit trailing chapters and
     // make the reviewer report them as missing even though the complete study
     // model passed deterministic validation.
     const artifact = `Structured study model review view:\n${JSON.stringify(
-      mode === "minimal"
-        ? minimalStudyModelForReview(state)
-        : compactStudyModelForReview(state, mode === "bounded"),
+      mode === "coverage"
+        ? coverageStudyModelForReview(state)
+        : mode === "minimal"
+          ? minimalStudyModelForReview(state)
+          : compactStudyModelForReview(state, mode === "bounded"),
     )}`;
     return [
     "Review this Study Buddy artifact against the exact original request and evaluated request contract, then for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
@@ -160,6 +162,7 @@ export function buildQualityReviewPrompt(
     "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
     "Derived examples with declared values are valid when the cited rule is source-backed. A lookup-dependent example is invalid if it merely copies table/diagram values without showing the visible asset and selection method.",
     "Narrow documented source gaps and publicationStatus='partial' are acceptable. Do not demand optional breadth, a detached practice bank, invented material, one example per formula, or one worked example per official Moodle topic.",
+    "The workedExampleCoverageLedger lists every included example and every step outline. Chapter workedExamples are truncated samples for mathematical review; never infer a missing task or step solely because it is absent from those samples. Use the ledger to check coverage, and flag only a concrete gap visible there or in the full deterministic findings.",
     previousReviewError
       ? "This is a repair verification. Check whether the previously reported blocking defects are resolved. Do not introduce stricter example-count rules or unrelated new breadth requirements; add a new blocker only for a concrete contradiction, invalid mathematics/citation, or unusable method visible in the repaired handoff."
       : "",
@@ -179,7 +182,9 @@ export function buildQualityReviewPrompt(
   const standardPrompt = compose("standard");
   if (standardPrompt.length <= promptBudget) return standardPrompt;
   const boundedPrompt = compose("bounded");
-  return boundedPrompt.length <= promptBudget ? boundedPrompt : compose("minimal");
+  if (boundedPrompt.length <= promptBudget) return boundedPrompt;
+  const minimalPrompt = compose("minimal");
+  return minimalPrompt.length <= promptBudget ? minimalPrompt : compose("coverage");
 }
 
 function localizeQualityFindings(
@@ -283,6 +288,24 @@ function reviewTerms(title: string): string[] {
     .filter((term) => term.length >= 5 && !ignored.has(term)))];
 }
 
+function workedExampleCoverageLedger(model: LangGraphAgentState["study_model"]) {
+  const perExampleBudget = Math.max(24, Math.floor(6_000 / Math.max(1, model.workedExamples.length)));
+  const goalCharacters = Math.min(80, Math.max(12, Math.floor(perExampleBudget / 3)));
+  return model.workedExamples.map((example) => ({
+    chapterId: example.chapterId,
+    learningGoal: example.learningGoal.slice(0, goalCharacters),
+    stepCount: example.steps.length,
+    stepOutlines: example.steps.map((step) => {
+      const normalized = step.replace(/\s+/g, " ").trim();
+      const part = /^(\([^)]+\)|\d+[.)])/.exec(normalized)?.[1];
+      const numberedSymbol = /\bf[_\s]?(\d+)\b/i.exec(normalized)?.[0];
+      return part && numberedSymbol
+        ? `${part} ${numberedSymbol}`
+        : normalized.slice(0, Math.min(24, Math.max(8, Math.floor(perExampleBudget / Math.max(1, example.steps.length + 3)))));
+    }),
+  }));
+}
+
 function compactStudyModelForReview(state: LangGraphAgentState, bounded = false) {
   const model = state.study_model;
   const limits = bounded
@@ -350,6 +373,7 @@ function compactStudyModelForReview(state: LangGraphAgentState, bounded = false)
     courseTitle: model.courseTitle,
     publicationStatus: model.publicationStatus,
     scopeNote: model.scopeNote,
+    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
     chapters: model.courseChapters.map((chapter) => {
       const officialTopicCount = new Set(chapter.learningObjectives.flatMap((objective) =>
         [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)]
@@ -519,6 +543,7 @@ function minimalStudyModelForReview(state: LangGraphAgentState) {
     courseTitle: model.courseTitle,
     publicationStatus: model.publicationStatus,
     scopeNote: compactReviewText(model.scopeNote, 240),
+    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
     chapters,
     sources: model.sources
       .filter((source) => referencedSourceIds.has(source.id))
@@ -532,6 +557,27 @@ function minimalStudyModelForReview(state: LangGraphAgentState) {
       ...finding,
       message: compactReviewText(finding.message, 140),
     })),
+  };
+}
+
+function coverageStudyModelForReview(state: LangGraphAgentState) {
+  const model = state.study_model;
+  return {
+    profile: model.profile,
+    title: model.title,
+    courseTitle: model.courseTitle,
+    publicationStatus: model.publicationStatus,
+    scopeNote: model.scopeNote.slice(0, 240),
+    chapters: model.courseChapters.map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+      status: chapter.status,
+      learningObjectives: chapter.learningObjectives.map((objective) => objective.slice(0, 100)),
+      assessmentSignals: chapter.assessmentSignals.map((signal) => signal.slice(0, 100)),
+      topicTitles: model.topics.filter((topic) => topic.chapterId === chapter.id).map((topic) => topic.title),
+    })),
+    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
+    deterministicFindings: state.review_report.findings,
   };
 }
 

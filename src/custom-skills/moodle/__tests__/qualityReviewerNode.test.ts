@@ -122,6 +122,71 @@ describe("qualityReviewerNode", () => {
     expect(prompt).toContain("kontrolliertes Ergebnis.");
   });
 
+  it("shows every worked-example step in a coverage ledger when detailed review samples are truncated", () => {
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        study_model: {
+          ...emptyStudyModel(),
+          courseChapters: [chapters[0]],
+          workedExamples: [{
+            id: "example-nine-parts",
+            chapterId: chapters[0].id,
+            origin: "source",
+            learningGoal: "Aufgabe 9: neun Teilaufgaben lösen",
+            prompt: "Bestimme die Ergebnisse für f1 bis f9.",
+            steps: Array.from({ length: 9 }, (_, index) =>
+              `(${String.fromCharCode(97 + index)}) f_${index + 1}: Rechenweg und Begründung.`
+            ),
+            result: "Alle neun Teilaufgaben geprüft.",
+            sourceIds: ["source-1"],
+          }],
+        },
+      }),
+    );
+
+    expect(prompt).toContain("workedExampleCoverageLedger");
+    expect(prompt).toContain('"stepCount":9');
+    expect(prompt).toContain('"(i) f_9"');
+    expect(prompt).toContain("never infer a missing task or step solely because it is absent");
+  });
+
+  it("retains task and substep coverage for a twenty-task PDF within the reviewer budget", () => {
+    const courseChapters = Array.from({ length: 5 }, (_, chapterIndex) => ({
+      ...chapters[0],
+      id: `chapter-${chapterIndex}`,
+      title: `Topic ${chapterIndex + 1}`,
+      learningObjectives: [`Solve every requested task in topic ${chapterIndex + 1}.`],
+    }));
+    const workedExamples = courseChapters.flatMap((chapter, chapterIndex) =>
+      Array.from({ length: 4 }, (_, taskIndex) => ({
+        id: `example-${chapterIndex}-${taskIndex}`,
+        chapterId: chapter.id,
+        origin: "source" as const,
+        learningGoal: `${chapter.title} – Exercise ${taskIndex + 1}`,
+        prompt: "Solve the supplied source exercise with all intermediate steps.",
+        steps: Array.from({ length: taskIndex === 3 ? 9 : 5 }, (__, stepIndex) =>
+          `(${String.fromCharCode(97 + stepIndex)}) f_${stepIndex + 1}: Derive and check this subresult.`
+        ),
+        result: "All requested subresults checked.",
+        sourceIds: [`source-${chapterIndex}`],
+      }))
+    );
+    const prompt = buildQualityReviewPrompt(
+      moodleTestConfig(),
+      moodleTestState({
+        study_model: { ...emptyStudyModel(), courseChapters, workedExamples },
+      }),
+    );
+
+    expect(prompt.length).toBeLessThanOrEqual(
+      resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512,
+    );
+    expect(prompt).toContain('"stepCount":9');
+    expect(prompt).toContain('"(i) f_9"');
+    expect((prompt.match(/"stepCount":/g) ?? [])).toHaveLength(20);
+  });
+
   it("compacts a large multi-chapter review below the hard reviewer budget", () => {
     const long = "fachlich belegter Erklärungstext mit Formel, Einheit und Kontrolle ".repeat(30);
     const courseChapters = Array.from({ length: 8 }, (_, index) => ({

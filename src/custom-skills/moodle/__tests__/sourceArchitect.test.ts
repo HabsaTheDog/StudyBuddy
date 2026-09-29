@@ -22,6 +22,71 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
+  it("treats an evidence-backed Moodle activity page as an acquired authorized brief", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-activity-brief-"));
+    directories.push(runDir);
+    const activityUrl = "https://moodle.example/mod/checkmark/view.php?id=2022003";
+    const activityId = stableResourceId(activityUrl);
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [{
+        ...entry(activityUrl, "Kreuzerlliste zu den Themen 1-3", false, 900),
+        role: "supplementary",
+        sectionTitle: "Vorbereitung",
+      }],
+    }));
+    const codex = { run: vi.fn() };
+    const page = {
+      ...resource(activityId, activityUrl, "Kreuzerlliste zu den Themen 1-3", "Vorbereitung", null, "supplementary"),
+      activityType: "checkmark",
+      status: "discovered" as const,
+    };
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course/view.php?id=30605",
+        generatedAt: new Date().toISOString(),
+        resources: [page],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "ev_tasks",
+          resourceId: activityId,
+          kind: "exercise",
+          locator: { section: "Kreuzerlliste" },
+          content: "T1/A3, T2/A7 und T3/A13",
+          confidence: 0.95,
+          pairId: null,
+          sourceUrl: activityUrl,
+          localPath: null,
+        }],
+        warnings: [],
+      },
+    });
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      runtimeCacheDir: path.join(runDir, "cache"),
+      prompt: "Erstelle ein PDF aus der Kreuzerlliste zu den Themen 1–3.",
+    }), codex)(state);
+
+    expect(codex.run).not.toHaveBeenCalled();
+    expect(result.source_architect_decision).toMatchObject({
+      status: "sufficient",
+      requestedUrls: [],
+    });
+    expect(result.source_architect_decision?.learningArchitecture?.modules
+      .flatMap((module) => module.resourceUrls)).toContain(activityUrl);
+    const persisted = JSON.parse(
+      await readFile(path.join(runDir, "document-briefs.json"), "utf8"),
+    );
+    expect(persisted.briefs).toEqual([
+      expect.objectContaining({ resourceId: activityId, resourceUrl: activityUrl }),
+    ]);
+  });
+
   it("demotes administrative containers and adds newly selected subject modules", () => {
     const pointUrl = "https://moodle.example/point.pdf";
     const vectorUrl = "https://moodle.example/vector.pdf";
@@ -70,6 +135,43 @@ describe("source architect", () => {
       "Schwerpunktsatz",
     ]));
     expect(titles).not.toContain("LV-Kommunikation");
+    expect(reconciled.supportResources.flatMap((support) => support.resourceUrls))
+      .toContain(overviewUrl);
+  });
+
+  it("keeps a selected overview as support instead of a standalone learning module", () => {
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const overviewUrl = "https://moodle.example/preparation-overview";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "topic",
+        title: "Thema 1",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Solve the requested tasks."],
+        assessmentSignals: ["T1/A2"],
+        resourceUrls: [topicUrl],
+      }, {
+        id: "preparation",
+        title: "Vorbereitung",
+        priority: "important" as const,
+        contentMode: "conceptual" as const,
+        learningObjectives: ["Review the course overview."],
+        assessmentSignals: [],
+        resourceUrls: [overviewUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const catalog = [
+      { ...entry(topicUrl, "Thema 1", true, 900), role: "primary_lecture" as const, topic: "Thema 1" },
+      { ...entry(overviewUrl, "Vorbereitung", true, 1000), role: "overview" as const, topic: null },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog, "de");
+
+    expect(reconciled.modules.map((module) => module.title)).toEqual(["Thema 1"]);
     expect(reconciled.supportResources.flatMap((support) => support.resourceUrls))
       .toContain(overviewUrl);
   });
@@ -407,7 +509,7 @@ describe("source architect", () => {
     );
   });
 
-  it("adds an omitted high-priority overview to the architecture and exact request set", async () => {
+  it("adds an omitted high-priority overview as support and to the exact request set", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-overview-gate-"));
     directories.push(runDir);
     const acquiredUrl = "https://moodle.example/calculus.pdf";
@@ -487,7 +589,9 @@ describe("source architect", () => {
       requestedUrls: [omittedUrl],
     });
     expect(result.source_architect_decision?.learningArchitecture?.modules
-      .map((module) => module.title)).toContain("Differential equations");
+      .map((module) => module.title)).not.toContain("Differential equations");
+    expect(result.source_architect_decision?.learningArchitecture?.supportResources
+      .flatMap((support) => support.resourceUrls)).toContain(omittedUrl);
   });
 
   it("does not add representative examples when the planning model omits them", async () => {

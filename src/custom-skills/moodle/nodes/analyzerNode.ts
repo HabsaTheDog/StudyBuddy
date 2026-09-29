@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   isNonRetryableCodexError,
   ModelCallTimeoutError,
+  resolveModelPromptBodyCharacterBudget,
   type CodexClient,
 } from "../codexClient.js";
 import {
@@ -45,16 +46,21 @@ import {
   applyAdaptiveExtractionBudget,
   updateAdaptiveRuntimeProgress,
 } from "../adaptiveRuntimeBudget.js";
+import { runBoundedProcess } from "../../shared/boundedProcess.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-08-09.4-localized-contract-repair";
+const CHAPTER_ANALYZER_VERSION = "2026-09-29.4-task-local-coverage";
+const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
 const FOCUSED_VISUAL_CANDIDATE_LIMIT = 6;
+const ANALYZER_MANIFEST_CHARACTER_LIMIT = 10_000;
+const ANALYZER_PROMPT_CHARACTER_MARGIN = 1_000;
+const MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT = 1_500;
 const DENSE_CHAPTER_RECORD_LIMIT = 18;
 const DENSE_CHAPTER_CHARACTER_LIMIT = 13_000;
 const FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 9_000;
@@ -460,22 +466,29 @@ async function analyzeDenseChapter(
   repairFeedbackOverride?: string | null,
 ): Promise<ReturnType<typeof validateExtractedData>> {
   const allCandidateSlices = buildChapterSlices(state, focus);
+  const requestedTasks = requestedTaskNumbers(focus);
+  const requestedTaskSlices = allCandidateSlices.filter(isRequestedTaskSlice);
   const directResourceIds = new Set(focus.directResourceIds ?? focus.resourceIds);
   const directEvidenceCharacters = state.evidence_package.records
     .filter((record) => directResourceIds.has(record.resourceId))
     .reduce((sum, record) => sum + record.content.length, 0);
-  const candidateSlices = directEvidenceCharacters >= 600
+  const broadlyRelevantSlices = directEvidenceCharacters >= 600
     ? allCandidateSlices.filter((slice) =>
         slice.resourceIds.some((resourceId) => directResourceIds.has(resourceId)) ||
         supportSliceMatchesFocus(slice, focus)
       )
     : allCandidateSlices;
+  const candidateSlices = requestedTasks.length > 0 && requestedTaskSlices.length >= requestedTasks.length
+    ? requestedTaskSlices
+    : broadlyRelevantSlices;
   const profileBudget = resolveAnalysisBudget(config.executionProfile);
   const repairFeedback = repairFeedbackOverride === undefined
     ? focusMatchesError(focus, state.error_log) ? state.error_log : null
     : repairFeedbackOverride;
   const officialTopicCount = officialCourseTopics(focus).length;
-  const baseMaxSlices = officialTopicCount > 0
+  const baseMaxSlices = requestedTasks.length > 0
+    ? Math.max(maxSlices, requestedTaskSlices.length)
+    : officialTopicCount > 0
     ? Math.max(maxSlices, Math.min(4, candidateSlices.length))
     : maxSlices;
   // A support source that passed the semantic-content gate must receive one
@@ -547,7 +560,10 @@ async function analyzeDenseChapter(
     effectiveMaxSlices,
   );
   assertSelectedChapterEvidence(state, focus, selectedCandidates);
-  const slices = packSelectedSlices(selectedCandidates);
+  const slices = packSelectedSlices(
+    selectedCandidates,
+    requestedTasks.length > 0 ? 1 : MAX_SLICES_PER_MODEL_CALL,
+  );
   await config.diagnostics?.log(
     selected.omittedCount > 0 ? "warn" : "info",
     "analyzer",
@@ -637,7 +653,7 @@ async function analyzeDenseChapter(
       );
     }
     if (cachedFragment) {
-      fragments.push(cachedFragment);
+      fragments.push(scopeRequestedTaskFragment(cachedFragment, slice));
       await config.diagnostics?.log(
         "info",
         "analyzer",
@@ -651,12 +667,22 @@ async function analyzeDenseChapter(
       "analyzer",
       `Analyzing ${focus.title}, topic fragment ${index + 1}/${slices.length}: ${slice.label}`,
     );
-    const localImages = await chapterVisualAttachments(
+    const taskPageImage = await requestedTaskSourcePageImage(config, state, slice).catch(async (error) => {
+      await config.diagnostics?.log(
+        "warn", "analyzer",
+        `Could not attach the original task page for ${slice.label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    });
+    const localImages = [...new Set([
+      ...(taskPageImage ? [taskPageImage] : []),
+      ...await chapterVisualAttachments(
       config.runDir,
       slice,
       visualManifest,
       retrievalRequests,
-    );
+      ),
+    ])].slice(0, 3);
     let fragment: ChapterFragment | null = null;
     let localRepairFeedback = sliceRepairFeedback;
     const localAttempts = 1;
@@ -722,7 +748,7 @@ async function analyzeDenseChapter(
     await Promise.all(fragmentCachePaths.map((cachePath) =>
       writeFile(cachePath, `${JSON.stringify(fragment, null, 2)}\n`, "utf8")
     ));
-    fragments.push(fragment);
+    fragments.push(scopeRequestedTaskFragment(fragment, slice));
   }
 
   const materialized = materializeDenseChapter(
@@ -995,6 +1021,7 @@ function ensureChapterRuntimeBudget(
 
 function packSelectedSlices(
   selected: Array<AnalysisSliceCandidate & { slice: ChapterSlice }>,
+  maxSlicesPerCall = MAX_SLICES_PER_MODEL_CALL,
 ): ChapterSlice[] {
   const packed: ChapterSlice[] = [];
   const packSizes: number[] = [];
@@ -1010,7 +1037,7 @@ function packSelectedSlices(
     const previousPackSize = packSizes.at(-1) ?? 0;
     if (
       previousPack &&
-      previousPackSize < MAX_SLICES_PER_MODEL_CALL &&
+      previousPackSize < maxSlicesPerCall &&
       combinedCharacters <= PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT
     ) {
       packed[packed.length - 1] = {
@@ -1314,6 +1341,67 @@ function fragmentContainsIncompleteFormula(
   });
 }
 
+function requestedTaskNumbers(focus: ChapterFocus): number[] {
+  const topicMatch = focus.title.match(/\b(?:thema|topic)\s*(\d+)\b/i);
+  const requestedTopic = topicMatch ? Number(topicMatch[1]) : null;
+  const values = [
+    ...(focus.assessmentSignals ?? []),
+    ...(focus.learningObjectives ?? []),
+  ];
+  const numbers = new Set<number>();
+  for (const value of values) {
+    for (const match of value.matchAll(/\bT(\d+)\s*\/\s*A(\d+)\b/gi)) {
+      const topic = Number(match[1]);
+      const task = Number(match[2]);
+      if ((requestedTopic === null || topic === requestedTopic) && task > 0) numbers.add(task);
+    }
+    for (const match of value.matchAll(/\b(?:Aufgabe|Exercise)\s*(\d+)\b/gi)) {
+      const task = Number(match[1]);
+      if (task > 0) numbers.add(task);
+    }
+  }
+  return [...numbers].sort((left, right) => left - right);
+}
+
+function isRequestedTaskSlice(slice: ChapterSlice): boolean {
+  return /-requested-task-\d+$/.test(slice.key);
+}
+
+function splitRequestedTaskEvidence(
+  records: EvidenceRecord[],
+  requestedTasks: number[],
+): Map<number, EvidenceRecord[]> {
+  const requested = new Set(requestedTasks);
+  const result = new Map(requestedTasks.map((task) => [task, [] as EvidenceRecord[]]));
+  const currentTaskByResource = new Map<string, number>();
+  for (const record of records) {
+    const matches = [...record.content.matchAll(/\b(?:Aufgabe|Exercise)\s+(\d+)\b/gi)];
+    if (matches.length === 0) {
+      const currentTask = currentTaskByResource.get(record.resourceId);
+      if (currentTask !== undefined && requested.has(currentTask)) {
+        result.get(currentTask)?.push(record);
+      }
+      continue;
+    }
+    for (let index = 0; index < matches.length; index += 1) {
+      const match = matches[index]!;
+      const task = Number(match[1]);
+      currentTaskByResource.set(record.resourceId, task);
+      if (!requested.has(task)) continue;
+      const start = index === 0 ? 0 : match.index!;
+      const end = matches[index + 1]?.index ?? record.content.length;
+      const content = record.content.slice(start, end).trim();
+      if (!content) continue;
+      result.get(task)?.push({
+        ...record,
+        id: `${record.id}:requested-task-${task}-${index + 1}`,
+        content,
+      });
+    }
+  }
+  return result;
+}
+
 export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFocus): ChapterSlice[] {
   const resources = state.resource_manifest.resources.filter((resource) =>
     focus.resourceIds.includes(resource.id)
@@ -1371,8 +1459,23 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
     group.push(resource);
     practiceGroups.set(key, group);
   }
+  const requestedTasks = requestedTaskNumbers(focus);
   for (const [key, group] of practiceGroups) {
     const records = group.flatMap((resource) => recordsByResource.get(resource.id) ?? []);
+    const taskRecords = splitRequestedTaskEvidence(records, requestedTasks);
+    const availableTasks = requestedTasks.filter((task) => (taskRecords.get(task)?.length ?? 0) > 0);
+    if (requestedTasks.length > 0 && availableTasks.length === requestedTasks.length) {
+      for (const task of availableTasks) {
+        const recordsForTask = taskRecords.get(task) ?? [];
+        slices.push({
+          key: `practice-${safeChapterKey(key)}-requested-task-${task}`,
+          label: `${group.map((resource) => resource.title).join(" + ")} – Aufgabe ${task}`,
+          resourceIds: [...new Set(recordsForTask.map((record) => record.resourceId))],
+          records: recordsForTask,
+        });
+      }
+      continue;
+    }
     const chunks = chunkEvidenceRecords(records, FRAGMENT_EVIDENCE_CHARACTER_LIMIT, 1);
     chunks.forEach((chunk, index) => slices.push({
       key: `practice-${safeChapterKey(key)}-${index + 1}`,
@@ -1437,6 +1540,7 @@ export function buildChapterFragmentPrompt(
   retrievalRequests: VisualRetrievalRequest[],
   repairFeedback: string | null = null,
 ): string {
+  const requestedTaskNumber = /-requested-task-(\d+)$/.exec(slice.key)?.[1];
   const localizedRepairFeedback = repairFeedback
     ? localizeChapterRepairDiagnostic(focus, repairFeedback)
     : null;
@@ -1479,11 +1583,15 @@ export function buildChapterFragmentPrompt(
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
     "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
+    requestedTaskNumber
+      ? `This fragment covers only ${slice.label}. Other numbered tasks in the chapter objectives are handled by separate fragments; do not call them missing or unavailable here. If the user requests detailed solutions, give this task its own complete, source-grounded worked_example with intermediate steps, unless the evidence for this task is genuinely insufficient.`
+      : "",
     "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
     "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
     "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
     "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
-    "Use an attached visual only when it is necessary and legible. Attached images correspond to the listed candidate IDs; never use shell or filesystem tools to inspect them. Choose figures by candidate ID and give a concrete placement_hint.",
+    "For a numbered PDF task, an attached original task-page image is source evidence. Read equations and diagrams from that image when text extraction omits or distorts them, and cite the matching allowed resource ID. If the image is still illegible, report the exact gap.",
+    "Use an attached visual only when it is necessary and legible. Only listed visual candidates have figure IDs; the original task-page image is evidence, not a selectable figure. Never use shell or filesystem tools to inspect images. Choose figures by candidate ID and give a concrete placement_hint.",
     "For table, diagram, glossary, corpus, map, timeline, or other reference lookups, use concrete values or claims only when visible in evidence or an attached candidate. Otherwise teach the complete source-selection and interpretation path; a copied answer never replaces the lookup method.",
     `Create one compact, pedagogically complete and discipline-appropriate chapter fragment in ${documentLanguage}; retain official source titles and identifiers in their original language.`,
     `Chapter context: ${JSON.stringify({
@@ -1570,6 +1678,47 @@ function selectChapterVisualCandidates(
     })
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
     .slice(0, 2);
+}
+
+export function locateRequestedTaskPage(pages: string[], taskNumber: number): number | null {
+  const marker = new RegExp(`\\b(?:Aufgabe|Exercise)\\s+${taskNumber}\\b`, "iu");
+  const index = pages.findIndex((page) => marker.test(page));
+  return index < 0 ? null : index + 1;
+}
+
+async function requestedTaskSourcePageImage(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  slice: ChapterSlice,
+): Promise<string | null> {
+  const taskNumber = Number(/-requested-task-(\d+)$/.exec(slice.key)?.[1]);
+  if (!Number.isInteger(taskNumber) || taskNumber <= 0) return null;
+  const resource = state.resource_manifest.resources.find((candidate) =>
+    slice.resourceIds.includes(candidate.id) && candidate.localPath?.toLowerCase().endsWith(".pdf")
+  );
+  if (!resource?.localPath) return null;
+  const sourcePath = path.resolve(resource.localPath);
+  const textResult = await runBoundedProcess("pdftotext", ["-layout", sourcePath, "-"], {
+    signal: config.abortSignal,
+    maxOutputBytes: 8 * 1024 * 1024,
+  });
+  if (textResult.code !== 0) throw new Error(`pdftotext exited with ${textResult.code}.`);
+  const page = locateRequestedTaskPage(textResult.stdout.split("\f"), taskNumber);
+  if (page === null) return null;
+  const imageDir = path.join(config.runDir, "assets", "task-evidence");
+  await mkdir(imageDir, { recursive: true });
+  const imageBase = path.join(imageDir, `${safeChapterKey(resource.id)}-task-${taskNumber}-page-${page}`);
+  const imagePath = `${imageBase}.png`;
+  const cached = await stat(imagePath).catch(() => null);
+  if (cached?.isFile() && cached.size > 0) return imagePath;
+  const render = await runBoundedProcess("pdftoppm", [
+    "-f", String(page), "-l", String(page), "-singlefile", "-scale-to", "1600", "-png",
+    sourcePath, imageBase,
+  ], { signal: config.abortSignal, timeoutMs: 90_000 });
+  if (render.code !== 0) throw new Error(`pdftoppm exited with ${render.code}: ${render.stderr.slice(0, 240)}`);
+  const image = await stat(imagePath);
+  if (!image.isFile() || image.size === 0) throw new Error("pdftoppm produced no task page image.");
+  return imagePath;
 }
 
 async function chapterVisualAttachments(
@@ -1967,6 +2116,38 @@ function mergeSections(sections: ChapterFragment["sections"]): ChapterFragment["
   return [...merged.values()];
 }
 
+export function scopeRequestedTaskFragment(fragment: ChapterFragment, slice: ChapterSlice): ChapterFragment {
+  const taskNumber = /-requested-task-(\d+)$/.exec(slice.key)?.[1];
+  if (!taskNumber) return fragment;
+  const taskMarker = new RegExp(`\\b(?:Aufgabe|Exercise)\\s+${taskNumber}\\b`, "iu");
+  return {
+    ...fragment,
+    sections: fragment.sections.map((section) => ({
+      ...section,
+      heading: taskMarker.test(section.heading)
+        ? section.heading
+        : `${slice.label} – ${section.heading}`,
+    })),
+    worked_examples: fragment.worked_examples.map((example) => ({
+      ...example,
+      learning_goal: taskMarker.test(example.learning_goal)
+        ? example.learning_goal
+        : `${slice.label}: ${example.learning_goal}`,
+    })),
+    warnings: fragment.warnings.filter((warning) => {
+      // A task slice cannot certify the whole collection. Such self-referential
+      // caveats become false global scope notes after all slices are merged.
+      const collectionClaim = /(?:vollständigkeitsabgleich|vollständige\s+(?:sammlung|zusammenstellung)|alle[nr]?\s+aufgaben|andere\s+aufgaben|full\s+(?:collection|coverage)|all\s+(?:requested\s+)?tasks|other\s+tasks|pdf-erstellung)/iu.test(warning);
+      const fragmentBoundary = /(?:fragment|evidenz|separat|\bhier\b|this\s+(?:slice|fragment)|provided\s+evidence)/iu.test(warning);
+      if (collectionClaim && fragmentBoundary) return false;
+      const mentions = [...warning.matchAll(/(?:\bT\d+\s*\/\s*A|\b(?:Aufgabe|Exercise)\s+)(\d+)\b/giu)]
+        .map((match) => match[1]);
+      const claimsMissingEvidence = /\b(?:fehl\w*|nicht\s+vor|keine?\s+(?:original|quelle|evidenz)|unavailable|missing|not\s+(?:available|provided|covered))\b/iu.test(warning);
+      return !claimsMissingEvidence || !mentions.some((number) => number !== taskNumber);
+    }),
+  };
+}
+
 function mergeFigures(
   selected: ChapterFragment["figures"],
   required: ChapterFragment["figures"],
@@ -2352,6 +2533,7 @@ function chapterFingerprint(
     producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
     requestContract: state.request_contract,
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
+    materializationVersion: CHAPTER_MATERIALIZATION_VERSION,
     outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
     profile: config.artifactIntent.profile,
@@ -2534,39 +2716,16 @@ export async function buildAnalyzerPrompt(
         ),
       }
     : state.evidence_package;
-  const evidenceView = compactEvidenceForAnalyzer(
-    focusedEvidence,
-    config.prompt,
-    evidenceBudget,
-  );
-  const analyzerManifest = {
-    schemaVersion: state.resource_manifest.schemaVersion,
-    courseUrl: state.resource_manifest.courseUrl,
-    resources: state.resource_manifest.resources
-      .filter((resource) => !focus || focus.resourceIds.includes(resource.id))
-      .map((resource) => ({
-      id: resource.id,
-      sectionPath: resource.sectionPath,
-      activityType: resource.activityType,
-      title: resource.title,
-      originUrl: resource.originUrl,
-      status: resource.status,
-      selection: resource.selection,
-      extraction: resource.extraction,
-    })),
-  };
+  const analyzerManifest = compactAnalyzerManifest(state, focus);
   const analyzerVisuals = visualManifest
     ? {
         tooling: visualManifest.tooling,
         warnings: visualManifest.warnings,
         candidates: visualManifest.candidates
           .filter((candidate) => !focus || (candidate.source_id && focus.resourceIds.includes(candidate.source_id)))
-          .slice(
-            0,
-            focus
-              ? FOCUSED_VISUAL_CANDIDATE_LIMIT
-              : Math.max(6, Math.min(config.maxVisualAssets * 2, 16)),
-          )
+          .slice(0, focus
+            ? FOCUSED_VISUAL_CANDIDATE_LIMIT
+            : Math.max(4, Math.min(config.maxVisualAssets * 2, 8)))
           .map((candidate) => ({
           id: candidate.id,
           kind: candidate.kind,
@@ -2578,7 +2737,7 @@ export async function buildAnalyzerPrompt(
           source_url: candidate.source_url,
           source_page: candidate.source_page,
           confidence: candidate.confidence,
-          caption_hint: candidate.caption_hint,
+          caption_hint: truncateAnalyzerText(candidate.caption_hint, 500),
         })),
       }
     : null;
@@ -2596,7 +2755,7 @@ export async function buildAnalyzerPrompt(
     : config.maxVisualAssets > 0
       ? config.maxVisualAssets
       : 0;
-  return [
+  const assemblePrompt = (evidenceView: LangGraphAgentState["evidence_package"]) => [
     "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a learner in the requested course, regardless of discipline.",
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
@@ -2643,9 +2802,7 @@ export async function buildAnalyzerPrompt(
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
     `Source coverage JSON:\n${JSON.stringify(
-      obligationDiscovery
-        ? compactSourceCoverage(config.diagnostics?.getCoverage() ?? {})
-        : config.diagnostics?.getCoverage() ?? {},
+      compactSourceCoverage(config.diagnostics?.getCoverage() ?? {}),
       null,
       2,
     )}`,
@@ -2659,6 +2816,105 @@ export async function buildAnalyzerPrompt(
   ]
     .filter(Boolean)
     .join("\n\n");
+
+  const task = state.error_log ? "content_repair" : "content_analyzer";
+  const promptBudget = Math.max(
+    0,
+    resolveModelPromptBodyCharacterBudget(task, extractedDataJsonSchema) -
+      ANALYZER_PROMPT_CHARACTER_MARGIN,
+  );
+  let boundedEvidenceBudget = evidenceBudget;
+  let evidenceView = compactEvidenceForAnalyzer(
+    focusedEvidence,
+    config.prompt,
+    boundedEvidenceBudget,
+  );
+  let prompt = assemblePrompt(evidenceView);
+  while (
+    prompt.length > promptBudget &&
+    boundedEvidenceBudget > MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT
+  ) {
+    const overflow = prompt.length - promptBudget;
+    boundedEvidenceBudget = Math.max(
+      MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT,
+      boundedEvidenceBudget - overflow - ANALYZER_PROMPT_CHARACTER_MARGIN,
+    );
+    evidenceView = compactEvidenceForAnalyzer(
+      focusedEvidence,
+      config.prompt,
+      boundedEvidenceBudget,
+    );
+    prompt = assemblePrompt(evidenceView);
+  }
+  return prompt;
+}
+
+interface AnalyzerManifestResourceView extends Record<string, unknown> {
+  originUrl: string;
+}
+
+interface AnalyzerManifestView extends Record<string, unknown> {
+  resources: AnalyzerManifestResourceView[];
+}
+
+function compactAnalyzerManifest(
+  state: LangGraphAgentState,
+  focus?: ChapterFocus,
+): AnalyzerManifestView {
+  const resources = state.resource_manifest.resources;
+  const focusIds = focus ? new Set(focus.resourceIds) : null;
+  const selected = resources.filter((resource) =>
+    focusIds ? focusIds.has(resource.id) : resource.selection?.selected === true
+  );
+  const evidencedIds = new Set(state.evidence_package.records.map((record) => record.resourceId));
+  const candidates = selected.length > 0
+    ? selected
+    : resources.filter((resource) => evidencedIds.has(resource.id));
+  const compacted: AnalyzerManifestResourceView[] = [];
+  let characters = 0;
+  for (const resource of candidates) {
+    const entry = {
+      id: resource.id,
+      sectionPath: resource.sectionPath.slice(-4).map((part) => truncateAnalyzerText(part, 300)),
+      activityType: resource.activityType,
+      title: truncateAnalyzerText(resource.title, 500),
+      originUrl: resource.originUrl,
+      status: resource.status,
+      selection: resource.selection
+        ? {
+            ...resource.selection,
+            reason: truncateAnalyzerText(resource.selection.reason, 500),
+          }
+        : undefined,
+      extraction: resource.extraction
+        ? {
+            ...resource.extraction,
+            warnings: resource.extraction.warnings
+              .slice(0, 3)
+              .map((warning) => truncateAnalyzerText(warning, 500)),
+          }
+        : undefined,
+    };
+    const entryCharacters = JSON.stringify(entry).length;
+    if (compacted.length > 0 && characters + entryCharacters > ANALYZER_MANIFEST_CHARACTER_LIMIT) {
+      continue;
+    }
+    compacted.push(entry);
+    characters += entryCharacters;
+  }
+  return {
+    schemaVersion: state.resource_manifest.schemaVersion,
+    courseUrl: state.resource_manifest.courseUrl,
+    totalResourceCount: resources.length,
+    includedResourceCount: compacted.length,
+    omittedResourceCount: Math.max(0, resources.length - compacted.length),
+    resources: compacted,
+  };
+}
+
+function truncateAnalyzerText(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
 function compactSourceCoverage(coverage: object): Record<string, unknown> {
@@ -2699,17 +2955,28 @@ function compactEvidenceForAnalyzer(
   const representedResources = new Set<string>();
   let characters = 0;
   for (const candidate of records) {
-    const serializedLength = JSON.stringify(candidate.record).length;
+    let boundedRecord = { ...candidate.record, localPath: null };
+    let serializedLength = JSON.stringify(boundedRecord).length;
+    if (selected.length === 0 && serializedLength > maxCharacters) {
+      const metadataCharacters = serializedLength - candidate.record.content.length;
+      const contentLimit = Math.max(0, maxCharacters - metadataCharacters - 16);
+      if (contentLimit === 0) continue;
+      boundedRecord = {
+        ...boundedRecord,
+        content: truncateAnalyzerText(candidate.record.content, contentLimit),
+      };
+      serializedLength = JSON.stringify(boundedRecord).length;
+    }
     const firstForResource = !representedResources.has(candidate.record.resourceId);
     if (!firstForResource && characters + serializedLength > maxCharacters) continue;
     if (characters + serializedLength > maxCharacters && selected.length > 0) continue;
-    selected.push(candidate.record);
+    selected.push(boundedRecord);
     representedResources.add(candidate.record.resourceId);
     characters += serializedLength;
   }
   return {
     ...evidence,
-    records: selected.map((record) => ({ ...record, localPath: null })),
+    records: selected,
     warnings: [
       ...evidence.warnings,
       ...(selected.length < evidence.records.length

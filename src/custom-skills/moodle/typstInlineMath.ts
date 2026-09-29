@@ -15,7 +15,7 @@ export function renderTypstInlineText(
 }
 
 export function cleanVisibleMathText(value: string): string {
-  return value
+  return normalizeVisibleLatex(value)
     .replace(/`/g, "")
     .replace(/\b(?:->|→)\(([^()]+)\)/g, (_, value: string) => `bold(${value.trim()})`)
     .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "$1\u0308")
@@ -107,6 +107,29 @@ export function cleanVisibleMathText(value: string): string {
     );
 }
 
+function normalizeVisibleLatex(value: string): string {
+  // Analyzer prose sometimes contains LaTeX inline delimiters rather than
+  // Typst math. Render a readable Unicode fallback instead of printing raw
+  // source syntax (or passing arbitrary LaTeX to the Typst math parser).
+  let rendered = value.replace(/\\\(|\\\)/g, "");
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const next = rendered.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+    if (next === rendered) break;
+    rendered = next;
+  }
+  return rendered
+    .replace(/\\(?:left|right)\b/g, "")
+    .replace(/\\tilde\s+([A-Za-z])/g, "$1\u0303")
+    .replace(/\\sum\b/g, "∑")
+    .replace(/\\infty\b/g, "∞")
+    .replace(/\\sqrt\b/g, "√")
+    .replace(/\\(?:leq|le)\b/g, "≤")
+    .replace(/\\(?:geq|ge)\b/g, "≥")
+    .replace(/\\([A-Za-z]+)/g, "$1")
+    .replace(/_\{([^{}]+)\}/g, "_$1")
+    .replace(/\^\{([^{}]+)\}/g, "^($1)");
+}
+
 function normalizeVisibleMathToken(value: string): string {
   return cleanVisibleMathText(value.trim())
     .replace(/^#text\("([^"]+)"\)$/g, "$1")
@@ -148,6 +171,9 @@ export function normalizeInlineMathSource(value: string): string {
   ]);
   const normalized = value
     .trim()
+    .replace(/\bangle\.l\s+([^\n]*?)\s+rangle\b/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
+    .replace(/\\langle\s*([^\n]*?)\s*\\rangle/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
+    .replace(/<([^<>]+)>/g, (_, inner: string) => `(⟨${inner}⟩)`)
     .replace(/"varphi"/g, "phi")
     .replace(/_varphi\b/g, "_phi")
     .replace(/\bvarphi\b/g, "phi")
@@ -168,11 +194,14 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\(?:qquad|quad)\b/g, " quad ")
     .replace(/\\(?:Rightarrow|Longrightarrow)\b/g, " => ")
     .replace(/\\(?:rightarrow|to)\b/g, " -> ")
+    .replace(/\\mathbb\s*\{\s*R\s*\}/g, "RR")
+    .replace(/\\setminus\b/g, " without ")
     .replace(/\\forall\b/g, " forall ")
     .replace(/\\in\b/g, " in ")
     .replace(/\\pm\b/g, " plus.minus ")
     .replace(/\\cdots\b/g, " dots ")
-    .replace(/\\(?=\s*\{)/g, " without ")
+    .replace(/\\(?=\s*\{)/g, "")
+    .replace(/\\(?=\s*\})/g, "")
     .replace(/\^\{([^{}]+)\}/g, "^($1)")
     .replace(/\\([A-Za-z]+)/g, "$1")
     .replace(/(?<!")\b([A-Z]\d{1,2}\s*\/\s*[a-z]\d{1,2})\b(?!")/g, (_, fit: string) =>
@@ -189,6 +218,10 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\gamma\b/g, "gamma")
     .replace(/\\nu\b/g, "nu")
     .replace(/\\Delta\b/g, "Delta")
+    .replace(/\bint(?=_|\b)/g, "integral")
+    // Typst reads `xy` as one (undefined) identifier, whereas textbook
+    // notation commonly uses it for the product of coordinate variables.
+    .replace(/(?<![A-Za-z])([xyz])([xyz])\b/g, "$1 $2")
     .replace(/(?<![A-Za-z])([gmkc])(?=([atvxy])(?:_|\b))/g, "$1 ")
     .replace(/_\{([A-Za-z][A-Za-z0-9 ,.-]*)\}/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
@@ -313,7 +346,7 @@ type InlinePart = { kind: "text" | "math"; value: string };
 
 function splitInlineMarkup(value: string): InlinePart[] {
   const parts: InlinePart[] = [];
-  const pattern = /(\$[^$\n]+\$|`[^`\n]+`)/g;
+  const pattern = /(\$[^$\n]+\$|`[^`\n]+`|#[^#\n]+#)/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
@@ -321,7 +354,7 @@ function splitInlineMarkup(value: string): InlinePart[] {
     const marked = match[0];
     const inner = marked.slice(1, -1);
     parts.push({
-      kind: marked.startsWith("$") || looksLikeMath(inner) ? "math" : "text",
+      kind: marked.startsWith("$") || marked.startsWith("#") || looksLikeMath(inner) ? "math" : "text",
       value: inner,
     });
     cursor = index + marked.length;

@@ -6,6 +6,7 @@ import {
   ModelCallTimeoutError,
   NonRetryableCodexError,
   classifyCodexError,
+  resolveModelPromptBodyCharacterBudget,
   type CodexClient,
 } from "../codexClient.js";
 import {
@@ -15,13 +16,17 @@ import {
 } from "../schemas.js";
 import {
   buildChapterFragmentPrompt,
+  buildChapterSlices,
+  buildAnalyzerPrompt,
   createAnalyzerNode,
   appliedFragmentQualityError,
   ensureDirectEvidenceSelection,
   ensureOfficialTopicEvidenceSelection,
   focusMatchesError,
   fragmentFormulaQualityError,
+  locateRequestedTaskPage,
   normalizeAnalyzerFormulaSyntax,
+  scopeRequestedTaskFragment,
   visualRequestMatchesChapter,
 } from "../nodes/analyzerNode.js";
 import { compactObligationRawSource } from "../obligationDiscovery.js";
@@ -41,6 +46,207 @@ const moodleTestConfig = (overrides: Parameters<typeof baseMoodleTestConfig>[0] 
   baseMoodleTestConfig({ ...overrides, runDir: overrides?.runDir ?? isolatedRunDir });
 
 describe("analyzerNode", () => {
+  it("keeps generic solution headings attached to their own requested task", () => {
+    const original = ChapterFragmentSchema.parse({
+      sections: [
+        { heading: "Lösungsweg", summary: "Rechenschritte", key_concepts: [], source_ids: ["source"] },
+        { heading: "Aufgabe 3: Ergebnis", summary: "Ergebnis", key_concepts: [], source_ids: ["source"] },
+      ],
+      warnings: [
+        "Für Aufgabe 4 fehlen in diesem Teil die Originaldaten.",
+        "Für Aufgabe 3 fehlt eine lesbare Maßangabe.",
+        "Ein Vollständigkeitsabgleich mit allen Aufgaben der Kreuzerllisten ist anhand dieser Evidenz nicht möglich und wird durch andere Fragmente abgedeckt.",
+        "Die punktweise Konvergenz wird in der Quelle eingeschränkt.",
+      ],
+      worked_examples: [{
+        learning_goal: "Den Rechenweg begründen",
+        prompt: "Berechne den Wert.",
+        steps: ["Formel anwenden."],
+        result: "Wert",
+        source_ids: ["source"],
+      }],
+    });
+    const task3 = scopeRequestedTaskFragment(original, {
+      key: "practice-list-requested-task-3",
+      label: "Übungen – Aufgabe 3",
+      resourceIds: ["source"],
+      records: [],
+    });
+    const task4 = scopeRequestedTaskFragment(original, {
+      key: "practice-list-requested-task-4",
+      label: "Übungen – Aufgabe 4",
+      resourceIds: ["source"],
+      records: [],
+    });
+    expect(task3.sections.map((section) => section.heading)).toEqual([
+      "Übungen – Aufgabe 3 – Lösungsweg",
+      "Aufgabe 3: Ergebnis",
+    ]);
+    expect(task4.sections[0]?.heading).toBe("Übungen – Aufgabe 4 – Lösungsweg");
+    expect(task3.worked_examples[0]?.learning_goal).toBe("Übungen – Aufgabe 3: Den Rechenweg begründen");
+    expect(task4.worked_examples[0]?.learning_goal).toBe("Übungen – Aufgabe 4: Den Rechenweg begründen");
+    expect(task3.warnings).toEqual([
+      "Für Aufgabe 3 fehlt eine lesbare Maßangabe.",
+      "Die punktweise Konvergenz wird in der Quelle eingeschränkt.",
+    ]);
+    expect(original.sections[0]?.heading).toBe("Lösungsweg");
+  });
+
+  it("locates the original PDF page of a numbered task despite missing extracted math", () => {
+    const pages = [
+      "Aufgabe 1: Fourierreihe. Aufgabe 3: Bestimmen Sie die durch definierte Funktion h.",
+      "Aufgabe 4: Ermitteln Sie die komplexe Form.",
+    ];
+    expect(locateRequestedTaskPage(pages, 3)).toBe(1);
+    expect(locateRequestedTaskPage(pages, 4)).toBe(2);
+    expect(locateRequestedTaskPage(pages, 9)).toBeNull();
+  });
+
+  it("creates one evidence slice per explicitly requested task", () => {
+    const resource = chapterResource("tasks", "Kreuzerlliste Thema 8", "Thema 8", "worked_example");
+    const records = [
+      {
+        id: "ev_tasks_1",
+        resourceId: resource.id,
+        kind: "exercise" as const,
+        locator: { page: 1 },
+        content: "Kreuzerlliste. Aufgabe 3: Bestimme die Ableitung. Aufgabe 8: Berechne den Gradienten.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+      {
+        id: "ev_tasks_2",
+        resourceId: resource.id,
+        kind: "solution" as const,
+        locator: { page: 2 },
+        content: "Fortsetzung: vollständiger Lösungsweg mit allen Rechenschritten.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+      {
+        id: "ev_tasks_3",
+        resourceId: resource.id,
+        kind: "exercise" as const,
+        locator: { page: 3 },
+        content: "Aufgabe 9: Diese nicht angeforderte Aufgabe darf nicht in die Auswahl.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+    ];
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [resource],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records,
+        warnings: [],
+      },
+    });
+
+    const slices = buildChapterSlices(state, {
+      key: "thema-8",
+      title: "Thema 8",
+      resourceIds: [resource.id],
+      directResourceIds: [resource.id],
+      matchTerms: ["Thema 8"],
+      assessmentSignals: ["T8/A3", "T8/A8"],
+    });
+
+    expect(slices.map((slice) => slice.label)).toEqual([
+      expect.stringContaining("Aufgabe 3"),
+      expect.stringContaining("Aufgabe 8"),
+    ]);
+    expect(slices[1]?.records.map((record) => record.content).join(" ")).toContain("Fortsetzung");
+    expect(slices.flatMap((slice) => slice.records).map((record) => record.content).join(" "))
+      .not.toContain("nicht angeforderte Aufgabe");
+  });
+
+  it("keeps a large course payload below the content-analyzer request budget", async () => {
+    const resources = Array.from({ length: 357 }, (_, index) => ({
+      id: `res_${index}`,
+      parentId: null,
+      sectionPath: ["MAES", `Thema ${index}`],
+      activityType: "resource",
+      title: `${index < 15 ? "Selected" : "Cataloged"} resource ${index}`,
+      originUrl: `https://moodle.example/mod/resource/view.php?id=${index}`,
+      resolvedUrl: null,
+      localPath: `/tmp/resource-${index}.pdf`,
+      previewPath: null,
+      status: "acquired" as const,
+      checksum: `checksum-${index}`,
+      verifiedAt: null,
+      examRelevance: "unknown" as const,
+      failureReason: null,
+      selection: {
+        selected: index < 15,
+        role: "primary_lecture" as const,
+        topic: index < 15 ? `Thema ${index}` : null,
+        priority: 900 - index,
+        reason: "Relevant source metadata. ".repeat(30),
+      },
+      extraction: {
+        status: "usable" as const,
+        method: "native_pdf_text" as const,
+        characterCount: 50_000,
+        pageCount: 20,
+        warnings: ["Verbose extraction warning. ".repeat(30)],
+      },
+    }));
+    const records = Array.from({ length: 2_751 }, (_, index) => ({
+      id: `ev_${index}`,
+      resourceId: `res_${index % resources.length}`,
+      kind: index % 2 === 0 ? "exercise" as const : "solution" as const,
+      locator: { page: index + 1 },
+      content: `Aufgabe ${index}: ${"Belegter mathematischer Inhalt. ".repeat(24)}`,
+      confidence: 1,
+      pairId: null,
+      sourceUrl: resources[index % resources.length]!.originUrl,
+      localPath: resources[index % resources.length]!.localPath,
+    }));
+    const config = moodleTestConfig({
+      prompt: "Erstelle ein PDF aus den Kreuzerllisten zu den Themen 1–3 und 8–9.",
+      originalUserPrompt: "Erstelle ein PDF aus den Kreuzerllisten zu den Themen 1–3 und 8–9.",
+    });
+    const prompt = await buildAnalyzerPrompt(config, moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course/view.php?id=30605",
+        generatedAt: new Date().toISOString(),
+        resources,
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records,
+        warnings: [],
+      },
+    }));
+
+    expect(prompt.length).toBeLessThanOrEqual(
+      resolveModelPromptBodyCharacterBudget("content_analyzer", extractedDataJsonSchema) - 1_000,
+    );
+    expect(prompt).toContain('"totalResourceCount": 357');
+    const manifest = JSON.parse(
+      prompt.split("Resource manifest JSON:\n")[1]!
+        .split("\n\nEvidence package selection JSON:")[0]!,
+    ) as { includedResourceCount: number; resources: Array<{ selection?: { selected?: boolean } }> };
+    expect(manifest.includedResourceCount).toBeGreaterThan(0);
+    expect(manifest.includedResourceCount).toBeLessThanOrEqual(15);
+    expect(manifest.resources.every((resource) => resource.selection?.selected === true)).toBe(true);
+    expect(prompt).toContain("Analyzer context selected");
+  });
+
   it("keeps direct activity and preparation evidence in a bounded obligation handoff", () => {
     const raw = [
       "[Calendar event]\nTitle: AT1\nStart: 2026-09-07T08:00:00Z\nEnd: 2026-09-07T10:00:00Z",
@@ -600,7 +806,8 @@ describe("analyzerNode", () => {
     );
 
     expect(prompt).toContain("\"id\": \"page-image\"");
-    expect(prompt).toContain("Attached images correspond to the listed candidate IDs");
+    expect(prompt).toContain("Only listed visual candidates have figure IDs");
+    expect(prompt).toContain("original task-page image is source evidence");
     expect(prompt).toContain("numerical coefficients of time functions carry their own units");
     expect(prompt).toContain("Optional arrays such as worked_examples and figures may be empty");
     expect(prompt).not.toContain("assets/visuals/example-page-1.png");

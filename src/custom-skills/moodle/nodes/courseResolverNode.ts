@@ -157,6 +157,7 @@ export function createCourseResolverNode(
       const shortlist = await chooseShortlist(config, codex, candidates);
       const probes = await probeCandidates(reader, shortlist, config);
       let decision = await chooseFromEvidence(config, codex, probes);
+      decision = requireRequestedActivityEvidence(config.prompt, decision, probes);
       if (exact.status === "ambiguous" && decision.confidence === "medium") {
         decision.confidence = "low";
         decision.reasoning =
@@ -177,9 +178,19 @@ export function createCourseResolverNode(
           },
         });
         if (explored.status === "resolved") {
-          decision = { selectedId: explored.selectedIds[0], confidence: "high",
-            reasoning: explored.reason, alternatives: [], method: "model_evidence" };
-          return await persistDecision(config, candidates, probes, decision);
+          const selected = candidates.find((candidate) => candidate.id === explored.selectedIds[0]);
+          const exploredProbe = selected && (probes.find((probe) => probe.id === selected.id) ??
+            await reader.probeCourse(selected));
+          const exploredDecision = requireRequestedActivityEvidence(config.prompt, {
+            selectedId: explored.selectedIds[0], confidence: "high",
+            reasoning: explored.reason, alternatives: [], method: "model_evidence",
+          }, exploredProbe ? [exploredProbe] : []);
+          if (exploredDecision.confidence === "high") {
+            return await persistDecision(config, candidates, [...probes, ...(
+              exploredProbe && !probes.some((probe) => probe.id === exploredProbe.id) ? [exploredProbe] : []
+            )], exploredDecision);
+          }
+          decision = exploredDecision;
         }
         const unresolvedCandidates = [
           { id: decision.selectedId, reason: decision.reasoning },
@@ -215,6 +226,26 @@ export function createCourseResolverNode(
     } finally {
       await reader?.close().catch(() => undefined);
     }
+  };
+}
+
+function requireRequestedActivityEvidence(
+  prompt: string,
+  decision: CourseDecision,
+  probes: CourseProbe[],
+): CourseDecision {
+  // A resource-specific request cannot be identified by a course's numbered
+  // blocks alone. Require the named Moodle activity type in the probed page.
+  const requestedCheckmarkList = /\b(?:kreuzerl|kreuzerliste|kreuzerlliste|checkmark)\w*/iu.test(prompt);
+  if (!requestedCheckmarkList) return decision;
+  const selected = probes.find((probe) => probe.id === decision.selectedId);
+  if (selected && /\b(?:kreuzerl|kreuzerliste|kreuzerlliste|checkmark)\w*/iu.test(selected.text)) {
+    return decision;
+  }
+  return {
+    ...decision,
+    confidence: "low",
+    reasoning: "The selected course page does not show the requested checkmark lists; numbered topics or generic exercises alone do not establish the requested course.",
   };
 }
 

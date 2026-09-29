@@ -19,6 +19,68 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("renders math in example titles as content, not a literal string", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        worked_examples: [{
+          origin: "source",
+          learning_goal: "Die Koeffizienten $c_1$ und $c_2$ herleiten",
+          prompt: "Berechne $c_1$.",
+          steps: ["Setze $c_1=2$ ein."],
+          result: "Es gilt $c_1=2$.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).toContain("title: [");
+    expect(source).not.toContain('title: "Die Koeffizienten $c_1$');
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders math in formula names as content, not a literal string", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        formulas: [{
+          name: "Gradient und Hesse-Matrix von $g$",
+          typst: "grad g = (1, 2)",
+          variables: [],
+          units: [],
+          context: "Ableitungen von $g$.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).toContain("name: [");
+    expect(source).not.toContain('name: "Gradient und Hesse-Matrix von $g$"');
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+  it("keeps long mixed prose and hash-delimited math steps compilable", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        worked_examples: [{
+          origin: "source",
+          learning_goal: "Randwerte und Ableitungen prüfen",
+          prompt: "Untersuche die Funktion.",
+          steps: [
+            "Rand #y=x#, #0<=x<=4#: #f(x,x)=x^2+4#. Die Randwerte reichen von #4# bei #x=0# bis #20# bei #x=4#.",
+            "Für #f_x# wird #y# konstant behandelt: #partial_x x^4=4x^3#, #partial_x y^2=0# und #partial_x cos(xy)=-sin(xy) dot y#. Daher #f_x=4x^3-y sin(xy)#.",
+          ],
+          result: "Die Werte wurden bestimmt.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).not.toContain("$ #f(x,x)");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("keeps deterministic fallback labels in the resolved English artifact language", () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
