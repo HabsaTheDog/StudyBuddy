@@ -24,6 +24,17 @@ describe("Typst inline mathematics", () => {
       .resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("renders separate #math(...) calls without swallowing the prose between them", async () => {
+    const content = renderTypstInlineText(
+      "Die Transformation #math(h=(g+1)/2) bildet −1 auf 0 ab. Damit #math(h(x)=1/2+g(x)/2).",
+      formatFormulaMath,
+    );
+    expect(content).not.toContain('$"math"(');
+    expect(content).toContain('#text(" bildet −1 auf 0 ab. Damit ")');
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("renders LaTeX-marked prose without exposing source syntax", async () => {
     const content = renderTypstInlineText(
       String.raw`Für \(f(x)=\frac{x_1}{x_2}\) gilt \(n\ge1\) und \(\sum_{n=1}^\infty a_n\).`,
@@ -138,6 +149,8 @@ describe("Typst inline mathematics", () => {
     expect(cleanVisibleMathText("bold(r)_{PA} times bold(v); s^(-2)"))
       .toBe("𝐫ₚₐ × 𝐯; s⁻²");
     expect(cleanVisibleMathText("`origin: source`")).toBe("origin: source");
+    expect(cleanVisibleMathText(String.raw`math(\tilde g(x)=\frac{1}{n})`))
+      .toContain("g̃(x)=(1)/(n)");
   });
 
   it("quotes comma-separated engineering subscripts as one Typst label", () => {

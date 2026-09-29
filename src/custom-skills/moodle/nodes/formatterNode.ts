@@ -242,7 +242,12 @@ export function replaceFailingInlineMathWithReadableText(
   });
   if (!marked || marked.index === undefined) return null;
   const original = marked[0];
-  const visible = cleanVisibleMathText(original.slice(1, -1)).trim();
+  const visible = cleanVisibleMathText(original.slice(1, -1))
+    // A long unbreakable expression inside #text can still cross the page
+    // edge. Zero-width breaks preserve the displayed formula while allowing
+    // Typst to wrap at operators and delimiters.
+    .replace(/([=+*/,:;()])/g, "$1\u200B")
+    .trim();
   if (!visible) return null;
   lines[lineIndex] = line.slice(0, marked.index) +
     `#text(${JSON.stringify(visible)})` +

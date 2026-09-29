@@ -457,6 +457,11 @@ function renderReadableExampleStep(value: string): string {
   if (
     value.length < 75 ||
     equalityParts.length < 4 ||
+    label.includes("=") ||
+    /[.!?](?:\s|$)/.test(calculation) ||
+    (calculation.match(/\b[\p{L}]{4,}\b/gu) ?? []).some((word) =>
+      !new Set(["frac", "sqrt", "integral", "bold", "accent", "norm", "cases", "infinity", "compose", "times", "without"]).has(word.toLowerCase())
+    ) ||
     calculation.includes(";") ||
     /#[^#\n]+#|\$[^$\n]+\$|`[^`\n]+`/.test(value) ||
     /(?:gegeben|gesucht|starting point|given)/i.test(label)

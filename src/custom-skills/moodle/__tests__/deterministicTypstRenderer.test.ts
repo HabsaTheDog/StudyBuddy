@@ -30,6 +30,20 @@ describe("deterministic Typst renderer", () => {
     expect(repaired).not.toBeNull();
     await expect(validateTypst(repaired!, supportFiles)).resolves.toEqual({ ok: true });
   }, 30_000);
+
+  it("keeps prose-heavy equality steps in wrapping prose instead of display math", async () => {
+    const step = "(d) f_4(x)=e^(sin(x)): Wegen sin(x+2 pi)=sin(x) gilt f_4(x+2 pi)=f_4(x). Da die Exponentialfunktion injektiv ist, würde eine kleinere Periode auch eine kleinere Periode von sin(x) liefern. Also T=2 pi.";
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({ worked_examples: [{
+        origin: "source", learning_goal: "Periodizität", prompt: "Prüfe die Funktion.",
+        steps: [step], result: "T=2 pi", source_ids: [],
+      }] }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).not.toContain("#block(inset: (left: 7pt))");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
   it("renders math in example titles as content, not a literal string", async () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({

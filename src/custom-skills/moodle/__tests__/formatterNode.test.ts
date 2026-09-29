@@ -38,7 +38,8 @@ describe("formatterNode", () => {
       document,
       "error: unknown variable: jx\n  ┌─ /tmp/document.typ:2:23",
     );
-    expect(repaired).toContain('#text("e^(3jx)")');
+    expect(repaired).toContain('#text("e^(');
+    expect(repaired).toContain("\u200B");
     expect(repaired).toContain('$ x=2 $');
     expect(replaceFailingInlineMathWithReadableText(document, "error without source location")).toBeNull();
   });

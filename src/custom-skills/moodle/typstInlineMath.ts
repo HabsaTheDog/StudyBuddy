@@ -15,7 +15,7 @@ export function renderTypstInlineText(
 }
 
 export function cleanVisibleMathText(value: string): string {
-  return normalizeVisibleLatex(value)
+  return normalizeVisibleLatex(unwrapVisibleMathCalls(value))
     .replace(/`/g, "")
     .replace(/\b(?:->|→)\(([^()]+)\)/g, (_, value: string) => `bold(${value.trim()})`)
     .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "$1\u0308")
@@ -105,6 +105,26 @@ export function cleanVisibleMathText(value: string): string {
     .replace(/_([0-9]+)/g, (_, digits: string) =>
       [...digits].map((digit) => "₀₁₂₃₄₅₆₇₈₉"[Number(digit)]).join("")
     );
+}
+
+function unwrapVisibleMathCalls(value: string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const index = value.indexOf("math(", cursor);
+    if (index < 0) return result + value.slice(cursor);
+    if (index > 0 && /[A-Za-z]/.test(value[index - 1] ?? "")) {
+      result += value.slice(cursor, index + 5);
+      cursor = index + 5;
+      continue;
+    }
+    const open = index + 4;
+    const close = matchingMathParen(value, open);
+    if (close < 0) return result + value.slice(cursor);
+    result += value.slice(cursor, index) + value.slice(open + 1, close);
+    cursor = close + 1;
+  }
+  return result;
 }
 
 function normalizeVisibleLatex(value: string): string {
@@ -346,8 +366,9 @@ export function quoteBareMathText(value: string): string {
 type InlinePart = { kind: "text" | "math"; value: string };
 
 function splitInlineMarkup(value: string): InlinePart[] {
+  value = rewriteHashMathCalls(value);
   const parts: InlinePart[] = [];
-  const pattern = /(\$[^$\n]+\$|`[^`\n]+`|#[^#\n]+#)/g;
+  const pattern = /(\$[^$\n]+\$|`[^`\n]+`|#(?!math\()[^#\n]+#)/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
@@ -362,6 +383,21 @@ function splitInlineMarkup(value: string): InlinePart[] {
   }
   if (cursor < value.length) parts.push({ kind: "text", value: value.slice(cursor) });
   return parts.length > 0 ? parts : [{ kind: "text", value }];
+}
+
+function rewriteHashMathCalls(value: string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const index = value.indexOf("#math(", cursor);
+    if (index < 0) return result + value.slice(cursor);
+    const open = index + 5;
+    const close = matchingMathParen(value, open);
+    if (close < 0) return result + value.slice(cursor);
+    result += value.slice(cursor, index) + `$${value.slice(open + 1, close)}$`;
+    cursor = close + 1;
+  }
+  return result;
 }
 
 function looksLikeMath(value: string): boolean {
