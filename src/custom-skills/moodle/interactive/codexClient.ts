@@ -72,7 +72,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         }))
         .filter(
           (candidate, index, all) =>
-            all.findIndex((item) => item.model === candidate.model) === index,
+            all.findIndex((item) => item.model === candidate.model && item.instanceId === candidate.instanceId) === index,
         );
       const logicalCallId = randomUUID();
       for (const [candidateIndex, selection] of candidates.entries()) {
@@ -143,6 +143,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             sandboxMode: "read-only",
             networkAccessEnabled: false,
             webSearchMode: "disabled",
+            studyBuddyInstanceId: selection.instanceId,
             ...(selection.model ? { model: selection.model } : {}),
             ...(selection.reasoningEffort
               ? { modelReasoningEffort: selection.reasoningEffort }
@@ -233,7 +234,7 @@ export function resolveCodexModelSelection(
   task?: CodexTask,
   attempt = 1,
   operation?: StudyBuddyModelOperation,
-): { model?: string; reasoningEffort?: ModelReasoningEffort } {
+): { model?: string; reasoningEffort?: ModelReasoningEffort; instanceId?: string } {
   if (
     task &&
     (config.executionProfile || config.modelPolicyOverrides || task === "source_search")
@@ -247,7 +248,7 @@ export function resolveCodexModelSelection(
       globalReasoningEffort: config.codexReasoningEffort,
       overrides: config.modelPolicyOverrides,
     });
-    return { model: policy.model, reasoningEffort: policy.reasoningEffort };
+    return { model: policy.model, reasoningEffort: policy.reasoningEffort, instanceId: policy.instanceId };
   }
   const legacy =
     task === "quiz_solver" && config.quizSolverModelPolicy

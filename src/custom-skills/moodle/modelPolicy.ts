@@ -1,5 +1,5 @@
 import { workflowModelBridgeEnvironment } from "../shared/workflowModelRuntime.js";
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-22.1-provider-recovery";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-09-30.1-mixed-provider-profiles";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
@@ -9,6 +9,8 @@ export type { StudyBuddyModelTask, StudyBuddyModelOperation, StudyBuddyModelPoli
 export type StudyBuddyReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface StudyBuddyTaskModelPolicy {
+  instanceId?: string;
+  escalationInstanceId?: string;
   model: string;
   reasoningEffort: StudyBuddyReasoningEffort;
   timeoutMs: number;
@@ -308,11 +310,13 @@ export function resolveTaskModelPolicy(
     ...input.overrides?.[input.task],
     ...(input.operation ? input.overrides?.[input.operation] : undefined),
   };
-  const nativeModel = workflowModelBridgeEnvironment()?.model;
+  const bridge = workflowModelBridgeEnvironment();
+  const nativeModel = bridge?.provider === "codex" ? undefined : bridge?.model;
   const configured: StudyBuddyTaskModelPolicy = {
     ...base,
     ...override,
-    model: nativeModel ?? input.globalModel ?? override?.model ?? base.model,
+    model: input.globalModel ?? override?.model ?? nativeModel ?? base.model,
+    escalationModel: override?.escalationModel ?? nativeModel ?? base.escalationModel,
     reasoningEffort:
       input.globalReasoningEffort ?? override?.reasoningEffort ?? base.reasoningEffort,
   };
@@ -323,7 +327,8 @@ export function resolveTaskModelPolicy(
 
   return applyCompatibilityFallback({
     ...configured,
-    model: nativeModel ?? input.globalModel ?? configured.escalationModel ?? configured.model,
+    model: input.globalModel ?? configured.escalationModel ?? nativeModel ?? configured.model,
+    instanceId: configured.escalationInstanceId ?? configured.instanceId,
     reasoningEffort:
       input.globalReasoningEffort ??
       configured.escalationEffort ??
@@ -421,7 +426,11 @@ export function parseModelPolicyOverrides(
         `${task}.retryReasoningEffort`,
       ),
     );
+    const instanceId = record.instanceId === undefined ? undefined : requiredModel(record.instanceId, `${task}.instanceId`);
+    const escalationInstanceId = record.escalationInstanceId ?? record.retryInstanceId;
     result[task] = {
+      ...(instanceId ? { instanceId } : {}),
+      ...(escalationInstanceId !== undefined ? { escalationInstanceId: requiredModel(escalationInstanceId, `${task}.retryInstanceId`) } : {}),
       model,
       reasoningEffort,
       escalationModel,

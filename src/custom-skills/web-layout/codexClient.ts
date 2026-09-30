@@ -73,7 +73,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
       };
       const selectedPolicy = resolveTaskModelPolicy(policyInput);
       const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
-      const alternateAttempt = selectedPolicy.model === primaryPolicy.model ? 2 : 1;
+      const alternateAttempt = selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? 2 : 1;
       const policies = uniqueModelPolicies([selectedPolicy, resolveTaskModelPolicy({ ...policyInput, attempt: alternateAttempt })]);
       const logicalCallId = randomUUID();
       // This client returns text; the graph owns file writes, tools and delegation.
@@ -126,6 +126,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         const thread = codex.startThread({
           workingDirectory,
           skipGitRepoCheck: true,
+          studyBuddyInstanceId: policy.instanceId,
           model: policy.model,
           modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
           sandboxMode: accessPolicy.sandboxMode,

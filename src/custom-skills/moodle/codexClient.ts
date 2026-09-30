@@ -297,13 +297,13 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
       const escalationPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 2 });
       const policies = uniqueModelPolicies([
         selectedPolicy,
-        selectedPolicy.model === primaryPolicy.model ? escalationPolicy : primaryPolicy,
+        selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? escalationPolicy : primaryPolicy,
       ]);
 
       const logicalCallId = randomUUID();
       for (const [candidateIndex, policy] of policies.entries()) {
         const selectionAttempt = candidateIndex === 0 ? attempt
-          : selectedPolicy.model === primaryPolicy.model ? 2 : 1;
+          : selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? 2 : 1;
         const policySource = taskModelPolicySource({ ...policyInput, attempt: selectionAttempt });
         const control = await acquireModelCallControl({
           task, model: policy.model, timeoutMs: policy.timeoutMs, signal: config.abortSignal,
@@ -325,6 +325,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
               ? leafWorkspace
               : config.runDir,
             skipGitRepoCheck: true,
+            studyBuddyInstanceId: policy.instanceId,
             model: policy.model,
             modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
             sandboxMode: accessPolicy.sandboxMode,
@@ -483,11 +484,12 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   };
 }
 
-export function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
+export function uniqueModelPolicies<T extends { model: string; instanceId?: string }>(policies: T[]): T[] {
   const seen = new Set<string>();
   return policies.filter((policy) => {
-    if (seen.has(policy.model)) return false;
-    seen.add(policy.model);
+    const key = JSON.stringify([policy.instanceId ?? null, policy.model]);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

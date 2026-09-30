@@ -9,8 +9,10 @@ import {
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
+export type WorkflowThreadOptions = ThreadOptions & { studyBuddyInstanceId?: string };
+
 export interface WorkflowModelRuntime {
-  startThread(options: ThreadOptions): {
+  startThread(options: WorkflowThreadOptions): {
     run(input: Input, options?: TurnOptions): Promise<RunResult>;
   };
 }
@@ -38,15 +40,24 @@ export function workflowModelBridgeEnvironment(environment = process.env) {
     throw new Error("Study Buddy model bridge configuration is incomplete.");
   const threadId = environment.STUDY_BUDDY_MODEL_BRIDGE_THREAD;
   if (!threadId) throw new Error("Workflow thread context is missing.");
-  return { url, token, model, provider, threadId };
+  return { url, token, model, provider, threadId, instanceId: environment.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE ?? provider };
 }
 
-/** Every workflow client uses the same selected, server-owned provider instance. */
+/** Explicit profile assignments route through the server-owned provider registry. */
 export function createWorkflowModelRuntime(options: CodexOptions): WorkflowModelRuntime {
   const bridge = workflowModelBridgeEnvironment();
-  if (!bridge) return new Codex(options);
+  const codex = new Codex(options);
+  if (!bridge) return codex;
   return {
-    startThread: (_thread) => ({
+    startThread: (thread) => {
+      // Preserve the normal Codex SDK path and its usage accounting. A worker
+      // assigned to another connection must use the authenticated bridge.
+      const instanceId = thread.studyBuddyInstanceId ?? bridge.instanceId;
+      if (bridge.provider === "codex" && instanceId === bridge.instanceId) {
+        const { studyBuddyInstanceId: _instance, ...sdkOptions } = thread;
+        return codex.startThread(sdkOptions);
+      }
+      return ({
       run: async (input, turn) => {
         turn?.signal?.throwIfAborted();
         const parts = typeof input === "string" ? [{ type: "text" as const, text: input }] : input;
@@ -82,6 +93,9 @@ export function createWorkflowModelRuntime(options: CodexOptions): WorkflowModel
           headers: { "content-type": "application/json", authorization: `Bearer ${bridge.token}` },
           body: JSON.stringify({
             threadId: bridge.threadId,
+            instanceId,
+            model: thread.model ?? bridge.model,
+            reasoningEffort: thread.modelReasoningEffort,
             prompt,
             images,
             outputSchema: turn?.outputSchema,
@@ -101,6 +115,7 @@ export function createWorkflowModelRuntime(options: CodexOptions): WorkflowModel
           throw new Error("Invalid workflow provider response.");
         return { finalResponse: result.text, items: [], usage: null };
       },
-    }),
+    });
+    },
   };
 }
