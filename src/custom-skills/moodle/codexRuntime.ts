@@ -142,7 +142,7 @@ export async function preflightCodexRuntime(
   dependencies: CodexRuntimeDependencies = {},
 ): Promise<CodexRuntimeReport> {
   const bridge = workflowModelBridgeEnvironment();
-  if (bridge) {
+  if (bridge && bridge.provider !== "codex") {
     const checkedAt = new Date().toISOString();
     const started = Date.now();
     const result = await createWorkflowModelRuntime({}).startThread({model:bridge.model}).run(

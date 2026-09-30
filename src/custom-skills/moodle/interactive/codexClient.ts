@@ -116,6 +116,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           operation: options?.operation ?? task,
           attempt,
           model: selection.model ?? "provider-default",
+          providerInstanceId: selection.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
           reasoningEffort: selection.reasoningEffort ?? "medium",
           startedAt,
           policySource:

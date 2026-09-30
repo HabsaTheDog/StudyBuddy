@@ -341,6 +341,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             operation: options?.operation ?? task,
             policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             timeoutMs: policy.timeoutMs,
             queueWaitMs: control.queueWaitMs,
@@ -382,6 +383,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             operation: options?.operation ?? task,
             policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
@@ -409,6 +411,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             operation: options?.operation ?? task,
             policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
@@ -518,6 +521,7 @@ async function recordCall(input: {
   task: StudyBuddyModelTask;
   attempt: number;
   model: string;
+  providerInstanceId?: string;
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   startedAt: string;
   startedMs: number;
@@ -561,6 +565,7 @@ async function recordCall(input: {
     policySource: input.policySource,
     attempt: input.attempt,
     model: input.model,
+    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
     reasoningEffort: input.reasoningEffort,
     startedAt: input.startedAt,
     completedAt,
@@ -594,6 +599,7 @@ async function recordCall(input: {
       policySource: input.policySource,
       attempt: input.attempt,
       model: input.model,
+      ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
       reasoningEffort: input.reasoningEffort,
       durationMs,
       queueWaitMs: input.queueWaitMs,

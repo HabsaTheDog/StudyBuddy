@@ -315,6 +315,10 @@ export function resolveTaskModelPolicy(
   const configured: StudyBuddyTaskModelPolicy = {
     ...base,
     ...override,
+    ...((override.instanceId ?? bridge?.instanceId)
+      ? { instanceId: override.instanceId ?? bridge?.instanceId } : {}),
+    ...(input.globalModel && bridge
+      ? { instanceId: bridge.instanceId, escalationInstanceId: bridge.instanceId } : {}),
     model: input.globalModel ?? override?.model ?? nativeModel ?? base.model,
     escalationModel: override?.escalationModel ?? nativeModel ?? base.escalationModel,
     reasoningEffort:

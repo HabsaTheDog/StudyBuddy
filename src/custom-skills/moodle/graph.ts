@@ -466,7 +466,8 @@ export function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
       globalReasoningEffort: config.codexReasoningEffort,
       overrides: config.modelPolicyOverrides,
     });
-    return [primary.model, escalation.model];
+    const coordinatorInstance = process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE;
+    return [primary, escalation].filter((policy) => !coordinatorInstance || !policy.instanceId || policy.instanceId === coordinatorInstance).map((policy) => policy.model);
   }))];
 }
 

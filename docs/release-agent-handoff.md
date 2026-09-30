@@ -18,6 +18,28 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Provider-profile intake, 2026-09-30
+
+Root `feat/provider-support` includes `8d9f300` and the current follow-up; the UI
+submodule pins `2495c0de3` on `feat/study-buddy-provider-support`. These local commits
+add provider-specific Fast/Balanced/Quality defaults, a conditional connection picker,
+one composer profile picker and custom mixed-provider worker/fallback assignments.
+They preserve legacy profiles, account isolation, original prompts/images, bounded
+retries and known versus unknown usage. Carry this follow-up with the provider-support
+branch. See [provider-profiles.md](provider-profiles.md) for exact lanes, failures and
+source acceptance; all five owned generation threads/runs are terminal.
+
+Final root 1,294 passed / four skipped; backend 1,687 passed / five skipped;
+complete frontend unit plus Chromium browser suite 1,422 passed; shared profile/settings
+23 passed; all 13 fork typechecks and full formatting/lint passed. Both real mixed
+Codex/Gemini directions delivered validated HTML with working native preview checkers.
+The reverse run recovered a Codex Sol timeout through Terra. No live Claude subscription
+exists: owner-approved deterministic coverage remains explicit.
+
+These commits are local only, not pushed, merged, deployed or release-accepted.
+The release agent must perform holistic freeze review and exact-candidate packaged
+Windows/Fedora acceptance; source desktop evidence does not replace those gates.
+
 ## Provider-support intake, 2026-09-29
 
 Local root branch `feat/provider-support` and UI branch

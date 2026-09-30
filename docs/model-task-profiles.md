@@ -90,9 +90,13 @@ the page CLI's `--architecture fixed` preserves fixed batching for comparison.
 The persisted run configuration includes `architectureMode`. No catalogue entry
 requires a separate AI call merely because it exists.
 
-The coordinator remains configured through the provider model selection. Native
-provider delegation and model-availability probes are not additional workflow
-tasks in this catalogue.
+The selected execution profile configures the coordinator. New chats select the
+only usable connection automatically; with several connected providers the
+composer offers a connection picker and provider-specific Fast, Balanced and
+Quality profiles. Custom profiles can assign individual primary and fallback
+workers to other connected providers. See [provider-profiles.md](provider-profiles.md)
+for inheritance and migration rules. Native provider delegation and
+model-availability probes are not additional workflow tasks in this catalogue.
 
 ## Task metrics
 

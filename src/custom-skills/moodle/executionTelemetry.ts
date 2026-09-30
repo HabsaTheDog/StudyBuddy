@@ -11,6 +11,7 @@ export interface ModelTokenUsage {
 }
 
 export interface ModelCallMetric extends ModelTokenUsage {
+  providerInstanceId?: string;
   id: string;
   logicalCallId?: string;
   transportAttempt?: number;
