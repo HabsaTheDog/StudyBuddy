@@ -24,9 +24,10 @@ Resolution order:
 Old custom profiles without `taskOverrides` remain valid. Search and repair now
 inherit their parent roles rather than silently retaining unrelated backend
 defaults. Duplicated built-ins preserve their explicit search/repair choices.
-The built-in editor values match the existing backend choices, including its
-more conservative content-analysis and review models; this change does not retune
-those models. An independent item's first call starts on its primary policy;
+The built-in editor values match the backend policies, including primary and
+retry models. The [2026-10-01 refresh](provider-profile-refresh-2026-10-01.md) updates
+Codex to the current Luna/Sol/Astra model families and Gemini to Flash thinking
+variants without changing saved custom assignments. An independent item's first call starts on its primary policy;
 its position in a batch is not a retry. Quiz visual verification has its own
 primary/fallback sequence, and a verification retry preserves the first answer.
 

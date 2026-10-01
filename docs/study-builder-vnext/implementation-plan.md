@@ -1743,3 +1743,18 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
 - R27 acceptance complete for the user-selected default current semester: real installed desktop14b572ea audits8current/38excluded and101/101 activities with exact8–9Sep2026 window, correctRW23:45/source-backed status andMAES3TBD; all101 facts reviewed.125.837sworker,6calls,0retries,55proofhits. Fresh Mathe5c14241d resolvesMAES3/16activities withTBD,67.747s,5calls,0retries. Full1079tests/4skips and types pass. Campaign evaluatoraccept and source/output/permission/regression/coverage gates passed. Exact imagebaa33ec8692f91918f1ce9be41e103f8f3fe2e26ef2091b8fa0fe3a9e6a9d2e9 installed and normal launcher verified,35runtime hashes+host archive verified. Explicit historical scope is integration-tested, but full46 historical desktop acceptance was not repeated onR27; earlier partial/interrupted rounds remain documented. Independent dev work was not interrupted.
 
 - R28 historical-scope regression: installed R27 explicit all-enrollment request was narrowed to allgemeine Infokurse, yielding6/46 courses. A quoted phrase alone proves presence, not a whole-request restriction. Before applying a nonempty course query, use one bounded independent source-search review of the original request to distinguish restriction from additive inclusion; reject ambiguous/unquoted reviews. Preserve explicit named subjects and specific historical terms, current-semester default and historical opt-in. Reproduce the faulty extraction in tests, replay the exact real wording and counterexamples, then rerun full desktop scope. The earlier current-semester acceptance remains separately recorded; do not call this historical baseline passed.
+
+## Provider profile refresh — 2026-10-01
+
+Owner-authorized scope: modernize built-in model assignments and move composer
+provider switching into the profile picker. Retain all graph, review, coverage,
+permission, publication, cancellation and three-retry contracts. Codex Fast uses
+Sol Light/Luna workers, Balanced uses Sol, and Quality reserves Astra for harder
+work. Standalone workflow defaults and desktop policies must agree. Keep existing
+timeouts; use available account catalogues and preserve saved custom assignments.
+Gemini offers Fast/Balanced Flash thinking policies, collapsing to one Balanced
+preset when its catalogue cannot distinguish them. Validate catalogue fallbacks,
+legacy ids, profile routing, composer locks, keyboard and responsive behavior,
+then record source checks and frontend visual evidence separately from packaged
+acceptance. Pricing informs the initial configuration; no measured end-to-end
+quality or speed improvement is claimed from this change alone.

@@ -53,7 +53,7 @@ it("preserves the literal URL fast path without a model call", async () => {
   expect(input.model.run).not.toHaveBeenCalled();
 });
 it("uses Luna for source search with the existing restricted worker boundary", () => {
-  expect(resolveTaskModelPolicy({ profile: "balanced", task: "source_search" }).model).toBe("gpt-5.6-luna");
+  expect(resolveTaskModelPolicy({ profile: "balanced", task: "source_search" }).model).toBe("gpt-6-luna");
   expect(resolveCodexTaskAccessPolicy("source_search")).toMatchObject({ leafWorker: true, sandboxMode: "read-only", networkAccessEnabled: false });
 });
 it("never accepts the label of a source whose inspection failed as verification", async () => {

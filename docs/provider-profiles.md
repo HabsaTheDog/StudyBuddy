@@ -2,10 +2,14 @@
 
 ## Product contract
 
-Fast, Balanced, and Quality are available separately for Codex, Google Gemini,
-and Claude. The composer shows one profile picker. A connection picker appears
-only when more than one supported connection is authenticated and usable; a
-single connected provider is selected automatically for new Quick Chats.
+The composer shows one profile picker with saved personal/mixed profiles first.
+Its built-in section has provider icon tabs when more than one supported connection
+is authenticated and usable. Codex and Claude offer Fast, Balanced, and Quality;
+Gemini offers Fast/Balanced Flash thinking policies, collapsing to one Balanced
+preset when its catalogue cannot distinguish them. See the
+[2026-10-01 profile refresh](provider-profile-refresh-2026-10-01.md) for assignments,
+pricing, compatibility and development evidence. A single connected provider is
+selected automatically for new Quick Chats.
 Settings remembers a default connection and a default profile for each connection.
 Existing chats retain their profile. Active conversations respect provider session
 continuation restrictions; switching a coordinator to a different provider may
@@ -24,8 +28,8 @@ sent to a different account.
 2. Resolve provider-specific built-ins from live model catalogues. Keep established
    Codex policies; use Haiku/Sonnet/Opus tiers for Claude and catalogue-reported
    Flash effort variants/Pro models for Gemini. Never invent a catalogue id.
-3. Replace the composer model picker with a conditional connection selector and
-   scoped profile picker. Group provider/custom/mixed profiles in Settings.
+3. Replace the composer model picker with a profile picker with internal provider tabs and
+   a persistent personal/mixed section. Group provider/custom/mixed profiles in Settings.
 4. Forward explicit instance/model/reasoning assignments across every CLI client;
    keep task inheritance, bounded validation, cancellation, images, original
    request handoff, and provider-specific account isolation.
@@ -39,7 +43,7 @@ sent to a different account.
 
 ## State
 
-Provider-specific built-ins, per-connection defaults, conditional connection selection,
+Provider-specific built-ins, per-connection defaults, internal provider tabs,
 mixed custom worker/fallback routing and profile migration are implemented.
 Source development verification passed. Frozen-candidate packaged release gates remain separate.
 
