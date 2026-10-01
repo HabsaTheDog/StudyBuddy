@@ -12,6 +12,16 @@
 
 ## Phase 1 — contracts and immediate hardening
 
+- [x] Repair intent-scoped conversational source completeness (campaign
+  `intent-driven-source-completeness`): general user-intent-first coordinator
+  guidance, native course/source identity and compact audit navigation, focused
+  handoff regressions and paginated native activity reads. Two fresh exact-prompt
+  desktop-dev weekly runs and a focused two-course upcoming/completed-test run
+  pass. The user request selects scope, source order and depth; no mandatory
+  all-course crawling or answer template. Root verification: 1,298 passed,
+  four skipped; coordinator 18 tests, fork lint and 13 typechecks passed.
+  Development acceptance only; installed/release acceptance remains separate.
+
 - [x] Add versioned source, connection, auth-status, capability, policy, health,
   normalized-record, and operation-effect contracts.
 - [x] Add deterministic capability-based source selection.
