@@ -4,7 +4,9 @@
 
 The composer shows one profile picker with saved personal/mixed profiles first.
 Its built-in section has provider icon tabs when more than one supported connection
-is authenticated and usable. Codex and Claude offer Fast, Balanced, and Quality;
+is authenticated and usable. Tabs stay available in existing chats for browsing;
+choosing another coordinator remains limited to a fresh chat, with an explanation
+shown above that provider's profiles. Codex and Claude offer Fast, Balanced, and Quality;
 Gemini offers Fast/Balanced Flash thinking policies, collapsing to one Balanced
 preset when its catalogue cannot distinguish them. See the
 [2026-10-01 profile refresh](provider-profile-refresh-2026-10-01.md) for assignments,

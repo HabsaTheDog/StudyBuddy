@@ -8,7 +8,9 @@ Authenticated usable connections appear as provider-icon tabs inside the
 built-in section when there is more than one. Hover names and keyboard tab
 navigation are available. Browsing never changes the coordinator; selecting a
 profile does. Reopening starts on the active connection. Existing conversation
-continuation locks and unavailable mixed-worker checks remain enforced.
+continuation locks and unavailable mixed-worker checks remain enforced. The
+[tab usability follow-up](profile-picker-tabs-2026-10-02.md) keeps tabs browsable
+even when coordinator changes are locked and compacts them into the section header.
 
 | Provider | Offered built-ins | Assignments |
 | --- | --- | --- |
