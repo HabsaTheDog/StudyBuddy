@@ -27,6 +27,9 @@ Include this presentation change with the provider-support batch. All 125
 affected Chromium checks, full fork format/lint and 13 typechecks passed.
 Screenshots are browser-diagnostic; native and packaged acceptance remain
 pending. See [composer evidence](composer-permissions-2026-10-02.md).
+Follow-up UI `3521096d8` changes the email approval badge to a small paper plane
+at the envelope's bottom right; 10 source-settings browser checks, full fork
+format/lint and all 13 typechecks passed again.
 
 The UI commit and parent pointer are local only, not pushed, merged, deployed,
 published, or release-accepted. No version bump or release publication occurred.

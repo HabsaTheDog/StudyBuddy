@@ -7,7 +7,7 @@ and Quizzes. Their selected modes appear through icons, hover descriptions,
 and the existing detailed menus.
 
 Computer retains its locked, edit, and unlocked icons. Email uses an envelope
-with an X for off, search for reading, plus for drafts, and a question mark
+with an X for off, search for reading, plus for drafts, and a small paper plane
 for sending with approval. Multiple accounts retain the generic envelope and
 their individual account permissions in the popover. Quizzes always use a
 shield: an “i” for review, a question mark for asking before opening, and a
@@ -35,6 +35,13 @@ picker, compact controls menu, and source settings. Full fork `vp check`
 passed, and all 13 workspace typechecks passed.
 
 UI commit `eec115d93` and the parent pointer/documentation are committed locally.
+
+The follow-up replaces the email approval question mark with a paper plane
+at the envelope's bottom-right corner. The detailed menu still requires
+approval for sending. Its browser-diagnostic capture is
+`study-buddy-data/composer-controls-review/2026-10-02/email-ask-to-send.png`.
+Follow-up UI `3521096d8` is committed locally; all 10 source-settings browser
+checks, full fork format/lint, and all 13 workspace typechecks passed.
 This change belongs to the open `0.2.3-alpha` development batch. It is local
 development work; it has not been pushed, merged, packaged, deployed, published,
 or release-accepted. Frozen-batch review and exact-candidate Windows/Fedora
