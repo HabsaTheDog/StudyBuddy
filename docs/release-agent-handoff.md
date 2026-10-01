@@ -18,6 +18,19 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Composer permission labels intake, 2026-10-02
+
+UI `eec115d93` on `feat/study-buddy-provider-support` shortens the composer to
+the profile name, a divider, and Computer, Email, Quizzes. Mode-specific icons
+retain the permission state; quiz shields use info, question, and check marks.
+Include this presentation change with the provider-support batch. All 125
+affected Chromium checks, full fork format/lint and 13 typechecks passed.
+Screenshots are browser-diagnostic; native and packaged acceptance remain
+pending. See [composer evidence](composer-permissions-2026-10-02.md).
+
+The UI commit and parent pointer are local only, not pushed, merged, deployed,
+published, or release-accepted. No version bump or release publication occurred.
+
 ## Provider-profile intake, 2026-09-30
 
 Root `feat/provider-support` includes `8d9f300` and the current follow-up; the UI
