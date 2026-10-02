@@ -72,7 +72,7 @@ interface ResourceCatalog {
   entries: CatalogEntry[];
 }
 
-const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.7-assigned-original-reading";
+const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.8-planner-failure-scope";
 export const MAX_LEARNING_MODULES = 24;
 const REQUEST_LIMITS: Record<MoodleRuntimeConfig["executionProfile"], number> = {
   auto: 10,
@@ -420,15 +420,27 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
         return { source_architect_decision: error.decision,
           error_log: `Source architect blocked publication: ${error.message}` };
       }
-      decision = deterministicFallback(
-        available,
-        enrichedCatalog,
-        briefs,
+      // A failed reassessment cannot revoke an already assessed scope or
+      // turn portal containers into a new curriculum. It is not a source gap
+      // that the downstream readiness drain may promote to sufficient.
+      const prior = state.source_architect_decision;
+      const validPrior = prior.round > 0 && prior.learningArchitecture &&
+        validateLearningArchitectureModelJson(prior.learningArchitecture).success;
+      decision = validPrior ? {
+        ...prior,
         round,
-        config.executionProfile,
-        config.outputLanguage,
-        error,
-      );
+        status: "blocked",
+        remainingAvailable: available.length,
+        coverageSummary: `${prior.coverageSummary} Source planning reassessment failed; prior semantic scope is preserved, not newly verified.`,
+        reasons: [...prior.reasons, `Planner failure: ${error instanceof Error ? error.message : String(error)}`],
+      } : deterministicFallback(available, round, config.executionProfile, error);
+      await persistDecision(config.runDir, decision);
+      return {
+        source_architect_decision: decision,
+        error_log: decision.status === "blocked"
+          ? `Source architect blocked publication: ${decision.coverageSummary} ${decision.reasons.join(" ")}`.trim()
+          : null,
+      };
     }
 
     const architectureRequests = requiredEssentialArchitectureUrls(
@@ -926,8 +938,8 @@ function buildArchitectPrompt(
       : "",
     `Artifact profile: ${config.artifactIntent.profile}`,
     `Current semantic coverage: ${JSON.stringify(state.coverage_assessment)}`,
-    `COURSE_SCOPE:\n${JSON.stringify(courseScope(state), null, 2)}`,
-    `DOCUMENT_BRIEFS:\n${JSON.stringify(briefs, null, 2)}`,
+    `COURSE_SCOPE:\n${JSON.stringify(courseScope(state))}`,
+    `DOCUMENT_BRIEFS:\n${JSON.stringify(briefs)}`,
     `AVAILABLE_CATALOG (${promptCatalog.length}/${available.length} highest-value entries):\n${JSON.stringify(promptCatalog.map((entry) => ({
       url: entry.href,
       title: entry.label,
@@ -935,7 +947,7 @@ function buildArchitectPrompt(
       role: entry.role,
       topic: entry.topic,
       priority: entry.priority,
-    })), null, 2)}`,
+    })))}`,
   ].join("\n\n");
 }
 
@@ -1551,11 +1563,8 @@ function semanticArchitectureOverlap(left: string[], right: string[]): number {
 
 function deterministicFallback(
   available: CatalogEntry[],
-  catalog: CatalogEntry[],
-  briefs: ReturnType<typeof buildBriefs>,
   round: number,
   profile: MoodleRuntimeConfig["executionProfile"],
-  language: MoodleRuntimeConfig["outputLanguage"],
   error: unknown,
 ): SourceArchitectDecision {
   const selected = [...available]
@@ -1564,15 +1573,13 @@ function deterministicFallback(
   return {
     round,
     status: round === 1 && selected.length > 0 ? "request_more" : "blocked",
-    coverageSummary: briefs.length === 0
-      ? "No usable document brief exists yet, so representative catalog resources are required."
-      : "The source architect model failed; continuing conservatively from the bounded probe.",
+    coverageSummary: "The source architect failed. Any bounded source probe is exploration only; semantic scope and subject readiness remain unconfirmed.",
     requestedUrls: round === 1 && selected.length > 0
       ? selected.map((entry) => entry.href)
       : [],
     remainingAvailable: available.length,
     reasons: [`Architect fallback: ${error instanceof Error ? error.message : String(error)}`],
-    learningArchitecture: deterministicArchitectureForBriefs(briefs, catalog, language),
+    learningArchitecture: { schemaVersion: 1, modules: [], supportResources: [], excludedResourceUrls: [] },
   };
 }
 

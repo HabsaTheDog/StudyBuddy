@@ -11,6 +11,7 @@ import {
   routeAfterSourceArchitect,
 } from "../sourceArchitect.js";
 import { stableResourceId } from "../resourceManifest.js";
+import { boundLearningArchitecture } from "../learningArchitecture.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 const directories: string[] = [];
@@ -22,6 +23,74 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
+  it("preserves assessed scope and exclusions without draining a later planner failure to sufficient", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-failure-scope-")); directories.push(runDir);
+    const lecture = "https://moodle.example/transport.pdf", excluded = "https://moodle.example/other.pdf", optional = "https://moodle.example/optional.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      entry(lecture, "Vector transport", true, 900), entry(excluded, "Other acquired subject", true, 900), entry(optional, "Optional", false, 100),
+    ] }));
+    const architecture = { schemaVersion: 1 as const, modules: [{ id: "transport", title: "Vector transport", priority: "essential" as const,
+      contentMode: "conceptual" as const, learningObjectives: ["Interpret the selected transform"], assessmentSignals: ["Named assessment"], resourceUrls: [lecture] }],
+      supportResources: [], excludedResourceUrls: [excluded] };
+    const pendingReads = [{ resourceId: "lecture", url: lecture, medium: "pdf_pages" as const, limitation: "Original page reading remains pending." }];
+    const state = moodleTestState({ source_architect_decision: { round: 2, status: "sufficient", requestedUrls: [lecture], remainingAvailable: 1,
+      coverageSummary: "A selected evidenced module; subject reading remains pending.", reasons: ["Confirmed assessment boundary"], learningArchitecture: architecture, pendingReads },
+      error_log: "Semantic quality review failed: cited source does not support one included claim.",
+      resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+        { ...resource("lecture", lecture, "Vector transport", "Selected unit", "/tmp/lecture.pdf", "primary_lecture"), extraction: { status: "unusable", method: "native_pdf_text", characterCount: 0, pageCount: 2, warnings: ["Read original pages"] } },
+        resource("other", excluded, "Other acquired subject", "Unrelated unit", "/tmp/other.pdf", "primary_lecture") ] } });
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }),
+      { run: vi.fn().mockRejectedValue(new Error("Producer capacity failed before a model call")) })(state);
+    expect(result.source_architect_decision).toMatchObject({ round: 3, status: "blocked", requestedUrls: [lecture], learningArchitecture: architecture, pendingReads });
+    expect(result.source_architect_decision?.coverageSummary).toContain(state.source_architect_decision.coverageSummary);
+    expect(result.source_architect_decision?.reasons).toContain("Confirmed assessment boundary");
+    expect(result.error_log).toContain("Producer capacity failed before a model call");
+    expect(routeAfterSourceArchitect({ ...state, ...result })).toBe("abort");
+  });
+
+  it("keeps bootstrap failure as exploratory acquisition without unconfirmed curriculum or a reusable readiness cache", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-bootstrap-exploration-")); directories.push(runDir);
+    const lecture = "https://moodle.example/lecture.pdf", available = "https://moodle.example/pending.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      entry(lecture, "Acquired portal heading", true, 900), entry(available, "Exploratory source", false, 600),
+    ] }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+      resource("lecture", lecture, "Acquired portal heading", "Organizational container", "/tmp/lecture.pdf", "primary_lecture") ] } });
+    const codex = { run: vi.fn().mockRejectedValue(new Error("Planner unavailable")) };
+    const config = moodleTestConfig({ runDir, runtimeCacheDir: path.join(runDir, "cache"), intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } });
+    const result = await createSourceArchitectNode(config, codex)(state);
+    expect(result.source_architect_decision).toMatchObject({ status: "request_more", requestedUrls: [available], learningArchitecture: { modules: [], supportResources: [], excludedResourceUrls: [] } });
+    expect(result.source_architect_decision?.coverageSummary).toContain("exploration");
+    await createSourceArchitectNode(config, codex)(state);
+    expect(codex.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes complete existing source-planning JSON without whitespace overhead", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-compact-producer-")); directories.push(runDir);
+    const lecture = "https://moodle.example/lecture.pdf", available = "https://moodle.example/pending.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [entry(lecture, "Exact title", true, 900), entry(available, "Remaining", false, 600)] }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+      resource("lecture", lecture, "Exact title", "Exact section", "/tmp/lecture.pdf", "primary_lecture") ] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "exact-record", resourceId: "lecture", kind: "claim", locator: { page: 1 },
+        content: "Exact original claim with an ordered basis and boundary condition.", confidence: 1, pairId: null, sourceUrl: lecture, localPath: "/tmp/lecture.pdf" }] } });
+    let sentPrompt = "";
+    const codex = { run: vi.fn(async (prompt: string) => {
+      sentPrompt = prompt;
+      return JSON.stringify({ status: "sufficient", coverage_summary: "Known selected source", requested_urls: [], reasons: [], learning_architecture: {
+        schemaVersion: 1, modules: [{ id: "selected", title: "Exact title", priority: "essential", contentMode: "conceptual", learningObjectives: [], assessmentSignals: [], resourceUrls: [lecture] }], supportResources: [], excludedResourceUrls: [] } });
+    }) };
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }), codex)(state);
+    expect(result.error_log).toBeNull();
+    expect(codex.run).toHaveBeenCalledTimes(1);
+    for (const prefix of ["COURSE_SCOPE:", "DOCUMENT_BRIEFS:", "AVAILABLE_CATALOG ("]) {
+      const block = sentPrompt.slice(sentPrompt.indexOf(prefix)).split("\n\n")[0];
+      const value = block.slice(block.indexOf("\n") + 1);
+      expect(value).toBe(JSON.stringify(JSON.parse(value)));
+    }
+    expect(sentPrompt).toContain(state.evidence_package.records[0].content);
+    expect(sentPrompt).toContain(state.resource_manifest.resources[0].originUrl);
+  });
+
   it.each([false, true])("assesses downloaded unread practice instead of declaring a drained architecture sufficient (assigned=%s)", async assigned => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "source-unread-reassessment-")); directories.push(runDir);
     const lecture = "https://moodle.example/interpretation.pdf", practice = "https://moodle.example/practice.pdf", remaining = "https://moodle.example/optional.pdf";
@@ -40,7 +109,7 @@ describe("source architect", () => {
       evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "diagnostic", resourceId: "practice", kind: "claim",
         locator: {}, content: "Acquisition completed; extraction contains no readable native text.", confidence: 1, pairId: null, sourceUrl: practice, localPath: "/tmp/practice.pdf" }] } });
     const codex = { run: vi.fn(async (prompt: string) => {
-      expect(prompt).toContain('"characterCount": 0');
+      expect(prompt).toContain('"characterCount":0');
       expect(prompt).toContain("Scanned source; inspect rendered pages.");
       return JSON.stringify({ status: "sufficient", coverage_summary: "Selected scanned practice requires visual reading in the analyzer; native text is not verified content.",
         requested_urls: [], reasons: ["Read the assigned original pages; preserve a real unreadability gap if they cannot be read."],
@@ -1745,7 +1814,7 @@ describe("source architect", () => {
     ]));
   });
 
-  it("preserves a noncritical module-limit audit through the cached recovery path", async () => {
+  it("preserves a prior noncritical module-limit audit through failed reassessment without caching readiness", async () => {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-module-limit-cache-"));
     directories.push(rootDir);
     const firstRunDir = path.join(rootDir, "first");
@@ -1771,7 +1840,13 @@ describe("source architect", () => {
         entries,
       }))
     ));
+    const architecture = boundLearningArchitecture({ schemaVersion: 1, modules: acquired.map(({ number, url }) => ({
+      id: `supplement-${number}`, title: `Supplement ${number}`, priority: "supplementary" as const, contentMode: "conceptual" as const,
+      learningObjectives: ["Previously assessed optional content"], assessmentSignals: [], resourceUrls: [url],
+    })), supportResources: [], excludedResourceUrls: [] }, 24);
     const state = moodleTestState({
+      source_architect_decision: { round: 2, status: "sufficient", coverageSummary: "Prior explicitly partial assessment", requestedUrls: [],
+        remainingAvailable: 1, reasons: ["Prior assessed optional modules"], learningArchitecture: architecture },
       resource_manifest: {
         schemaVersion: "1.0",
         courseUrl: "https://moodle.example/course",
@@ -1804,19 +1879,17 @@ describe("source architect", () => {
     }), coldCodex)(state);
     expect(cold.source_architect_decision?.learningArchitecture?.moduleLimit)
       .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
-    expect(cold.source_architect_decision?.coverageSummary).toContain("Technical module limit 24");
+    expect(cold.source_architect_decision).toMatchObject({ status: "blocked", learningArchitecture: architecture });
 
-    const warmCodex = { run: vi.fn() };
+    const warmCodex = { run: vi.fn().mockRejectedValue(new Error("planner unavailable")) };
     const warm = await createSourceArchitectNode(moodleTestConfig({
       ...configBase,
       runDir: secondRunDir,
     }), warmCodex)(state);
 
-    expect(warmCodex.run).not.toHaveBeenCalled();
-    expect(warm.source_architect_decision?.reasons).toEqual(expect.arrayContaining([
-      "Reused the course-and-prompt keyed source architecture cache.",
-      expect.stringContaining("explicitly partial"),
-    ]));
+    expect(warmCodex.run).toHaveBeenCalledTimes(1);
+    expect(warm.source_architect_decision).toMatchObject({ status: "blocked", learningArchitecture: architecture });
+    expect(warm.source_architect_decision?.reasons).toContain("Prior assessed optional modules");
     expect(warm.source_architect_decision?.learningArchitecture?.moduleLimit)
       .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
     await expect(readFile(
