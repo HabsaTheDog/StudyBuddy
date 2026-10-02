@@ -38,7 +38,10 @@ describe("direct native-owner document tools", () => {
   it("provides the original prompt, template, approved components and an honest fresh state", async () => {
     const runDir = await prepare();
     expect(runDir).toContain(path.join("study-buddy-data", "threads", "owner-a", "direct-documents"));
-    expect(await readFile(path.join(runDir, "brief.txt"), "utf8")).toContain('"Originalauftrag"');
+    const brief = await readFile(path.join(runDir, "brief.txt"), "utf8");
+    expect(brief).toContain('"Originalauftrag"');
+    expect(brief).toContain("unless requested");
+    expect(brief).toContain("Define symbols once");
     expect(await readFile(path.join(runDir, "template-reference.txt"), "utf8")).toContain("#sb-document");
     const state = JSON.parse(await readFile(path.join(runDir, "direct-document.json"), "utf8"));
     expect(state).toMatchObject({ kind: "direct_document", status: "prepared", extracted_data: {}, moodle_raw_text: "", retry_count: 0, error_log: null });
