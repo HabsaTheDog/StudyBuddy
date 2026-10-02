@@ -5,7 +5,7 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.7";
+export const STUDENT_FIRST_POLICY_VERSION = "1.8";
 
 export const SOURCE_FIDELITY_POLICY = [
   "Cite direct selected-assessment statements for dates, topics and format. Portal announcements/titles with an actual URL and record locator are evidence; arbitrary filenames are not.",
@@ -21,6 +21,7 @@ export const MATHEMATICAL_INTEGRITY_POLICY = [
   "Every generated task must be feasible under its stated assumptions. Solve with unchanged givens; label hypothetical changes explicitly, never as solutions within those givens.",
   "A derivative does not determine a function value or integration constants without initial or boundary conditions. Before claiming a unique result, verify that the givens determine every requested quantity; otherwise show the parameterized family or name the missing condition.",
   "An instantaneous function value does not determine its derivative. Distinguish a value at one instant from an identity over an interval before removing derivative terms.",
+  "Each zero/shortcut condition on a varying quantity must state at its occurrence whether it holds at one point/instant or throughout an interval. Retain derivative terms unless that derivative is separately zero or proven zero by the stated interval identity. A global warning cannot repair a false local table/checklist/formula claim.",
   "Check mathematical claims in prose and checklists as well as displayed calculations. Distinguish necessary conditions from sufficient conditions; do not reverse an implication or assert an equivalence without justification.",
   "Test relevant counterexamples and zero, boundary, parallel, orthogonal and singular cases before claiming an expression is always nonzero or a condition guarantees a result. For example, nonzero parallel vectors can have a zero cross product.",
   "Preserve scalar, vector and matrix types, operator meaning, derivative order and units; state the assumptions and domain restrictions required by each formula and inference. Conditions on operands alone do not establish a nonzero operator result.",

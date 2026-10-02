@@ -29,6 +29,10 @@ function expectMathematicalIntegrity(prompt: string) {
   expect(prompt).toContain("A derivative does not determine a function value or integration constants without initial or boundary conditions");
   expect(prompt).toContain("Before claiming a unique result, verify that the givens determine every requested quantity");
   expect(prompt).toContain("otherwise show the parameterized family or name the missing condition");
+  expect(prompt).toContain("Each zero/shortcut condition on a varying quantity must state at its occurrence");
+  expect(prompt).toContain("one point/instant or throughout an interval");
+  expect(prompt).toContain("Retain derivative terms unless that derivative is separately zero or proven zero by the stated interval identity");
+  expect(prompt).toContain("A global warning cannot repair a false local table/checklist/formula claim");
 }
 
 describe("shared mathematical integrity prompt contract", () => {

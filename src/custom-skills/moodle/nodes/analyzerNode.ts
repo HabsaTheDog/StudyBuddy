@@ -1734,19 +1734,19 @@ export function buildChapterFragmentPrompt(
   const records = slice.records;
   let terseMetadata = false;
   const assemble = (compact = false) => [
-    "Return only schema-valid JSON from supplied evidence/allowed IDs. Do not research, open files, repeat other chapters or invent claims, sources, relationships or values.",
-    "Use contract/evidence to set depth/components; no fixed section, formula, example, figure or warning quota. Explain relevant meaning, relationships, method choice, boundary conditions and typical errors.",
+    "Return only schema-valid JSON from evidence/allowed IDs. No research, file access, other chapters or invented claims, sources, relationships or values.",
+    "Contract/evidence sets depth/components, not section/formula/example/figure/warning quotas. Explain meaning, relationships, method choice, boundaries and typical errors.",
     "Optional arrays such as worked_examples and figures may be empty. Include only what the contract or evidence-derived strategy justifies.",
     officialCourseTopics(focus).length > 0
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
-    "Address all listed objectives/assessment signals supported by supplied evidence. Warn about exact unsupported items; never silently omit them or claim unsupported completeness.",
-    "Warnings cover only this chapter/slice's evidence/objectives. Local omissions do not establish missing content/evidence in other chapters or the whole document.",
+    "Cover evidenced listed objectives/assessment signals; warn about exact unsupported items. Never omit them silently or claim unsupported completeness.",
+    "Warnings concern this chapter/slice; local omissions prove no content/evidence gap elsewhere or document-wide.",
     requestedTaskNumber
       ? `This fragment covers only ${slice.label}. Other numbered tasks in the chapter objectives are handled by separate fragments; do not call them missing or unavailable here. If the user requests detailed solutions, give this task its own complete, source-grounded worked_example with intermediate steps, unless the evidence for this task is genuinely insufficient.`
       : "",
-    "For a requested/evidenced application, choose the discipline-appropriate calculation, case, source interpretation, decision, comparison or procedure, using only its needed structure. Do not invent examples to fill that structure.",
-    "Use Typst math. Each formula must include nonempty variables, units (or explicit dimensionless status), context and allowed source_ids.",
+    "Requested/evidenced applications need only discipline-appropriate calculation/case/source interpretation/decision/comparison/procedure structure. No filler examples.",
+    "Use Typst math with nonempty variables, units (or explicit dimensionless status), context and allowed source_ids for each formula.",
     pendingSourceReadPrompt(state, slice.resourceIds),
     slice.scopeAssessmentResourceIds?.length
       ? `Evaluate exploratory sources only against the existing request and learning goals: ${JSON.stringify(slice.scopeAssessmentResourceIds)}. These are document-level reading candidates, not assigned curriculum. Do not infer new examination topics or required methods from their titles/content; retain unverified, unread or irrelevant material as an explicit scoped limitation. Use a method/example only if the supplied content establishes its relevance to existing goals.`
@@ -1754,11 +1754,11 @@ export function buildChapterFragmentPrompt(
     MATHEMATICAL_INTEGRITY_POLICY,
     SOURCE_FIDELITY_POLICY,
     "Check dimensions term by term before calculating: numerical coefficients of time functions carry their own units; equations retain evidenced derivative order. A unit after a whole polynomial is insufficient.",
-    "Do not label a partial source solution as a reproduced calculation. Use origin='derived' with simple declared values only if cited evidence fully supports the method.",
-    "An attached numbered original task-page image is source evidence. Read missing/distorted equations and diagrams from it, citing its allowed source ID; report illegibility.",
-    "Use attached visuals only if necessary/legible. Only listed visual candidates have figure IDs; task-page evidence is not a selectable figure. Never inspect images via shell/filesystem tools. Select figure candidate IDs and specify a concrete placement_hint.",
-    "For reference lookups (tables, diagrams, glossaries, corpora, maps, timelines), use values/claims only if visible in evidence or attached candidates. Otherwise teach complete source selection/interpretation; a copied answer never replaces the lookup method.",
-    `Create one compact, pedagogically complete chapter fragment in ${documentLanguage}, appropriate to the discipline. Preserve official source titles/IDs in their original language.`,
+    "Partial source solutions are not reproduced calculations. Use origin='derived' with simple declared values only if cited evidence fully supports the method.",
+    "An attached numbered original task-page image is source evidence. Read missing/distorted equations/diagrams from it; cite its allowed source ID and report illegibility.",
+    "Use attached visuals only if necessary/legible. Only listed visual candidates have figure IDs; task-page evidence is not selectable. No shell/filesystem image inspection. Choose candidate IDs and a concrete placement_hint.",
+    "Reference lookups use only visible evidence/attached-candidate values/claims. Otherwise teach complete source selection/interpretation; a copied answer never replaces the lookup method.",
+    `Create one compact, pedagogically complete, discipline-appropriate fragment in ${documentLanguage}. Preserve original-language official source titles/IDs.`,
     `Chapter context: ${JSON.stringify({
       title: focus.title,
       contentMode: focus.contentMode ?? "mixed",
