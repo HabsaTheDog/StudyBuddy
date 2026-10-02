@@ -21,6 +21,14 @@ function expectMathematicalIntegrity(prompt: string) {
   expect(prompt).toContain("never as solutions within those givens");
   expect(prompt).toContain("An instantaneous function value does not determine its derivative");
   expect(prompt).toContain("a value at one instant from an identity over an interval");
+  expect(prompt).toContain("computed signs, vector directions, term names and meaning");
+  expect(prompt).toContain("stated reference frame and sign convention");
+  expect(prompt).toContain("Distinguish descriptions of motion from real forces and frame-dependent apparent forces");
+  expect(prompt).toContain("State and reconcile differing source conventions");
+  expect(prompt).toContain("do not silently reuse a label with an incompatible formula or direction");
+  expect(prompt).toContain("A derivative does not determine a function value or integration constants without initial or boundary conditions");
+  expect(prompt).toContain("Before claiming a unique result, verify that the givens determine every requested quantity");
+  expect(prompt).toContain("otherwise show the parameterized family or name the missing condition");
 }
 
 describe("shared mathematical integrity prompt contract", () => {

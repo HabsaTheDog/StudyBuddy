@@ -1633,28 +1633,28 @@ export function buildChapterFragmentPrompt(
   const records = slice.records;
   let terseMetadata = false;
   const assemble = (compact = false) => [
-    "Return only schema-valid JSON. Use only the supplied evidence and allowed IDs; do not research, open files, repeat other chapters, or invent claims, sources, relationships, or values.",
-    "Let the evaluated request contract and available evidence determine the chapter depth and which content components are useful. Do not satisfy a fixed section, formula, example, figure, or warning quota. Explain meaning, relationships, method choice, boundary conditions, and typical errors only where relevant to the request.",
-    "Optional arrays such as worked_examples and figures may be empty. Populate them only when the contract asks for them or the evidence-derived content strategy justifies them.",
+    "Return only schema-valid JSON from supplied evidence/allowed IDs. Do not research, open files, repeat other chapters or invent claims, sources, relationships or values.",
+    "Use contract/evidence to set depth/components; no fixed section, formula, example, figure or warning quota. Explain relevant meaning, relationships, method choice, boundary conditions and typical errors.",
+    "Optional arrays such as worked_examples and figures may be empty. Include only what the contract or evidence-derived strategy justifies.",
     officialCourseTopics(focus).length > 0
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
-    "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
-    "Warnings describe only this chapter/slice's supplied evidence and assigned objectives. Do not claim that another chapter's content or the whole document lacks evidence merely because it is absent from this local packet.",
+    "Address all listed objectives/assessment signals supported by supplied evidence. Warn about exact unsupported items; never silently omit them or claim unsupported completeness.",
+    "Warnings cover only this chapter/slice's evidence/objectives. Local omissions do not establish missing content/evidence in other chapters or the whole document.",
     requestedTaskNumber
       ? `This fragment covers only ${slice.label}. Other numbered tasks in the chapter objectives are handled by separate fragments; do not call them missing or unavailable here. If the user requests detailed solutions, give this task its own complete, source-grounded worked_example with intermediate steps, unless the evidence for this task is genuinely insufficient.`
       : "",
-    "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
-    "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
+    "For a requested/evidenced application, choose the discipline-appropriate calculation, case, source interpretation, decision, comparison or procedure, using only its needed structure. Do not invent examples to fill that structure.",
+    "Use Typst math. Each formula must include nonempty variables, units (or explicit dimensionless status), context and allowed source_ids.",
     pendingSourceReadPrompt(state, slice.resourceIds),
     MATHEMATICAL_INTEGRITY_POLICY,
     SOURCE_FIDELITY_POLICY,
-    "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
-    "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
-    "For a numbered PDF task, an attached original task-page image is source evidence. Read equations and diagrams from that image when text extraction omits or distorts them, and cite the matching allowed resource ID. If the image is still illegible, report the exact gap.",
-    "Use an attached visual only when it is necessary and legible. Only listed visual candidates have figure IDs; the original task-page image is evidence, not a selectable figure. Never use shell or filesystem tools to inspect images. Choose figures by candidate ID and give a concrete placement_hint.",
-    "For table, diagram, glossary, corpus, map, timeline, or other reference lookups, use concrete values or claims only when visible in evidence or an attached candidate. Otherwise teach the complete source-selection and interpretation path; a copied answer never replaces the lookup method.",
-    `Create one compact, pedagogically complete and discipline-appropriate chapter fragment in ${documentLanguage}; retain official source titles and identifiers in their original language.`,
+    "Check dimensions term by term before calculating: numerical coefficients of time functions carry their own units; equations retain evidenced derivative order. A unit after a whole polynomial is insufficient.",
+    "Do not label a partial source solution as a reproduced calculation. Use origin='derived' with simple declared values only if cited evidence fully supports the method.",
+    "An attached numbered original task-page image is source evidence. Read missing/distorted equations and diagrams from it, citing its allowed source ID; report illegibility.",
+    "Use attached visuals only if necessary/legible. Only listed visual candidates have figure IDs; task-page evidence is not a selectable figure. Never inspect images via shell/filesystem tools. Select figure candidate IDs and specify a concrete placement_hint.",
+    "For reference lookups (tables, diagrams, glossaries, corpora, maps, timelines), use values/claims only if visible in evidence or attached candidates. Otherwise teach complete source selection/interpretation; a copied answer never replaces the lookup method.",
+    `Create one compact, pedagogically complete chapter fragment in ${documentLanguage}, appropriate to the discipline. Preserve official source titles/IDs in their original language.`,
     `Chapter context: ${JSON.stringify({
       title: focus.title,
       contentMode: focus.contentMode ?? "mixed",
