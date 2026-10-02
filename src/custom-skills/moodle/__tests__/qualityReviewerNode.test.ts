@@ -110,6 +110,31 @@ describe("qualityReviewerNode", () => {
     } finally { await rm(runDir, { recursive: true, force: true }); }
   });
 
+  it("backfills complete unreferenced atoms into existing packet space before exceeding six calls", async () => {
+    const config = moodleTestConfig();
+    const state = packetState();
+    state.study_model.workedExamples = state.study_model.workedExamples.slice(0, 6);
+    for (const task of state.study_model.workedExamples) task.steps = ["Full original conditions and calculation: " + "x".repeat(20_000)];
+    const last = state.study_model.workedExamples.at(-1)!;
+    // Make the final packet almost full while earlier complete packets retain
+    // holes. Derive this boundary from the unchanged production envelope.
+    let low = 20_000, high = 45_000;
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      last.steps = ["x".repeat(middle)];
+      try { await buildQualityReviewPackets(config, state); low = middle; }
+      catch { high = middle; }
+    }
+    last.steps = ["x".repeat(low - 5)];
+    state.study_model.checklist = Array.from({ length: 7 }, (_, i) => `Exact unreferenced condition ${i}: ${"c".repeat(35)}`);
+    const packets = await buildQualityReviewPackets(config, state);
+    expect(packets).toHaveLength(6);
+    expect(packets.flatMap(packet => packet.claims.workedExamples)).toEqual(state.study_model.workedExamples);
+    expect(packets.flatMap(packet => packet.claims.checklist)).toEqual(state.study_model.checklist);
+    expect(packets[0].claims.checklist.length).toBeGreaterThan(0);
+    for (const packet of packets) expect(packet.prompt.length).toBeLessThanOrEqual(resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512);
+  });
+
   it("keeps null ownership and original key concepts and warnings intact", () => {
     const state = moodleTestState({ study_model: { ...emptyStudyModel(), courseChapters: [chapters[0]],
       formulas: [{ id: "global", chapterId: null, name: "Global formula", expression: "f(t) = c", variables: ["c: unknown initial value"], units: ["m/s"], assumptions: "The initial value is not determined", sourceIds: [] }],

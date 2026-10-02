@@ -533,6 +533,20 @@ export async function buildQualityReviewPackets(
   for (const group of groups.values()) for (const atom of group) {
     let candidate = add(current, atom);
     if (count && (demand(candidate) > 2 || !fits(await prepare(candidate)))) {
+      // A complete atom with no source binding needs no new original-image
+      // slots. Reuse an already prepared packet's free envelope before opening
+      // another one solely because the current greedy packet is full.
+      let backfilled = false;
+      if (!atom.sourceIds.length) {
+        for (let index = 0; index < packets.length; index++) {
+          const earlier = await prepare(add(packets[index].claims, atom));
+          if (!fits(earlier)) continue;
+          packets[index] = earlier;
+          backfilled = true;
+          break;
+        }
+      }
+      if (backfilled) continue;
       await finish(); candidate = add(current, atom);
     }
     const packet = await prepare(candidate);
