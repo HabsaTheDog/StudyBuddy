@@ -424,6 +424,7 @@ describe("moodle graph retry routing", () => {
         runDir,
         runtimeCacheDir: path.join(runDir, "runtime-cache"),
         prompt: "make notes",
+        renderStrategy: "llm_formatter", // This fixture exercises the optional formatter worker sequence.
       }),
       {
         codex,

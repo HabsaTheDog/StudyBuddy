@@ -20,6 +20,16 @@ claim it is pushed or silently include it in a candidate.
 
 ## Failed native-run repair intake, 2026-10-02
 
+LATEST OWNER STEERING: the owner explicitly rejects manual PDF delivery as pipeline
+completion and asks for radical PDF simplification. New `single-owner-pdf` campaign:
+one native author, original prompt/shared template, readonly sources and deterministic
+compile/publish tools. UI `23e0372fb` committed locally; root source review/testing
+in progress. Native PDF acceptance is pending. The no-further-round statements below
+are superseded historical checkpoints, not the current instruction. Frozen previous
+claim-repair work is preserved as evidence and excluded from active source.
+No push, publication, packaging or release acceptance is claimed.
+
+
 FINAL STATUS: Native22 ended regularly,20pagePDF rendered/technicalPASS, but is
 independently REJECTED for conflating original e_xi/e_zeta on physicalpage12.
 OutputSHA8ccb3d685e33c02a529d7632a937a5cfbbc0411ffdd4a57da4a5800cffdf7b2f.

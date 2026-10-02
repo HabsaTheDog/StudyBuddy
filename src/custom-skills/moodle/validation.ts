@@ -100,6 +100,7 @@ export interface TypstCompileOptions {
   packagePath?: string;
   signal?: AbortSignal;
   commandTimeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function compileTypstPdf(
@@ -202,6 +203,7 @@ function runTypstCompile(
   return runBoundedProcess(typstPath, args, {
     signal: options.signal,
     timeoutMs: options.commandTimeoutMs,
+    env: options.env,
   });
 }
 

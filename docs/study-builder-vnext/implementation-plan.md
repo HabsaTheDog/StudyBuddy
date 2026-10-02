@@ -1,5 +1,33 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-02: single native owner for PDF documents
+
+The owner explicitly requests a substantial simplification: give the existing
+native chat agent the original prompt and a template, and let it directly create
+the document. This supersedes the repair-chain direction below for the default
+PDF route. Earlier uncommitted claim-repair work is preserved byte-for-byte in
+campaign evidence/superseded-claim-repair and removed from the active diff.
+
+One native agent owns source selection, reasoning, document files, compiler
+repairs and delivery. Read-only broker tools expose courses, native pages,
+authenticated resource downloads, PDF text and composed original pages without
+SourceArchitect, Analyzer, Formatter or model Reviewer calls. Deterministic
+prepare/compile/publish operations provide the existing generic Typst components,
+a real compiler, concrete diagnostics/previews and an honest direct_document
+receipt. No artificial extraction/review success is written. Three unsuccessful
+compile validations end the document invocation. Credentials and source selection
+stay server-owned; quiz attempts and final submission remain unavailable.
+
+Ownership: source adapter and its tests to source agent; direct-document tooling
+and tests to document agent; wrapper/broker routing and developer instructions to
+root; independent implementation and native output review to review agent.
+Acceptance: exact original PDF prompt/profile in a fresh desktop-dev Quick Chat,
+correct scope and source-backed examples, successful canonical compile/publication,
+normal native PDF opening and independently checked physical pages. Preserve the
+already accepted math permission behavior. Timing/model-call counts are diagnostics,
+not substituted for output correctness. No release or push is authorized.
+
+
 ## 2026-10-02: preserve reviewed content through PDF repair and rendering
 
 Owner explicitly resumes the original pipeline-repair objective after the

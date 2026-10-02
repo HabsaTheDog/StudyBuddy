@@ -1485,6 +1485,13 @@ action="$1"
 shift
 
 case "$action" in
+  sources|document)
+    if [[ "${STUDY_BUDDY_BROKER_EXECUTION:-}" != "1" ]]; then
+      echo "Direct Study Buddy tools require the app-owned workflow broker." >&2
+      exit 1
+    fi
+    exec node "$STUDY_BUDDY_ROOT/t3code-fork/scripts/study-buddy-packaged-task.mjs" "$action" "$@"
+    ;;
   root)
     printf '%s\n' "$STUDY_BUDDY_ROOT"
     ;;
