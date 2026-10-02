@@ -18,6 +18,139 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Failed native-run repair intake, 2026-10-02
+
+FINAL STATUS: Native22 ended regularly,20pagePDF rendered/technicalPASS, but is
+independently REJECTED for conflating original e_xi/e_zeta on physicalpage12.
+OutputSHA8ccb3d685e33c02a529d7632a937a5cfbbc0411ffdd4a57da4a5800cffdf7b2f.
+All owned3240873/3240882/3297150 processes gone, DBready/noerror. Source253ee06
+and all15 frozen source/test hashes unchanged; no new native round after22.
+Worker-only29 recorded calls963704in384512cached579192fresh72965out; coordinator
+usage is not included. Technical completion is not mathematical acceptance.
+Manual15pagePDF is independently deliveredPASS4/4; automatic PDF campaign still
+has no accepted candidate. Release handoff must keep this unresolved and triage
+actual source-axis verification and expensive trivial Typst repairs before freeze.
+
+Owner steering after eleven hours: no new native round after22. A separately
+labelled agent-corrected Run18 PDF has now been delivered,15pages, independently
+reviewed4/4 including all physical pages/examples/solutions and direct quiz/scope
+evidence. SHA b64ed2f2bbfe1efc785f18f00d8abd918d718e8230ec67ee83f580f87e15c4c7;
+236 original hashes unchanged. This manual artifact is not native campaign or
+release acceptance. Evidence manual-verified-pdf/independent-final-review.json
+and source-scope-review.json. Native22 exact original is still running at this
+checkpoint; no earlier repeated native PDF is accepted. Final native status will
+be appended below. Local source253ee06 passes1479 tests/four existing skips,
+typecheck and19 wrapper/package checks; none of this proves reliable model output.
+
+Carry root runtime commit `957bbd4`, UI dependency `a8b31805e` and the following
+PDF source repair with the current provider-support batch. The runtime repair
+keeps nonsecret app-wrapper routing through Codex shell policy, authoritative
+owning-thread worker profiles, configured CLI version and broker-private source
+credentials. Three exact original mini-test prompts in fresh native Balanced
+Quick Chats resolve the correct target and pass the existing permission-required
+contract without starting an attempt. They do not prove actual quiz-answer
+correctness or filling after approval.
+
+PDF commits `bd287e1`, `9f2746c`, `bc89f8d` and `ed0eedb` exclude operational
+launcher protocols from citable manifests, preserve semantically evaluated
+assessment scope, honor uniquely named courses and explicit exclusions, prevent
+invented exercise points, and preserve chapter/global warning and repair
+ownership. Mathematical/operator and table-arity contracts are `2b651d9`;
+concrete defects remain blocking under optional requirements in `ce7cfae`.
+Request-level source context `cacde07` and bounded evaluator priority `3e5cb00`
+preserve positive assessment announcements rather than negating them through an
+empty calendar or a local chapter gap. Task-consistency follow-up `ac6ed8b`
+requires feasible derived tasks and solutions under unchanged givens, with
+explicit hypothetical changes and correct instantaneous/derivative assumptions.
+Source-composition repair `151c94b` replaces raw embedded PDF image objects with
+fully rendered pages, preserving corrections/overlays and source/page identity
+through hydration, conservative trimming and cache invalidation. Standalone
+images remain usable; an actual unchanged-source replay and independent review
+verify the failure and correction without modifying canonical run artifacts.
+Complete producer budgeting `10b2f7e` fixes dense fragment envelope measurement:
+lossless JSON takes the actual failed payload from 61,796 to 56,629 characters
+under the unchanged 60,000 cap. All 55 records, source URLs/locators, original
+request and full document context remain preserved. Impossible protected
+payloads fail before client dispatch; independent replay and focused tests pass.
+
+Native round11 exposed a single-module whole-packet path that displaced all
+subject records, leaked an excluded image and allowed modeled source URLs.
+Source routing/provenance/content-review repair is `bcfcf04`; the existing
+content review receives up to two cited composed source images. Native HTML
+lessons and vetoed sources have API regressions. Duplicate fallback projection
+is `378b102`, safe unary vector notation is `9d54a61`; plain/escaped strings
+remain protected and unknown operands diagnose. Independent real-state replay
+preserves all selected records and native quiz announcement/URL within unchanged
+limits, with unchanged canonical hashes. These changes are included locally.
+
+Acquired-reading handoff is `b850384`: round12 wrongly rejected already acquired
+reading targets as invalid new downloads. The fix preserves the validated
+architecture/exclusions and hands nine local/native reading tasks to existing
+consumers. All eight PDFs are attachable as composed pages; the real producer
+uses 53,679/60,000 characters. Sixteen new regression tests, independent replay
+and unchanged canonical hashes back this repair.
+
+Exploratory sequencing is `d8abac0`: trusted native targets can be explored before
+curricular assignment while genuine downloads proceed. The existing reassessment
+retains open module intentions and explicit unverified-target limitations; unknown
+or excluded targets remain blocked. Six transition/veto regressions and independent
+actual-R1/controlflow replay pass with 18 unchanged canonical/source hashes.
+
+Mathematical interpretation/conditions repair is `42f26a9`: the final round14
+PDF exposes a physical direction/name mismatch and a unique-answer task missing
+an initial condition despite otherwise correct arithmetic. Shared policy1.7
+reaches existing analyzer/author/repair/review paths and invalidates old chapter/
+fragment caches. An existing8k regression is retained and passes after lossless
+fixed-prose condensation (8654→7988). All source rules/records/schema/caps remain;
+all 22 canonical/source hashes are unchanged.
+
+Later exact native repetitions require these additional local checkpoints:
+`553fb16a` preserves prior explicit acquisition intent as bounded exploration;
+`7d3e2ef` hands assigned, acquired partial originals to visual readers even when
+no new download URL is returned. Neither assigns extra curriculum automatically.
+`6d75190` makes the existing semantic review audit physical names/directions
+separately from algebra and makes the existing visual review catch accidental
+heading/divider-only intermediate pages. Real unchanged counterexample model
+replays detect both Run17 defects. `28a6c9e` extends the shared policy1.8 with
+locally explicit instant/interval zero conditions and independent derivative
+proof; its fixed-prose condensation retains the unchanged8k cap and all protected
+instruction/evidence contracts. Independent six-envelope replay verifies236
+unchanged canonical hashes and full original request/assessment announcement.
+
+Run18 completes technically but remains rejected for a categorical omega=0
+shortcut that wrongly removes the Euler term. Its review also projects only2
+of18 sections,3 of19 formulas and2 of8 full examples. Complete protected content
+cannot fit the45k per-call envelope, even with measured lossless encodings.
+Complete review is locally committed as `4a68458`: at most six sequential
+complete packets within the existing content_review node, same45k per-call cap,
+profile/model and at most two source images. All findings merge against original
+owners, one retry increment per full round; capacity/late failures cannot publish
+a partial pass. Actual Run18 reaches all53 complete atoms; independent producer
+and236-hash checks pass. Increased review calls/cost are explicit. Real final
+counterprobes find the printed motor sum error and eliminate global-packet and
+wrong-operand false alarms, without claiming all source/math mistakes are detected.
+
+Native19 then stops before any review call: the greedy seventh packet holds only
+seven complete unbound checklist atoms that fit earlier free packet space. Generic
+backfill `389167c` fixes that14-line boundary without changing data/prose/policy/
+caps/images. Actual Run19 Nodeconsumer now emits six complete packets, max44,488/
+45,000;105 canonical hashes unchanged. Run18's six bodies remain byte-identical
+and236 hashes unchanged. Independent54 focused tests, final root1,462 tests/four
+existing skips/169 files42.95s, typecheck and diffcheck pass. Native19 stays0/4,
+ready coordinator, owned workers gone, no PDF; Native20 is the new unchanged
+original-prompt acceptance round. Canonical rejected outputs remain unchanged.
+
+Native PDF acceptance is pending the final original-prompt repetition;
+all intermediate failures and output rejections are retained. See
+[repair evidence](latest-run-repair-2026-10-02.md) and the corresponding backlog
+rows. Latest committed root checks: 1,462 passed, four existing skips; typecheck/diffcheck passed. Source integration is independently reviewed; final native PDF acceptance remains pending.
+Fork full format/lint and all 13 workspace typechecks passed.
+
+These commits and evidence are local only, not pushed, merged, packaged,
+deployed, published or release-accepted. Push the reviewed UI dependency before
+the parent pointer only when authorized. Holistic batch review and exact frozen
+Windows/Fedora packaged acceptance remain required.
+
 ## Composer permission labels intake, 2026-10-02
 
 UI `eec115d93` on `feat/study-buddy-provider-support` shortens the composer to
@@ -156,3 +289,7 @@ runbook `docs/posthog-health.md` records this independently of private host docs
 - Release: integrate the inventory into the reviewed protected-default-branch
   commit, bind build provenance and hashes, pass required gates, record explicit
   deferrals and obtain final publish approval. A source handoff is not this gate.
+
+2026-10-02 failed-run repair update: local root `e8f5628` adds complete warning/quiz/source-cohort review and measured existing-tier runtime sizing under explicit owner deadlines. Final source/test hashes frozen; independent combined PASS;1476 tests/four existing skips, TypeScript and19 wrapper/package checks pass. Native21 exact original desktop prompt is running in thread f53efdb8-2a88-4ff4-99db-abbb7c06d7f6; previous PDF rounds remain rejected and no candidate is accepted yet. No push/merge/package/deploy/publication/release acceptance. Math permission-boundary repeats remain separate existing accepted evidence.
+
+2026-10-02 latest-run repair source checkpoint `253ee06` (local only): lossless SourceArchitect JSON and scope-preserving blocked failure/uncached bootstrap. Root1479 tests/four existing skips, TypeScript and19 wrapper/package checks pass; independent final PASS and144 unchanged source hashes. Native21 rejected/noPDF after verified portal-scope regression and owned cancellation; its stale raw metrics remain untouched. Exact native22 original prompt is running in thread e63754b3-6286-4134-98bc-11f165afca55 on the same stored profile/model. No accepted PDF candidate yet, no push/merge/package/deploy/publication/release acceptance.
