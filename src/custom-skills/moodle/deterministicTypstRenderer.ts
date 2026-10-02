@@ -14,11 +14,8 @@ export function renderDeterministicStudyDocument(
   context: { prompt?: string; profile?: ArtifactProfile } = {},
 ): string {
   const english = data.language === "en";
-  const requestedCourse = explicitCourseAlias(context.prompt ?? "");
-  const title = requestedCourse
-    ? `${requestedCourse} – Study Guide`
-    : data.document_title || (english ? "Study Buddy Study Guide" : "Study Buddy Lernunterlage");
-  const course = requestedCourse || data.course.title || (english ? "Moodle course" : "Moodle-Kurs");
+  const title = data.document_title || (english ? "Study Buddy Study Guide" : "Study Buddy Lernunterlage");
+  const course = data.course.title || (english ? "Moodle course" : "Moodle-Kurs");
   const body: string[] = [
     heading(1, english ? "How to use this guide" : "So arbeitest du mit dieser Unterlage"),
     paragraph(
@@ -34,6 +31,7 @@ export function renderDeterministicStudyDocument(
     ),
   ];
 
+  body.push(...renderDocumentContext(data));
   body.push(...(
     data.learning_modules.length > 0
       ? renderLearningModules(data)
@@ -41,7 +39,7 @@ export function renderDeterministicStudyDocument(
   ));
 
   if (data.quiz_style_questions.length > 0) {
-    body.push(divider(english ? "Review" : "Prüfen"), heading(1, english ? "Review questions" : "Kontrollfragen"));
+    body.push(heading(1, english ? "Review questions" : "Kontrollfragen"));
     for (const [index, item] of data.quiz_style_questions.entries()) {
       body.push(
         heading(2, `${english ? "Question" : "Frage"} ${index + 1}`),
@@ -52,12 +50,11 @@ export function renderDeterministicStudyDocument(
     }
   }
 
-  body.push(divider(english ? "Evidence" : "Nachweise"), heading(1, english ? "References" : "Quellenverzeichnis"));
-  const citedSourceIds = referencedSourceIds(data);
-  for (const source of data.sources.filter((item) => citedSourceIds.has(item.id))) {
+  body.push(heading(1, english ? "References" : "Quellenverzeichnis"));
+  for (const source of data.sources) {
     body.push(sourceEntry(data, source.id));
   }
-  const visibleWarnings = studentFacingWarnings(data.warnings);
+  const visibleWarnings = data.warnings;
   if (visibleWarnings.length > 0) {
     body.push(heading(1, english ? "Source notes and limitations" : "Quellenhinweise und Grenzen"));
     body.push(callout(english ? "Consolidated source notes" : "Gebündelte Quellenhinweise", "warning", bulletList(visibleWarnings, data.language)));
@@ -81,31 +78,19 @@ ${body.map((part) => indent(part.trim(), 4)).join("\n\n")}
 `;
 }
 
-function studentFacingWarnings(warnings: readonly string[]): string[] {
-  return warnings.map((warning) => warning.replace(
-    /\s+sowie offizielle (?:Themen|Topics)\s+\d{1,2}\s*[–-]\s*\d{1,2}[^.]*\b(?:nicht|not)\b[^.]*\.$/i,
-    ".",
-  )).filter((warning) => {
-    // Chapter analyzers see only their local evidence. Their correct local
-    // statement that "this part only covers topics X–Y" becomes false and
-    // confusing after all chapters are merged into one document.
-    const crossChapterScopeNote =
-      /(?:auftrag|request)/i.test(warning) &&
-      /(?:only|nur|ausschließlich)/i.test(warning) &&
-      /(?:thema|themen|topic|topics)\s+\d/i.test(warning) &&
-      /(?:unbelegt|not covered|unsupported|keine?[^.]{0,40}(?:quelle|evidenz|aufgabeninhalt)|liegt[^.]{0,50}(?:keine|nicht))/i
-        .test(warning);
-    return !crossChapterScopeNote;
-  });
-}
-
-function explicitCourseAlias(prompt: string): string | null {
-  const ignored = new Set(["PDF", "HTML", "TYPST", "CI", "OCR", "CIS", "Moodle"]);
-  for (const match of prompt.matchAll(/\b[A-ZÄÖÜ]{2,8}\d{0,2}\b/g)) {
-    const alias = match[0];
-    if (!ignored.has(alias)) return alias;
+function renderDocumentContext(data: ExtractedData): string[] {
+  if (data.document_context.length === 0) return [];
+  const english = data.language === "en";
+  const body = [heading(1, english ? "Document source evidence" : "Quellenlage: Originalauszüge")];
+  for (const entry of data.document_context) {
+    body.push(heading(2, entry.title), `#link(${typstString(entry.url)})[${text(entry.title)}]`,
+      sourceLine(data, [entry.source_id]) ?? "");
+    for (const record of entry.records) {
+      body.push(paragraph(record.excerpt));
+      if (record.locator.page) body.push(paragraph(`${english ? "Source page" : "Quellenseite"}: ${record.locator.page}`));
+    }
   }
-  return null;
+  return body;
 }
 
 function documentKind(profile: ArtifactProfile | undefined, language: ExtractedData["language"]): string {
@@ -139,12 +124,10 @@ function renderLearningModules(data: ExtractedData): string[] {
     const formulas = data.formulas.filter((formula) => ownsContent(formula.source_ids, module));
     const figures = data.figures.filter((figure) => ownsContent(figure.source_ids, module));
     const examples = data.worked_examples.filter((example) => ownsContent(example.source_ids, module));
-    if (sections.length + formulas.length + figures.length + examples.length === 0) continue;
-
     body.push(
-      divider(`${data.language === "en" ? "Learning block" : "Lernblock"} ${moduleIndex + 1}`),
       heading(1, module.title),
       renderChapterRoadmap(module, data.language),
+      bulletList(module.learning_objectives, data.language),
     );
     const figuresBySection = assignToSections(figures, sections, (figure) =>
       `${figure.caption} ${figure.placement_hint}`
@@ -214,7 +197,6 @@ function renderLearningModules(data: ExtractedData): string[] {
     remainingFigures.length + remainingExamples.length > 0
   ) {
     body.push(
-      divider(data.language === "en" ? "Additional material" : "Ergänzen"),
       heading(1, data.language === "en" ? "Additional course content" : "Ergänzende Kursinhalte"),
     );
     body.push(...renderFlatLearningContent({
@@ -232,7 +214,6 @@ function renderLearningModules(data: ExtractedData): string[] {
 function renderFlatLearningContent(data: ExtractedData): string[] {
   const body: string[] = [];
   for (const [index, section] of data.sections.entries()) {
-    if (index > 0) body.push(divider());
     body.push(heading(1, section.heading), paragraph(section.summary));
     const sectionSources = sourceLine(data, section.source_ids);
     if (sectionSources) body.push(sectionSources);
@@ -250,14 +231,12 @@ function renderFlatLearningContent(data: ExtractedData): string[] {
   if (figures.length > 0) body.push(heading(1, data.language === "en" ? "Figures and visualizations" : "Abbildungen und Visualisierungen"), ...figures);
   if (data.formulas.length > 0) {
     body.push(
-      divider(data.language === "en" ? "Calculate" : "Rechnen"),
       heading(1, data.language === "en" ? "Formulas and calculations" : "Formeln und Berechnungen"),
     );
     body.push(...data.formulas.map((formula) => renderFormula(data, formula)));
   }
   if (data.worked_examples.length > 0) {
     body.push(
-      divider(data.language === "en" ? "Apply" : "Anwenden"),
       heading(1, data.language === "en" ? "Worked examples" : "Durchgerechnete Beispiele"),
     );
     body.push(...data.worked_examples.map((example) => renderExample(data, example)));
@@ -311,7 +290,7 @@ function renderModuleSection(
   section: LearningSection,
 ): string[] {
   const body = [
-    heading(2, conciseSectionHeading(section.heading)),
+    heading(2, section.heading),
     paragraph(section.summary),
   ];
   const sources = sourceLine(data, section.source_ids);
@@ -387,17 +366,7 @@ function conciseText(value: string, limit: number): string {
 }
 
 function modulePracticeItems(module: LearningModule): string[] {
-  const byTopic = new Map<string, string>();
-  const ungrouped: string[] = [];
-  for (const signal of module.assessment_signals) {
-    const topic = /\b(?:Thema|Topic)\s+(\d{1,2})\b/i.exec(signal)?.[1];
-    if (topic) {
-      if (!byTopic.has(topic)) byTopic.set(topic, signal);
-    } else if (!ungrouped.includes(signal)) {
-      ungrouped.push(signal);
-    }
-  }
-  return [...byTopic.values(), ...ungrouped].slice(0, 12);
+  return [...new Set(module.assessment_signals)];
 }
 
 function renderFormula(data: ExtractedData, formula: LearningFormula): string {
@@ -430,6 +399,9 @@ function renderExample(data: ExtractedData, example: WorkedExample): string {
   title: [${proseText(example.learning_goal)}],
   result: [${proseText(example.result)}],
 )[
+  #text(8pt, fill: rgb("#5b667a"))[${data.language === "en"
+    ? example.origin === "source" ? "Source example" : "Derived example"
+    : example.origin === "source" ? "Quellenbeispiel" : "Abgeleitetes Beispiel"}]
   #text(weight: "bold")[${data.language === "en" ? "Starting point" : "Ausgangslage"}:] ${proseText(example.prompt)}
   ${sourceLine(data, example.source_ids) ?? ""}
   #v(4pt)
@@ -544,7 +516,7 @@ function renderFigure(
   assetsById = new Map(data.visual_assets.map((asset) => [asset.id, asset])),
 ): string | null {
   const asset = assetsById.get(figure.asset_id);
-  if (!asset?.relative_path) return null;
+  if (!asset?.relative_path) throw new Error(`Renderer cannot resolve selected figure asset: ${figure.asset_id}.`);
   if (!isReadableTeachingFigure(asset, figure)) return null;
   const visibleIndex = data.figures
     .filter((candidate) => {
@@ -563,17 +535,12 @@ function renderFigure(
 }
 
 function isReadableTeachingFigure(
-  asset: ExtractedData["visual_assets"][number],
+  _asset: ExtractedData["visual_assets"][number],
   _figure: LearningFigure,
 ): boolean {
-  // A rasterized full PDF page is source evidence, not a teaching figure.
-  // It duplicates text/formulas at a smaller scale and cannot be cropped
-  // reliably without semantic bounding boxes. Embedded source figures and
-  // generated diagrams remain available.
-  const rasterPage = asset.kind === "moodle_pdf_page" &&
-    (/(?:png|jpe?g)$/i.test(asset.relative_path ?? "") ||
-      /^image\/(?:png|jpe?g)$/i.test(asset.mime_type ?? ""));
-  return !rasterPage;
+  // Selection and asset resolution own usefulness and availability. Layout
+  // preserves every validated original figure instead of reselecting sources.
+  return true;
 }
 
 function heading(level: number, value: string): string {
@@ -653,11 +620,45 @@ function normalizeTypstMath(value: string): string {
     "vec",
     (argument) => `vec(${argument.replace(/;/g, ",")})`,
   );
-  return quoteBareMathText(replaceTypstMathFunctionCalls(
+  return quoteMathProsePreservingCalls(replaceTypstMathFunctionCalls(
     normalizedVectors,
     "ddot",
     (argument) => `accent(${argument}, dot.double)`,
   ));
+}
+
+function quoteMathProsePreservingCalls(value: string): string {
+  // A function name is executable math syntax, never connecting prose. Keep
+  // it verbatim so Typst rejects unresolved functions instead of printing a
+  // quoted label that only appears to be a validated expression.
+  let result = "";
+  let cursor = 0;
+  let segmentStart = 0;
+  const renderSegment = (part: string) => {
+    let rendered = "";
+    let start = 0;
+    for (const match of part.matchAll(/(?<![\p{L}\p{N}_])[\p{L}_][\p{L}\p{N}_.]*\s*(?=\()/gu)) {
+      rendered += quoteBareMathText(part.slice(start, match.index));
+      rendered += match[0];
+      start = match.index + match[0].length;
+    }
+    return rendered + quoteBareMathText(part.slice(start));
+  };
+  while (cursor < value.length) {
+    if (value[cursor] !== '"') {
+      cursor += 1;
+      continue;
+    }
+    result += renderSegment(value.slice(segmentStart, cursor));
+    const stringStart = cursor++;
+    while (cursor < value.length) {
+      if (value[cursor] === "\\") cursor += 2;
+      else if (value[cursor++] === '"') break;
+    }
+    result += value.slice(stringStart, cursor);
+    segmentStart = cursor;
+  }
+  return result + renderSegment(value.slice(segmentStart));
 }
 
 function normalizeCurriedBinaryFunction(value: string, functionName: string): string {

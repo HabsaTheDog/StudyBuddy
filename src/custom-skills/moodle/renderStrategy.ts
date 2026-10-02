@@ -15,7 +15,7 @@ export function decideRenderStrategy(config: MoodleRuntimeConfig): RenderStrateg
     return { strategy: "llm_formatter", reason: "Explicit render strategy override: llm_formatter." };
   }
   return {
-    strategy: "llm_formatter",
-    reason: "Auto mode delegates document pattern and component selection to the contract-aware formatter; deterministic rendering requires an explicit override.",
+    strategy: "deterministic",
+    reason: "Auto mode lays out the validated structured handoff without reauthoring its learning content.",
   };
 }

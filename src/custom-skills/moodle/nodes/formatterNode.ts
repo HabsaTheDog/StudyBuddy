@@ -3,7 +3,6 @@ import path from "node:path";
 import type { CodexClient } from "../codexClient.js";
 import {
   isNonRetryableCodexError,
-  ModelCallTimeoutError,
   resolveModelPromptBodyCharacterBudget,
 } from "../codexClient.js";
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
@@ -31,23 +30,16 @@ export class FormatterPromptCapacityError extends Error {
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
-      const baseDecision = config.renderStrategyDecision ?? decideRenderStrategy(config);
-      const rawExamples = !Array.isArray(state.extracted_data) &&
-        typeof state.extracted_data === "object" && state.extracted_data !== null
-        ? state.extracted_data["worked_examples"]
-        : undefined;
-      const exampleCount = Array.isArray(rawExamples) ? rawExamples.length : 0;
-      const decision = config.renderStrategy === "auto" && !state.error_log &&
-        baseDecision.strategy === "llm_formatter" && exampleCount >= 12
-        ? {
-          strategy: "deterministic" as const,
-          reason: `Auto mode selected validated deterministic rendering for ${exampleCount} worked examples; avoids a large formatter prompt and timeout.`,
-        }
-        : baseDecision;
+      const decision = decideRenderStrategy(config);
       config.renderStrategyDecision = decision;
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
-      if (!state.error_log && decision.strategy === "deterministic") {
+      if (decision.strategy === "deterministic") {
+        // Content and post-render rejections cannot be cleared by laying out
+        // the same handoff again. Preserve their existing retry boundary.
+        if (state.error_log && !/^(?:Typst validation failed:|Study Buddy document rules failed:)/.test(state.error_log)) {
+          return { error_log: state.error_log, retry_count: state.retry_count + 1 };
+        }
         const generated = renderDeterministicStudyDocument(
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
@@ -55,29 +47,12 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
         );
         const validation = await validateDeterministicDocument(generated, config);
         if (!validation.ok) {
-          await config.diagnostics?.log(
-            "warn",
-            "formatter",
-            "Deterministic renderer output was not suitable; switching to LLM formatter.",
-          );
-          config.renderStrategyDecision = {
-            strategy: "llm_formatter",
-            reason: `Deterministic renderer validation failed: ${validation.error}`,
-          };
-        } else {
-          const document = validation.document;
-          if (validation.downgradedMath > 0) {
-            await config.diagnostics?.log(
-              "warn", "formatter",
-              `Rendered ${validation.downgradedMath} unparseable math expression(s) as readable text after bounded Typst diagnostics.`,
-            );
-          }
-          await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
-          return {
-            final_document: document,
-            error_log: null,
-          };
+          const error = `Typst validation failed:\n${validation.error}`;
+          await persistFormatterAttempt(config.runDir, state.retry_count + 1, generated, error);
+          return { final_document: generated, error_log: error, retry_count: state.retry_count + 1 };
         }
+        await persistFormatterAttempt(config.runDir, state.retry_count + 1, validation.document, null);
+        return { final_document: validation.document, error_log: null };
       }
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
       const typst = await codex.run(buildFormatterPrompt(config, state), {
@@ -125,42 +100,6 @@ export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexCli
       };
     } catch (error) {
       throwIfAborted(config.abortSignal);
-      if (
-        config.renderStrategy === "auto" &&
-        (error instanceof ModelCallTimeoutError || error instanceof FormatterPromptCapacityError)
-      ) {
-        try {
-          const generated = renderDeterministicStudyDocument(
-            validateExtractedData(state.extracted_data),
-            config.diagnostics?.getCoverage() ?? emptyCoverage(),
-            { prompt: config.prompt, profile: config.artifactIntent.profile },
-          );
-          const validation = await validateDeterministicDocument(generated, config);
-          if (!validation.ok) {
-            await config.diagnostics?.log(
-              "warn", "formatter",
-              `Deterministic fallback validation failed: ${validation.error}`,
-            );
-          } else {
-            const document = validation.document;
-            await config.diagnostics?.log(
-              "warn", "formatter",
-              "LLM formatter could not complete; validated deterministic document fallback succeeded.",
-            );
-            config.renderStrategyDecision = {
-              strategy: "deterministic",
-              reason: `Validated fallback after ${error instanceof Error ? error.name : "formatter failure"}.`,
-            };
-            await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
-            return { final_document: document, error_log: null };
-          }
-        } catch (fallbackError) {
-          await config.diagnostics?.log(
-            "warn", "formatter",
-            `Deterministic fallback could not run: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
-          );
-        }
-      }
       if (
         error instanceof FormatterPromptCapacityError ||
         isNonRetryableCodexError(error) ||
@@ -213,17 +152,12 @@ async function validateGeneratedDocument(
 async function validateDeterministicDocument(
   generated: string,
   config: MoodleRuntimeConfig,
-): Promise<{ ok: true; document: string; downgradedMath: number } | { ok: false; error: string }> {
-  let document = generated;
-  for (let downgradedMath = 0; downgradedMath <= 16; downgradedMath += 1) {
-    const validation = await validateGeneratedDocument(document, config);
-    if (validation.ok) return { ok: true, document, downgradedMath };
-    if (downgradedMath === 16) return validation;
-    const repaired = replaceFailingInlineMathWithReadableText(document, validation.error);
-    if (!repaired || repaired === document) return validation;
-    document = repaired;
-  }
-  return { ok: false, error: "Deterministic Typst validation exhausted its bounded recovery attempts." };
+): Promise<{ ok: true; document: string } | { ok: false; error: string }> {
+  const document = normalizeGeneratedTypstComponents(normalizeGeneratedTypstMath(generated));
+  const validation = await validateGeneratedDocument(document, config);
+  // Unknown mathematical syntax remains a diagnostic. Neither a model nor a
+  // plain-text downgrade may turn an unresolved expression into a passed PDF.
+  return validation.ok ? { ok: true, document } : validation;
 }
 
 export function replaceFailingInlineMathWithReadableText(

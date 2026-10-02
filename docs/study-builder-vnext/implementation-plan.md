@@ -1,5 +1,55 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-02: preserve reviewed content through PDF repair and rendering
+
+Owner explicitly resumes the original pipeline-repair objective after the
+separately delivered manual PDF. That artifact does not complete automatic
+desktop acceptance. Same approved original-prompt campaign and hard gates;
+no model/stage/cap/quiz-permission expansion and no course-specific fix. Existing
+LangGraph state/contracts remain intact; optional backward-compatible review
+claim references and a bounded local repair-response schema bind changes to
+actual existing content, without introducing a new model stage or call.
+
+Measured counterexample: Native22 has a correct initial original-source e_xi
+term; repairing a numerical Earth example rewrites unrelated mathematics to
+e_zeta. Model reviews miss the resulting physicalPDFpage12 contradiction.
+Renderer then regenerates the full document three times for presentation-only
+errors (615.840 seconds of formatter model work): LaTeX inline delimiters,
+then unquoted AC. It also strengthens a sufficient derivative condition into a
+false necessary one and creates orphaned continuation pages.
+
+Causal correction before code: preserve unaffected verified learning atoms
+through finding/owner/claim-local repair. The existing review identifies actual
+collection/claim references; the existing repair consumes the previous fragment
+and returns only bounded target changes, applied server-side. Unrelated claims
+remain exact; unknown references and ambiguous semantic changes fail closed.
+Retain exact original source/page/image
+anchors for changed claims. Source-only review cohorts use the selected original
+page and nearest available original context within the same two-image limit;
+incompatible source cohorts get separate existing packets, preflighted under
+unchanged45k/18packet ceilings. Existing auto rendering consumes the validated
+structured handoff deterministically rather than re-authoring mathematics for
+layout. Explicit llm_formatter remains an intentional override. Local bounded
+syntax/compile handling preserves semantic operands/units/claims, fails closed
+on unresolved meaning, and never silently falls back to whole-content mutation.
+
+Focused ownership: renderer/render strategy/formatter plus tests to renderer
+agent; analyzer review/repair/source-image selection plus tests to source agent;
+independent read-only review and root integration. Both use immutable actual22
+existing-node/real-Typst counterexamples plus generic cross-subject regressions.
+Before a fresh native original-prompt run, root verifies source fidelity,
+TypeScript, focused/full suites, scoped local commits and complete source freeze.
+Final acceptance still requires an actual native attachment, source-backed
+correct examples, normal PDF viewing and independently inspected physical pages.
+
+Renderer component freeze:88 focused tests/four files,TypeScript/diffcheck and
+independent six-source/test-hashreview pass. Unchanged Actual22 savedhandoff through
+existing Formatterconsumer validates in1701ms with0modelcalls; controlcompile596ms,
+26pages/all six selected Originalimages/two positive documentcontexts,262 historical
+canonical hashes unchanged. This is retention/compile evidence only; damaged old
+mathematical claims remain unchanged and require upstream correction. Source-bound
+repair and full native original-prompt acceptance are still in progress.
+
 ## Operational source links — 2026-10-02
 
 The owner authorized fixing and repeating the two failed desktop requests.
