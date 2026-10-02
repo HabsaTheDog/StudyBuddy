@@ -881,6 +881,7 @@ describe("analyzerNode", () => {
       [],
       [
         "Semantic quality review failed:",
+        "- [scope: document] The global source note contradicts content across chapters.",
         "- [chapter: Literature Structure] The heading hierarchy is ambiguous.",
         "- [chapter: Dynamics] A formula derivation is incomplete.",
       ].join("\n"),
@@ -890,6 +891,7 @@ describe("analyzerNode", () => {
     expect(prompt).toContain("req-structure");
     expect(prompt).not.toContain("req-visual-shell");
     expect(prompt).toContain("The heading hierarchy is ambiguous");
+    expect(prompt).toContain("The global source note contradicts content across chapters");
     expect(prompt).not.toContain("A formula derivation is incomplete");
     expect(prompt).not.toContain("vollständig nachvollziehbares Beispiel");
     expect(prompt).not.toContain("konkreter mathematischer Beziehung");
@@ -1514,7 +1516,10 @@ describe("analyzerNode", () => {
     expect(receivedPrompt.length).toBeLessThan(40_000);
   });
 
-  it("caches valid chapter handoffs and repairs only the chapter named by review feedback", async () => {
+  it.each([
+    ["Chapter is too shallow: Klebeverbindungen", 3],
+    ["Semantic quality review failed:\n- [scope: document] The aggregate scope note contradicts the included Nieten content.", 4],
+  ])("preserves warning ownership and repairs the caches owned by feedback: %s", async (feedback, expectedCalls) => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-chapters-"));
     try {
       const calls: string[] = [];
@@ -1542,7 +1547,7 @@ describe("analyzerNode", () => {
             quiz_style_questions: [],
             visual_assets: [],
             figures: [],
-            warnings: [],
+            warnings: [`${title}: local source boundary.`],
           });
         },
       };
@@ -1569,11 +1574,15 @@ describe("analyzerNode", () => {
       const first = await createAnalyzerNode(config, codex)(baseState);
       const repaired = await createAnalyzerNode(config, codex)({
         ...baseState,
-        error_log: "Chapter is too shallow: Klebeverbindungen",
+        error_log: feedback,
       });
 
-      expect(calls).toHaveLength(3);
+      expect(calls).toHaveLength(expectedCalls);
       expect(first.extracted_data).toMatchObject({ sections: [{ heading: "Kleben" }, { heading: "Nieten" }] });
+      expect((first.extracted_data as { warnings: string[] }).warnings).toEqual([
+        "Kapitel «Eigenstudium 2 — Foliensatz: Kleben»: Kleben: local source boundary.",
+        "Kapitel «Eigenstudium 3 — Foliensatz: Nietverbindung»: Nieten: local source boundary.",
+      ]);
       expect(repaired.error_log).toBeNull();
     } finally {
       await rm(runDir, { recursive: true, force: true });

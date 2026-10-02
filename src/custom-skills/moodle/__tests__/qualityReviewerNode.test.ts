@@ -47,6 +47,25 @@ const chapters = [
 ];
 
 describe("qualityReviewerNode", () => {
+  it("keeps an explicitly global contradiction global even when its text names another chapter", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-global-review-"));
+    try {
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), {
+        async run() { return JSON.stringify({ ok: false, summary: "Global contradiction", findings: [{
+          message: "The global scopeNote claims Tribologie formulas are unavailable although later chapters include them.",
+          chapterTitle: null, requirementId: null, deliverableId: "deliverable-1",
+          owner: "content", severity: "blocking", repairTarget: "content_analyzer",
+        }] }); },
+      })(moodleTestState({ study_model: { ...emptyStudyModel(), courseChapters: chapters } }));
+
+      expect(result.error_log).toContain("[scope: document]");
+      expect(result.error_log).not.toContain("[chapter:");
+      const review = JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8"));
+      expect(review.blocking_findings[0].chapterTitle).toBeNull();
+      expect(review.blocking_findings[0].severity).toBe("blocking");
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
+
   it("shows every official topic in a grouped chapter to the quality reviewer", () => {
     const chapter = {
       ...chapters[0],

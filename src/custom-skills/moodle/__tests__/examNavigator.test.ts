@@ -516,9 +516,14 @@ describe("student-centric exam navigator contracts", () => {
 
     expect(model.courseChapters[0].status).toBe("partial");
     expect(model.publicationStatus).toBe("partial");
+    expect(model.scopeNote).toContain("All selected sources acquired.");
+    expect(model.scopeNote).not.toContain(extracted.warnings[0]);
   });
 
-  it("does not mark an unrelated numbered chapter partial from the generic word Thema", () => {
+  it.each([
+    ["Für Thema 3 fehlt eine konkrete Differentiationsregel.", "covered", "covered"],
+    ["Kapitel «Thema 1: Folgen und Reihen»: Differentialrechnung ist in dieser lokalen Quelle nicht enthalten.", "partial", "covered"],
+  ])("assigns local source gaps to the chapter owning the warning: %s", (warning, sequenceStatus, derivativeStatus) => {
     const sequenceUrl = "https://moodle.example/sequence.pdf";
     const derivativeUrl = "https://moodle.example/derivative.pdf";
     const sequence = node("sequence", sequenceUrl, "resource", "acquired");
@@ -550,7 +555,7 @@ describe("student-centric exam navigator contracts", () => {
         { heading: "Thema 1 – Folgen und Reihen", summary: "Konvergenz und Reihen.", key_concepts: ["Grenzwert"], source_ids: [sequence.id] },
         { heading: "Thema 3 – Differentialrechnung", summary: "Ableitungsregeln.", key_concepts: ["Produktregel"], source_ids: [derivative.id] },
       ],
-      warnings: ["Für Thema 3 fehlt eine konkrete Differentiationsregel."],
+      warnings: [warning],
     });
     const model = buildStudyModel(moodleTestConfig(), extracted, manifest, {
       status: "complete",
@@ -564,7 +569,8 @@ describe("student-centric exam navigator contracts", () => {
       usableEvidenceRecords: 2,
     });
 
-    expect(model.courseChapters[0].status).toBe("covered");
+    expect(model.courseChapters[0].status).toBe(sequenceStatus);
+    expect(model.courseChapters[1].status).toBe(derivativeStatus);
   });
 
   it("removes organizational questions and renders one shared checklist", async () => {

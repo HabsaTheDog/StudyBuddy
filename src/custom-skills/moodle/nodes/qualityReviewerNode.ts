@@ -174,6 +174,7 @@ export function buildQualityReviewPrompt(
       : "",
     "Formula strings use Typst, not TeX. Source-index mappings are valid citations.",
     "Return structured findings. Use exact IDs from the contract when a finding evaluates a requirement or deliverable; otherwise use null. chapterTitle must be an exact allowed title or null. severity=blocking is reserved for an explicit must/prohibition or a concrete factual, citation, or mathematical defect. Evidence-derived should recommendations and renderer-owned presentation observations are advisory.",
+    "chapterTitle identifies the chapter that owns the defective content. Use null for global metadata or cross-chapter contradictions, even when the message names a topic taught by one chapter. Chapter-specific source notes describe only that chapter's evaluated packet; they do not establish document-wide exclusions.",
     "Choose the narrowest repairTarget: source_architect only for missing/unavailable evidence, content_analyzer for source-backed semantic content, visual_pipeline for visual evidence selection, formatter for renderer-owned presentation, and none when no automated repair is appropriate.",
     `Exact original user request:\n${config.originalUserPrompt}`,
     `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
@@ -194,11 +195,9 @@ function localizeQualityFindings(
   findings: QualityFinding[],
   state: LangGraphAgentState,
 ): { blocking: QualityFinding[]; advisory: QualityFinding[] } {
-  const chapters = state.study_model.courseChapters.map((chapter, index) => ({
+  const chapters = state.study_model.courseChapters.map((chapter) => ({
     title: chapter.title,
-    index: index + 1,
     normalizedTitle: normalizeReviewText(chapter.title),
-    terms: reviewTerms(chapter.title),
   }));
   const requirementById = new Map(
     state.request_contract.requirements.map((requirement) => [requirement.id, requirement]),
@@ -208,24 +207,12 @@ function localizeQualityFindings(
   const advisory: QualityFinding[] = [];
 
   for (const finding of findings) {
-    const explicit = finding.chapterTitle?.trim() ??
-      /\[chapter:\s*([^\]]+)\]/i.exec(finding.message)?.[1]?.trim();
-    let matched = explicit
+    // The reviewer contract owns localization. Null denotes a global finding;
+    // matching words name affected content, not necessarily the defect's owner.
+    const explicit = finding.chapterTitle?.trim();
+    const matched = explicit
       ? chapters.filter((chapter) => chapter.normalizedTitle === normalizeReviewText(explicit))
       : [];
-    if (matched.length === 0) {
-      const numbered = /\b(?:kapitel|chapter)\s+(\d{1,2})\b/i.exec(finding.message)?.[1];
-      if (numbered) {
-        matched = chapters.filter((chapter) => chapter.index === Number(numbered));
-      }
-    }
-    if (matched.length === 0) {
-      const normalizedFinding = normalizeReviewText(finding.message);
-      matched = chapters.filter((chapter) =>
-        normalizedFinding.includes(chapter.normalizedTitle) ||
-        chapter.terms.some((term) => normalizedFinding.includes(term))
-      );
-    }
     const requirement = finding.requirementId
       ? requirementById.get(finding.requirementId)
       : undefined;
@@ -250,7 +237,7 @@ function localizeQualityFindings(
 
 function formatFindingForRepair(finding: QualityFinding): string {
   return [
-    finding.chapterTitle ? `[chapter: ${finding.chapterTitle}]` : "",
+    finding.chapterTitle ? `[chapter: ${finding.chapterTitle}]` : "[scope: document]",
     finding.requirementId ? `[requirement: ${finding.requirementId}]` : "",
     finding.deliverableId ? `[deliverable: ${finding.deliverableId}]` : "",
     `[owner: ${finding.owner}]`,

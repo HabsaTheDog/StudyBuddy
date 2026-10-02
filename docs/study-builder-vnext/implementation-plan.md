@@ -66,6 +66,21 @@ if a model or cached search result selects it. Regress English/German unrelated
 subjects, explicit code/title conflict, and direct URLs. Preserve the original
 unique arbitrary-title path with one canonical probe and zero model calls.
 
+Desktop `eeed8286` exhausted strict review because a local source-boundary
+warning from the reference-system chapter was promoted to the global scopeNote,
+despite formulas and citations in later chapters. Repeated repairs targeted the
+acceleration chapter after a global `chapterTitle:null` finding was lexically
+localized, leaving the warning's actual cached producer unchanged. Preserve
+exact readable chapter provenance when merging warnings, prevent unrelated
+chapter-status contamination, and derive the global scopeNote from aggregate
+coverage instead of the first negative local string. Respect global reviewer
+ownership explicitly and invalidate all chapter handoffs for a document-level
+content repair; retain selective repair for exact chapter findings and the
+existing three-retry ceiling. Regress cached local/global repair behavior and
+replay the original failed handoffs without deleting content or relaxing review.
+Retain document-owned findings when a resumed mixed global/local repair narrows
+completed chapter findings; otherwise recovery silently loses the global defect.
+
 ## Provider-independent execution — 2026-09-22
 
 Implement the owner's Codex, Claude and Gemini/Antigravity integration request

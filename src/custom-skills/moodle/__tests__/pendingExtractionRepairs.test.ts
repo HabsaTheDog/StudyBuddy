@@ -18,6 +18,21 @@ afterEach(async () => {
 });
 
 describe("pending extraction repairs", () => {
+  it("retains document-level ownership while narrowing completed chapter findings", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-global-pending-repairs-"));
+    await persistPendingExtractionRepairs(runDir,
+      "Semantic quality review failed:\n" +
+      "- [scope: document] The aggregate evidence note contradicts the document.\n" +
+      "- [chapter: Matrices] Repair the determinant.\n" +
+      "- [chapter: Gradients] Repair the Hessian.", 1);
+    await markExtractionRepairComplete(runDir, "Matrices");
+    const pending = await readPendingExtractionRepairs(runDir);
+    const recovery = pendingExtractionRepairError(pending!);
+    expect(recovery).toContain("[scope: document]");
+    expect(recovery).toContain("[chapter: Gradients]");
+    expect(recovery).not.toContain("[chapter: Matrices]");
+  });
+
   it("persists exact chapter repairs and narrows recovery to unfinished chapters", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-pending-repairs-"));
     await persistPendingExtractionRepairs(

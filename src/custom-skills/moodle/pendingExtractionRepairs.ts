@@ -96,7 +96,7 @@ export function pendingExtractionRepairError(record: PendingExtractionRepairs): 
     .split("\n")
     .filter((line) => {
       const title = /\[chapter:\s*([^\]]+)\]/i.exec(line)?.[1]?.trim();
-      return title ? pending.has(title) : false;
+      return title ? pending.has(title) : /\[scope:\s*document\]/i.test(line);
     });
   return findings.length > 0
     ? `Semantic quality review failed:\n${findings.join("\n")}`

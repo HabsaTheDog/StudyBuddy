@@ -52,7 +52,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-09-29.4-task-local-coverage";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.1-chapter-warning-ownership";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -1583,6 +1583,7 @@ export function buildChapterFragmentPrompt(
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
     "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
+    "Warnings describe only this chapter/slice's supplied evidence and assigned objectives. Do not claim that another chapter's content or the whole document lacks evidence merely because it is absent from this local packet.",
     requestedTaskNumber
       ? `This fragment covers only ${slice.label}. Other numbered tasks in the chapter objectives are handled by separate fragments; do not call them missing or unavailable here. If the user requests detailed solutions, give this task its own complete, source-grounded worked_example with intermediate steps, unless the evidence for this task is genuinely insufficient.`
       : "",
@@ -1623,7 +1624,7 @@ function localizeChapterRepairDiagnostic(
 ): string {
   const taggedLines = repairFeedback.split(/\r?\n/).filter((line) => {
     const tag = /\[chapter:\s*([^\]]+)\]/i.exec(line)?.[1]?.trim();
-    if (!tag) return false;
+    if (!tag) return /\[scope:\s*document\]/i.test(line);
     return normalizeChapterMatch(tag) === normalizeChapterMatch(focus.title) ||
       safeChapterKey(tag) === focus.key;
   });
@@ -2440,6 +2441,9 @@ function termFrequencyOverlap(left: string[], right: string[]): number {
 
 export function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
   if (!errorLog) return false;
+  // Document-level ownership is explicit; a word matching another chapter
+  // must not turn a global contradiction into one unrelated cache repair.
+  if (/\[scope:\s*document\]/i.test(errorLog)) return true;
   const normalized = errorLog.toLowerCase();
   const taggedChapters = [...errorLog.matchAll(/\[chapter:\s*([^\]]+)\]/gi)]
     .map((match) => match[1]?.trim())
@@ -2585,7 +2589,7 @@ function assertChapterHandoff(
   }
 }
 
-function mergeChapterHandoffs(
+export function mergeChapterHandoffs(
   handoffs: Array<ReturnType<typeof validateExtractedData>>,
   focuses: ChapterFocus[],
   config: MoodleRuntimeConfig,
@@ -2607,7 +2611,9 @@ function mergeChapterHandoffs(
     visual_assets: uniqueBy(namespaced.flatMap((data) => data.visual_assets), (asset) => asset.id),
     figures: namespaced.flatMap((data) => data.figures),
     learning_modules: namespaced.flatMap((data) => data.learning_modules),
-    warnings: [...new Set(namespaced.flatMap((data) => data.warnings))],
+    warnings: [...new Set(namespaced.flatMap((data, index) => data.warnings.map((warning) =>
+      `${config.outputLanguage === "en" ? "Chapter" : "Kapitel"} «${focuses[index].title}»: ${warning}`
+    )))],
   });
 }
 
@@ -2780,6 +2786,7 @@ export async function buildAnalyzerPrompt(
     "worked_examples, figures, questions, derivations, and other optional components may be empty. Include them only when required by the evaluated contract or justified by its evidence-derived strategy, and make every included item source-grounded and pedagogically complete.",
     "Use source-backed exercise/solution pairs when reproducible. Otherwise use origin='derived' with declared values, ordered reasoning, units, result, and plausibility check. Never copy lookup values without teaching the table/diagram selection path.",
     "Use Typst math syntax. Every formula needs variables, units (or explicit dimensionless status), context, and valid source_ids.",
+    focus ? "Warnings describe only this chapter's supplied evidence and assigned objectives. Do not claim that another chapter's content or the whole document lacks evidence merely because it is absent from this local packet." : "",
     figureLimit > 0
       ? `Use at most ${figureLimit} source-backed figures, only when they materially support the chapter. Attached images correspond to candidate IDs; never use tools to inspect other files. Prefer extracted images over full-page screenshots and keep lookup assets beside dependent examples.`
       : "Use figures only when source-supported or as a clearly identified didactic Typst diagram.",
