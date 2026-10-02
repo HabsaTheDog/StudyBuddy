@@ -7,6 +7,14 @@ import type {
 
 export const STUDENT_FIRST_POLICY_VERSION = "1.3";
 
+export const ASSESSMENT_SCORING_POLICY = [
+  "Never invent point allocations, weights, pass thresholds, or official grading for generated or derived exercises and simulations.",
+  "The absence of documented scoring means no point badges or totals, even if a made-up score would be labelled non-official.",
+  "Use the optional points argument only when the exact official allocation for the reproduced source task is explicitly documented and cited; a source-backed formula alone is not scoring evidence.",
+  "A clear local label must identify Study Buddy-derived/generated tasks and distinguish them from official source tasks.",
+  "Where useful, offer an explicitly non-official percentage self-rating or met/not-met checklist instead.",
+].join(" ");
+
 export const STUDENT_FIRST_POLICY = [
   "Optimize verified learning value per minute.",
   "Never create content to fill a page, section, widget, or requested count.",

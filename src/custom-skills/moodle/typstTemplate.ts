@@ -1,4 +1,5 @@
 import type { SupportedLanguage } from "../shared/languagePolicy.js";
+import { ASSESSMENT_SCORING_POLICY } from "./studentFirstPolicy.js";
 
 export const STUDY_BUDDY_COMPONENTS_FILE = "study-buddy-components.typ";
 export const STUDY_BUDDY_TEMPLATE_FILE = "study-buddy-template.typ";
@@ -29,7 +30,8 @@ export function studyBuddyTemplatePromptReference(language: SupportedLanguage = 
     "- #sb-source-note(\"Quelle\", coverage: \"Quellenlage\") for compact source coverage, grouped citations, or source caveats. Do not place one after every section.",
     "- #sb-source-ref(\"Q1\", target: <source-q1>) for compact clickable source markers next to supported claims, formulas, examples, and questions. Put the matching attached Typst label directly after the Quellenverzeichnis entry content, for example `- *Q1 – Titel.* Vollständiger Link <source-q1>`. Never emit a standalone #label(\"source-q1\") call; an unattached label cannot be linked. Keep the full URL there.",
     "- #sb-divider(label: \"...\") for subtle separation between major sections. Use it for rhythm, not after every paragraph.",
-    "- #sb-exercise(number: ..., title: ..., difficulty: ..., points: ...)[...]",
+    "- #sb-exercise(number: ..., title: ..., difficulty: ...)[...] with points omitted by default; points is optional and requires documented official scoring for that exact source task.",
+    ASSESSMENT_SCORING_POLICY,
     "- #sb-checklist(( [...], [...], )) only for actual to-do or final self-check tasks where empty checkboxes are useful. Never use it for chapter key concepts, vocabulary, theory summaries, worked-example steps, or question banks.",
     "",
     "Layout balance rules:",

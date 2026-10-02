@@ -14,6 +14,7 @@ import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray } from "../validation.js";
+import { ASSESSMENT_SCORING_POLICY } from "../studentFirstPolicy.js";
 
 export const qualityReviewSchema = {
   type: "object",
@@ -161,6 +162,8 @@ export function buildQualityReviewPrompt(
     "Set ok=false only for a localized violated explicit must requirement, explicit prohibition, factual contradiction, invalid citation, broken mathematics/units, or an included example whose shown givens and steps cannot produce its result. Missing evidence-derived should recommendations are advisory.",
     "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
     "Derived examples with declared values are valid when the cited rule is source-backed. A lookup-dependent example is invalid if it merely copies table/diagram values without showing the visible asset and selection method.",
+    ASSESSMENT_SCORING_POLICY,
+    "Unsupported claims of official grading are factual contradictions. Check any included grading claim against exact cited scoring evidence; do not confuse a task's source basis with an official allocation. Do not speculate about scoring absent from this extraction handoff or demand a grading scheme for ordinary practice.",
     "Narrow documented source gaps and publicationStatus='partial' are acceptable. Do not demand optional breadth, a detached practice bank, invented material, one example per formula, or one worked example per official Moodle topic.",
     "The workedExampleCoverageLedger lists every included example and every step outline. Chapter workedExamples are truncated samples for mathematical review; never infer a missing task or step solely because it is absent from those samples. Use the ledger to check coverage, and flag only a concrete gap visible there or in the full deterministic findings.",
     previousReviewError
