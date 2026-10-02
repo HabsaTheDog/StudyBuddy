@@ -583,8 +583,10 @@ function buildModelReviewPrompt(pages: number[]): string {
     `Visible page labels in this batch: ${pages.join(", ")}.`,
     "This is a subject-agnostic render gate. Do not evaluate factual content, course coverage, examples, question counts, pedagogy, writing style, or whether optional sections exist.",
     "Report only concrete visible production defects: clipped/cut-off content, overlapping text or blocks, broken glyphs/formulas, visibly printed source markup such as $bold(...)$ or #sb-..., unreadably small body text, distorted/cropped images, blank or corrupt pages, or gross layout breakage.",
-    "Use the visible page label for every finding. A deliberate full-bleed background, page break, or ordinary whitespace is not a defect.",
-    "Set severity=error only when the delivered page is materially unreadable or broken; use warning for a localized concern that remains usable.",
+    "Check for an unintentional heading/divider-only intermediate page: disregard recurring headers and footers, then compare the related body content on the next page only where consecutive physical page labels are supplied. A small stranded heading or divider followed by its content on the next page is a blocking pagination defect even when its text remains readable. Keep the heading/divider with its following content through formatter repair; do not change the learning content.",
+    "An intentional cover or clearly designed standalone section opener is allowed. Do not infer deliberate intent merely from a lone small divider or the existence of a page break. Ordinary whitespace and short content are not sufficient evidence of a defect; if the adjacent page or intent is genuinely unclear, use warning rather than inventing a blocking finding.",
+    "Use the visible physical page label for every finding, not a printed footer page number. A deliberate full-bleed background or an intentional page break is not a defect.",
+    "Set severity=error for a concrete accidental heading/divider-only intermediate page or when the delivered page is materially unreadable or broken; use warning for a localized concern that remains usable.",
     "Every repairTarget must be formatter. Return JSON only.",
   ].join("\n");
 }

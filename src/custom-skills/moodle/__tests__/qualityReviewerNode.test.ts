@@ -48,6 +48,17 @@ const chapters = [
 ];
 
 describe("qualityReviewerNode", () => {
+  it.each([false, true])("independently audits semantic names and direction under unchanged givens in initial/repair review (%s)", repair => {
+    const prompt = buildQualityReviewPrompt(moodleTestConfig(), moodleTestState(), repair ? "A term's interpretation contradicts its sign." : null);
+    expect(prompt).toContain("Audit the meaning of included names and explanations separately from algebraic correctness");
+    expect(prompt).toContain("test a simple allowed sign/direction configuration");
+    expect(prompt).toContain("compare the computed behaviour with the term's defining meaning");
+    expect(prompt).toContain("Where a quantitative/physical term implies sign or direction and the given assumptions permit a case");
+    expect(prompt).toContain("Do not invent numeric or frame requirements for nonquantitative content");
+    expect(prompt).toContain("not presentation, and is blocking even when its associated requirement is should");
+    expect(prompt).toContain("Do not treat a citation or an algebraically valid expression as proof of its interpretation");
+  });
+
   it("requires explicit defect classification and applies the shared mathematical review policy", () => {
     expect(qualityReviewSchema.properties.findings.items.required).toContain("defectKind");
     expect(buildQualityReviewPrompt(moodleTestConfig(), moodleTestState())).toContain(MATHEMATICAL_INTEGRITY_POLICY);
