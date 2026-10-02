@@ -33,6 +33,23 @@ async function fixture() {
 }
 
 describe("content review source compositions", () => {
+  it("attaches only the original cited by a quiz-only review packet", async () => {
+    const { runDir, state } = await fixture();
+    try {
+      const data = ExtractedDataSchema.parse(state.extracted_data);
+      data.formulas = []; data.figures = [];
+      data.quiz_style_questions = [{ question: "Which basis is shown?", answer: "Use the stated original diagram.", source_ids: ["source-1"] }];
+      state.extracted_data = data;
+      let calls = 0;
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), { async run(prompt, options) {
+        calls++;
+        expect(options?.localImages).toEqual([path.join(runDir, "assets/visuals/b1.png")]);
+        expect(prompt).toContain("Which basis is shown?");
+        return JSON.stringify({ ok: true, summary: "Quiz original inspected", findings: [] });
+      } })(state);
+      expect(result.error_log).toBeNull(); expect(calls).toBe(1);
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
   it("honors native source vetoes for URL-only candidates", async () => {
     const { runDir, state } = await fixture();
     try {

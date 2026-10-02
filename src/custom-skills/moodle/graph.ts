@@ -1834,20 +1834,7 @@ async function withRuntimeGuard<T>(
     }, 15_000);
     guard = setInterval(() => {
       const now = Date.now();
-      if (config.executionTelemetry?.runtimeBudgetPaused) return;
-      const elapsedMs = Math.max(
-        0,
-        now - startedAt - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0),
-      );
-      const idleMs = config.diagnostics
-        ? now - config.diagnostics.lastActivityAt
-        : elapsedMs;
-      const reason =
-        elapsedMs >= config.maxRuntimeMs
-          ? `Study Buddy run timed out after ${config.maxRuntimeMs}ms.`
-          : idleMs >= config.idleTimeoutMs
-            ? `Study Buddy run timed out after ${config.idleTimeoutMs}ms without pipeline progress.`
-            : null;
+      const reason = runtimeGuardTimeoutReason(config, startedAt, now);
       if (!reason || abortController.signal.aborted) {
         return;
       }
@@ -1863,4 +1850,16 @@ async function withRuntimeGuard<T>(
       clearInterval(guard);
     }
   }
+}
+
+/** Absolute workflow limits include queue time; per-run budgets count active work. */
+export function runtimeGuardTimeoutReason(config: MoodleRuntimeConfig, startedAt: number, now: number): string | null {
+  const deadline = Math.min(config.workflowDeadlineMs ?? Number.POSITIVE_INFINITY,
+    config.workflowDeadlineLimitMs ?? Number.POSITIVE_INFINITY);
+  if (now >= deadline) return "Study Buddy workflow reached its absolute runtime deadline.";
+  if (config.executionTelemetry?.runtimeBudgetPaused) return null;
+  const elapsedMs = Math.max(0, now - startedAt - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0));
+  const idleMs = config.diagnostics ? now - config.diagnostics.lastActivityAt : elapsedMs;
+  return elapsedMs >= config.maxRuntimeMs ? `Study Buddy run timed out after ${config.maxRuntimeMs}ms.`
+    : idleMs >= config.idleTimeoutMs ? `Study Buddy run timed out after ${config.idleTimeoutMs}ms without pipeline progress.` : null;
 }

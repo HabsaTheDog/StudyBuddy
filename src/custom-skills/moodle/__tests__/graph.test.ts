@@ -16,6 +16,7 @@ import {
   routeAfterExtractionQualityReview,
   routeAfterPdfPostRenderReview,
   runMoodleGraph,
+  runtimeGuardTimeoutReason,
 } from "../graph.js";
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
@@ -1329,4 +1330,15 @@ describe("moodle graph retry routing", () => {
     expect(scraperCalls).toBe(0);
     expect(result.sourceCoverage.moodle.status).toBe("not_requested");
   });
+});
+
+it("enforces workflow deadline even during paused model admission", () => {
+  const config = moodleTestConfig({ maxRuntimeMs: 60000, workflowDeadlineMs: 2000 });
+  config.executionTelemetry = { runtimeBudgetPaused: true } as NonNullable<typeof config.executionTelemetry>;
+  expect(runtimeGuardTimeoutReason(config, 1000, 1999)).toBeNull();
+  expect(runtimeGuardTimeoutReason(config, 1000, 2000)).toContain("absolute runtime deadline");
+});
+it("uses earlier explicit workflow owner deadline for render too", () => {
+  const config = moodleTestConfig({ stage: "render", maxRuntimeMs: 60000, workflowDeadlineMs: 3000, workflowDeadlineLimitMs: 2000 });
+  expect(runtimeGuardTimeoutReason(config, 1000, 2000)).toContain("absolute runtime deadline");
 });

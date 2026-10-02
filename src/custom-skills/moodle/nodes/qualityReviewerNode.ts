@@ -15,6 +15,7 @@ import {
   readPendingExtractionRepairs,
 } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
+import { prepareAdaptiveQualityReviewBudget, updateAdaptiveQualityReviewProgress } from "../adaptiveRuntimeBudget.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray } from "../validation.js";
@@ -107,6 +108,7 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
       }, null, 2) + "\n");
       const previousReview = await readPendingExtractionRepairs(config.runDir);
       const packets = await buildQualityReviewPackets(config, state, previousReview?.reviewError ?? null);
+      await prepareAdaptiveQualityReviewBudget(config, packets.length, state.retry_count + 1);
       const reviews = [];
       for (const [index, packet] of packets.entries()) {
         await config.diagnostics?.log("info", "analyzer", `Reviewing complete content packet ${index + 1}/${packets.length}.`);
@@ -117,6 +119,7 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
         const review = validateQualityReview(parseJsonObjectOrArray(response));
         if (!review.ok && !review.findings.length) throw new Error("Content-review packet rejected without localized findings; complete review did not pass.");
         reviews.push(review);
+        await updateAdaptiveQualityReviewProgress(config, reviews.length, packets.length, state.retry_count + 1);
         const progress = localizeQualityFindings(reviews.flatMap(review => review.findings), state);
         await writeFile(path.join(config.runDir, "quality-review.json"), JSON.stringify({
           ok: false, complete_review: false, completed_packets: reviews.length, packet_count: packets.length,
@@ -254,7 +257,7 @@ export function buildQualityReviewPrompt(
   sourceVisuals: QualitySourceVisual[] = [],
 ): string {
   const claims = completeReviewClaims(state);
-  const prompt = composeQualityReviewPrompt(config, state, previousReviewError, sourceVisuals, claims, { index: 1, total: 1 });
+  const prompt = composeQualityReviewPrompt(config, state, previousReviewError, sourceVisuals, claims, { index: 1, total: 1 }, claims);
   const budget = resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
   if (prompt.length > budget) throw new QualityReviewCapacityError(`Complete content review needs ${prompt.length} prompt characters; use bounded complete packets. Budget ${budget}.`);
   return prompt;
@@ -263,8 +266,9 @@ export function buildQualityReviewPrompt(
 function composeQualityReviewPrompt(
   config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null,
   sourceVisuals: QualitySourceVisual[], claims: QualityReviewClaims, packet: { index: number; total: number },
+  complete?: QualityReviewClaims,
 ): string {
-    const artifact = `Structured study model review view:\n${JSON.stringify(faithfulStudyModelForReview(state, claims))}`;
+    const artifact = `Structured study model review view:\n${JSON.stringify(faithfulStudyModelForReview(state, claims, complete))}`;
     return [
     "Review this Study Buddy artifact against the exact original request and evaluated request contract, then for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Return JSON only and do not rewrite, invoke tools, open files, or infer facts from omitted source material.",
@@ -280,7 +284,7 @@ function composeQualityReviewPrompt(
     "Unsupported claims of official grading are factual contradictions. Check any included grading claim against exact cited scoring evidence; do not confuse a task's source basis with an official allocation. Do not speculate about scoring absent from this extraction handoff or demand a grading scheme for ordinary practice.",
     "For any countercalculation, verify the exact ordered operands, basis/index labels and source relation against the supplied original. Never transfer an identity for a different operand pair. Derive the counterexample from unchanged givens and the declared basis; distinguish an original-source error from a transcription error.",
     "Documented gaps and partial status are acceptable. No optional breadth, detached practice bank, invented content, one example per formula or one worked example per official Moodle topic.",
-    `Complete content-review packet ${packet.index}/${packet.total}. All included claim atoms here are complete. Other packets review the remaining claims; this is not the whole artifact. Never infer absent topics, formulas, examples or steps from this packet. Whole-document example coverage is recorded in workedExampleCoverageLedger; that ledger is bookkeeping, not mathematical evidence. Review the complete givens, conditions, steps and results actually included in this packet. Empty packet-local arrays do not mean whole-document absence: documentCoverage contains the complete global counts and topic/formula IDs. Do not allege missing document-wide summaries or relations from local arrays.`,
+    `Complete content-review packet ${packet.index}/${packet.total}. All included claim atoms here are complete. Other packets review the remaining claims; this is not the whole artifact. Never infer absent topics, formulas, examples or steps from this packet. Whole-document example coverage is recorded in workedExampleCoverageLedger; that ledger is bookkeeping, not mathematical evidence. Review the complete givens, conditions, steps and results actually included in this packet. Empty packet-local arrays do not mean whole-document absence: documentCoverage contains the complete global counts and topic/formula IDs. Do not allege missing document-wide summaries or relations from local arrays. Warnings are complete atoms with explicit chapterId/null ownership; quizStyleQuestions are document-owned/null. Global counts include warnings and questions reviewed in other packets, not missing content.`,
     previousReviewError
       ? "This is a repair verification: check prior blockers. No stricter example counts or unrelated breadth; new blockers require a visible concrete contradiction, invalid math/citation or unusable method."
       : "",
@@ -384,7 +388,11 @@ function normalizeReviewText(value: string): string {
 }
 
 type ReviewModel = LangGraphAgentState["study_model"];
-export type QualityReviewClaims = Omit<Pick<ReviewModel, "topics" | "formulas" | "workedExamples" | "figures" | "checklist">, "topics"> & { topics: (ReviewModel["topics"][number] & { originalKeyConcepts?: string[] })[] };
+export type QualityReviewClaims = Omit<Pick<ReviewModel, "topics" | "formulas" | "workedExamples" | "figures" | "checklist">, "topics"> & {
+  topics: (ReviewModel["topics"][number] & { originalKeyConcepts?: string[] })[];
+  warnings: { id: string; chapterId: string | null; message: string; sourceIds: string[] }[];
+  quizStyleQuestions: { question: string; answer: string; source_ids: string[] }[];
+};
 export interface QualityReviewPacket {
   prompt: string;
   sourceVisuals: QualitySourceVisual[];
@@ -393,8 +401,8 @@ export interface QualityReviewPacket {
 export class QualityReviewCapacityError extends Error {
   constructor(message: string) { super(message); this.name = "QualityReviewCapacityError"; }
 }
-const MAX_QUALITY_REVIEW_PACKETS = 6;
-const emptyReviewClaims = (): QualityReviewClaims => ({ topics: [], formulas: [], workedExamples: [], figures: [], checklist: [] });
+const MAX_QUALITY_REVIEW_PACKETS = 18;
+const emptyReviewClaims = (): QualityReviewClaims => ({ topics: [], formulas: [], workedExamples: [], figures: [], checklist: [], warnings: [], quizStyleQuestions: [] });
 
 function completeReviewClaims(state: LangGraphAgentState): QualityReviewClaims {
   const model = state.study_model;
@@ -408,7 +416,44 @@ function completeReviewClaims(state: LangGraphAgentState): QualityReviewClaims {
       summary: section.summary, learningGoals: [], originalKeyConcepts: section.key_concepts,
       priority: "supplementary", scopeStatus: "inferred", sourceIds: section.source_ids });
   }
-  return { topics, formulas: model.formulas, workedExamples: model.workedExamples, figures: model.figures, checklist: model.checklist };
+  const formulas = [...model.formulas];
+  if (data.success) for (const [index, formula] of data.data.formulas.entries()) {
+    if (formulas.some(item => item.name === formula.name && item.expression === formula.typst && item.assumptions === formula.context &&
+      JSON.stringify([item.variables, item.units, item.sourceIds]) === JSON.stringify([formula.variables, formula.units, formula.source_ids]))) continue;
+    formulas.push({ id: `original-handoff-formula-${index}`, chapterId: null, name: formula.name, expression: formula.typst,
+      variables: formula.variables, units: formula.units, assumptions: formula.context, sourceIds: formula.source_ids });
+  }
+  const warningMessages = [...new Set([...model.warnings, ...(data.success ? data.data.warnings : [])])];
+  const warnings = warningMessages.map((message, index) => {
+    // Only an explicit server-produced chapter marker establishes ownership.
+    const chapterId = model.courseChapters.find(chapter => ["Kapitel", "Chapter"].some(marker => message.startsWith(`${marker} «${chapter.title}»:`)))?.id ?? null;
+    const exactReference = (reference: string) => {
+      let start = message.indexOf(reference);
+      while (start >= 0) {
+        if (!/[\w/?=&%+-]/.test(message[start - 1] ?? "") && !/[\w/?=&%+-]/.test(message[start + reference.length] ?? "")) return true;
+        start = message.indexOf(reference, start + 1);
+      }
+      return false;
+    };
+    const directIds = model.sources.filter(source => exactReference(source.id));
+    const directUrls = model.sources.filter(source => source.originUrl && exactReference(source.originUrl));
+    const urls = new Set([...directIds, ...directUrls].flatMap(source => source.originUrl ? [canonicalizeResourceUrl(source.originUrl)] : []));
+    const chapterSources = new Set([...model.topics, ...model.formulas, ...model.workedExamples, ...model.figures]
+      .filter(claim => claim.chapterId === chapterId).flatMap(claim => claim.sourceIds));
+    const seenUrls = new Set<string>();
+    const aliases = data.success ? data.data.sources.filter(source => {
+      if (!source.url || !urls.has(canonicalizeResourceUrl(source.url))) return false;
+      if (chapterId !== null) return chapterSources.has(source.id);
+      const url = canonicalizeResourceUrl(source.url);
+      if (seenUrls.has(url)) return false;
+      seenUrls.add(url); return true;
+    }) : [];
+    const nativeIds = new Set(state.resource_manifest.resources.map(resource => resource.id));
+    const direct = [...directIds, ...directUrls.filter(source => nativeIds.has(source.id))];
+    return { id: `warning-${index}`, message, chapterId, sourceIds: [...new Set([...aliases.map(source => source.id), ...direct.map(source => source.id)])] };
+  });
+  return { topics, formulas, workedExamples: model.workedExamples, figures: model.figures,
+    checklist: model.checklist, warnings, quizStyleQuestions: data.success ? data.data.quiz_style_questions : [] };
 }
 
 /** Coverage bookkeeping is not a substitute for reviewing complete claims. */
@@ -419,32 +464,35 @@ function workedExampleCoverageLedger(model: ReviewModel) {
   }));
 }
 
-function faithfulStudyModelForReview(state: LangGraphAgentState, claims: QualityReviewClaims) {
+function faithfulStudyModelForReview(state: LangGraphAgentState, claims: QualityReviewClaims, complete = completeReviewClaims(state)) {
   const model = state.study_model;
   const knownChapterIds = new Set(model.courseChapters.map(chapter => chapter.id));
   const original = ExtractedDataSchema.safeParse(state.extracted_data);
   const referenced = new Set([
-    ...model.topics.flatMap(item => item.sourceIds), ...model.formulas.flatMap(item => item.sourceIds),
-    ...model.workedExamples.flatMap(item => item.sourceIds), ...model.figures.flatMap(item => item.sourceIds),
     ...claims.topics.flatMap(item => item.sourceIds), ...claims.formulas.flatMap(item => item.sourceIds),
     ...claims.workedExamples.flatMap(item => item.sourceIds), ...claims.figures.flatMap(item => item.sourceIds),
-    ...(original.success ? original.data.quiz_style_questions.flatMap(question => question.source_ids) : []),
+    ...claims.warnings.flatMap(item => item.sourceIds),
+    ...claims.quizStyleQuestions.flatMap(question => question.source_ids),
+    ...(original.success ? original.data.document_context.map(context => context.source_id) : []),
   ]);
   const sourceIndex = new Map(model.sources.map(source => [source.id, {
     id: source.id, title: source.title, kind: source.kind, originUrl: source.originUrl,
+    page: original.success ? original.data.sources.find(item => item.id === source.id)?.page ?? null : null,
   }]));
   if (original.success) for (const source of original.data.sources) {
     if (!sourceIndex.has(source.id)) sourceIndex.set(source.id, {
-      id: source.id, title: source.title, kind: source.kind, originUrl: source.url,
+      id: source.id, title: source.title, kind: source.kind, originUrl: source.url, page: source.page,
     });
   }
   return {
     profile: model.profile, title: model.title, courseTitle: model.courseTitle,
     publicationStatus: model.publicationStatus, scopeNote: model.scopeNote,
     documentCoverage: {
-      topicCount: completeReviewClaims(state).topics.length, topicIds: completeReviewClaims(state).topics.map(item => item.id),
-      formulaCount: model.formulas.length, formulaIds: model.formulas.map(item => item.id),
+      topicCount: complete.topics.length, topicIds: complete.topics.map(item => item.id),
+      formulaCount: complete.formulas.length, formulaIds: complete.formulas.map(item => item.id),
       exampleCount: model.workedExamples.length, figureCount: model.figures.length, checklistCount: model.checklist.length,
+      warningCount: complete.warnings.length, warningIds: complete.warnings.map(warning => warning.id),
+      quizQuestionCount: complete.quizStyleQuestions.length,
     },
     workedExampleCoverageLedger: workedExampleCoverageLedger(model),
     chapters: model.courseChapters.map(chapter => ({
@@ -474,8 +522,8 @@ function faithfulStudyModelForReview(state: LangGraphAgentState, claims: Quality
       figures: claims.figures.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
     },
     checklist: claims.checklist,
-    warnings: [...new Set([...model.warnings, ...(original.success ? original.data.warnings : [])])],
-    quizStyleQuestions: original.success ? original.data.quiz_style_questions : [],
+    warnings: claims.warnings,
+    quizStyleQuestions: claims.quizStyleQuestions,
     sources: [...sourceIndex.values()].filter(source => referenced.has(source.id)),
   };
 }
@@ -485,12 +533,18 @@ export async function buildQualityReviewPackets(
   config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null = null,
 ): Promise<QualityReviewPacket[]> {
   const model = completeReviewClaims(state);
-  const kinds = ["topics", "formulas", "workedExamples", "figures", "checklist"] as const;
+  const extracted = ExtractedDataSchema.safeParse(state.extracted_data);
+  const kinds = ["topics", "formulas", "workedExamples", "figures", "checklist", "warnings", "quizStyleQuestions"] as const;
   type Atom = { kind: typeof kinds[number]; value: QualityReviewClaims[typeof kinds[number]][number]; sourceIds: string[] };
   const groups = new Map<string, Atom[]>();
   for (const kind of kinds) for (const value of model[kind]) {
-    const sourceIds = typeof value === "string" ? [] : value.sourceIds;
-    const key = sourceIds[0] ?? "document";
+    const sourceIds = typeof value === "string" ? [] : "sourceIds" in value ? value.sourceIds : value.source_ids;
+    const primaryId = sourceIds[0];
+    const originalUrl = state.study_model.sources.find(source => source.id === primaryId)?.originUrl ??
+      (extracted.success ? extracted.data.sources.find(source => source.id === primaryId)?.url : null);
+    // Cohorts share only a known exact original. Alias IDs and owners remain
+    // on every individual atom and in the packet's source index.
+    const key = JSON.stringify(originalUrl ? ["url", canonicalizeResourceUrl(originalUrl)] : ["id", primaryId ?? null]);
     const list = groups.get(key) ?? [];
     list.push({ kind, value, sourceIds }); groups.set(key, list);
   }
@@ -499,26 +553,29 @@ export async function buildQualityReviewPackets(
   });
   const primarySourceIds = (claims: QualityReviewClaims) => [...new Set([
     ...claims.topics, ...claims.formulas, ...claims.workedExamples, ...claims.figures,
-  ].flatMap(item => item.sourceIds.slice(0, 1)))];
+    ...claims.warnings,
+  ].flatMap(item => item.sourceIds.slice(0, 1)).concat(claims.quizStyleQuestions.flatMap(item => item.source_ids.slice(0, 1))))];
   const plan = await readVisualRetrievalPlan(config.runDir);
-  const extracted = ExtractedDataSchema.safeParse(state.extracted_data);
-  const imageDemands = new Map<string, number>();
+  const imageDemands = new Map<string, string[]>();
   for (const id of [...new Set([...groups.values()].flatMap(group => group.flatMap(atom => atom.sourceIds)))]) {
     const visuals = await selectQualitySourceVisuals(config.runDir, state, { sourceIds: [id], plannedPages: true });
     const source = extracted.success ? extracted.data.sources.find(source => source.id === id) : undefined;
     const native = state.resource_manifest.resources.find(resource => source?.url && canonicalizeResourceUrl(resource.originUrl) === canonicalizeResourceUrl(source.url));
     const requested = plan?.requests.find(request => request.resourceId === native?.id)?.pages ?? [];
     const suppliedRequested = visuals.filter(visual => visual.sourcePage != null && requested.includes(visual.sourcePage));
-    imageDemands.set(id, visuals.length ? Math.max(1, suppliedRequested.length) : 0);
+    const demanded = suppliedRequested.length ? suppliedRequested : visuals.slice(0, 1);
+    imageDemands.set(id, demanded.map(visual => `${visual.sourceUrl ? canonicalizeResourceUrl(visual.sourceUrl) : id}|${visual.sourcePage}|${visual.imagePath}`));
   }
-  const demand = (claims: QualityReviewClaims) => primarySourceIds(claims).reduce((sum, id) => sum + (imageDemands.get(id) ?? 0), 0);
+  // Different chapter aliases can refer to the exact same original composition.
+  // Count the actual URL/page/file binding once; never merge distinct originals.
+  const demand = (claims: QualityReviewClaims) => new Set(primarySourceIds(claims).flatMap(id => imageDemands.get(id) ?? [])).size;
   const packets: QualityReviewPacket[] = [];
   let current = emptyReviewClaims();
   let count = 0;
   const prepare = async (claims: QualityReviewClaims) => {
     const ids = primarySourceIds(claims);
-    const visuals = await selectQualitySourceVisuals(config.runDir, state, ids.length ? { sourceIds: ids, plannedPages: true } : undefined);
-    return { claims, sourceVisuals: visuals, prompt: composeQualityReviewPrompt(config, state, previousReviewError, visuals, claims, { index: 6, total: 6 }) };
+    const visuals = await selectQualitySourceVisuals(config.runDir, state, { sourceIds: ids, plannedPages: true });
+    return { claims, sourceVisuals: visuals, prompt: composeQualityReviewPrompt(config, state, previousReviewError, visuals, claims, { index: MAX_QUALITY_REVIEW_PACKETS, total: MAX_QUALITY_REVIEW_PACKETS }, model) };
   };
   const fits = (packet: QualityReviewPacket) => packet.prompt.length <= resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
   const finish = async () => {
@@ -533,18 +590,20 @@ export async function buildQualityReviewPackets(
   for (const group of groups.values()) for (const atom of group) {
     let candidate = add(current, atom);
     if (count && (demand(candidate) > 2 || !fits(await prepare(candidate)))) {
-      // A complete atom with no source binding needs no new original-image
-      // slots. Reuse an already prepared packet's free envelope before opening
-      // another one solely because the current greedy packet is full.
+      // Reuse free space only when the complete atom preserves the exact
+      // existing original URL/page/file attachments, including chapter aliases.
       let backfilled = false;
-      if (!atom.sourceIds.length) {
-        for (let index = 0; index < packets.length; index++) {
-          const earlier = await prepare(add(packets[index].claims, atom));
-          if (!fits(earlier)) continue;
-          packets[index] = earlier;
-          backfilled = true;
-          break;
-        }
+      for (let index = 0; index < packets.length; index++) {
+        const merged = add(packets[index].claims, atom);
+        if (demand(merged) > 2) continue;
+        const earlier = await prepare(merged);
+        if (!fits(earlier)) continue;
+        const bindings = (visuals: QualitySourceVisual[]) => visuals.map(visual =>
+          JSON.stringify([visual.sourceUrl ? canonicalizeResourceUrl(visual.sourceUrl) : visual.sourceId, visual.sourcePage, visual.imagePath])).sort();
+        if (JSON.stringify(bindings(earlier.sourceVisuals)) !== JSON.stringify(bindings(packets[index].sourceVisuals))) continue;
+        packets[index] = earlier;
+        backfilled = true;
+        break;
       }
       if (backfilled) continue;
       await finish(); candidate = add(current, atom);
@@ -554,7 +613,7 @@ export async function buildQualityReviewPackets(
     current = candidate; count++;
   }
   if (count || !packets.length) await finish();
-  return packets.map((packet, index) => ({ ...packet, prompt: composeQualityReviewPrompt(config, state, previousReviewError, packet.sourceVisuals, packet.claims, { index: index + 1, total: packets.length }) }));
+  return packets.map((packet, index) => ({ ...packet, prompt: composeQualityReviewPrompt(config, state, previousReviewError, packet.sourceVisuals, packet.claims, { index: index + 1, total: packets.length }, model) }));
 }
 
 function validateQualityReview(value: unknown): {

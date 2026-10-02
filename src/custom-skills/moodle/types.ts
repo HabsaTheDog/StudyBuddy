@@ -142,6 +142,10 @@ export interface MoodleRuntimeConfig {
   quizPolicy: QuizPolicy;
   quizSafetyPolicy: QuizSafetyPolicy;
   maxRuntimeMs: number;
+  maxRuntimeSource?: "default" | "explicit";
+  maxRuntimeLimitMs?: number;
+  workflowDeadlineMs?: number;
+  workflowDeadlineLimitMs?: number;
   idleTimeoutMs: number;
   stage: PipelineStage;
   sourceRunDir?: string;

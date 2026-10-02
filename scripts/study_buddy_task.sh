@@ -598,6 +598,18 @@ workflow_budget_ms_for_run() {
   ' "$run_dir/adaptive-budget.json"
 }
 
+workflow_deadline_ms_for_run() {
+  local run_dir="$1"
+  local started_ms="$2"
+  local budget_ms
+  budget_ms="$(workflow_budget_ms_for_run "$run_dir")"
+  node -e '
+    const calculated = Number(process.argv[1]) + Number(process.argv[2]);
+    const owner = Number(process.argv[3]);
+    process.stdout.write(String(Number.isFinite(owner) && owner > 0 ? Math.min(owner, calculated) : calculated));
+  ' "$started_ms" "$budget_ms" "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}"
+}
+
 run_staged_document() {
   local prompt_text="$1"
   shift
@@ -642,9 +654,8 @@ run_staged_document() {
   local current_extraction_dir="$extraction_dir"
   if ! run_agent_in_dir "$prompt_text" "$extraction_dir" --stage extract "${source_args[@]}" "${workflow_args[@]}"; then
     local extraction_recovered="false"
-    local workflow_budget_ms
-    workflow_budget_ms="$(workflow_budget_ms_for_run "$extraction_dir")"
-    local workflow_deadline_ms=$((workflow_started_ms + workflow_budget_ms))
+    local workflow_deadline_ms
+    workflow_deadline_ms="$(workflow_deadline_ms_for_run "$extraction_dir" "$workflow_started_ms")"
     export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$workflow_deadline_ms"
 
     local recovery_attempt
@@ -699,11 +710,7 @@ run_staged_document() {
   fi
 
   echo "Extraction handoff ready: $successful_extraction_dir/extracted-data.json"
-  if [[ -z "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
-    local workflow_budget_ms
-    workflow_budget_ms="$(workflow_budget_ms_for_run "$successful_extraction_dir")"
-    export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$((workflow_started_ms + workflow_budget_ms))"
-  fi
+  export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$(workflow_deadline_ms_for_run "$successful_extraction_dir" "$workflow_started_ms")"
   if [[ -n "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
     local render_remaining_ms=$((STUDY_BUDDY_WORKFLOW_DEADLINE_MS - $(date +%s%3N)))
     if (( render_remaining_ms <= 60000 )); then

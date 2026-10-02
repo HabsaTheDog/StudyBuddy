@@ -1,3 +1,4 @@
+import { ExecutionTelemetry } from "../executionTelemetry.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1520,16 +1521,19 @@ describe("analyzerNode", () => {
           throw new Error("Model must not start after checkpoint boundary.");
         },
       };
+      const executionTelemetry = new ExecutionTelemetry({
+        runDir, policyVersion: "test", profile: "auto", configuredDownloadConcurrency: 1,
+      });
+      const snapshot = executionTelemetry.getSnapshot();
+      executionTelemetry.getSnapshot = () => ({
+        ...snapshot, startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
+      });
       const config = moodleTestConfig({
         runDir,
         runtimeCacheDir: path.join(runDir, "runtime-cache"),
         maxRuntimeMs: 10 * 60_000,
         artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
-        executionTelemetry: {
-          getSnapshot: () => ({
-            startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
-          }),
-        } as never,
+        executionTelemetry,
       });
       const state = moodleTestState({
         resource_manifest: {
@@ -1547,6 +1551,7 @@ describe("analyzerNode", () => {
         StudyBuddyCheckpointError,
       );
       expect(calls).toBe(0);
+      expect(config.maxRuntimeMs).toBe(10 * 60_000);
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }

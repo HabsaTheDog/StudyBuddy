@@ -158,6 +158,16 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const codexReasoningEffort =
     input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT);
   const taskBudget = resolveTaskBudget(intentDecision);
+  const maxRuntimeMs = input.maxRuntimeMs ?? parseMaxRuntimeMs(
+    stage, intentDecision.wantsQuickAnswer, executionProfile, codexModel,
+    codexReasoningEffort, input.modelPolicyOverrides, intentDecision.obligationDiscovery?.exhaustive ?? false,
+  );
+  const runtimeOverride = runtimeOverrideValue(stage, intentDecision.wantsQuickAnswer);
+  const explicitRuntime = input.maxRuntimeMs !== undefined ||
+    (Number.isInteger(Number(runtimeOverride)) && Number(runtimeOverride) > 0);
+  const deadline = Number(process.env.STUDY_BUDDY_WORKFLOW_DEADLINE_MS);
+  const workflowDeadlineLimitMs = Number.isFinite(deadline) && deadline > 0 ? deadline : undefined;
+
 
   return {
     prompt: input.prompt,
@@ -203,15 +213,11 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,
     quizSafetyPolicy,
-    maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(
-      stage,
-      intentDecision.wantsQuickAnswer,
-      executionProfile,
-      codexModel,
-      codexReasoningEffort,
-      input.modelPolicyOverrides,
-      intentDecision.obligationDiscovery?.exhaustive ?? false,
-    ),
+    maxRuntimeMs,
+    maxRuntimeSource: explicitRuntime ? "explicit" : "default",
+    maxRuntimeLimitMs: explicitRuntime ? maxRuntimeMs : undefined,
+    workflowDeadlineMs: workflowDeadlineLimitMs,
+    workflowDeadlineLimitMs,
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
     sourceRunDir: input.sourceRunDir
@@ -291,6 +297,10 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     quizPolicy: config.quizPolicy,
     quizSafetyPolicy: config.quizSafetyPolicy,
     maxRuntimeMs: config.maxRuntimeMs,
+    maxRuntimeSource: config.maxRuntimeSource,
+    maxRuntimeLimitMs: config.maxRuntimeLimitMs,
+    workflowDeadlineMs: config.workflowDeadlineMs,
+    workflowDeadlineLimitMs: config.workflowDeadlineLimitMs,
     idleTimeoutMs: config.idleTimeoutMs,
     stage: config.stage,
     sourceRunDir: config.sourceRunDir,
@@ -423,6 +433,13 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function runtimeOverrideValue(stage: MoodleRuntimeConfig["stage"], wantsQuickAnswer: boolean): string | undefined {
+  return (stage === "extract"
+    ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
+    : stage === "render" ? process.env.MOODLE_RENDER_MAX_RUNTIME_MS
+    : !wantsQuickAnswer ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS : undefined) || process.env.MOODLE_MAX_RUNTIME_MS;
+}
+
 function parseMaxRuntimeMs(
   stage: MoodleRuntimeConfig["stage"],
   wantsQuickAnswer: boolean,
@@ -432,13 +449,7 @@ function parseMaxRuntimeMs(
   overrides: MoodleRuntimeConfig["modelPolicyOverrides"],
   exhaustiveInventory = false,
 ): number {
-  const stageOverride = stage === "extract"
-    ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
-    : stage === "render"
-      ? process.env.MOODLE_RENDER_MAX_RUNTIME_MS
-      : !wantsQuickAnswer
-        ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS
-        : undefined;
+  const stageOverride = runtimeOverrideValue(stage, wantsQuickAnswer);
   const fallback = stage === "extract"
     ? DEFAULT_EXTRACTION_MAX_RUNTIME_MS
     : stage === "render"
@@ -453,7 +464,7 @@ function parseMaxRuntimeMs(
         // The existing idle watchdog and explicit user limits still apply.
         ? exhaustiveInventory ? 90 * 60_000 : DEFAULT_QUICK_MAX_RUNTIME_MS
         : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
-  return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
+  return parsePositiveInteger(stageOverride, fallback);
 }
 
 function resolveDefaultRenderMaxRuntimeMs(

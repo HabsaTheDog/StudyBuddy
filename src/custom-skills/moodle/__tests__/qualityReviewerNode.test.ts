@@ -101,11 +101,12 @@ describe("qualityReviewerNode", () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "review-packets-capacity-"));
     try {
       const state = packetState();
+      if (mode === "packet_count") state.study_model.workedExamples = Array.from({ length: 19 }, (_, index) => ({ ...state.study_model.workedExamples[0], id: `capacity-${index}` }));
       for (const task of state.study_model.workedExamples) task.steps = ["Exact protected mathematical statement " + "x".repeat(mode === "atom" ? 60_000 : 22_000)];
       let calls = 0;
       const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), { async run() { calls++; return '{"ok":true,"summary":"pass","findings":[]}'; } })(state);
       expect(calls).toBe(0);
-      expect(result.error_log).toContain(mode === "atom" ? "atom" : "6 packets");
+      expect(result.error_log).toContain(mode === "atom" ? "atom" : "18 packets");
       expect(result.retry_count).toBe(3);
     } finally { await rm(runDir, { recursive: true, force: true }); }
   });
@@ -147,6 +148,30 @@ describe("qualityReviewerNode", () => {
     expect(prompt).toContain("f(t) = c");
     expect(prompt).toContain("Unabridged original concept 8");
     expect(prompt).toContain("Original local condition warning");
+  });
+
+  it("reviews complete warnings and quiz claims once with explicit ownership and packet-scoped source provenance", async () => {
+    const state = moodleTestState({ study_model: { ...emptyStudyModel(), courseChapters: [chapters[0]],
+      warnings: Array.from({ length: 57 }, (_, i) => `${i % 3 ? `${i % 3 === 1 ? "Kapitel" : "Chapter"} «${chapters[0].title}»: ` : ""}Original complete warning ${i}: ${"w".repeat(900)}`),
+      sources: [{ id: "question-source", title: "Actual question source", kind: "moodle_page", originUrl: "https://example.edu/question", localPath: null, previewPath: null },
+        { id: "unused-source", title: "Uncited source", kind: "moodle_page", originUrl: "https://example.edu/unused", localPath: null, previewPath: null }],
+    } });
+    state.extracted_data = { document_title: "Actual", language: "en", course: { title: "Course", url: "https://example.edu/course" },
+      sections: [], sources: [], formulas: [], worked_examples: [], figures: [], visual_assets: [], learning_modules: [], document_context: [], warnings: [],
+      quiz_style_questions: [{ question: "Exact complete question", answer: "Full original answer", source_ids: ["question-source"] }],
+    };
+    const packets = await buildQualityReviewPackets(moodleTestConfig(), state);
+    const views = packets.map(packet => JSON.parse(packet.prompt.split("Structured study model review view:\n")[1]));
+    const warnings = views.flatMap(view => view.warnings);
+    expect(warnings.map(warning => warning.message).sort()).toEqual([...state.study_model.warnings].sort());
+    for (const warning of warnings) expect(warning.chapterId).toBe(warning.message.startsWith("Original") ? null : chapters[0].id);
+    expect(views.flatMap(view => view.quizStyleQuestions)).toEqual(state.extracted_data.quiz_style_questions);
+    for (const view of views) {
+      expect(view.documentCoverage.warningCount).toBe(57);
+      expect(view.documentCoverage.quizQuestionCount).toBe(1);
+      expect(view.sources.some((source: { id: string }) => source.id === "unused-source")).toBe(false);
+      expect(view.sources.some((source: { id: string }) => source.id === "question-source")).toBe(view.quizStyleQuestions.length > 0);
+    }
   });
 
   it("retains source identity and URL for an original section omitted from normalized topics", () => {
