@@ -1,6 +1,7 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { readVisualManifest } from "../visualAssets.js";
 import { canonicalizeResourceUrl, isResourceFailureStatus } from "../resourceAcquisition.js";
+import { readVisualRetrievalPlan } from "../visualPlanner.js";
 import { ExtractedDataSchema } from "../schemas.js";
 import path from "node:path";
 import {
@@ -99,25 +100,38 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     try {
+      await mkdir(config.runDir, { recursive: true });
+      await writeFile(path.join(config.runDir, "quality-review.json"), JSON.stringify({
+        ok: false, complete_review: false, summary: "Complete content review has not finished.",
+        findings: [], blocking_findings: [], advisory_findings: [],
+      }, null, 2) + "\n");
       const previousReview = await readPendingExtractionRepairs(config.runDir);
-      const sourceVisuals = await selectQualitySourceVisuals(config.runDir, state);
-      const response = await codex.run(buildQualityReviewPrompt(
-        config,
-        state,
-        previousReview?.reviewError ?? null,
-        sourceVisuals,
-      ), {
-        outputSchema: qualityReviewSchema,
-        task: "quality_reviewer", operation: "content_review",
-        localImages: sourceVisuals.map(visual => visual.imagePath),
-        attempt: state.retry_count + 1,
-      });
-      const parsed = validateQualityReview(parseJsonObjectOrArray(response));
+      const packets = await buildQualityReviewPackets(config, state, previousReview?.reviewError ?? null);
+      const reviews = [];
+      for (const [index, packet] of packets.entries()) {
+        await config.diagnostics?.log("info", "analyzer", `Reviewing complete content packet ${index + 1}/${packets.length}.`);
+        const response = await codex.run(packet.prompt, {
+          outputSchema: qualityReviewSchema, task: "quality_reviewer", operation: "content_review",
+          localImages: packet.sourceVisuals.map(visual => visual.imagePath), attempt: state.retry_count + 1,
+        });
+        const review = validateQualityReview(parseJsonObjectOrArray(response));
+        if (!review.ok && !review.findings.length) throw new Error("Content-review packet rejected without localized findings; complete review did not pass.");
+        reviews.push(review);
+        const progress = localizeQualityFindings(reviews.flatMap(review => review.findings), state);
+        await writeFile(path.join(config.runDir, "quality-review.json"), JSON.stringify({
+          ok: false, complete_review: false, completed_packets: reviews.length, packet_count: packets.length,
+          summary: "Complete content review has not finished.", findings: reviews.flatMap(review => review.findings),
+          blocking_findings: progress.blocking, advisory_findings: progress.advisory,
+        }, null, 2) + "\n");
+      }
+      const parsed = { ok: reviews.every(review => review.ok), summary: reviews.map(review => review.summary).join("\n"), findings: reviews.flatMap(review => review.findings) };
       const localized = localizeQualityFindings(parsed.findings, state);
       await writeFile(
         path.join(config.runDir, "quality-review.json"),
         `${JSON.stringify({
           ...parsed,
+          complete_review: true,
+          packet_count: packets.length,
           blocking_findings: localized.blocking,
           advisory_findings: localized.advisory,
         }, null, 2)}\n`,
@@ -170,18 +184,23 @@ export interface QualitySourceVisual {
 }
 
 /** Use the existing review call and at most two already acquired compositions. */
-export async function selectQualitySourceVisuals(runDir: string, state: LangGraphAgentState): Promise<QualitySourceVisual[]> {
+export async function selectQualitySourceVisuals(runDir: string, state: LangGraphAgentState, selection?: { sourceIds: string[]; plannedPages: boolean }): Promise<QualitySourceVisual[]> {
   if (Array.isArray(state.extracted_data)) return [];
   const parsed = ExtractedDataSchema.safeParse(state.extracted_data);
   if (!parsed.success) return [];
   const data = parsed.data;
-  const citedIds = new Set([
+  const citedIds = new Set(selection?.sourceIds ?? [
     ...data.formulas.flatMap(formula => formula.source_ids),
     ...data.worked_examples.flatMap(example => example.source_ids),
     ...data.figures.flatMap(figure => figure.source_ids),
   ]);
   const sources = data.sources.filter(source => citedIds.has(source.id));
-  const selectedAssets = new Set(data.figures.map(figure => figure.asset_id));
+  const selectedAssets = new Set(data.figures.filter(figure => !selection || figure.source_ids.some(id => citedIds.has(id))).map(figure => figure.asset_id));
+  const plan = selection?.plannedPages ? await readVisualRetrievalPlan(runDir) : null;
+  const plannedSourcePages = new Set((plan?.requests ?? []).flatMap(request => {
+    const resource = state.resource_manifest.resources.find(resource => resource.id === request.resourceId);
+    return resource ? request.pages.map(page => `${canonicalizeResourceUrl(resource.originUrl)}|${page}`) : [];
+  }));
   const selectedSourcePages = new Set(data.visual_assets.filter(asset => selectedAssets.has(asset.id) && asset.source_page != null)
     .flatMap(asset => {
       const url = asset.source_url ?? data.sources.find(source => source.id === asset.source_id)?.url;
@@ -207,7 +226,7 @@ export async function selectQualitySourceVisuals(runDir: string, state: LangGrap
     if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return [];
     return [{ visual: { assetId: candidate.id, sourceId: source.id, sourceUrl: candidate.source_url,
       sourcePage: candidate.source_page, title: candidate.title, imagePath },
-      score: (selectedAssets.has(candidate.id) || (candidate.source_url && selectedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`)) ? 100 : 0) + (source.page === candidate.source_page && source.page != null ? 20 : 0) }];
+      score: (candidate.source_url && plannedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`) ? 200 : 0) + (selectedAssets.has(candidate.id) || (candidate.source_url && selectedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`)) ? 100 : 0) + (source.page === candidate.source_page && source.page != null ? 20 : 0) }];
   }).sort((left, right) => right.score - left.score);
   const usable = [];
   for (const entry of eligible) {
@@ -234,40 +253,36 @@ export function buildQualityReviewPrompt(
   previousReviewError: string | null = null,
   sourceVisuals: QualitySourceVisual[] = [],
 ): string {
-  const promptBudget = Math.max(
-    8_000,
-    resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) -
-      QUALITY_REVIEW_PROMPT_MARGIN,
-  );
-  const compose = (mode: "standard" | "bounded" | "minimal" | "coverage") => {
-    // This node validates the extraction handoff, not a renderer preview. A
-    // prefix slice of final_document can silently omit trailing chapters and
-    // make the reviewer report them as missing even though the complete study
-    // model passed deterministic validation.
-    const artifact = `Structured study model review view:\n${JSON.stringify(
-      mode === "coverage"
-        ? coverageStudyModelForReview(state)
-        : mode === "minimal"
-          ? minimalStudyModelForReview(state)
-          : compactStudyModelForReview(state, mode === "bounded"),
-    )}`;
+  const claims = completeReviewClaims(state);
+  const prompt = composeQualityReviewPrompt(config, state, previousReviewError, sourceVisuals, claims, { index: 1, total: 1 });
+  const budget = resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
+  if (prompt.length > budget) throw new QualityReviewCapacityError(`Complete content review needs ${prompt.length} prompt characters; use bounded complete packets. Budget ${budget}.`);
+  return prompt;
+}
+
+function composeQualityReviewPrompt(
+  config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null,
+  sourceVisuals: QualitySourceVisual[], claims: QualityReviewClaims, packet: { index: number; total: number },
+): string {
+    const artifact = `Structured study model review view:\n${JSON.stringify(faithfulStudyModelForReview(state, claims))}`;
     return [
     "Review this Study Buddy artifact against the exact original request and evaluated request contract, then for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Return JSON only and do not rewrite, invoke tools, open files, or infer facts from omitted source material.",
     SOURCE_FIDELITY_POLICY,
-    "A global claim that an assessment date, topic or format is undocumented contradicts an explicit request-level source record stating it; classify that concrete contradiction as factual_error. Missing exclusive/full syllabus evidence remains a precise coverage limitation, not a reason to deny a confirmed attribute.",
-    "This is an extraction-handoff review. Deterministic gates check schema, citations, formula metadata and file integrity; do not reject renderer-owned layout, navigation, schedules, or presentation.",
-    "Set ok=false only for a localized violated explicit must requirement, explicit prohibition, factual contradiction, invalid citation, broken mathematics/units, or an included example whose shown givens and steps cannot produce its result. Missing evidence-derived should recommendations are advisory.",
-    "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
+    "An explicit request-level source record contradicts a global denial of its date/topic/format: factual_error. Uncertain exclusive/full syllabus coverage cannot deny confirmed attributes.",
+    "Extraction-handoff review: deterministic gates check schema/citations/formula metadata/file integrity. Renderer-owned layout/navigation/schedules/presentation cannot block.",
+    "Set ok=false only for a localized must/prohibition violation or concrete factual/citation/math/unit defect, including examples whose givens/steps cannot yield the result. Missing should recommendations are advisory.",
+    "Only contract/evidence establish required examples/calculations/applications/figures/questions/counts/length, never subject labels or guide conventions.",
     "Derived examples with declared values are valid when the cited rule is source-backed. A lookup-dependent example is invalid if it merely copies table/diagram values without showing the visible asset and selection method.",
     ASSESSMENT_SCORING_POLICY,
     MATHEMATICAL_INTEGRITY_POLICY,
     "Audit the meaning of included names and explanations separately from algebraic correctness. Where a quantitative/physical term implies sign or direction and the given assumptions permit a case, test a simple allowed sign/direction configuration in the stated frame and compare the computed behaviour with the term's defining meaning. Do not invent numeric or frame requirements for nonquantitative content. Do not treat a citation or an algebraically valid expression as proof of its interpretation. A contradictory label/direction/frame is a concrete factual_error or mathematical_error, not presentation, and is blocking even when its associated requirement is should. If a source uses a different convention, require that convention to be stated and reconciled.",
     "Unsupported claims of official grading are factual contradictions. Check any included grading claim against exact cited scoring evidence; do not confuse a task's source basis with an official allocation. Do not speculate about scoring absent from this extraction handoff or demand a grading scheme for ordinary practice.",
-    "Narrow documented source gaps and publicationStatus='partial' are acceptable. Do not demand optional breadth, a detached practice bank, invented material, one example per formula, or one worked example per official Moodle topic.",
-    "The workedExampleCoverageLedger lists every included example and every step outline. Chapter workedExamples are truncated samples for mathematical review; never infer a missing task or step solely because it is absent from those samples. Use the ledger to check coverage, and flag only a concrete gap visible there or in the full deterministic findings.",
+    "For any countercalculation, verify the exact ordered operands, basis/index labels and source relation against the supplied original. Never transfer an identity for a different operand pair. Derive the counterexample from unchanged givens and the declared basis; distinguish an original-source error from a transcription error.",
+    "Documented gaps and partial status are acceptable. No optional breadth, detached practice bank, invented content, one example per formula or one worked example per official Moodle topic.",
+    `Complete content-review packet ${packet.index}/${packet.total}. All included claim atoms here are complete. Other packets review the remaining claims; this is not the whole artifact. Never infer absent topics, formulas, examples or steps from this packet. Whole-document example coverage is recorded in workedExampleCoverageLedger; that ledger is bookkeeping, not mathematical evidence. Review the complete givens, conditions, steps and results actually included in this packet. Empty packet-local arrays do not mean whole-document absence: documentCoverage contains the complete global counts and topic/formula IDs. Do not allege missing document-wide summaries or relations from local arrays.`,
     previousReviewError
-      ? "This is a repair verification. Check whether the previously reported blocking defects are resolved. Do not introduce stricter example-count rules or unrelated new breadth requirements; add a new blocker only for a concrete contradiction, invalid mathematics/citation, or unusable method visible in the repaired handoff."
+      ? "This is a repair verification: check prior blockers. No stricter example counts or unrelated breadth; new blockers require a visible concrete contradiction, invalid math/citation or unusable method."
       : "",
     previousReviewError
       ? `Previous blocking review:\n${previousReviewError}`
@@ -275,24 +290,18 @@ export function buildQualityReviewPrompt(
     "Formula strings use Typst, not TeX. Source-index mappings are valid citations.",
     "Compare reproduced symbols, basis/index labels and geometry against the attached original source compositions. Preserve distinct source symbols and stated assumptions; flag a concrete transcription or geometry contradiction as mathematical_error. Unattached source images are not inspected: never infer correctness or missing evidence from this bounded image selection.",
     `Attached original source images (in attachment order): ${JSON.stringify(sourceVisuals.map(({ imagePath: _path, ...metadata }) => metadata))}`,
-    "Return structured findings. Use exact IDs from the contract when a finding evaluates a requirement or deliverable; otherwise use null. chapterTitle must be an exact allowed title or null. severity=blocking is reserved for an explicit must/prohibition or a concrete factual, citation, or mathematical defect. Evidence-derived should recommendations and renderer-owned presentation observations are advisory.",
-    "Classify every finding with defectKind. requirement_gap means a missing or unmet requirement, not incorrect included content; a missing should recommendation remains advisory. factual_error, mathematical_error, citation_error and prohibition_violation identify concrete defects in included content or actions and remain blocking even when associated with a should requirement. Describe the exact visible contradiction, invalid calculation/citation or violated prohibition; do not use these kinds for optional breadth, missing examples or speculative improvements. presentation identifies renderer-owned observations and remains advisory.",
-    "chapterTitle identifies the chapter that owns the defective content. Use null for global metadata or cross-chapter contradictions, even when the message names a topic taught by one chapter. Chapter-specific source notes describe only that chapter's evaluated packet; they do not establish document-wide exclusions.",
-    "Choose the narrowest repairTarget: source_architect only for missing/unavailable evidence, content_analyzer for source-backed semantic content, visual_pipeline for visual evidence selection, formatter for renderer-owned presentation, and none when no automated repair is appropriate.",
+    "Return structured findings with exact contract requirement/deliverable IDs, or null when inapplicable; chapterTitle is an exact allowed title or null. Blocking requires a must/prohibition violation or concrete factual/citation/math defect; should gaps and renderer presentation are advisory.",
+    "Classify defectKind: requirement_gap covers unmet requirements (should gaps advisory), never incorrect included content. factual_error/mathematical_error/citation_error/prohibition_violation remain blocking even for should; describe the exact contradiction, invalid calculation/citation or prohibition, never optional breadth/missing examples/speculation. presentation is renderer-owned/advisory.",
+    "chapterTitle owns the defect; null for global/cross-chapter findings, even if a chapter topic is mentioned. Local source notes cannot establish document-wide exclusions.",
+    "Narrowest repairTarget: source_architect=missing/unavailable evidence; content_analyzer=source-backed semantics; visual_pipeline=visual selection; formatter=presentation; none=no suitable automated repair.",
     `Exact original user request:\n${config.originalUserPrompt}`,
-    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract)}`,
     `Direct request-level document source evidence:\n${JSON.stringify(!Array.isArray(state.extracted_data) && "document_context" in state.extracted_data ? state.extracted_data.document_context : [])}`,
     `Allowed exact chapter titles:\n${JSON.stringify(state.study_model.courseChapters.map((chapter) => chapter.title))}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,
     ].join("\n\n");
-  };
-  const standardPrompt = compose("standard");
-  if (standardPrompt.length <= promptBudget) return standardPrompt;
-  const boundedPrompt = compose("bounded");
-  if (boundedPrompt.length <= promptBudget) return boundedPrompt;
-  const minimalPrompt = compose("minimal");
-  return minimalPrompt.length <= promptBudget ? minimalPrompt : compose("coverage");
+
 }
 
 function localizeQualityFindings(
@@ -374,337 +383,164 @@ function normalizeReviewText(value: string): string {
     .trim();
 }
 
-function reviewTerms(title: string): string[] {
-  const ignored = new Set([
-    "kapitel", "grundlagen", "anwendungen", "berechnen", "bestimmen", "auslegen",
-    "praesenz", "eigenstudium", "unter", "sowie", "erste", "zweite", "ordnung",
-  ]);
-  return [...new Set((normalizeReviewText(title).match(/[a-z0-9]{5,}/g) ?? [])
-    .flatMap((term) => [
-      term,
-      term.replace(/(?:ungen|ung|en|e|n|er|es)$/i, ""),
-    ])
-    .filter((term) => term.length >= 5 && !ignored.has(term)))];
+type ReviewModel = LangGraphAgentState["study_model"];
+export type QualityReviewClaims = Omit<Pick<ReviewModel, "topics" | "formulas" | "workedExamples" | "figures" | "checklist">, "topics"> & { topics: (ReviewModel["topics"][number] & { originalKeyConcepts?: string[] })[] };
+export interface QualityReviewPacket {
+  prompt: string;
+  sourceVisuals: QualitySourceVisual[];
+  claims: QualityReviewClaims;
+}
+export class QualityReviewCapacityError extends Error {
+  constructor(message: string) { super(message); this.name = "QualityReviewCapacityError"; }
+}
+const MAX_QUALITY_REVIEW_PACKETS = 6;
+const emptyReviewClaims = (): QualityReviewClaims => ({ topics: [], formulas: [], workedExamples: [], figures: [], checklist: [] });
+
+function completeReviewClaims(state: LangGraphAgentState): QualityReviewClaims {
+  const model = state.study_model;
+  const data = ExtractedDataSchema.safeParse(state.extracted_data);
+  const topics = model.topics.map(topic => ({ ...topic,
+    originalKeyConcepts: data.success ? data.data.sections.find(section => section.heading === topic.title && section.summary === topic.summary)?.key_concepts : undefined,
+  }));
+  if (data.success) for (const [index, section] of data.data.sections.entries()) {
+    if (topics.some(topic => topic.title === section.heading && topic.summary === section.summary)) continue;
+    topics.push({ id: `original-handoff-section-${index}`, chapterId: null, title: section.heading,
+      summary: section.summary, learningGoals: [], originalKeyConcepts: section.key_concepts,
+      priority: "supplementary", scopeStatus: "inferred", sourceIds: section.source_ids });
+  }
+  return { topics, formulas: model.formulas, workedExamples: model.workedExamples, figures: model.figures, checklist: model.checklist };
 }
 
-function workedExampleCoverageLedger(model: LangGraphAgentState["study_model"]) {
-  const perExampleBudget = Math.max(24, Math.floor(6_000 / Math.max(1, model.workedExamples.length)));
-  const goalCharacters = Math.min(80, Math.max(12, Math.floor(perExampleBudget / 3)));
-  return model.workedExamples.map((example) => ({
-    chapterId: example.chapterId,
-    learningGoal: example.learningGoal.slice(0, goalCharacters),
+/** Coverage bookkeeping is not a substitute for reviewing complete claims. */
+function workedExampleCoverageLedger(model: ReviewModel) {
+  return model.workedExamples.map(example => ({
+    exampleId: example.id, chapterId: example.chapterId,
     stepCount: example.steps.length,
-    stepOutlines: example.steps.map((step) => {
-      const normalized = step.replace(/\s+/g, " ").trim();
-      const part = /^(\([^)]+\)|\d+[.)])/.exec(normalized)?.[1];
-      const numberedSymbol = /\bf[_\s]?(\d+)\b/i.exec(normalized)?.[0];
-      return part && numberedSymbol
-        ? `${part} ${numberedSymbol}`
-        : normalized.slice(0, Math.min(24, Math.max(8, Math.floor(perExampleBudget / Math.max(1, example.steps.length + 3)))));
-    }),
   }));
 }
 
-function compactStudyModelForReview(state: LangGraphAgentState, bounded = false) {
+function faithfulStudyModelForReview(state: LangGraphAgentState, claims: QualityReviewClaims) {
   const model = state.study_model;
-  const limits = bounded
-    ? {
-      objectiveCount: 10,
-      objectiveLength: 120,
-      assessmentCount: 5,
-      assessmentLength: 100,
-      topicSummary: 260,
-      topicGoalCount: 2,
-      topicGoalLength: 120,
-      formulaCount: 2,
-      formulaText: 180,
-      formulaListCount: 5,
-      formulaListText: 90,
-      assumptionText: 120,
-      exampleCount: 1,
-      examplePrompt: 280,
-      exampleStepCount: 5,
-      exampleStep: 240,
-      exampleResult: 280,
-      figureCaption: 180,
-      checklistCount: 6,
-      checklistText: 160,
-      sourceCount: 36,
-      sourceText: 160,
-      findingCount: 16,
-      findingText: 220,
-    }
-    : {
-      objectiveCount: 14,
-      objectiveLength: 150,
-      assessmentCount: 8,
-      assessmentLength: 140,
-      topicSummary: 520,
-      topicGoalCount: 4,
-      topicGoalLength: 180,
-      formulaCount: 3,
-      formulaText: 320,
-      formulaListCount: 10,
-      formulaListText: 160,
-      assumptionText: 220,
-      exampleCount: 2,
-      examplePrompt: 400,
-      exampleStepCount: 6,
-      exampleStep: 480,
-      exampleResult: 400,
-      figureCaption: 280,
-      checklistCount: 8,
-      checklistText: 260,
-      sourceCount: 50,
-      sourceText: 260,
-      findingCount: 40,
-      findingText: 400,
-    };
-  const referencedSourceIds = new Set([
-    ...model.topics.flatMap((topic) => topic.sourceIds),
-    ...model.formulas.flatMap((formula) => formula.sourceIds),
-    ...model.workedExamples.flatMap((example) => example.sourceIds),
-    ...model.figures.flatMap((figure) => figure.sourceIds),
+  const knownChapterIds = new Set(model.courseChapters.map(chapter => chapter.id));
+  const original = ExtractedDataSchema.safeParse(state.extracted_data);
+  const referenced = new Set([
+    ...model.topics.flatMap(item => item.sourceIds), ...model.formulas.flatMap(item => item.sourceIds),
+    ...model.workedExamples.flatMap(item => item.sourceIds), ...model.figures.flatMap(item => item.sourceIds),
+    ...claims.topics.flatMap(item => item.sourceIds), ...claims.formulas.flatMap(item => item.sourceIds),
+    ...claims.workedExamples.flatMap(item => item.sourceIds), ...claims.figures.flatMap(item => item.sourceIds),
+    ...(original.success ? original.data.quiz_style_questions.flatMap(question => question.source_ids) : []),
   ]);
+  const sourceIndex = new Map(model.sources.map(source => [source.id, {
+    id: source.id, title: source.title, kind: source.kind, originUrl: source.originUrl,
+  }]));
+  if (original.success) for (const source of original.data.sources) {
+    if (!sourceIndex.has(source.id)) sourceIndex.set(source.id, {
+      id: source.id, title: source.title, kind: source.kind, originUrl: source.url,
+    });
+  }
   return {
-    profile: model.profile,
-    title: model.title,
-    courseTitle: model.courseTitle,
-    publicationStatus: model.publicationStatus,
-    scopeNote: model.scopeNote,
+    profile: model.profile, title: model.title, courseTitle: model.courseTitle,
+    publicationStatus: model.publicationStatus, scopeNote: model.scopeNote,
+    documentCoverage: {
+      topicCount: completeReviewClaims(state).topics.length, topicIds: completeReviewClaims(state).topics.map(item => item.id),
+      formulaCount: model.formulas.length, formulaIds: model.formulas.map(item => item.id),
+      exampleCount: model.workedExamples.length, figureCount: model.figures.length, checklistCount: model.checklist.length,
+    },
     workedExampleCoverageLedger: workedExampleCoverageLedger(model),
-    chapters: model.courseChapters.map((chapter) => {
-      const officialTopicCount = new Set(chapter.learningObjectives.flatMap((objective) =>
-        [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)]
-          .map((match) => Number(match[1]))
-      )).size;
-      const contractTerms = reviewTerms(state.request_contract.requirements
-        .filter((requirement) => requirement.appliesTo.length > 0)
-        .map((requirement) => requirement.statement)
-        .join(" "));
-      const chapterTerms = reviewTerms([
-        chapter.title,
-        ...chapter.learningObjectives,
-        ...chapter.assessmentSignals,
-      ].join(" "));
-      const priorityScore = (value: string) => {
-        const normalized = normalizeReviewText(value);
-        return contractTerms.filter((term) => normalized.includes(term)).length * 10 +
-          chapterTerms.filter((term) => normalized.includes(term)).length;
-      };
-      const prioritizeLookup = <T>(values: T[], text: (value: T) => string) => [...values].sort(
-        (left, right) => priorityScore(text(right)) - priorityScore(text(left)),
-      );
-      const topics = prioritizeLookup(
-        model.topics.filter((topic) => topic.chapterId === chapter.id),
-        (topic) => `${topic.title} ${topic.summary} ${topic.learningGoals.join(" ")}`,
-      ).slice(0, Math.max(2, officialTopicCount));
-      const examples = prioritizeLookup(
-        model.workedExamples.filter((example) => example.chapterId === chapter.id),
-        (example) => `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")}`,
-      ).slice(0, limits.exampleCount);
-      const figures = prioritizeLookup(
-        model.figures.filter((figure) => figure.chapterId === chapter.id),
-        (figure) => `${figure.title} ${figure.caption}`,
-      ).slice(0, 1);
-      return {
-        id: chapter.id,
-        title: chapter.title,
-        status: chapter.status,
-        priority: chapter.priority,
-        contentMode: chapter.contentMode,
-        learningObjectives: compactReviewObjectives(
-          chapter.learningObjectives,
-          limits.objectiveCount,
-          limits.objectiveLength,
-        ),
-        assessmentSignals: chapter.assessmentSignals
-          .slice(0, limits.assessmentCount)
-          .map((signal) => compactReviewText(signal, limits.assessmentLength)),
-        topics: topics.map((topic) => ({
-          title: compactReviewText(topic.title, 180),
-          summary: compactReviewText(topic.summary, limits.topicSummary),
-          learningGoals: topic.learningGoals
-            .slice(0, limits.topicGoalCount)
-            .map((goal) => compactReviewText(goal, limits.topicGoalLength)),
-          sourceIds: topic.sourceIds,
-        })),
-        formulas: model.formulas
-          .filter((formula) => formula.chapterId === chapter.id)
-          .slice(0, limits.formulaCount)
-          .map((formula) => ({
-            name: compactReviewText(formula.name, 140),
-            expression: compactReviewText(formula.expression, limits.formulaText),
-            variables: formula.variables
-              .slice(0, limits.formulaListCount)
-              .map((value) => compactReviewText(value, limits.formulaListText)),
-            units: formula.units
-              .slice(0, limits.formulaListCount)
-              .map((value) => compactReviewText(value, limits.formulaListText)),
-            assumptions: compactReviewText(formula.assumptions, limits.assumptionText),
-          })),
-        workedExamples: examples.map((example) => ({
-          origin: example.origin,
-          learningGoal: compactReviewText(example.learningGoal, 160),
-          prompt: compactReviewText(example.prompt, limits.examplePrompt),
-          steps: example.steps
-            .slice(0, limits.exampleStepCount)
-            .map((step) => compactReviewText(step, limits.exampleStep)),
-          result: compactReviewText(example.result, limits.exampleResult),
-          sourceIds: example.sourceIds,
-        })),
-        figures: figures.map((figure) => ({
-          kind: figure.kind,
-          title: compactReviewText(figure.title, 160),
-          caption: compactReviewText(figure.caption, limits.figureCaption),
-          sourcePage: figure.sourcePage,
-        })),
-      };
-    }),
-    checklist: model.checklist
-      .slice(0, limits.checklistCount)
-      .map((item) => compactReviewText(item, limits.checklistText)),
-    sources: model.sources
-      .filter((source) => referencedSourceIds.has(source.id))
-      .slice(0, limits.sourceCount)
-      .map((source) => ({
-        id: source.id,
-        title: compactReviewText(source.title, limits.sourceText),
-        kind: source.kind,
-        originUrl: source.originUrl
-          ? compactReviewText(source.originUrl, limits.sourceText)
-          : null,
+    chapters: model.courseChapters.map(chapter => ({
+      id: chapter.id, title: chapter.title, status: chapter.status, priority: chapter.priority,
+      contentMode: chapter.contentMode, learningObjectives: chapter.learningObjectives,
+      assessmentSignals: chapter.assessmentSignals,
+      topics: claims.topics.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, title: item.title, summary: item.summary, learningGoals: item.learningGoals, originalKeyConcepts: item.originalKeyConcepts, sourceIds: item.sourceIds,
       })),
-    deterministicFindings: state.review_report.findings
-      .slice(0, limits.findingCount)
-      .map((finding) => ({
-        ...finding,
-        message: compactReviewText(finding.message, limits.findingText),
+      formulas: claims.formulas.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, name: item.name, expression: item.expression, variables: item.variables,
+        units: item.units, assumptions: item.assumptions, sourceIds: item.sourceIds,
       })),
+      workedExamples: claims.workedExamples.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, origin: item.origin, learningGoal: item.learningGoal, prompt: item.prompt,
+        steps: item.steps, result: item.result, sourceIds: item.sourceIds,
+      })),
+      figures: claims.figures.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, kind: item.kind, title: item.title, caption: item.caption,
+        sourcePage: item.sourcePage, sourceIds: item.sourceIds,
+      })),
+    })),
+    unassignedClaims: {
+      topics: claims.topics.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      formulas: claims.formulas.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      workedExamples: claims.workedExamples.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      figures: claims.figures.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+    },
+    checklist: claims.checklist,
+    warnings: [...new Set([...model.warnings, ...(original.success ? original.data.warnings : [])])],
+    quizStyleQuestions: original.success ? original.data.quiz_style_questions : [],
+    sources: [...sourceIndex.values()].filter(source => referenced.has(source.id)),
   };
 }
 
-function minimalStudyModelForReview(state: LangGraphAgentState) {
-  const model = state.study_model;
-  const referencedSourceIds = new Set<string>();
-  const chapters = model.courseChapters.map((chapter) => {
-    const officialTopicCount = new Set(chapter.learningObjectives.flatMap((objective) =>
-      [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)]
-        .map((match) => Number(match[1]))
-    )).size;
-    const topics = model.topics
-      .filter((topic) => topic.chapterId === chapter.id)
-      .slice(0, Math.max(2, officialTopicCount));
-    const formulas = model.formulas
-      .filter((formula) => formula.chapterId === chapter.id)
-      .slice(0, 1);
-    const examples = model.workedExamples
-      .filter((example) => example.chapterId === chapter.id)
-      .slice(0, 1);
-    for (const sourceId of [
-      ...topics.flatMap((topic) => topic.sourceIds),
-      ...formulas.flatMap((formula) => formula.sourceIds),
-      ...examples.flatMap((example) => example.sourceIds),
-    ]) referencedSourceIds.add(sourceId);
-    return {
-      title: chapter.title,
-      status: chapter.status,
-      priority: chapter.priority,
-      contentMode: chapter.contentMode,
-      learningObjectives: compactReviewObjectives(chapter.learningObjectives, 10, 80),
-      assessmentSignals: chapter.assessmentSignals
-        .slice(0, 3)
-        .map((signal) => compactReviewText(signal, 80)),
-      topics: topics.map((topic) => ({
-        title: compactReviewText(topic.title, 100),
-        summary: compactReviewText(topic.summary, 120),
-        sourceIds: topic.sourceIds,
-      })),
-      formulas: formulas.map((formula) => ({
-        name: compactReviewText(formula.name, 90),
-        expression: compactReviewText(formula.expression, 120),
-        units: formula.units.slice(0, 4).map((unit) => compactReviewText(unit, 60)),
-        sourceIds: formula.sourceIds,
-      })),
-      workedExamples: examples.map((example) => ({
-        origin: example.origin,
-        learningGoal: compactReviewText(example.learningGoal, 100),
-        prompt: compactReviewText(example.prompt, 120),
-        steps: example.steps.slice(0, 4).map((step) => compactReviewText(step, 120)),
-        result: compactReviewText(example.result, 120),
-        sourceIds: example.sourceIds,
-      })),
-    };
+/** Preflight every complete atom and packet before starting any model call. */
+export async function buildQualityReviewPackets(
+  config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null = null,
+): Promise<QualityReviewPacket[]> {
+  const model = completeReviewClaims(state);
+  const kinds = ["topics", "formulas", "workedExamples", "figures", "checklist"] as const;
+  type Atom = { kind: typeof kinds[number]; value: QualityReviewClaims[typeof kinds[number]][number]; sourceIds: string[] };
+  const groups = new Map<string, Atom[]>();
+  for (const kind of kinds) for (const value of model[kind]) {
+    const sourceIds = typeof value === "string" ? [] : value.sourceIds;
+    const key = sourceIds[0] ?? "document";
+    const list = groups.get(key) ?? [];
+    list.push({ kind, value, sourceIds }); groups.set(key, list);
+  }
+  const add = (claims: QualityReviewClaims, atom: Atom): QualityReviewClaims => ({
+    ...claims, [atom.kind]: [...claims[atom.kind], atom.value],
   });
-  return {
-    profile: model.profile,
-    title: model.title,
-    courseTitle: model.courseTitle,
-    publicationStatus: model.publicationStatus,
-    scopeNote: compactReviewText(model.scopeNote, 240),
-    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
-    chapters,
-    sources: model.sources
-      .filter((source) => referencedSourceIds.has(source.id))
-      .slice(0, 32)
-      .map((source) => ({
-        id: source.id,
-        title: compactReviewText(source.title, 100),
-        kind: source.kind,
-      })),
-    deterministicFindings: state.review_report.findings.slice(0, 12).map((finding) => ({
-      ...finding,
-      message: compactReviewText(finding.message, 140),
-    })),
+  const primarySourceIds = (claims: QualityReviewClaims) => [...new Set([
+    ...claims.topics, ...claims.formulas, ...claims.workedExamples, ...claims.figures,
+  ].flatMap(item => item.sourceIds.slice(0, 1)))];
+  const plan = await readVisualRetrievalPlan(config.runDir);
+  const extracted = ExtractedDataSchema.safeParse(state.extracted_data);
+  const imageDemands = new Map<string, number>();
+  for (const id of [...new Set([...groups.values()].flatMap(group => group.flatMap(atom => atom.sourceIds)))]) {
+    const visuals = await selectQualitySourceVisuals(config.runDir, state, { sourceIds: [id], plannedPages: true });
+    const source = extracted.success ? extracted.data.sources.find(source => source.id === id) : undefined;
+    const native = state.resource_manifest.resources.find(resource => source?.url && canonicalizeResourceUrl(resource.originUrl) === canonicalizeResourceUrl(source.url));
+    const requested = plan?.requests.find(request => request.resourceId === native?.id)?.pages ?? [];
+    const suppliedRequested = visuals.filter(visual => visual.sourcePage != null && requested.includes(visual.sourcePage));
+    imageDemands.set(id, visuals.length ? Math.max(1, suppliedRequested.length) : 0);
+  }
+  const demand = (claims: QualityReviewClaims) => primarySourceIds(claims).reduce((sum, id) => sum + (imageDemands.get(id) ?? 0), 0);
+  const packets: QualityReviewPacket[] = [];
+  let current = emptyReviewClaims();
+  let count = 0;
+  const prepare = async (claims: QualityReviewClaims) => {
+    const ids = primarySourceIds(claims);
+    const visuals = await selectQualitySourceVisuals(config.runDir, state, ids.length ? { sourceIds: ids, plannedPages: true } : undefined);
+    return { claims, sourceVisuals: visuals, prompt: composeQualityReviewPrompt(config, state, previousReviewError, visuals, claims, { index: 6, total: 6 }) };
   };
-}
-
-function coverageStudyModelForReview(state: LangGraphAgentState) {
-  const model = state.study_model;
-  return {
-    profile: model.profile,
-    title: model.title,
-    courseTitle: model.courseTitle,
-    publicationStatus: model.publicationStatus,
-    scopeNote: model.scopeNote.slice(0, 240),
-    chapters: model.courseChapters.map((chapter) => ({
-      id: chapter.id,
-      title: chapter.title,
-      status: chapter.status,
-      learningObjectives: chapter.learningObjectives.map((objective) => objective.slice(0, 100)),
-      assessmentSignals: chapter.assessmentSignals.map((signal) => signal.slice(0, 100)),
-      topicTitles: model.topics.filter((topic) => topic.chapterId === chapter.id).map((topic) => topic.title),
-    })),
-    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
-    deterministicFindings: state.review_report.findings,
+  const fits = (packet: QualityReviewPacket) => packet.prompt.length <= resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
+  const finish = async () => {
+    const packet = await prepare(current);
+    if (!fits(packet)) throw new QualityReviewCapacityError(`Complete content-review packet needs ${packet.prompt.length} prompt characters; budget ${resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN}. No claim was shortened or reviewed.`);
+    packets.push(packet);
+    if (packets.length > MAX_QUALITY_REVIEW_PACKETS) throw new QualityReviewCapacityError(`Complete content review exceeds ${MAX_QUALITY_REVIEW_PACKETS} packets. No sampled pass or model call is allowed.`);
+    current = emptyReviewClaims(); count = 0;
   };
-}
-
-function compactReviewText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const marker = " … [review view shortened; full field passed deterministic validation] … ";
-  const remaining = Math.max(40, maxLength - marker.length);
-  const prefixLength = Math.ceil(remaining * 0.7);
-  const suffixLength = remaining - prefixLength;
-  return `${value.slice(0, prefixLength).trimEnd()}${marker}${value.slice(-suffixLength).trimStart()}`;
-}
-
-function compactReviewObjectives(
-  objectives: string[],
-  maxItems = 14,
-  maxLength = 150,
-): string[] {
-  return [...new Set(objectives
-    .filter((objective) => !/\.{5,}/.test(objective))
-    .map((objective) => {
-      const official = /^((?:Thema|Topic)\s+\d{1,2}\s*[–-]\s*[^:·]+)(?::|\s+·\s+)?\s*(.*)$/i
-        .exec(objective);
-      if (!official) return compactReviewText(objective, maxLength);
-      const detail = official[2].trim();
-      return detail
-        ? compactReviewText(`${official[1].trim()} · ${detail}`, maxLength)
-        : official[1].trim();
-    }))].slice(0, maxItems);
+  // Source cohorts preserve nearby source context and avoid unrelated global figures
+  // consuming the two original-image slots. Large cohorts split only between atoms.
+  for (const group of groups.values()) for (const atom of group) {
+    let candidate = add(current, atom);
+    if (count && (demand(candidate) > 2 || !fits(await prepare(candidate)))) {
+      await finish(); candidate = add(current, atom);
+    }
+    const packet = await prepare(candidate);
+    if (!fits(packet)) throw new QualityReviewCapacityError(`Complete ${atom.kind} atom needs ${packet.prompt.length} prompt characters; it cannot fit the existing review budget. No atom was shortened or reviewed.`);
+    current = candidate; count++;
+  }
+  if (count || !packets.length) await finish();
+  return packets.map((packet, index) => ({ ...packet, prompt: composeQualityReviewPrompt(config, state, previousReviewError, packet.sourceVisuals, packet.claims, { index: index + 1, total: packets.length }) }));
 }
 
 function validateQualityReview(value: unknown): {

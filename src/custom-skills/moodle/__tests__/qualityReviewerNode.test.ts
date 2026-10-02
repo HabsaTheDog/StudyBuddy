@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import {
   buildQualityReviewPrompt,
   createQualityReviewerNode,
   qualityReviewSchema,
+  buildQualityReviewPackets,
 } from "../nodes/qualityReviewerNode.js";
 import { readPendingExtractionRepairs } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
@@ -48,6 +49,129 @@ const chapters = [
 ];
 
 describe("qualityReviewerNode", () => {
+  const packetState = () => moodleTestState({ retry_count: 2, study_model: {
+    ...emptyStudyModel(), courseChapters: [chapters[0]],
+    workedExamples: Array.from({ length: 7 }, (_, i) => ({ id: `task-${i}`, chapterId: chapters[0].id,
+      origin: "derived", learningGoal: `Goal ${i}`, prompt: `Unchanged givens ${i}`,
+      steps: [`Complete mathematical step ${i}: ${"x".repeat(7_000)}`], result: `Complete result ${i}`, sourceIds: [],
+    })),
+  } });
+
+  it("reviews bounded packets sequentially, retains more than twelve combined findings and counts one retry per round", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "review-packets-aggregate-"));
+    try {
+      const state = packetState();
+      let calls = 0, active = 0;
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), { async run(prompt, options) {
+        expect(++active).toBe(1);
+        expect(options?.attempt).toBe(3);
+        expect(prompt.length).toBeLessThanOrEqual(resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512);
+        expect(prompt).toContain("bookkeeping, not mathematical evidence");
+        await Promise.resolve(); active--; calls++;
+        return JSON.stringify({ ok: false, summary: `Packet ${calls}`, findings: Array.from({ length: 12 }, (_, i) => ({
+          message: `Concrete contradiction packet ${calls} claim ${i}`, chapterTitle: i === 0 ? null : chapters[0].title,
+          requirementId: null, deliverableId: null, owner: "content", severity: "blocking", defectKind: "mathematical_error", repairTarget: "content_analyzer",
+        })) });
+      } })(state);
+      expect(calls).toBeGreaterThan(1);
+      expect(result.retry_count).toBe(3);
+      const review = JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8"));
+      expect(review.complete_review).toBe(true);
+      expect(review.blocking_findings).toHaveLength(calls * 12);
+      expect(review.blocking_findings.filter((finding: { chapterTitle: string | null }) => finding.chapterTitle === null)).toHaveLength(calls);
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
+
+  it("fails the whole round after a later packet error without leaving a partial or stale pass", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "review-packets-error-"));
+    try {
+      await writeFile(path.join(runDir, "quality-review.json"), '{"ok":true}');
+      let calls = 0;
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), { async run() {
+        if (++calls === 2) throw new Error("Later review transport failed");
+        return '{"ok":true,"summary":"First packet only","findings":[]}';
+      } })(packetState());
+      expect(result.error_log).toContain("Later review transport failed");
+      expect(result.retry_count).toBe(3);
+      expect(JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8"))).toMatchObject({ ok: false, complete_review: false });
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
+
+  it.each(["atom", "packet_count"])("fails capacity preflight before any call for an unfit %s", async mode => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "review-packets-capacity-"));
+    try {
+      const state = packetState();
+      for (const task of state.study_model.workedExamples) task.steps = ["Exact protected mathematical statement " + "x".repeat(mode === "atom" ? 60_000 : 22_000)];
+      let calls = 0;
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), { async run() { calls++; return '{"ok":true,"summary":"pass","findings":[]}'; } })(state);
+      expect(calls).toBe(0);
+      expect(result.error_log).toContain(mode === "atom" ? "atom" : "6 packets");
+      expect(result.retry_count).toBe(3);
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
+
+  it("keeps null ownership and original key concepts and warnings intact", () => {
+    const state = moodleTestState({ study_model: { ...emptyStudyModel(), courseChapters: [chapters[0]],
+      formulas: [{ id: "global", chapterId: null, name: "Global formula", expression: "f(t) = c", variables: ["c: unknown initial value"], units: ["m/s"], assumptions: "The initial value is not determined", sourceIds: [] }],
+    } });
+    state.extracted_data = { document_title: "Actual handoff", language: "en", course: { title: "Course", url: "https://example.edu/course" }, sources: [],
+      formulas: [], worked_examples: [], figures: [], visual_assets: [], learning_modules: [], quiz_style_questions: [], document_context: [],
+      sections: [{ heading: "Original section", summary: "Actual included statement", key_concepts: Array.from({ length: 9 }, (_, i) => `Unabridged original concept ${i}`), source_ids: [] }], warnings: ["Original local condition warning"] };
+    const prompt = buildQualityReviewPrompt(moodleTestConfig(), state);
+    expect(prompt).toContain('"chapterId":null');
+    expect(prompt).toContain("f(t) = c");
+    expect(prompt).toContain("Unabridged original concept 8");
+    expect(prompt).toContain("Original local condition warning");
+  });
+
+  it("retains source identity and URL for an original section omitted from normalized topics", () => {
+    const state = moodleTestState({ study_model: { ...emptyStudyModel(), sources: [{
+      id: "original-source", title: "Actual acquired source", kind: "moodle_page", originUrl: "https://example.edu/actual-source", localPath: null, previewPath: null,
+    }] } });
+    state.extracted_data = { document_title: "Actual", language: "en", course: { title: "Course", url: "https://example.edu/course" },
+      sections: [{ heading: "Original unassigned section", summary: "Exact included source claim", key_concepts: [], source_ids: ["original-source"] }],
+      sources: [{ id: "original-source", title: "Actual acquired source", kind: "moodle_page", url: "https://example.edu/actual-source", path: null, page: null }],
+      formulas: [], worked_examples: [], quiz_style_questions: [{ question: "Original source question", answer: "Exact existing source answer", source_ids: ["original-source"] }], figures: [], visual_assets: [], learning_modules: [], document_context: [], warnings: [],
+    };
+    const view = JSON.parse(buildQualityReviewPrompt(moodleTestConfig(), state).split("Structured study model review view:\n")[1]);
+    expect(view.unassignedClaims.topics[0]).toMatchObject({ chapterId: null, sourceIds: ["original-source"] });
+    expect(view.sources).toEqual([expect.objectContaining({ id: "original-source", title: "Actual acquired source", originUrl: "https://example.edu/actual-source" })]);
+  });
+
+  it.each([false, true])("exposes global topic/formula coverage and checks exact operator operands in initial/repair packets (%s)", async repair => {
+    const state = packetState();
+    state.study_model.topics = [{ id: "whole-topic", chapterId: chapters[0].id, title: "Existing summary", summary: "Complete original explanation", learningGoals: [], sourceIds: [], priority: "essential", scopeStatus: "confirmed" }];
+    state.study_model.formulas = [{ id: "whole-formula", chapterId: null, name: "Existing relation", expression: "p = q", variables: ["p and q: values"], units: ["m"], assumptions: "Original fixed basis", sourceIds: [] }];
+    const packets = await buildQualityReviewPackets(moodleTestConfig(), state, repair ? "Previous concrete operand contradiction" : null);
+    expect(packets.length).toBeGreaterThan(1);
+    for (const packet of packets) {
+      const view = JSON.parse(packet.prompt.split("Structured study model review view:\n")[1]);
+      expect(view.documentCoverage).toMatchObject({ topicCount: 1, formulaCount: 1, topicIds: ["whole-topic"], formulaIds: ["whole-formula"] });
+      expect(packet.prompt).toContain("Empty packet-local arrays do not mean whole-document absence");
+      expect(packet.prompt).toContain("exact ordered operands, basis/index labels and source relation");
+      expect(packet.prompt).toContain("Never transfer an identity for a different operand pair");
+    }
+  });
+  it("preserves every included topic, formula condition and complete example including late steps", () => {
+    const chapter = chapters[0];
+    const model = {
+      ...emptyStudyModel(), courseChapters: [chapter],
+      topics: Array.from({ length: 18 }, (_, i) => ({ id: `topic-${i}`, chapterId: chapter.id, title: `Included topic ${i}`, summary: `Complete included claim ${i}`, priority: "essential" as const, scopeStatus: "confirmed" as const, learningGoals: [`Condition ${i}`], sourceIds: ["source-1"] })),
+      formulas: Array.from({ length: 19 }, (_, i) => ({ id: `formula-${i}`, chapterId: chapter.id, name: `Included formula ${i}`, expression: `f_${i}(t) = c_${i}`, variables: [`c_${i}: unknown constant`], units: ["m/s"], assumptions: `Initial condition required ${i}`, sourceIds: ["source-1"] })),
+      workedExamples: Array.from({ length: 8 }, (_, i) => ({ id: `example-${i}`, chapterId: chapter.id, origin: "derived" as const, learningGoal: `Included task ${i}`, prompt: `Given unchanged conditions ${i}`, steps: ["Compute the relation.", `Late claim ${i}: zero derivative does not determine the initial value.`], result: `Parameter family ${i}`, sourceIds: ["source-1"] })),
+    };
+    const prompt = buildQualityReviewPrompt(moodleTestConfig(), moodleTestState({ study_model: model }));
+    for (const topic of model.topics) expect(prompt).toContain(topic.summary);
+    for (const formula of model.formulas) {
+      expect(prompt).toContain(formula.expression);
+      expect(prompt).toContain(formula.assumptions);
+    }
+    for (const example of model.workedExamples) {
+      expect(prompt).toContain(example.prompt);
+      expect(prompt).toContain(example.steps[1]);
+      expect(prompt).toContain(example.result);
+    }
+  });
   it.each([false, true])("independently audits semantic names and direction under unchanged givens in initial/repair review (%s)", repair => {
     const prompt = buildQualityReviewPrompt(moodleTestConfig(), moodleTestState(), repair ? "A term's interpretation contradicts its sign." : null);
     expect(prompt).toContain("Audit the meaning of included names and explanations separately from algebraic correctness");
@@ -131,7 +255,7 @@ describe("qualityReviewerNode", () => {
     expect(prompt).toContain("The lookup method is incomplete");
   });
 
-  it("marks shortened review fields instead of presenting them as truncated source content", () => {
+  it("retains long mathematical fields intact instead of presenting a clipped validation marker", () => {
     const longStep = `A = (${Array.from({ length: 180 }, (_, index) => `x_${index}`).join(" + ")}) = kontrolliertes Ergebnis.`;
     const prompt = buildQualityReviewPrompt(
       moodleTestConfig(),
@@ -153,7 +277,8 @@ describe("qualityReviewerNode", () => {
       }),
     );
 
-    expect(prompt).toContain("[review view shortened; full field passed deterministic validation]");
+    expect(prompt).not.toContain("[review view shortened");
+    expect(prompt).toContain(longStep);
     expect(prompt).toContain("kontrolliertes Ergebnis.");
   });
 
@@ -182,8 +307,8 @@ describe("qualityReviewerNode", () => {
 
     expect(prompt).toContain("workedExampleCoverageLedger");
     expect(prompt).toContain('"stepCount":9');
-    expect(prompt).toContain('"(i) f_9"');
-    expect(prompt).toContain("never infer a missing task or step solely because it is absent");
+    expect(prompt).toContain('(i) f_9: Rechenweg und Begründung.');
+    expect(prompt).toContain("Never infer absent topics, formulas, examples or steps from this packet");
   });
 
   it("retains task and substep coverage for a twenty-task PDF within the reviewer budget", () => {
@@ -218,11 +343,11 @@ describe("qualityReviewerNode", () => {
       resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512,
     );
     expect(prompt).toContain('"stepCount":9');
-    expect(prompt).toContain('"(i) f_9"');
+    expect(prompt).toContain('(i) f_9: Derive and check this subresult.');
     expect((prompt.match(/"stepCount":/g) ?? [])).toHaveLength(20);
   });
 
-  it("compacts a large multi-chapter review below the hard reviewer budget", () => {
+  it("fails before any call when complete multi-chapter claims cannot fit bounded review", async () => {
     const long = "fachlich belegter Erklärungstext mit Formel, Einheit und Kontrolle ".repeat(30);
     const courseChapters = Array.from({ length: 8 }, (_, index) => ({
       id: `chapter-${index}`,
@@ -289,19 +414,14 @@ describe("qualityReviewerNode", () => {
         kind: "moodle_pdf",
       })),
     };
-    const prompt = buildQualityReviewPrompt(
-      moodleTestConfig(),
-      moodleTestState({ study_model: studyModel }),
-    );
-    expect(prompt.length).toBeLessThanOrEqual(
-      resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - 512,
-    );
-    for (const chapter of courseChapters) {
-      expect(prompt).toContain(chapter.title);
-    }
-    for (let topic = 1; topic <= 8; topic += 1) {
-      expect(prompt).toContain(`Topic ${topic} – Methode`);
-    }
+    const state = moodleTestState({ study_model: studyModel });
+    await expect(buildQualityReviewPackets(moodleTestConfig(), state)).rejects.toThrow(/Complete.*(budget|packet|review)/i);
+    let calls = 0;
+    const result = await createQualityReviewerNode(moodleTestConfig(), { async run() { calls++; return '{"ok":true,"summary":"pass","findings":[]}'; } })(state);
+    expect(calls).toBe(0);
+    expect(result.error_log).toContain("Quality reviewer failed");
+    expect(result.retry_count).toBe(1);
+
   });
 
   it("reviews every structured chapter even when a generated document preview is present", () => {
