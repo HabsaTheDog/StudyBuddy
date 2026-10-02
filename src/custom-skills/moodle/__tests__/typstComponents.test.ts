@@ -1,9 +1,46 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
-import { validateTypst } from "../validation.js";
+import { compileTypstPdf, validateTypst, writeTypstSupportFiles } from "../validation.js";
+import { runBoundedProcess } from "../../shared/boundedProcess.js";
 import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 describe("Study Buddy Typst components", () => {
+  it("retains compact source notes and complete nested trailing content across pages", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "source-note-body-"));
+    try {
+      const paragraphs = Array.from({ length: 80 }, (_, index) =>
+        `RetainedParagraph${index}: Every supporting passage remains readable in its original order.`).join("\n\n");
+      const source = studyBuddyTypstDocument(`
+        #sb-source-note("CompactSourceUnique", coverage: "CompactCoverageUnique")
+        #sb-source-note("MainSourceUnique", coverage: "MainCoverageUnique")[
+          #text(weight: "bold")[NestedLeadUnique]
+          #block(breakable: true)[NestedBlockRetainedUnique.]
+          ${paragraphs}
+          #sb-source-note("NestedSourceUnique", coverage: "NestedCoverageUnique")[NestedBodyUnique.]
+          FinalTrailingBodyUnique.
+        ]
+      `);
+      await writeTypstSupportFiles(runDir, await getStudyBuddyTypstSupportFiles());
+      const sourcePath = path.join(runDir, "document.typ");
+      const pdfPath = path.join(runDir, "document.pdf");
+      await writeFile(sourcePath, source);
+      expect(await compileTypstPdf(sourcePath, pdfPath, { packagePath: path.join(runDir, ".typst-packages") })).toEqual({ ok: true, skipped: false });
+      const textResult = await runBoundedProcess("pdftotext", ["-layout", pdfPath, "-"]);
+      expect(textResult.code).toBe(0);
+      for (const marker of ["CompactSourceUnique", "CompactCoverageUnique", "MainSourceUnique", "MainCoverageUnique",
+        "NestedLeadUnique", "NestedBlockRetainedUnique", "NestedSourceUnique", "NestedCoverageUnique", "NestedBodyUnique", "FinalTrailingBodyUnique",
+        ...Array.from({ length: 80 }, (_, index) => `RetainedParagraph${index}:`)]) {
+        expect(textResult.stdout).toContain(marker);
+      }
+      const info = await runBoundedProcess("pdfinfo", [pdfPath]);
+      expect(Number(/^Pages:\s*(\d+)/m.exec(info.stdout)?.[1])).toBeGreaterThan(2);
+      expect(await readFile(sourcePath, "utf8")).toBe(source);
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  }, 30_000);
+
   it.each([
     ['#sb-schedule-table((("00–10 min", "Recall the method"),))', 4],
     ['#sb-schedule-table((("00–10 min", "Recall", "Explain"),))', 4],

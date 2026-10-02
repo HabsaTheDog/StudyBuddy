@@ -387,7 +387,11 @@
   )).flatten(),
 )
 
-#let sb-source-note(source, coverage: none) = block(
+#let sb-source-note(source, coverage: none, ..args) = {
+  let trailing = args.pos()
+  assert(trailing.len() <= 1, message: "sb-source-note accepts at most one trailing content block.")
+  assert(args.named().len() == 0, message: "Unknown sb-source-note named argument.")
+  block(
   width: 100%,
   breakable: true,
   fill: sb-colors.white,
@@ -402,7 +406,12 @@
     #linebreak()
     #text(7.8pt, fill: sb-colors.muted)[*Quellenlage:* #coverage]
   ]
+  #if trailing.len() == 1 [
+    #v(4pt)
+    #text(9pt, fill: sb-colors.ink)[#trailing.first()]
+  ]
 ]
+}
 
 #let sb-figure(caption: none, label-text: none, body) = [
   #block(
