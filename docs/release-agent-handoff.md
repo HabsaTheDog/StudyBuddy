@@ -20,6 +20,38 @@ claim it is pushed or silently include it in a candidate.
 
 ## Failed native-run repair intake, 2026-10-02
 
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
+
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
+
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+### Historical Native23/Native22 intake — superseded status and directives
+
 Native23 one-owner first round ended without a PDF after three real Typst
 syntax failures; source acquisition and preliminary numeric practice were correct.
 No native pass. Same simple route now supplies compiled generic syntax examples
@@ -37,7 +69,7 @@ claim-repair work is preserved as evidence and excluded from active source.
 No push, publication, packaging or release acceptance is claimed.
 
 
-FINAL STATUS: Native22 ended regularly,20pagePDF rendered/technicalPASS, but is
+HISTORICAL FINAL STATUS AT NATIVE22: Native22 ended regularly,20pagePDF rendered/technicalPASS, but is
 independently REJECTED for conflating original e_xi/e_zeta on physicalpage12.
 OutputSHA8ccb3d685e33c02a529d7632a937a5cfbbc0411ffdd4a57da4a5800cffdf7b2f.
 All owned3240873/3240882/3297150 processes gone, DBready/noerror. Source253ee06
@@ -48,7 +80,7 @@ Manual15pagePDF is independently deliveredPASS4/4; automatic PDF campaign still
 has no accepted candidate. Release handoff must keep this unresolved and triage
 actual source-axis verification and expensive trivial Typst repairs before freeze.
 
-Owner steering after eleven hours: no new native round after22. A separately
+Historical owner steering after eleven hours (later superseded): no new native round after22. A separately
 labelled agent-corrected Run18 PDF has now been delivered,15pages, independently
 reviewed4/4 including all physical pages/examples/solutions and direct quiz/scope
 evidence. SHA b64ed2f2bbfe1efc785f18f00d8abd918d718e8230ec67ee83f580f87e15c4c7;

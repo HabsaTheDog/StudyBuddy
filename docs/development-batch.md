@@ -14,15 +14,39 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
-Latest owner steering supersedes the earlier no-more-rounds checkpoint: the owner
-explicitly requests one native PDF author with prompt/template and direct tools.
-Campaign `single-owner-pdf` retains the exact original prompt, profile and factual
-acceptance gates. Earlier claim-repair work is preserved in campaign evidence and
-excluded from the active implementation. Native original-prompt acceptance is
-pending; prior manual output is not substituted for this acceptance.
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
 
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
 
-Latest original-run repair status (2026-10-02): local source `253ee06` passes
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+**Historical Native22 checkpoint — superseded; not an active stop directive.**
+
+Historical original-run repair status at Native22 (2026-10-02): local source `253ee06` passes
 1,479 tests/four existing skips, TypeScript and19 wrapper/package checks. Earlier
 native PDF attempts remain rejected. The separately delivered15-page,
 agent-corrected PDF passes independent content/source/layout review4/4 but does
@@ -34,7 +58,7 @@ claims. These repairs are local-only and await holistic packaged acceptance.
 
 | Change | Status | Focused evidence | Final-batch work still required |
 | --- | --- | --- | --- |
-| One native agent directly authors and compiles PDFs | Root `232c182` and UI `23e0372fb` committed locally; native23 rejected for three syntax failures; compiled generic syntax-guide refinement reviewed, scoped commit pending; not pushed/merged/packaged/release-accepted | Model-free broker sources courses/page/download/text/original-page compositions and document prepare/compile/publish. Native owner receives original prompt plus shared Typst template; no default SourceArchitect/Analyzer/Formatter/Reviewer chain. Honest direct_document technical receipt/current-input/source/PDF hashes, same-owner diagnostics, three failed validations, verified unused delivery copy.75 wrapper/broker/profile tests,17 real document tests including executable generic syntax guide,20 source focused regressions; root full suite1,522 passes/four existing skips; fork full format/lint/13 typechecks pass. Real broker course/list/PDFdownload/text/30-page original-PDF compositions diagnostics pass | Fresh exact original native PDF prompt, independent mathematical/source/page review and normal viewer; holistic frozen-candidate packaged release acceptance remains required |
+| One native agent directly authors and compiles PDFs | Root `7ae0ba2` and UI `9ad697d8` committed locally; Quality Native38+39 PASS4/4 and campaign completed; original Custom Balanced/Terra-medium campaign unaccepted; not pushed/merged/deployed/packaged/release-accepted | Native38/39: real direct document route, 8 pages each, retry0/1, 7m42s/8m53s; independent full source/mathematics/page review plus normal native viewer and canonical/delivery hashes. Code-enforced `doc`→`document prepare` before legacy worker dispatch, strict compatibility metadata, stable owner/workspace guards, read-only sources and same-owner file/compile/publish loop.72 broker/client/packaged tests +4 developer-instruction tests,17 real document tests,21 source tests; latest root1,527 passed/four existing skips; full UI format/lint/13 typechecks pass. Historical Native23 syntax failure and subsequent repairs remain preserved, not pending implementation | Keep Quality acceptance distinct from the rejected original Custom Balanced/Terra-medium contract; holistic frozen-candidate Windows/Fedora packaged release acceptance remains required |
 | Render verified PDF handoffs without generative re-authoring | Root `84a51f1` committed locally; reviewed local renderer source freeze; not pushed/merged/packaged/release-accepted | Actual22 existing Formatterconsumer + real Typst now1701ms/zero formatter modelcalls,596ms separate controlcompile versus615840ms historical formatter modelwork. All19sections/18formulas/8examples/19warnings/two positive documentcontexts and six original source images preserved;26pages.88focusedtests/fourfiles,TypeScript/diffcheck and independent six-hashreview pass;262 unchanged historical canonical hashes. Auto selects existing deterministic layout, explicit llm_formatter remains; no arbitrary titleoverride/topicwarningfilter/imageomission/generative or plaintext rescue. Unknownfunction gets realcompilererror. Evidence run22-renderer-preservation/source-freeze.json and candidate-frozen/replay.json | Source/claim-local repair integration and true fresh native original-prompt PDF acceptance remain required. Historical broken handoff retention is not mathematical/native success. Holistic frozen-batch packaged acceptance remains required |
 | Preserve assessed source scope on planner failure and compact complete planning JSON | Root `253ee06` committed locally; not pushed/merged/packaged/release-accepted | Native21 realR3 planning60175/60000 (+175) caused broad portal fallback and deleted exclusions. Three new API regressions RED→GREEN: lossless existing JSON serialization, prior architecture/URL/debt preservation with blocked/abort, bootstrap exploration without curriculum/readinesscache. Namespace .8 invalidates legacy fallback decisions; original SourceReadingRequestError remains strict.86 focused tests/typecheck/diffcheck pass. Saved-component reconstruction exactlymatches real60175 event; existing API R3/JSONrepair55399/55728 and clearly reconstructed initial39750/60k retain full request/feedback and semantic JSON values.144 canonical hashes unchanged; prior module-limit audit remains intact through failed reassessment. Evidence round21-architect-producer-replay | Independent final PASS; root1479 tests/four existing skips, typecheck and19 wrapper/package checks; exact original Native22 output acceptance; no semantic/PDF pass claimed by API testdoubles. Holistic exact packaged acceptance remains required |
 | Size complete content review from actual work while preserving explicit deadlines | Root `e8f5628` committed locally; not pushed/merged/packaged/release-accepted | Actual20 adaptive18-minute window omits complete review work. Actual preflighted packet demand selects smallest suitable existing tier; measured matching-role/model/effort durations update remaining active-work projection within existing38-minute workflow ceiling and two-minute render reserve. Explicit CLI/env limits and owner absolute deadlines cannot be relaxed, admission wait remains distinct from work, later Analyzerrepair retains selected large tier, and wrapper preserves the earlier owner/tier deadline on both outcomes. Repairstart before prior boundary now extends before first call. Final15/18 control: large24/38, measured24.621/35.229 minutes,129 original hashes unchanged.70 focused Runtime/Config/Graph checks,75 Analyzer/runtime integration checks,18 runtime+quiz Node wrapper checks, TypeScript/diff/Bash syntax pass. Root1476 passed/four existing skips,169 files50.51s plus19 wrapper/package checks. Independent combined PASS; no native mathematical acceptance claim | Fresh native21 PDF acceptance; holistic frozen-batch and exact packaged acceptance remain required |

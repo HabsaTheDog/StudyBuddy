@@ -2,6 +2,38 @@
 
 ## 2026-10-02: single native owner for PDF documents
 
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
+
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
+
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+### Historical Native23 implementation checkpoint — superseded
+
 Native23 first direct-owner round: sources and initial worked numerical content
 were correct, but no PDF was published after three compiler failures (unpaired
 math delimiters, literal suffix rel, then LaTeX-style left/right). Keep this run

@@ -4,7 +4,74 @@ This work repairs the two latest user runs of October 2. It is source-tree
 development evidence, not packaged release acceptance. No release, push,
 permission change or final quiz submission is authorized by this work.
 
-## Causes and changes
+## Current outcome and causes
+
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
+
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
+
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+The original quiz failure bypassed the app credential broker when Codex shell
+policy lost the authoritative wrapper route. Only nonsecret app routing is now
+persisted; the repository fallback delegates to the app wrapper, and the broker
+preserves the owning profile and configured CLI without exposing credentials.
+The quiz permission-required contract was independently repeated without opening
+or finally submitting an attempt.
+
+The PDF workflow also retained a legacy default `doc` entry. Native37 followed
+the loaded skill into that staged extraction/model/render chain despite the new
+single-owner instructions. Server normalization now makes `doc` prepare the real
+template for the same native author before profile/model dispatch. An unnormalized
+packaged `doc` fails closed; its unreachable staged helper was removed. Existing
+advanced extraction/render and non-PDF/quiz behavior remain separate. There is no
+extra author/reviewer worker, semantic pipeline, retry-cap change or generated-PDF
+patch in the default direct route.
+
+Native38's retained evidence is in
+`study-buddy-data/optimization-campaigns/single-owner-pdf-quality/evidence/`:
+`native38-terminal.json`, `native38-independent-review/review.json` and
+`native38-source-scope/source-scope-review.json`. Its PDF SHA256 is
+`e38c90315eb9c23043dd1fb69e722e202fe031509a1848d7ab9f618763a6258c`.
+Native39 has corresponding `native39-terminal.json`, `native39-independent-review/`,
+`native39-source-scope/` and `native39-viewer-proof-independent/` evidence. Its PDF
+SHA256 is `84c45f6fb8eafd78cd178d2367f30d2dbdc0da821f453ed66cdb881481ab8c74`.
+The accepted campaign retains both samples and the explicit original-profile
+rejection. Final T3 delivery is a verified byte-for-byte copy at
+`/tmp/kinetik-minitest-vorbereitung.pdf`; its canonical original is preserved.
+`native38-39-duration.json` records complete native-turn duration (not worker-only
+metrics). The isolated raw-WebSocket timeout affected the ignored inspection helper;
+managed Playwright CDP sessions obtained real viewer proof without changing the app.
+
+## Historical causes and changes — retained chronology
+
+Earlier pending-run and no-further-round statements below describe their original
+checkpoints. They are superseded by the explicit single-owner work and current
+status above; they must not be read as current instructions or acceptance claims.
 
 The preparation PDF failed in extraction review because a Safe Exam Browser
 `sebs:` launch control was classified as a Moodle quiz and copied into the
@@ -1007,7 +1074,7 @@ unrelated reused historicPID remains untouched. Evidence round22-terminal-root.j
 and two actual formatter diagnostics. All15 root source/testfreeze hashes remain
 unchanged. Delivered manual artifact stillindependentPASS4/4, separate provenance.
 
-## Handoff
+## Historical Native22 handoff — superseded by current outcome above
 
 Runtime fixes are committed locally as root `957bbd4` and UI `a8b31805e`.
 Root source/scope repair is `bd287e1`, course identity/exclusion repair is
