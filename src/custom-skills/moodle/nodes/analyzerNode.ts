@@ -27,6 +27,7 @@ import {
   type AnalysisSliceCandidate,
 } from "../analysisBudget.js";
 import {
+  MATHEMATICAL_INTEGRITY_POLICY,
   STUDENT_FIRST_POLICY,
   STUDENT_FIRST_POLICY_VERSION,
 } from "../studentFirstPolicy.js";
@@ -1589,6 +1590,7 @@ export function buildChapterFragmentPrompt(
       : "",
     "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
     "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
+    MATHEMATICAL_INTEGRITY_POLICY,
     "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
     "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
     "For a numbered PDF task, an attached original task-page image is source evidence. Read equations and diagrams from that image when text extraction omits or distorts them, and cite the matching allowed resource ID. If the image is still illegible, report the exact gap.",

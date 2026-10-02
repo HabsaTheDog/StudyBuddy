@@ -5,7 +5,14 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.3";
+export const STUDENT_FIRST_POLICY_VERSION = "1.4";
+
+export const MATHEMATICAL_INTEGRITY_POLICY = [
+  "Check mathematical claims in prose and checklists as well as displayed calculations. Distinguish necessary conditions from sufficient conditions; do not reverse an implication or assert an equivalence without justification.",
+  "Test relevant counterexamples and zero, boundary, parallel, orthogonal and singular cases before claiming an expression is always nonzero or a condition guarantees a result. For example, nonzero parallel vectors can have a zero cross product.",
+  "Preserve scalar, vector and matrix types, operator meaning, derivative order and units; state the assumptions and domain restrictions required by each formula and inference. Conditions on operands alone do not establish a nonzero operator result.",
+  "Typst math `times` renders × and can correctly denote a vector cross product. Check the intended operator against the operands and source convention. Do not reject an operator solely because of its Typst token or replace a valid cross product with scalar or dot multiplication.",
+].join(" ");
 
 export const ASSESSMENT_SCORING_POLICY = [
   "Never invent point allocations, weights, pass thresholds, or official grading for generated or derived exercises and simulations.",
@@ -25,6 +32,7 @@ export const STUDENT_FIRST_POLICY = [
   "Select learning blocks and their placement from the evaluated request contract and course evidence; do not impose a universal practice, example, or checklist shape.",
   "Related course topics may share a chapter, but official topic labels, subtopics, and practice routes must remain visibly traceable.",
   "Practice items require a concrete learning goal and source evidence.",
+  MATHEMATICAL_INTEGRITY_POLICY,
 ].join(" ");
 
 export interface ArtifactIntent {

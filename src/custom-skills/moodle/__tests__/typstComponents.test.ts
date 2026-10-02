@@ -4,6 +4,37 @@ import { validateTypst } from "../validation.js";
 import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 describe("Study Buddy Typst components", () => {
+  it.each([
+    ['#sb-schedule-table((("00–10 min", "Recall the method"),))', 4],
+    ['#sb-schedule-table((("00–10 min", "Recall", "Explain"),))', 4],
+    ['#sb-schedule-table((("00–10 min", "Recall", "Explain", "Notes", "Extra"),))', 4],
+    ['#sb-key-value-table((("Property",),))', 2],
+    ['#sb-comparison-table((("Criterion", "Option A"),))', 3],
+    ['#sb-table(columns: (1fr, 1fr, 1fr), rows: (("First", "Second"),))', 3],
+  ])("rejects malformed approved-table rows before flattening: %s", async (body, expectedColumns) => {
+    const result = await validateTypst(studyBuddyTypstDocument(body), await getStudyBuddyTypstSupportFiles(), { preview: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain(`row 1 must have exactly ${expectedColumns} cells`);
+  }, 30_000);
+
+  it("rejects a generic table header inconsistent with its columns", async () => {
+    const source = studyBuddyTypstDocument('#sb-table(columns: (1fr, 1fr, 1fr), header: ("A", "B"), rows: (("1", "2", "3"),))');
+    const result = await validateTypst(source, await getStudyBuddyTypstSupportFiles(), { preview: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("header must have exactly 3 cells or be empty");
+  }, 30_000);
+
+  it("compiles complete approved rows with math, content and empty cells without shifting their columns", async () => {
+    const source = studyBuddyTypstDocument(`
+      #sb-key-value-table((("Property", [$ x = 2 $]),))
+      #sb-comparison-table((("Criterion", [Method A, with detail], ""),))
+      #sb-schedule-table((("00–10 min", "Recall", [Explain the method], "Checked notes"),
+        ("10–20 min", "Practice", [$ bold(a) times bold(b) $], "")))
+      #sb-table(columns: 2, rows: (("First", "Second"),))
+    `);
+    expect(await validateTypst(source, await getStudyBuddyTypstSupportFiles(), { preview: false })).toEqual({ ok: true });
+  }, 30_000);
+
   it("bundles the real Study Buddy logo with the cool brand palette", async () => {
     const supportFiles = await getStudyBuddyTypstSupportFiles();
     const components = supportFiles.find((file) => file.relativePath === "study-buddy-components.typ");

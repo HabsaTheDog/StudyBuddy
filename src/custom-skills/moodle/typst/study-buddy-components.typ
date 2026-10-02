@@ -432,6 +432,19 @@
   rows: (),
   compact: false,
 ) = {
+  let column-count = if type(columns) == int { columns } else { columns.len() }
+  assert(column-count > 0, message: "sb-table: declare at least one column.")
+  assert(
+    header.len() == 0 or header.len() == column-count,
+    message: "sb-table: header must have exactly " + str(column-count) + " cells or be empty.",
+  )
+  for (index, row) in rows.enumerate() {
+    assert(type(row) == array, message: "sb-table: each row must be an array of cells.")
+    assert(
+      row.len() == column-count,
+      message: "sb-table: row " + str(index + 1) + " must have exactly " + str(column-count) + " cells.",
+    )
+  }
   let padding = if compact { 3pt } else { 5pt }
   block(width: 100%, breakable: false)[
     #table(

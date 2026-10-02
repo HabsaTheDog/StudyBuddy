@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { buildAnalyzerPrompt, buildChapterFragmentPrompt } from "../nodes/analyzerNode.js";
+import { buildFormatterPrompt } from "../nodes/formatterNode.js";
+import { STUDENT_FIRST_POLICY } from "../studentFirstPolicy.js";
+import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
+import { moodleExtractedData, moodleTestConfig, moodleTestState, studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
+
+function expectMathematicalIntegrity(prompt: string) {
+  expect(prompt).toContain("necessary conditions from sufficient conditions");
+  expect(prompt).toContain("counterexamples");
+  expect(prompt).toContain("zero, boundary, parallel, orthogonal and singular cases");
+  expect(prompt).toContain("scalar, vector and matrix types");
+  expect(prompt).toContain("state the assumptions");
+  expect(prompt).toContain("Typst math `times` renders ×");
+  expect(prompt).toContain("nonzero parallel vectors can have a zero cross product");
+  expect(prompt).toContain("Do not reject an operator solely because of its Typst token");
+}
+
+describe("shared mathematical integrity prompt contract", () => {
+  const config = moodleTestConfig({ prompt: "Explain source-backed mathematical methods.", outputLanguage: "en" });
+  it("anchors condition, operator and boundary checks in the central student policy", () => {
+    expectMathematicalIntegrity(STUDENT_FIRST_POLICY);
+  });
+  it.each([false, true])("carries the same integrity rules through initial/repair PDF authoring: %s", (repair) => {
+    const prompt = buildFormatterPrompt(config, moodleTestState({ extracted_data: moodleExtractedData(),
+      ...(repair ? { final_document: studyBuddyTypstDocument(), error_log: "A claimed sufficient condition has a counterexample." } : {}) }));
+    expectMathematicalIntegrity(prompt);
+  });
+  it("carries the integrity contract through whole-request analysis", async () => {
+    expectMathematicalIntegrity(await buildAnalyzerPrompt(config, moodleTestState()));
+  });
+  it("carries the integrity contract through focused fragment analysis and repair", () => {
+    const prompt = buildChapterFragmentPrompt(config, moodleTestState(),
+      { key: "methods", title: "Mathematical Methods", resourceIds: [], matchTerms: [] },
+      { key: "methods", label: "Source method", resourceIds: [], records: [] }, 0, 1, null, [],
+      "Semantic quality review failed:\n- [chapter: Mathematical Methods] A sufficient-condition claim is false.");
+    expectMathematicalIntegrity(prompt);
+  });
+  it("documents approved table arities using concrete complete rows", () => {
+    const prompt = studyBuddyTemplatePromptReference("en");
+    expect(prompt).toContain('#sb-key-value-table((("Property", "Value"),))');
+    expect(prompt).toContain('#sb-comparison-table((("Criterion", "Option A", "Option B"),))');
+    expect(prompt).toContain('#sb-schedule-table((("00–10 min", "Recall", "Explain the method", "Checked notes"),))');
+    expect(prompt).toContain("exactly four cells in the order Time, Phase, Activity, Result");
+    expect(prompt).toContain("Every generic sb-table row must match the declared column count");
+  });
+});

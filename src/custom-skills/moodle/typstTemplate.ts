@@ -1,5 +1,5 @@
 import type { SupportedLanguage } from "../shared/languagePolicy.js";
-import { ASSESSMENT_SCORING_POLICY } from "./studentFirstPolicy.js";
+import { ASSESSMENT_SCORING_POLICY, MATHEMATICAL_INTEGRITY_POLICY } from "./studentFirstPolicy.js";
 
 export const STUDY_BUDDY_COMPONENTS_FILE = "study-buddy-components.typ";
 export const STUDY_BUDDY_TEMPLATE_FILE = "study-buddy-template.typ";
@@ -48,9 +48,10 @@ export function studyBuddyTemplatePromptReference(language: SupportedLanguage = 
     "Approved tables:",
     "- #sb-table(columns: (...), header: (...), rows: (...))",
     "- #sb-table-section(\"Überschrift\")[#sb-table(...)] keeps a table with its heading",
-    "- #sb-key-value-table(((...), (...)))",
-    "- #sb-comparison-table(((...), (...)))",
-    "- #sb-schedule-table(((...), (...)))",
+    '- #sb-key-value-table((("Property", "Value"),)) — each row has exactly two cells: Property, Value.',
+    '- #sb-comparison-table((("Criterion", "Option A", "Option B"),)) — each row has exactly three cells: Criterion, Option A, Option B.',
+    '- #sb-schedule-table((("00–10 min", "Recall", "Explain the method", "Checked notes"),)) — each row has exactly four cells in the order Time, Phase, Activity, Result.',
+    "Every generic sb-table row must match the declared column count; a nonempty header must match that count too. Empty content cells are permitted, omitted cells are not. Use sb-key-value-table for a genuine two-column list instead of passing two-cell rows to sb-schedule-table.",
     "Standard tables are intentionally unbreakable and use uniform row heights.",
     "Wrap every titled table in #sb-table-section so the heading and table cannot split across pages.",
     "If a table would be too long for one page, split it into meaningful titled subtables instead of drawing a raw Typst table.",
@@ -66,6 +67,7 @@ export function studyBuddyTemplatePromptReference(language: SupportedLanguage = 
     "Never draw diagrams with text arrow glyphs, inline CeTZ, raw rect/line geometry, ASCII art, or improvised tables.",
     "",
     "Mathematics rules:",
+    MATHEMATICAL_INTEGRITY_POLICY,
     "- Use editable Typst math, never screenshots or raw Unicode approximations.",
     "- Formula bodies must be real Typst math, e.g. #sb-formula(... )[$ m bold(a)_M = bold(R) $]. Never put #raw(...) inside #sb-formula.",
     "- Use #sb-math-panel for matrices, cases, integrals, nested sums, complex quantities, or multi-line derivations.",
