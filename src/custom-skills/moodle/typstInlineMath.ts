@@ -1,3 +1,14 @@
+// Named Greek letters from Typst's sym module, shared by styling, scripts and
+// identifier quoting: https://typst.app/docs/reference/symbols/sym/
+const supportedGreekSymbols: Record<string, string> = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ",
+  iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", omicron: "ο", pi: "π",
+  rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω", digamma: "ϝ",
+  Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ", Epsilon: "Ε", Zeta: "Ζ", Eta: "Η", Theta: "Θ",
+  Iota: "Ι", Kappa: "Κ", Lambda: "Λ", Mu: "Μ", Nu: "Ν", Xi: "Ξ", Omicron: "Ο", Pi: "Π",
+  Rho: "Ρ", Sigma: "Σ", Tau: "Τ", Upsilon: "Υ", Phi: "Φ", Chi: "Χ", Psi: "Ψ", Omega: "Ω", Digamma: "Ϝ",
+};
+
 export function renderTypstInlineText(
   value: string,
   formatMath: (value: string) => string,
@@ -15,7 +26,7 @@ export function renderTypstInlineText(
 }
 
 export function cleanVisibleMathText(value: string): string {
-  return normalizeVisibleLatex(unwrapVisibleMathCalls(value))
+  return normalizeBareBoldStyling(normalizeVisibleLatex(unwrapVisibleMathCalls(value)), false)
     .replace(/`/g, "")
     // Paired math delimiters are consumed by splitInlineMarkup. A remaining
     // dollar sign in a prose fragment is an orphaned delimiter, not Typst
@@ -155,7 +166,8 @@ function normalizeVisibleLatex(value: string): string {
 }
 
 function normalizeVisibleMathToken(value: string): string {
-  return cleanVisibleMathText(value.trim())
+  return cleanVisibleMathText(value.trim()
+    .replace(/\b[A-Za-z]+\b/g, (token) => supportedGreekSymbols[token] ?? token))
     .replace(/^#text\("([^"]+)"\)$/g, "$1")
     .trim();
 }
@@ -167,6 +179,12 @@ function toUnicodeBold(value: string): string {
     if (code >= 0x41 && code <= 0x5a) return String.fromCodePoint(0x1d400 + (code - 0x41));
     if (code >= 0x61 && code <= 0x7a) return String.fromCodePoint(0x1d41a + (code - 0x61));
     if (code >= 0x30 && code <= 0x39) return String.fromCodePoint(0x1d7ce + (code - 0x30));
+    if (character === "Ϝ") return "𝟊";
+    if (character === "ϝ") return "𝟋";
+    const uppercaseGreek = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡϴΣΤΥΦΧΨΩ".indexOf(character);
+    if (uppercaseGreek >= 0) return String.fromCodePoint(0x1d6a8 + uppercaseGreek);
+    const lowercaseGreek = "αβγδεζηθικλμνξοπρςστυφχψω".indexOf(character);
+    if (lowercaseGreek >= 0) return String.fromCodePoint(0x1d6c2 + lowercaseGreek);
     return character;
   }).join("");
 }
@@ -188,12 +206,7 @@ function toUnicodeSuperscript(value: string): string {
 }
 
 export function normalizeInlineMathSource(value: string): string {
-  const typstGreekIdentifiers = new Set([
-    "alpha", "beta", "chi", "delta", "epsilon", "eta", "gamma", "kappa", "lambda", "mu", "nu",
-    "omega", "phi", "pi", "psi", "rho", "sigma", "tau", "theta", "zeta",
-    "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
-  ]);
-  const normalized = value
+  const normalized = normalizeBareBoldStyling(value, true)
     .trim()
     .replace(/\bangle\.l\s+([^\n]*?)\s+rangle\b/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
     .replace(/\\langle\s*([^\n]*?)\s*\\rangle/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
@@ -252,7 +265,7 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9]*\([^)]+\))\)/g, (_, label: string) => `_"${label}"`)
     .replace(/_([A-Za-z][A-Za-z0-9]{1,})\b/g, (_, label: string) =>
-      typstGreekIdentifiers.has(label) ? `_${label}` : `_"${label}"`
+      Object.hasOwn(supportedGreekSymbols, label) ? `_${label}` : `_"${label}"`
     );
   return normalizeUnaryVectorStyling(normalizeCurriedBinaryMathFunction(normalized, "frac"))
     .split(/("[^"]*")/)
@@ -264,6 +277,44 @@ export function normalizeInlineMathSource(value: string): string {
           .replace(/\b([A-Za-z])(\d+)\b/g, "$1_$2")
     )
     .join("");
+}
+
+function normalizeBareBoldStyling(value: string, strict: boolean): string {
+  // Bare unary styling has a unique operand only for a single symbol. Keep
+  // scripts outside the call; never infer a grouped expression or word label.
+  return transformOutsideMathStrings(value, (part) => {
+    return part.replace(/(?<![\p{L}\p{N}_\\])bold\b(?!\s*\()(\s+[\p{L}\p{N}]+)?/gu, (match, tail: string | undefined) => {
+      const operand = tail?.trim();
+      const isSymbol = operand && (/^[A-Za-z]$/.test(operand) ||
+        Object.hasOwn(supportedGreekSymbols, operand) || /^\p{Script=Greek}$/u.test(operand));
+      if (!isSymbol) {
+        if (strict) throw new Error(`Unsupported bare bold operand ${JSON.stringify(operand ?? "missing")}; use explicit bold(...) notation.`);
+        return match;
+      }
+      return `bold(${operand})`;
+    });
+  });
+}
+
+function transformOutsideMathStrings(value: string, transform: (part: string) => string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const open = value.indexOf('"', cursor);
+    if (open < 0) return result + transform(value.slice(cursor));
+    result += transform(value.slice(cursor, open));
+    let close = open + 1;
+    while (close < value.length) {
+      if (value[close] === "\\") close += 2;
+      else if (value[close] === '"') break;
+      else close += 1;
+    }
+    // Leave an unterminated string untouched for the compiler to diagnose.
+    if (close >= value.length) return result + value.slice(open);
+    result += value.slice(open, close + 1);
+    cursor = close + 1;
+  }
+  return result;
 }
 
 function normalizeUnaryVectorStyling(value: string): string {
@@ -343,11 +394,10 @@ function matchingMathParen(value: string, openIndex: number): number {
 
 export function quoteBareMathText(value: string): string {
   const mathKeywords = new Set([
-    "accent", "alpha", "and", "approx", "arrow", "beta", "bold", "chi", "compose", "cos", "delta", "dif", "div", "dot",
-    "dots", "double", "epsilon", "eta", "exp", "frac", "gamma", "kappa", "lambda", "lim",
-    "infinity", "integral", "ln", "log", "max", "min", "mu", "NN", "nu", "omega", "or", "phi", "pi", "psi", "quad", "RR",
-    "forall", "in", "minus", "plus", "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "without", "zeta",
-    "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
+    ...Object.keys(supportedGreekSymbols),
+    "accent", "and", "approx", "arrow", "bold", "compose", "cos", "dif", "div", "dot",
+    "dots", "double", "exp", "frac", "lim", "infinity", "integral", "ln", "log", "max", "min", "NN", "or", "quad", "RR",
+    "forall", "in", "minus", "plus", "sin", "sqrt", "sum", "tan", "times", "vec", "without",
   ]);
   return value
     .replace(
