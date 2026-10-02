@@ -102,7 +102,7 @@ async function prepare(context: DirectDocumentContext, prompt: string): Promise<
     "Explain useful steps, assumptions, variables, units and checked results; keep source and derived work distinguishable.",
     "Copy the source tool's returned manifestPath to sources-manifest.json before compiling. Preserve source files and their original hashes.",
     "Use real file edits and compile diagnostics to make local repairs; never regenerate unrelated verified mathematics for layout.",
-    "After successful compilation, inspect document.txt and every composed PDF preview page; correct factual and visual defects before publishing.",
+    "After successful compilation, inspect document.txt and every composed PDF preview page. Verify every technical definition, legend and explanatory note against the supporting material you actually read; preserve each symbol's stated role, reference point, frame, basis and derivative order wherever these appear. Check annotations in their visible placement and meaning, not only numerical results or page layout. Correct factual and visual defects before publishing.",
     "Compilation and publication checks are technical checks, not independent factual approval. Three unsuccessful validations end this document invocation.",
     "Do not open, fill, save or submit quiz attempts. Never access credentials or browser storage.",
     "Original request (verbatim):", prompt,
@@ -137,6 +137,7 @@ function directDocumentSyntaxExamples(): string {
     Literal suffixes are quoted: $ x_"ref" $, $ x_"rel" $, and $ x_"A/B" $.
     Fractions and scalable grouping: $ frac(a, b) $ and $ lr((dif f)/(dif t)) $.
     Numeric computations use decimal dots: $ sqrt(7.2^2+3.0^2) $.
+    Give a brace its annotation as a function argument: $ underbrace(x+y, "group") $.
     Units are separate quoted text: $ q "m" $ and $ tau "s" $.
 
     #sb-source-note("Syntax illustration", coverage: "No technical source claim")

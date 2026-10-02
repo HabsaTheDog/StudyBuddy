@@ -57,6 +57,7 @@ describe("direct native-owner document tools", () => {
     expect(examples).toContain("bold(x)");
     expect(examples).toContain("dot(x)");
     expect(examples).toContain("sqrt(7.2^2+3.0^2)");
+    expect(examples).toContain('underbrace(x+y, "group")');
     expect(examples).toContain('#sb-source-note("Syntax illustration", coverage: "No technical source claim")');
     expect(examples).not.toMatch(/\\(?:left|right)\b|\b(?:left|right)\(/);
     const result = await validation.compileTypstPdf(prepared.syntaxExamplePath as string, path.join(runDir, "syntax-examples.pdf"), {
