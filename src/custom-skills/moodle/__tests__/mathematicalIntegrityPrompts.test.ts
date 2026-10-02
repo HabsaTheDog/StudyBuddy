@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAnalyzerPrompt, buildChapterFragmentPrompt } from "../nodes/analyzerNode.js";
 import { buildFormatterPrompt } from "../nodes/formatterNode.js";
+import { buildQualityReviewPrompt } from "../nodes/qualityReviewerNode.js";
 import { STUDENT_FIRST_POLICY } from "../studentFirstPolicy.js";
 import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
 import { moodleExtractedData, moodleTestConfig, moodleTestState, studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
@@ -14,6 +15,12 @@ function expectMathematicalIntegrity(prompt: string) {
   expect(prompt).toContain("Typst math `times` renders ×");
   expect(prompt).toContain("nonzero parallel vectors can have a zero cross product");
   expect(prompt).toContain("Do not reject an operator solely because of its Typst token");
+  expect(prompt).toContain("Every generated task must be feasible under its stated assumptions");
+  expect(prompt).toContain("Solve with unchanged givens");
+  expect(prompt).toContain("label hypothetical changes explicitly");
+  expect(prompt).toContain("never as solutions within those givens");
+  expect(prompt).toContain("An instantaneous function value does not determine its derivative");
+  expect(prompt).toContain("a value at one instant from an identity over an interval");
 }
 
 describe("shared mathematical integrity prompt contract", () => {
@@ -35,6 +42,10 @@ describe("shared mathematical integrity prompt contract", () => {
       { key: "methods", label: "Source method", resourceIds: [], records: [] }, 0, 1, null, [],
       "Semantic quality review failed:\n- [chapter: Mathematical Methods] A sufficient-condition claim is false.");
     expectMathematicalIntegrity(prompt);
+  });
+  it.each([false, true])("uses the same feasibility, givens and derivative contract in the existing reviewer (repair=%s)", repair => {
+    expectMathematicalIntegrity(buildQualityReviewPrompt(config, moodleTestState({ extracted_data: moodleExtractedData() }),
+      repair ? "A derived solution changed the task's given assumptions." : null));
   });
   it("documents approved table arities using concrete complete rows", () => {
     const prompt = studyBuddyTemplatePromptReference("en");
