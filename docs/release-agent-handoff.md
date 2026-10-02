@@ -20,6 +20,13 @@ claim it is pushed or silently include it in a candidate.
 
 ## Failed native-run repair intake, 2026-10-02
 
+Native23 one-owner first round ended without a PDF after three real Typst
+syntax failures; source acquisition and preliminary numeric practice were correct.
+No native pass. Same simple route now supplies compiled generic syntax examples
+(paired math delimiters, quoted literal suffixes, lr grouping).17 real document
+checks/20 source checks and independent review; fresh exact-prompt repetition
+still pending. Native23 originals remain immutable.
+
 LATEST OWNER STEERING: the owner explicitly rejects manual PDF delivery as pipeline
 completion and asks for radical PDF simplification. New `single-owner-pdf` campaign:
 one native author, original prompt/shared template, readonly sources and deterministic

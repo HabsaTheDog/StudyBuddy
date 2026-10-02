@@ -45,6 +45,27 @@ describe("direct native-owner document tools", () => {
     expect(state).not.toHaveProperty("qualityReview");
   });
 
+  it("provides a copyable generic syntax starter that compiles without changing the document", async () => {
+    const prepared = await executeDirectDocument({ op: "prepare", prompt: "Create a concise source-grounded document." }, environment);
+    expect(typeof prepared.syntaxExamplePath).toBe("string");
+    const runDir = prepared.runDir!;
+    const original = await readFile(path.join(runDir, "document.typ"));
+    const examples = await readFile(prepared.syntaxExamplePath as string, "utf8");
+    expect(examples).toContain('x_"ref"');
+    expect(examples).toContain('x_"rel"');
+    expect(examples).toContain("lr((dif f)/(dif t))");
+    expect(examples).toContain("bold(x)");
+    expect(examples).toContain("dot(x)");
+    expect(examples).not.toMatch(/\\(?:left|right)\b|\b(?:left|right)\(/);
+    const result = await validation.compileTypstPdf(prepared.syntaxExamplePath as string, path.join(runDir, "syntax-examples.pdf"), {
+      packagePath: path.join(runDir, ".typst-packages"), env: { PATH: process.env.PATH, LANG: "C.UTF-8" },
+    });
+    expect(result).toEqual({ ok: true, skipped: false });
+    expect(await readFile(path.join(runDir, "document.typ"))).toEqual(original);
+    expect(JSON.parse(await readFile(path.join(runDir, "direct-document.json"), "utf8"))).toMatchObject({ status: "prepared", retry_count: 0 });
+    expect(await readFile(path.join(runDir, "brief.txt"), "utf8")).toContain("syntax-examples.typ");
+  }, 30_000);
+
   it("compiles real files, renders every composed page and publishes an identical unused copy", async () => {
     const runDir = await prepare();
     await author(runDir, "First page source-backed explanation.\n#pagebreak()\nSecond page checked example: $ x = 2 $.");

@@ -2,6 +2,18 @@
 
 ## 2026-10-02: single native owner for PDF documents
 
+Native23 first direct-owner round: sources and initial worked numerical content
+were correct, but no PDF was published after three compiler failures (unpaired
+math delimiters, literal suffix rel, then LaTeX-style left/right). Keep this run
+rejected and its artifacts unchanged. Refine the same single-owner template:
+provide a compact executable Typst syntax example covering paired delimiters,
+quoted literal suffixes and lr grouping, plus the existing components. Compile
+that generic example deterministically in tests before the next exact-prompt
+native round. No new model stage, semantic regeneration, retry-cap increase or
+curriculum-specific workaround. The supplied template must be usable before the
+owner writes a source-grounded document.
+
+
 The owner explicitly requests a substantial simplification: give the existing
 native chat agent the original prompt and a template, and let it directly create
 the document. This supersedes the repair-chain direction below for the default
