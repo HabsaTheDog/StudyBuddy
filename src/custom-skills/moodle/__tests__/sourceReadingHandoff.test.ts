@@ -86,6 +86,66 @@ describe("acquired source reading handoff", () => {
     } finally { await rm(f.runDir, { recursive: true, force: true }); }
   });
 
+  it.each(["sufficient", "request_more"])("preserves known exploratory native reading through a %s semantic reassessment", async reassessmentStatus => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = ["https://example.edu/optional.pdf", f.wrapperUrl];
+      f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl];
+      f.response.learning_architecture.modules.push({ ...f.response.learning_architecture.modules[0], id: "practice", title: "Applying evidence", resourceUrls: [] });
+      const response = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(response.error_log).toBeNull();
+      expect(response.source_architect_decision).toMatchObject({ status: "request_more", requestedUrls: ["https://example.edu/optional.pdf"],
+        pendingReads: [{ resourceId: "wrapper", url: f.wrapperUrl, medium: "native_text", purpose: "scope_assessment" }] });
+      expect(response.source_architect_decision?.learningArchitecture?.modules.map(module => module.id)).toEqual(["method", "practice"]);
+      expect(response.source_architect_decision?.learningArchitecture?.modules[1].resourceUrls).toEqual([]);
+      const next = { ...f.state, ...response };
+      const acquired = { ...next.resource_manifest.resources[0], id: "new-practice", title: "New acquired method application", originUrl: "https://example.edu/optional.pdf", localPath: path.join(f.runDir, "new.pdf") };
+      await writeFile(acquired.localPath, "%PDF-1.4 existing acquired source"); next.resource_manifest.resources.push(acquired);
+      const calls = vi.fn(async (prompt: string) => {
+        expect(prompt).toContain("scope_assessment");
+        expect(prompt).toContain("Applying evidence");
+        return JSON.stringify({ ...f.response, status: reassessmentStatus, requested_urls: reassessmentStatus === "request_more" ? [f.lectureUrl] : [], learning_architecture: { ...f.response.learning_architecture,
+          modules: [{ ...f.response.learning_architecture.modules[0] }, { ...f.response.learning_architecture.modules[1], resourceUrls: [acquired.originUrl] }] } });
+      });
+      const reassessed = await createSourceArchitectNode(f.config, { run: calls })(next);
+      expect(calls).toHaveBeenCalledTimes(1);
+      expect(reassessed.error_log).toBeNull();
+      expect(reassessed.source_architect_decision?.pendingReads?.find(read => read.resourceId === "wrapper")?.purpose).toBe("scope_assessment");
+      const finalState = { ...next, ...reassessed };
+      const focus = { key: "method", title: "Evidence interpretation", resourceIds: ["lecture"], matchTerms: [] };
+      expect(await buildAnalyzerPrompt(f.config, finalState, focus)).toContain("scope_assessment");
+      expect(await buildAnalyzerPrompt(f.config, finalState, focus)).toContain("linked target content is not verified");
+      expect(finalState.source_architect_decision.learningArchitecture?.modules.every(module => !module.resourceUrls.includes(f.wrapperUrl))).toBe(true);
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it.each(["unknown", "excluded", "diagnostic-only"])("rejects %s exploratory targets even while genuine downloads are available", async invalid => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = ["https://example.edu/optional.pdf", f.wrapperUrl];
+      f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl];
+      if (invalid === "unknown") f.response.requested_urls[1] = "https://example.edu/unknown-target";
+      if (invalid === "excluded") f.response.learning_architecture.excludedResourceUrls.push(f.wrapperUrl);
+      if (invalid === "diagnostic-only") f.state.moodle_raw_text = "";
+      const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(result.source_architect_decision?.status).toBe("blocked");
+      expect(result.error_log).toContain("not an admissible acquired reading target");
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it("does not declare an essential empty planning module ready after acquisitions drain", async () => {
+    const f = await fixture();
+    try {
+      f.response.status = "sufficient";
+      f.response.requested_urls = [];
+      f.response.learning_architecture.modules.push({ ...f.response.learning_architecture.modules[0], id: "missing-method", title: "Unsupported method", resourceUrls: [] });
+      const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(result.source_architect_decision?.status).toBe("blocked");
+      expect(result.error_log).toContain("missing-method");
+      expect(result.source_architect_decision?.learningArchitecture?.modules.some(module => module.id === "missing-method")).toBe(true);
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
   it("accepts a native HTML-only acquired page with exact original snapshot provenance", async () => {
     const f = await fixture();
     try {
