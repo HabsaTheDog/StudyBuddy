@@ -53,7 +53,8 @@ describe("direct native-owner document tools", () => {
     const examples = await readFile(prepared.syntaxExamplePath as string, "utf8");
     expect(examples).toContain('x_"ref"');
     expect(examples).toContain('x_"rel"');
-    expect(examples).toContain("lr(frac(dif f, dif t))");
+    expect(examples).toContain("lr((frac(dif f, dif t)))");
+    expect(examples).toContain("bold(a) times lr((bold(b) times bold(c)))");
     expect(examples).toContain("frac(dif bold(q), dif t)");
     expect(examples).toContain("frac(partial bold(q), partial t)");
     expect(examples).toContain("bold(x)");
@@ -69,6 +70,7 @@ describe("direct native-owner document tools", () => {
     const text = await runBoundedProcess("pdftotext", ["-layout", path.join(runDir, "syntax-examples.pdf"), "-"]);
     expect(text.code).toBe(0);
     expect(text.stdout).toContain("Complete differential fractions");
+    expect(text.stdout.normalize("NFKC")).toMatch(/a\s*×\s*\(b\s*×\s*c\)/);
     expect(await readFile(path.join(runDir, "document.typ"))).toEqual(original);
     expect(JSON.parse(await readFile(path.join(runDir, "direct-document.json"), "utf8"))).toMatchObject({ status: "prepared", retry_count: 0 });
     expect(await readFile(path.join(runDir, "brief.txt"), "utf8")).toContain("syntax-examples.typ");
