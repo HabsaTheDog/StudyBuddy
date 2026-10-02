@@ -81,11 +81,12 @@ export class DirectSources {
       return record;
     }));
   }
-  private async save(record: DirectSourceRecord) {
+  private async save(record: DirectSourceRecord, discovery = false) {
     await mkdir(path.join(this.root, "records"), { recursive: true, mode: 0o700 });
     const old = (await this.readRecords()).find(item => item.id === record.id);
     const target = path.join(this.root, "records", `${record.id}.json`);
-    await this.write(target, JSON.stringify(recordSchema.parse({ ...old, ...record })));
+    const observed = discovery && old && (old.textPath || old.localPath);
+    await this.write(target, JSON.stringify(recordSchema.parse(observed ? { ...record, ...old } : { ...old, ...record })));
   }
   private async owned(file: string) {
     const info = await lstat(file);
@@ -101,7 +102,7 @@ export class DirectSources {
     let result: Record<string, unknown>;
     if (r.op === "courses") {
       const found = await this.backend.courses(); const links = found.links.filter(link => { try { assertDirectReadUrl(link.url, this.origins); return true; } catch { return false; } });
-      for (const link of links) await this.save({ ...link, id: stableResourceId(link.url) });
+      for (const link of links) await this.save({ ...link, id: stableResourceId(link.url) }, true);
       const terms = (r.query ?? "").toLocaleLowerCase().split(/\s+/).filter(Boolean);
       result = { complete: found.complete, courses: links.filter(link => !terms.length || terms.every(term => link.title.toLocaleLowerCase().includes(term))).map(link => ({ ...link, id: stableResourceId(link.url) })), totalCourses: links.length };
     } else if (r.op === "page") {
@@ -109,7 +110,7 @@ export class DirectSources {
       const id = stableResourceId(url), textPath = path.join(this.root, `${id}.native.txt`);
       await this.write(textPath, page.text); await this.save({ id, title: page.title, url, resolvedUrl: page.url, textPath });
       const links = page.links.filter(link => { try { assertDirectReadUrl(link.url, this.origins); return true; } catch { return false; } });
-      for (const link of links) if (stableResourceId(link.url) !== id) await this.save({ ...link, id: stableResourceId(link.url) });
+      for (const link of links) if (stableResourceId(link.url) !== id) await this.save({ ...link, id: stableResourceId(link.url) }, true);
       result = { id, title: page.title, url, resolvedUrl: page.url, textPath, text: page.text, links: links.map(link => ({ ...link, id: stableResourceId(link.url) })) };
     } else if (r.op === "download") {
       const known = (await this.readRecords()).find(record => record.id === (r.sourceID ?? r.resourceID));

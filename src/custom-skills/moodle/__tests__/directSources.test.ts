@@ -14,6 +14,30 @@ async function setup() {
   return {directory,root,backend,tools:new DirectSources(root,[origin],backend,async()=>undefined)};
 }
 describe("direct read-only owner sources",()=>{
+  it("retains observed page/download identity across catalog backlinks and permits explicit refresh",async()=>{
+    const f=await setup();try{
+      const course=origin+"/course/view.php?id=2", quiz=origin+"/mod/quiz/view.php?id=4", unknown=origin+"/mod/resource/view.php?id=99";
+      let refreshed=false;
+      f.backend.page=async target=>target===course
+        ?{title:refreshed?"Updated native course title":"Native course title",url:course,text:refreshed?"Updated native course text":"Native course text",links:[{title:"Original slides",url}]}
+        :{title:"Actual assessment",url:quiz,text:"Assessment text",links:[{title:"Grading criteria",url:course+"#gradingcriteria"},{title:"Renamed navigation label",url},{title:"New resource",url:unknown}]};
+      const observed=await f.tools.run({op:"page",url:course});
+      const downloaded=await f.tools.run({op:"download",url});
+      const snapshot=JSON.parse(await readFile(observed.manifestPath as string,"utf8"));
+      const backlink=await f.tools.run({op:"page",url:quiz});
+      await f.tools.run({op:"courses"});
+      const manifest=JSON.parse(await readFile(observed.manifestPath as string,"utf8"));
+      for(const id of [observed.sourceID,downloaded.sourceID])expect(manifest.sources.find((item:any)=>item.id===id)).toEqual(snapshot.sources.find((item:any)=>item.id===id));
+      expect(backlink.links).toContainEqual(expect.objectContaining({title:"Grading criteria",url:course+"#gradingcriteria"}));
+      expect(manifest.sources).toContainEqual(expect.objectContaining({id:stableResourceId(unknown),title:"New resource",url:unknown}));
+      refreshed=true;
+      await f.tools.run({op:"page",url:course});
+      const updated=JSON.parse(await readFile(observed.manifestPath as string,"utf8"));
+      const record=updated.sources.find((item:any)=>item.id===observed.sourceID);
+      expect(record).toMatchObject({title:"Updated native course title",url:course,resolvedUrl:course,textPath:observed.textPath});
+      expect(await readFile(record.textPath,"utf8")).toBe("Updated native course text");
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
   it("preserves an observed native title when downloading by URL",async()=>{
     const f=await setup();try{
       await f.tools.run({op:"page",url:origin+"/course/view.php?id=2"});
