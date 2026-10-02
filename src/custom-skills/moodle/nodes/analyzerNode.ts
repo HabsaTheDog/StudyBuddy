@@ -55,7 +55,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.2-document-source-context";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.3-complete-producer-budget";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -74,6 +74,24 @@ const FRAGMENT_RECORD_OVERLAP = 2;
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
 // and avoid turning apparent parallelism into paired model timeouts.
 const CHAPTER_ANALYZER_CONCURRENCY = 1;
+
+export class AnalyzerPromptCapacityError extends Error {
+  constructor(message: string) { super(message); this.name = "AnalyzerPromptCapacityError"; }
+}
+
+function assertAnalyzerProducerCapacity(prompt: string, budget: number): string {
+  if (prompt.length > budget) throw new AnalyzerPromptCapacityError(
+    `Analyzer producer exceeds its capacity: ${prompt.length}/${budget} characters after metadata compaction. Protected request, contract and document context cannot be shortened; partition the source packet before retrying.`,
+  );
+  return prompt;
+}
+
+function evidenceProducerView(records: ChapterSlice["records"], terse: boolean) {
+  if (!terse) return records;
+  // Local paths and confidence repeat acquisition metadata, not learning
+  // evidence. Preserve each source URL even when the manifest is bounded.
+  return records.map(({ localPath: _path, confidence: _confidence, ...record }) => record);
+}
 
 class IncompleteChapterAnalysisError extends Error {
   constructor(
@@ -137,7 +155,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
           { retainedSections: partialData.sections.length },
         );
       }
-      const nonRetryable = isNonRetryableCodexError(error);
+      const nonRetryable = error instanceof AnalyzerPromptCapacityError || isNonRetryableCodexError(error);
       if (nonRetryable) {
         await config.diagnostics?.log(
           "error",
@@ -396,6 +414,7 @@ async function analyzeCourseChapters(
         // Do not aggregate a global abort as a chapter failure or advance to
         // another chapter. The outer node rethrows the same run-level reason.
         throwIfAborted(config.abortSignal);
+        if (error instanceof AnalyzerPromptCapacityError) throw error;
         if (error instanceof StudyBuddyCheckpointError) {
           throw error;
         }
@@ -741,7 +760,7 @@ async function analyzeDenseChapter(
         break;
       } catch (error) {
         throwIfAborted(config.abortSignal);
-        if (error instanceof ModelCallTimeoutError || isNonRetryableCodexError(error)) throw error;
+        if (error instanceof AnalyzerPromptCapacityError || error instanceof ModelCallTimeoutError || isNonRetryableCodexError(error)) throw error;
         if (localAttempt + 1 >= localAttempts) throw error;
         localRepairFeedback =
           `Validator-Diagnose für den einmaligen lokalen Reparaturversuch: ${
@@ -1591,7 +1610,9 @@ export function buildChapterFragmentPrompt(
     }));
 
   const documentLanguage = languageName(config.outputLanguage);
-  return [
+  const records = slice.records;
+  let terseMetadata = false;
+  const assemble = (compact = false) => [
     "Return only schema-valid JSON. Use only the supplied evidence and allowed IDs; do not research, open files, repeat other chapters, or invent claims, sources, relationships, or values.",
     "Let the evaluated request contract and available evidence determine the chapter depth and which content components are useful. Do not satisfy a fixed section, formula, example, figure, or warning quota. Explain meaning, relationships, method choice, boundary conditions, and typical errors only where relevant to the request.",
     "Optional arrays such as worked_examples and figures may be empty. Populate them only when the contract asks for them or the evidence-derived content strategy justifies them.",
@@ -1625,16 +1646,25 @@ export function buildChapterFragmentPrompt(
     `Teil ${index + 1}/${total}: ${slice.label}. Lernmodus: ${focus.contentMode ?? "mixed"}.`,
     `Nutzerauftrag: ${localizedRepairFeedback ? state.request_contract.originalPrompt : config.prompt}`,
     localizedRepairFeedback
-      ? `Relevante RequestContract-Zuweisung für diese Inhaltsreparatur: ${JSON.stringify(repairContractContext, null, 2)}`
-      : `Evaluierter Request Contract: ${JSON.stringify(state.request_contract, null, 2)}`,
+      ? `Relevante RequestContract-Zuweisung für diese Inhaltsreparatur: ${JSON.stringify(repairContractContext, null, compact ? undefined : 2)}`
+      : `Evaluierter Request Contract: ${JSON.stringify(state.request_contract, null, compact ? undefined : 2)}`,
     localizedRepairFeedback
       ? `Lokalisierte Validator-Diagnose für diesen Reparaturversuch:\n${localizedRepairFeedback}`
       : "",
-    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, 2)}`,
-    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, 2)}`,
-    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, 2)}`,
-    `Evidenz für diesen Teil: ${JSON.stringify(slice.records, null, 2)}`,
+    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, compact ? undefined : 2)}`,
+    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, compact ? undefined : 2)}`,
+    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, compact ? undefined : 2)}`,
+    `Evidenz für diesen Teil: ${JSON.stringify(evidenceProducerView(records, terseMetadata), null, compact ? undefined : 2)}`,
   ].join("\n\n");
+  const task = localizedRepairFeedback ? "content_repair" : "content_analyzer";
+  const budget = resolveModelPromptBodyCharacterBudget(task, chapterFragmentJsonSchema) - ANALYZER_PROMPT_CHARACTER_MARGIN;
+  let prompt = assemble();
+  if (prompt.length <= budget) return prompt;
+  prompt = assemble(true); // lossless whitespace compaction comes first
+  if (prompt.length <= budget) return prompt;
+  terseMetadata = true;
+  prompt = assemble(true);
+  return assertAnalyzerProducerCapacity(prompt, budget);
 }
 
 function localizeChapterRepairDiagnostic(
@@ -2798,7 +2828,8 @@ export async function buildAnalyzerPrompt(
     : config.maxVisualAssets > 0
       ? config.maxVisualAssets
       : 0;
-  const assemblePrompt = (evidenceView: LangGraphAgentState["evidence_package"]) => [
+  let terseMetadata = false;
+  const assemblePrompt = (evidenceView: LangGraphAgentState["evidence_package"], compact = false) => [
     "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a learner in the requested course, regardless of discipline.",
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
@@ -2827,7 +2858,7 @@ export async function buildAnalyzerPrompt(
       ? "Set quiz_style_questions to an empty array. These profiles use one learning checklist and no practice bank."
       : "Practice questions must test subject knowledge, have a concrete learning purpose, and cite subject evidence. Never ask about alias, date, time, room, teacher, or source-page metadata.",
     `Output language is ${languageName(config.outputLanguage)}.`,
-    `Evaluated request contract: ${JSON.stringify(state.request_contract, null, 2)}`,
+    `Evaluated request contract: ${JSON.stringify(state.request_contract, null, compact ? undefined : 2)}`,
     `Task context: ${JSON.stringify({
       artifactProfile: config.artifactIntent.profile,
       outputLanguage: languageName(config.outputLanguage),
@@ -2847,16 +2878,16 @@ export async function buildAnalyzerPrompt(
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
     `Source coverage JSON:\n${JSON.stringify(
-      compactSourceCoverage(config.diagnostics?.getCoverage() ?? {}),
+      compactSourceCoverage(config.diagnostics?.getCoverage() ?? {}, terseMetadata),
       null,
-      2,
+      compact ? undefined : 2,
     )}`,
     obligationCoverageView
-      ? `Obligation coverage manifest summary JSON:\n${JSON.stringify(obligationCoverageView, null, 2)}`
+      ? `Obligation coverage manifest summary JSON:\n${JSON.stringify(obligationCoverageView, null, compact ? undefined : 2)}`
       : "",
-    analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(analyzerVisuals, null, 2)}` : "Visual candidates JSON: none",
-    `Resource manifest JSON:\n${JSON.stringify(analyzerManifest, null, 2)}`,
-    `Evidence package selection JSON:\n${JSON.stringify(evidenceView, null, 2)}`,
+    analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(terseMetadata ? { ...analyzerVisuals, warnings: (analyzerVisuals.warnings ?? []).slice(0, 3).map(warning => truncateAnalyzerText(warning, 300)) } : analyzerVisuals, null, compact ? undefined : 2)}` : "Visual candidates JSON: none",
+    `Resource manifest JSON:\n${JSON.stringify(terseMetadata ? { ...analyzerManifest, resources: analyzerManifest.resources.map(resource => ({ id: resource.id, title: resource.title, originUrl: resource.originUrl, activityType: resource.activityType, status: resource.status })) } : analyzerManifest, null, compact ? undefined : 2)}`,
+    `Evidence package selection JSON:\n${JSON.stringify(terseMetadata ? { ...evidenceView, records: evidenceProducerView(evidenceView.records, true), warnings: evidenceView.warnings.slice(0, 3).map(warning => truncateAnalyzerText(warning, 300)) } : evidenceView, null, compact ? undefined : 2)}`,
     sourceOverview ? `Moodle/CIS source overview:\n${sourceOverview}` : "",
   ]
     .filter(Boolean)
@@ -2875,6 +2906,9 @@ export async function buildAnalyzerPrompt(
     boundedEvidenceBudget,
   );
   let prompt = assemblePrompt(evidenceView);
+  let compact = false;
+  if (prompt.length > promptBudget) { compact = true; prompt = assemblePrompt(evidenceView, true); }
+  if (prompt.length > promptBudget) { terseMetadata = true; prompt = assemblePrompt(evidenceView, true); }
   while (
     prompt.length > promptBudget &&
     boundedEvidenceBudget > MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT
@@ -2889,9 +2923,9 @@ export async function buildAnalyzerPrompt(
       config.prompt,
       boundedEvidenceBudget,
     );
-    prompt = assemblePrompt(evidenceView);
+    prompt = assemblePrompt(evidenceView, compact);
   }
-  return prompt;
+  return assertAnalyzerProducerCapacity(prompt, promptBudget);
 }
 
 interface AnalyzerManifestResourceView extends Record<string, unknown> {
@@ -2962,13 +2996,13 @@ function truncateAnalyzerText(value: string, limit: number): string {
   return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
-function compactSourceCoverage(coverage: object): Record<string, unknown> {
+function compactSourceCoverage(coverage: object, terse = false): Record<string, unknown> {
   return Object.fromEntries(Object.entries(coverage as Record<string, unknown>).map(([source, value]) => {
     if (!value || typeof value !== "object") return [source, value];
     const entry = value as Record<string, unknown>;
     return [source, {
       status: entry.status,
-      detail: entry.detail,
+      detail: terse && typeof entry.detail === "string" ? truncateAnalyzerText(entry.detail, 500) : entry.detail,
       pages: entry.pages,
       urlCount: Array.isArray(entry.urls) ? entry.urls.length : 0,
       attemptedUrlCount: Array.isArray(entry.attemptedUrls) ? entry.attemptedUrls.length : 0,
