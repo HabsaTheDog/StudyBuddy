@@ -20,6 +20,25 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("renders each content object once when learning modules share course citations", async () => {
+    const module = (id: string, resource_ids: string[]) => ({
+      id, title: `Module ${id}`, priority: "essential" as const, content_mode: "mixed" as const,
+      learning_objectives: ["Interpret the supported material"], assessment_signals: [], resource_ids,
+    });
+    const source = renderDeterministicStudyDocument(moodleExtractedData({
+      learning_modules: [module("framework", ["course"]), module("methods", ["course", "lesson"])],
+      sections: [{ heading: "Unique confirmed framework", summary: "One shared assessment announcement.", key_concepts: [], source_ids: ["course"] }],
+      formulas: [{ name: "Unique shared formula", typst: "x = 2", variables: [], units: [], context: "Stated relation.", source_ids: ["course"] }],
+      worked_examples: [{ origin: "derived", learning_goal: "Unique shared practice", prompt: "Find x.", steps: ["Use the stated relation."], result: "x = 2", source_ids: ["course"] }],
+      figures: [],
+    }), structuredClone(initialSourceCoverage));
+    expect(source.split("Unique confirmed framework")).toHaveLength(2);
+    expect(source.split("Unique shared formula")).toHaveLength(2);
+    expect(source.split("Unique shared practice")).toHaveLength(2);
+    expect(source).toContain("One shared assessment announcement.");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles())).resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("uses a readable text fallback for a compiler-identified malformed equation", async () => {
     const supportFiles = await getStudyBuddyTypstSupportFiles();
     const original = studyBuddyTypstDocument("$ badunknown(x) $");

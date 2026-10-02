@@ -128,12 +128,17 @@ type WorkedExample = ExtractedData["worked_examples"][number];
 function renderLearningModules(data: ExtractedData): string[] {
   const body: string[] = [];
   const moduleResourceIds = new Set(data.learning_modules.flatMap((module) => module.resource_ids));
+  // Shared course/assessment citations establish provenance, not copies of a
+  // content object. Retain module order and existing source association while
+  // projecting each validated object into its first matching module once.
+  const ownsContent = (sourceIds: string[], module: LearningModule) =>
+    data.learning_modules.find((candidate) => belongsToModule(sourceIds, candidate)) === module;
 
   for (const [moduleIndex, module] of data.learning_modules.entries()) {
-    const sections = data.sections.filter((section) => belongsToModule(section.source_ids, module));
-    const formulas = data.formulas.filter((formula) => belongsToModule(formula.source_ids, module));
-    const figures = data.figures.filter((figure) => belongsToModule(figure.source_ids, module));
-    const examples = data.worked_examples.filter((example) => belongsToModule(example.source_ids, module));
+    const sections = data.sections.filter((section) => ownsContent(section.source_ids, module));
+    const formulas = data.formulas.filter((formula) => ownsContent(formula.source_ids, module));
+    const figures = data.figures.filter((figure) => ownsContent(figure.source_ids, module));
+    const examples = data.worked_examples.filter((example) => ownsContent(example.source_ids, module));
     if (sections.length + formulas.length + figures.length + examples.length === 0) continue;
 
     body.push(
