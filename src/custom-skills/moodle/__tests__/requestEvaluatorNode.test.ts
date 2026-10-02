@@ -17,6 +17,12 @@ afterEach(async () => {
 });
 
 describe("request evaluator", () => {
+  it("preserves plural and multipart user intent without inventing a fixed quota", () => {
+    const prompt = buildRequestEvaluatorPrompt(moodleTestConfig({ originalUserPrompt: "Please include a few examples and a multipart practice case." }), moodleTestState());
+    expect(prompt).toContain("Preserve plural example requests and multipart-task intent");
+    expect(prompt).toContain("do not weaken them to a single example or a single-step task");
+    expect(prompt).toContain("without inventing a fixed quota");
+  });
   it("preserves selected assessment/reference records before alphabetical fillers within the existing budget", async () => {
     const resource = (id: string, overrides = {}) => ResourceNodeSchema.parse({
       id, parentId: "course", sectionPath: [], activityType: "resource", title: id,

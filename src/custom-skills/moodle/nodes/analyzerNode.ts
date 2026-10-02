@@ -55,7 +55,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.3-complete-producer-budget";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.5-assigned-native-page";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -233,10 +233,14 @@ async function analyzeWholeRequest(
 
 function attachDocumentContext(state: LangGraphAgentState, data: ReturnType<typeof validateExtractedData>) {
   const documentContext = buildDocumentContext(state);
+  const nativeSources = new Map(state.resource_manifest.resources.map(resource => [resource.id, resource]));
   return validateExtractedData({ ...data, document_context: documentContext, sources: uniqueBy([
     ...documentContext.map(entry => ({ id: entry.source_id, title: entry.title, kind: "moodle_page" as const,
       url: entry.url, path: null, page: null })),
-    ...data.sources,
+    ...data.sources.map(source => {
+      const native = nativeSources.get(source.id);
+      return native ? { ...source, title: native.title, url: native.originUrl, path: native.localPath ?? null } : source;
+    }),
   ], source => source.id) });
 }
 
@@ -275,7 +279,8 @@ interface CachedChapterHandoff {
 function shouldAnalyzeByChapter(config: MoodleRuntimeConfig, state: LangGraphAgentState): boolean {
   return ["study_guide", "exam_navigator", "interactive_learning", "practice_pack"].includes(
     config.artifactIntent.profile,
-  ) && chapterFocuses(state).length > 1;
+  ) && (chapterFocuses(state).length > 1 ||
+    Boolean(state.source_architect_decision.learningArchitecture?.modules.length));
 }
 
 async function analyzeCourseChapters(
@@ -287,6 +292,7 @@ async function analyzeCourseChapters(
   const focuses = chapterFocuses(state)
     .sort((left, right) => focusPriority(right) - focusPriority(left))
     .slice(0, analysisBudget.maxSelectedSlices);
+  if (focuses.length === 0) throw new Error("Assigned learning architecture has no admissible acquired source; resolve its source gap before analysis.");
   await applyAdaptiveExtractionBudget(config, state, focuses.length);
   const evidenceSlicesPerChapter = config.executionProfile === "quality" ? 4 : 2;
   const sliceBudgets = focuses.map((focus) => {
@@ -2303,6 +2309,8 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
       canonicalizeResourceUrl(resource.originUrl),
       resource,
     ]));
+    const admissible = (resource: ManifestResource) => resource.selection?.selected !== false && resource.status !== "skipped" &&
+      !isResourceFailureStatus(resource.status) && !excluded.has(canonicalizeResourceUrl(resource.originUrl));
     const practiceAssignments = assignPracticeResourcesToModules(state, architecture.modules);
     const supportResources = architecture.supportResources.map((support) => ({
       support,
@@ -2318,9 +2326,10 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
       const directResources = uniqueBy([
         ...module.resourceUrls
           .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
-          .filter((resource): resource is ManifestResource => Boolean(resource?.localPath)),
+          .filter((resource): resource is ManifestResource => Boolean(resource && (resource.localPath ||
+            state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim())))),
         ...(practiceAssignments.get(module.id) ?? []),
-      ], (resource) => resource.id);
+      ], (resource) => resource.id).filter(admissible);
       const semanticTerms = matchTerms([
         module.title,
         ...module.learningObjectives,
@@ -2394,7 +2403,7 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
         assessmentSignals: module.assessmentSignals,
       }];
     });
-    if (focuses.length > 0) return focuses;
+    return focuses;
   }
 
   const groups = new Map<string, ChapterFocus>();
@@ -3072,8 +3081,16 @@ async function analyzerVisualAttachments(
 ): Promise<string[]> {
   const visualManifest = await readVisualManifest(runDir);
   const allowedResourceIds = focus ? new Set(focus.resourceIds) : null;
+  const excludedUrls = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const vetoedResources = state.resource_manifest.resources.filter(resource =>
+    resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
+    excludedUrls.has(canonicalizeResourceUrl(resource.originUrl)));
+  const vetoedIds = new Set(vetoedResources.map(resource => resource.id));
+  const vetoedUrls = new Set([...excludedUrls, ...vetoedResources.map(resource => canonicalizeResourceUrl(resource.originUrl))]);
   const normalizedRunDir = path.resolve(runDir);
   const paths = (visualManifest?.candidates ?? [])
+    .filter(candidate => (!candidate.source_id || !vetoedIds.has(candidate.source_id)) &&
+      (!candidate.source_url || !vetoedUrls.has(canonicalizeResourceUrl(candidate.source_url))))
     .filter((candidate) => !allowedResourceIds ||
       Boolean(candidate.source_id && allowedResourceIds.has(candidate.source_id)))
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))

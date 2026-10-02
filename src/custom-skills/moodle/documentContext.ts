@@ -11,6 +11,7 @@ export function buildDocumentContext(state: LangGraphAgentState): ExtractedData[
   const generalUrls = new Set((architecture?.supportResources ?? [])
     .filter(support => support.purpose === "general_reference")
     .flatMap(support => support.resourceUrls).map(canonicalizeResourceUrl));
+  const assignedUrls = new Set((architecture?.modules ?? []).flatMap(module => module.resourceUrls).map(canonicalizeResourceUrl));
   const courseUrl = canonicalizeResourceUrl(state.resource_manifest.courseUrl ?? "");
   const resources = state.resource_manifest.resources.filter(resource => {
     const url = canonicalizeResourceUrl(resource.originUrl);
@@ -19,10 +20,10 @@ export function buildDocumentContext(state: LangGraphAgentState): ExtractedData[
       // Native page context is document-wide. Topical reference PDFs retain
       // the existing chapter relevance gates and never enter every packet.
       (!resource.localPath || ["course", "quiz", "page", "assignment"].includes(resource.activityType)) &&
-      (generalUrls.has(url) || (resource.activityType === "course" && url === courseUrl)) &&
+      (generalUrls.has(url) || (assignedUrls.has(url) && ["quiz", "assignment", "page"].includes(resource.activityType)) || (resource.activityType === "course" && url === courseUrl)) &&
       state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim());
-  }).sort((left, right) => Number(generalUrls.has(canonicalizeResourceUrl(right.originUrl))) -
-    Number(generalUrls.has(canonicalizeResourceUrl(left.originUrl))));
+  }).sort((left, right) => Number(generalUrls.has(canonicalizeResourceUrl(right.originUrl)) || assignedUrls.has(canonicalizeResourceUrl(right.originUrl))) -
+    Number(generalUrls.has(canonicalizeResourceUrl(left.originUrl)) || assignedUrls.has(canonicalizeResourceUrl(left.originUrl))));
   const context: ExtractedData["document_context"] = [];
   for (const resource of resources) {
     const entry = { source_id: resource.id, title: resource.title, url: resource.originUrl, records: [],

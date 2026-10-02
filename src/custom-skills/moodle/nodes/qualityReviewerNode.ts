@@ -1,4 +1,7 @@
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
+import { readVisualManifest } from "../visualAssets.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "../resourceAcquisition.js";
+import { ExtractedDataSchema } from "../schemas.js";
 import path from "node:path";
 import {
   ModelCallTimeoutError,
@@ -97,13 +100,16 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
   ): Promise<Partial<LangGraphAgentState>> {
     try {
       const previousReview = await readPendingExtractionRepairs(config.runDir);
+      const sourceVisuals = await selectQualitySourceVisuals(config.runDir, state);
       const response = await codex.run(buildQualityReviewPrompt(
         config,
         state,
         previousReview?.reviewError ?? null,
+        sourceVisuals,
       ), {
         outputSchema: qualityReviewSchema,
         task: "quality_reviewer", operation: "content_review",
+        localImages: sourceVisuals.map(visual => visual.imagePath),
         attempt: state.retry_count + 1,
       });
       const parsed = validateQualityReview(parseJsonObjectOrArray(response));
@@ -154,10 +160,79 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
   };
 }
 
+export interface QualitySourceVisual {
+  assetId: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  sourcePage: number | null;
+  title: string;
+  imagePath: string;
+}
+
+/** Use the existing review call and at most two already acquired compositions. */
+export async function selectQualitySourceVisuals(runDir: string, state: LangGraphAgentState): Promise<QualitySourceVisual[]> {
+  if (Array.isArray(state.extracted_data)) return [];
+  const parsed = ExtractedDataSchema.safeParse(state.extracted_data);
+  if (!parsed.success) return [];
+  const data = parsed.data;
+  const citedIds = new Set([
+    ...data.formulas.flatMap(formula => formula.source_ids),
+    ...data.worked_examples.flatMap(example => example.source_ids),
+    ...data.figures.flatMap(figure => figure.source_ids),
+  ]);
+  const sources = data.sources.filter(source => citedIds.has(source.id));
+  const selectedAssets = new Set(data.figures.map(figure => figure.asset_id));
+  const selectedSourcePages = new Set(data.visual_assets.filter(asset => selectedAssets.has(asset.id) && asset.source_page != null)
+    .flatMap(asset => {
+      const url = asset.source_url ?? data.sources.find(source => source.id === asset.source_id)?.url;
+      return url ? [`${canonicalizeResourceUrl(url)}|${asset.source_page}`] : [];
+    }));
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const vetoedResources = state.resource_manifest.resources.filter(resource => resource.selection?.selected === false ||
+    resource.status === "skipped" || isResourceFailureStatus(resource.status) || excluded.has(canonicalizeResourceUrl(resource.originUrl)));
+  const vetoed = new Set(vetoedResources.map(resource => resource.id));
+  const vetoedUrls = new Set([...excluded, ...vetoedResources.map(resource => canonicalizeResourceUrl(resource.originUrl))]);
+  const manifest = await readVisualManifest(runDir);
+  const root = path.resolve(runDir);
+  const eligible = (manifest?.candidates ?? []).flatMap(candidate => {
+    if (!candidate.relative_path || !/\.(?:png|jpe?g)$/i.test(candidate.relative_path) ||
+      (candidate.mime_type !== "image/png" && candidate.mime_type !== "image/jpeg") ||
+      (candidate.source_id && vetoed.has(candidate.source_id)) ||
+      (candidate.source_url && vetoedUrls.has(canonicalizeResourceUrl(candidate.source_url)))) return [];
+    const source = sources.find(source => source.id === candidate.source_id ||
+      (source.url && candidate.source_url && canonicalizeResourceUrl(source.url) === canonicalizeResourceUrl(candidate.source_url)));
+    if (!source || (source.url && vetoedUrls.has(canonicalizeResourceUrl(source.url)))) return [];
+    const imagePath = path.resolve(root, candidate.relative_path);
+    const relative = path.relative(root, imagePath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return [];
+    return [{ visual: { assetId: candidate.id, sourceId: source.id, sourceUrl: candidate.source_url,
+      sourcePage: candidate.source_page, title: candidate.title, imagePath },
+      score: (selectedAssets.has(candidate.id) || (candidate.source_url && selectedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`)) ? 100 : 0) + (source.page === candidate.source_page && source.page != null ? 20 : 0) }];
+  }).sort((left, right) => right.score - left.score);
+  const usable = [];
+  for (const entry of eligible) {
+    const file = await stat(entry.visual.imagePath).catch(() => null);
+    if (file?.isFile() && file.size > 0) usable.push(entry.visual);
+  }
+  const selected: QualitySourceVisual[] = [];
+  for (const visual of usable) {
+    if (selected.some(prior => prior.sourceId === visual.sourceId)) continue;
+    selected.push(visual);
+    if (selected.length === 2) return selected;
+  }
+  for (const visual of usable) {
+    if (selected.some(prior => prior.assetId === visual.assetId)) continue;
+    selected.push(visual);
+    if (selected.length === 2) break;
+  }
+  return selected;
+}
+
 export function buildQualityReviewPrompt(
   config: MoodleRuntimeConfig,
   state: LangGraphAgentState,
   previousReviewError: string | null = null,
+  sourceVisuals: QualitySourceVisual[] = [],
 ): string {
   const promptBudget = Math.max(
     8_000,
@@ -197,6 +272,8 @@ export function buildQualityReviewPrompt(
       ? `Previous blocking review:\n${previousReviewError}`
       : "",
     "Formula strings use Typst, not TeX. Source-index mappings are valid citations.",
+    "Compare reproduced symbols, basis/index labels and geometry against the attached original source compositions. Preserve distinct source symbols and stated assumptions; flag a concrete transcription or geometry contradiction as mathematical_error. Unattached source images are not inspected: never infer correctness or missing evidence from this bounded image selection.",
+    `Attached original source images (in attachment order): ${JSON.stringify(sourceVisuals.map(({ imagePath: _path, ...metadata }) => metadata))}`,
     "Return structured findings. Use exact IDs from the contract when a finding evaluates a requirement or deliverable; otherwise use null. chapterTitle must be an exact allowed title or null. severity=blocking is reserved for an explicit must/prohibition or a concrete factual, citation, or mathematical defect. Evidence-derived should recommendations and renderer-owned presentation observations are advisory.",
     "Classify every finding with defectKind. requirement_gap means a missing or unmet requirement, not incorrect included content; a missing should recommendation remains advisory. factual_error, mathematical_error, citation_error and prohibition_violation identify concrete defects in included content or actions and remain blocking even when associated with a should requirement. Describe the exact visible contradiction, invalid calculation/citation or violated prohibition; do not use these kinds for optional breadth, missing examples or speculative improvements. presentation identifies renderer-owned observations and remains advisory.",
     "chapterTitle identifies the chapter that owns the defective content. Use null for global metadata or cross-chapter contradictions, even when the message names a topic taught by one chapter. Chapter-specific source notes describe only that chapter's evaluated packet; they do not establish document-wide exclusions.",

@@ -22,6 +22,37 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
+  it.each([false, true])("assesses downloaded unread practice instead of declaring a drained architecture sufficient (assigned=%s)", async assigned => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "source-unread-reassessment-")); directories.push(runDir);
+    const lecture = "https://moodle.example/interpretation.pdf", practice = "https://moodle.example/practice.pdf", remaining = "https://moodle.example/optional.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      { ...entry(lecture, "Source interpretation", true, 900), role: "primary_lecture" },
+      { ...entry(practice, "Practice case", true, 600), role: "worked_example" }, entry(remaining, "Optional source", false, 100) ] }));
+    const architecture = { schemaVersion: 1 as const, modules: [{ id: "interpretation", title: "Source interpretation", priority: "essential" as const,
+      contentMode: "conceptual" as const, learningObjectives: ["Interpret claims and apply the method to a practice case."], assessmentSignals: [],
+      resourceUrls: assigned ? [lecture, practice] : [lecture] }], supportResources: [], excludedResourceUrls: [] };
+    const state = moodleTestState({ source_architect_decision: { round: 1, status: "request_more", requestedUrls: [practice],
+      coverageSummary: "Need to inspect practice", remainingAvailable: 1, reasons: [], learningArchitecture: architecture },
+      resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+        resource("lecture", lecture, "Source interpretation", "Unit", "/tmp/interpretation.pdf", "primary_lecture"),
+        { ...resource("practice", practice, "Practice case", "Unit", "/tmp/practice.pdf", "worked_example"),
+          extraction: { status: "unusable", method: "native_pdf_text", characterCount: 0, pageCount: 2, warnings: ["Scanned source; inspect rendered pages."] } } ] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "diagnostic", resourceId: "practice", kind: "claim",
+        locator: {}, content: "Acquisition completed; extraction contains no readable native text.", confidence: 1, pairId: null, sourceUrl: practice, localPath: "/tmp/practice.pdf" }] } });
+    const codex = { run: vi.fn(async (prompt: string) => {
+      expect(prompt).toContain('"characterCount": 0');
+      expect(prompt).toContain("Scanned source; inspect rendered pages.");
+      return JSON.stringify({ status: "sufficient", coverage_summary: "Selected scanned practice requires visual reading in the analyzer; native text is not verified content.",
+        requested_urls: [], reasons: ["Read the assigned original pages; preserve a real unreadability gap if they cannot be read."],
+        learning_architecture: { ...architecture, modules: [{ ...architecture.modules[0], resourceUrls: [lecture, practice] }] } });
+    }) };
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, runtimeCacheDir: runDir,
+      intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }), codex)(state);
+    expect(codex.run).toHaveBeenCalledTimes(1);
+    expect(result.source_architect_decision?.learningArchitecture?.modules[0].resourceUrls).toContain(practice);
+    expect(result.source_architect_decision?.reasons.join(" ")).not.toContain("Reused the validated first-round");
+  });
+
   it("treats an evidence-backed Moodle activity page as an acquired authorized brief", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-activity-brief-"));
     directories.push(runDir);

@@ -14,7 +14,7 @@ import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { SOURCE_FIDELITY_POLICY } from "../studentFirstPolicy.js";
 
-const REQUEST_EVALUATOR_VERSION = "2026-10-02.1-source-priority";
+const REQUEST_EVALUATOR_VERSION = "2026-10-02.2-preserve-plural-task-intent";
 type EvaluatorEvidenceState = Pick<LangGraphAgentState, "moodle_raw_text" | "resource_manifest" | "evidence_package"> &
   Partial<Pick<LangGraphAgentState, "source_architect_decision">>;
 
@@ -112,6 +112,7 @@ export function buildRequestEvaluatorPrompt(
     "Separate explicit user requirements from evidence-derived recommendations. A recommendation may be priority=should; it must never silently become a must.",
     "Use open descriptive strings instead of a fixed subject template. Requirements must state what outcome is needed and a concrete acceptance check, not how one particular renderer should implement it.",
     "Quantity must follow the user's requested count when explicit; otherwise define a coverage/usefulness completion rule rather than inventing a fixed quota.",
+    "Preserve plural example requests and multipart-task intent in requirements, acceptance checks and completion rules; do not weaken them to a single example or a single-step task. Preserve the requested useful variety and task structure without inventing a fixed quota or making unrequested model solutions mandatory.",
     "Set evaluationStatus=evaluated and copy the original request exactly into originalPrompt. Give every deliverable a stable ID. appliesTo must use only those IDs; evidenceRefs must cite only supplied resource IDs. Evidence-derived requirements are always priority=should.",
     "notRequired means merely optional and allowed; forbidden means the user explicitly disallowed it. Never turn absence of a request into a prohibition.",
     "Every review assignment lists the requirement IDs it checks. Do not assign universal file/layout invariants as semantic requirements.",

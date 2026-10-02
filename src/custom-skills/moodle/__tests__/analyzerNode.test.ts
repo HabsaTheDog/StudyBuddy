@@ -46,6 +46,73 @@ const moodleTestConfig = (overrides: Parameters<typeof baseMoodleTestConfig>[0] 
   baseMoodleTestConfig({ ...overrides, runDir: overrides?.runDir ?? isolatedRunDir });
 
 describe("analyzerNode", () => {
+  it.each([true, false])("accepts directly assigned native HTML lesson evidence while preserving its selection veto (selected=%s)", async selected => {
+    const native = { ...chapterResource("html", "Evidence interpretation lesson", "Methods unit", "primary_lecture"),
+      activityType: "page", originUrl: "https://moodle.example/lesson", localPath: null,
+      selection: { selected, role: "primary_lecture" as const, topic: null, priority: 900, reason: "Native course lesson" } };
+    const content = "Interpret a source by identifying its stated claim, comparing the supporting observations, and explaining the limits of the conclusion.";
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources: [native] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "native-method", resourceId: native.id, kind: "claim",
+        locator: { section: "Source interpretation method" }, content, confidence: 1, pairId: null, sourceUrl: native.originUrl, localPath: null }] },
+      source_architect_decision: { round: 1, status: "sufficient", coverageSummary: "Native method available", requestedUrls: [], remainingAvailable: 0, reasons: [],
+        learningArchitecture: { schemaVersion: 1, modules: [{ id: "native-method", title: "Evidence interpretation", priority: "essential", contentMode: "conceptual",
+          learningObjectives: ["Explain the source interpretation method."], assessmentSignals: [], resourceUrls: [native.originUrl] }], supportResources: [], excludedResourceUrls: [] } } });
+    let calls = 0;
+    const result = await createAnalyzerNode(moodleTestConfig({ runtimeCacheDir: isolatedRunDir }), { async run(prompt) {
+      calls++;
+      expect(prompt).toContain(content);
+      return JSON.stringify({ document_title: "Evidence interpretation", language: "de", course: { title: "Methods course", url: "https://moodle.example/course" },
+        sources: [{ id: native.id, title: native.title, kind: "moodle_page", url: native.originUrl, path: null, page: null }],
+        sections: [{ heading: "Method", summary: content, key_concepts: ["Stated claim", "Supporting evidence"], source_ids: [native.id] }],
+        formulas: [], worked_examples: [], figures: [], visual_assets: [], quiz_style_questions: [], warnings: [] });
+    } })(state);
+    expect(calls).toBe(selected ? 1 : 0);
+    if (selected) {
+      expect(result.error_log).toBeNull();
+      expect(result.extracted_data).toMatchObject({ learning_modules: [{ id: "native-method", title: "Evidence interpretation" }] });
+    } else expect(result.error_log).toContain("no admissible acquired source");
+  });
+
+  it("binds an actually used source ID to its original manifest provenance", async () => {
+    const native = chapterResource("native", "Original source title", "Single source", "primary_lecture");
+    const result = await createAnalyzerNode(moodleTestConfig(), { async run() { return JSON.stringify({
+      document_title: "Study guide", language: "de", course: { title: "Course", url: "https://moodle.example/course" },
+      sources: [{ id: native.id, title: "Model changed title", kind: "pdf", url: "https://moodle.example/course", path: null, page: 4 }],
+      sections: [{ heading: "Method", summary: "The documented method.", key_concepts: [], source_ids: [native.id] }],
+      formulas: [], worked_examples: [], figures: [], visual_assets: [], quiz_style_questions: [], warnings: [] }); } })(moodleTestState({
+        resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources: [native] } }));
+    expect(result.error_log).toBeNull();
+    expect(result.extracted_data).toMatchObject({ sources: [{ id: native.id, title: native.title, url: native.originUrl, path: native.localPath, page: 4 }] });
+  });
+
+  it("keeps an explicit single semantic module on the assigned dense-fragment path", async () => {
+    const resources = [chapterResource("single", "Reading evidence", "Unit", "primary_lecture"),
+      chapterResource("excluded", "Unrelated acquired probe", "Other unit", "primary_lecture")];
+    const records = Array.from({ length: 25 }, (_, i) => ({ id: `reading-${i}`, resourceId: "res_single", kind: "claim" as const,
+      locator: { page: i + 1 }, content: `Exact source evidence ${i}: interpreting a document requires comparing its claims and assumptions.`,
+      confidence: 1, pairId: null, sourceUrl: resources[0].originUrl, localPath: resources[0].localPath }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", records, warnings: [] },
+      source_architect_decision: { round: 2, status: "sufficient", coverageSummary: "Assigned scope", requestedUrls: [], remainingAvailable: 0, reasons: [],
+        learningArchitecture: { schemaVersion: 1, modules: [{ id: "one", title: "Evidence interpretation", priority: "essential", contentMode: "conceptual",
+          learningObjectives: ["Interpret the evidenced claims and assumptions."], assessmentSignals: [], resourceUrls: [resources[0].originUrl, resources[1].originUrl] }],
+          supportResources: [], excludedResourceUrls: [resources[1].originUrl] } } });
+    const schemas: unknown[] = [];
+    const codex: CodexClient = { async run(prompt, options) {
+      schemas.push(options?.outputSchema);
+      expect(prompt).toContain("Exact source evidence");
+      expect(prompt).not.toContain("Unrelated acquired probe");
+      return JSON.stringify({ sections: [{ heading: "Evidence interpretation", summary: "Compare claims with their stated assumptions.",
+        key_concepts: ["Claims", "Assumptions"], source_ids: ["res_single"] }], formulas: [], worked_examples: [], figures: [], warnings: [] });
+    } };
+    const result = await createAnalyzerNode(moodleTestConfig({ runtimeCacheDir: isolatedRunDir,
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" } }), codex)(state);
+    expect(result.error_log).toBeNull();
+    expect(schemas.length).toBeGreaterThan(0);
+    expect(schemas.every(schema => schema === chapterFragmentJsonSchema)).toBe(true);
+    expect(result.extracted_data).toMatchObject({ learning_modules: [{ id: "one", title: "Evidence interpretation", resource_ids: ["ch1_one_res_single"] }] });
+  });
+
   it("keeps generic solution headings attached to their own requested task", () => {
     const original = ChapterFragmentSchema.parse({
       sections: [

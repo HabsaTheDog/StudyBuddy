@@ -39,6 +39,18 @@ function fixture() {
 }
 
 describe("document-level evidence handoff", () => {
+  it("retains semantically assigned native assessment context independently of support-role placement", () => {
+    const state = fixture();
+    const architecture = state.source_architect_decision.learningArchitecture!;
+    architecture.modules[0].resourceUrls.push(state.resource_manifest.resources.find(resource => resource.id === "assessment")!.originUrl);
+    architecture.supportResources = [];
+    const context = buildDocumentContext(state);
+    const assessment = context.find(entry => entry.source_id === "assessment");
+    expect(assessment?.title).toBe("First assessment on 17.04.2027 — Essay interpretation (Unit B)");
+    expect(assessment?.url).toBe("https://moodle.example/mod/quiz/view.php?id=42");
+    expect(assessment?.records.map(record => record.excerpt).join(" ")).toContain("Duration: 45 minutes");
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(8000);
+  });
   it("defaults legacy extraction to an empty document context", () => {
     expect(validateExtractedData(moodleExtractedData()).document_context).toEqual([]);
   });
