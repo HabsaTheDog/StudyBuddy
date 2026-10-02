@@ -56,7 +56,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.8-exploratory-source-slices";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.9-assigned-original-reading";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -478,6 +478,7 @@ export interface ChapterSlice {
   resourceIds: string[];
   records: EvidenceRecord[];
   scopeAssessmentResourceIds?: string[];
+  sourceReadingResourceIds?: string[];
 }
 
 interface VisualRetrievalRequest {
@@ -495,6 +496,7 @@ function isDenseChapter(state: LangGraphAgentState, focus: ChapterFocus): boolea
   );
   const characters = records.reduce((sum, record) => sum + JSON.stringify(record).length, 0);
   return records.length > DENSE_CHAPTER_RECORD_LIMIT || characters > DENSE_CHAPTER_CHARACTER_LIMIT ||
+    (state.source_architect_decision.pendingReads ?? []).some(read => read.medium === "pdf_pages" && focus.resourceIds.includes(read.resourceId)) ||
     exploratoryReadingResources(state, focus).length > 0;
 }
 
@@ -621,7 +623,7 @@ async function analyzeDenseChapter(
   );
   const visualManifest = await readVisualManifest(config.runDir);
   const fragments: ChapterFragment[] = [];
-  const suppliedExplorationPages = new Map<string, Set<number>>();
+  const suppliedOriginalPages = new Map<string, Set<number>>();
   const fragmentCacheDir = path.join(config.runtimeCacheDir, "chapter-fragments");
   await mkdir(fragmentCacheDir, { recursive: true });
 
@@ -637,7 +639,7 @@ async function analyzeDenseChapter(
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
       pendingReads: pendingSourceReadPrompt(state, slice.resourceIds),
       exploratorySources: state.resource_manifest.resources
-        .filter(resource => slice.scopeAssessmentResourceIds?.includes(resource.id))
+        .filter(resource => slice.sourceReadingResourceIds?.includes(resource.id))
         .map(resource => ({ id: resource.id, checksum: resource.checksum, status: resource.status, localPath: resource.localPath })),
       visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
       outputLanguage: config.outputLanguage,
@@ -666,14 +668,20 @@ async function analyzeDenseChapter(
     const fragmentCachePaths = [...new Set([semanticFingerprint, legacyFingerprint])]
       .map((fingerprint) => path.join(fragmentCacheDir, `${fingerprint}.json`));
     let cachedFragment: ChapterFragment | null = null;
+    let cachedOriginalPages: { resourceId: string; pages: number[] }[] = [];
     for (const cachePath of fragmentCachePaths) {
       cachedFragment = await readFile(cachePath, "utf8")
-        .then((text) => normalizeFragmentReferences(
-          ChapterFragmentSchema.parse(JSON.parse(text)),
-          slice,
-          visualManifest,
-          buildDocumentContext(state).map(entry => entry.source_id),
-        ))
+        .then((text) => {
+          const parsed = JSON.parse(text);
+          const fragment = normalizeFragmentReferences(ChapterFragmentSchema.parse(parsed), slice, visualManifest,
+            buildDocumentContext(state).map(entry => entry.source_id));
+          cachedOriginalPages = Array.isArray(parsed.source_reading_pages)
+            ? parsed.source_reading_pages.filter((entry: { resourceId?: unknown; pages?: unknown }) =>
+              typeof entry.resourceId === "string" && slice.sourceReadingResourceIds?.includes(entry.resourceId) &&
+              Array.isArray(entry.pages) && entry.pages.every(page => Number.isInteger(page) && page > 0))
+            : [];
+          return fragment;
+        })
         .catch(() => null);
       if (cachedFragment) break;
     }
@@ -703,6 +711,11 @@ async function analyzeDenseChapter(
       );
     }
     if (cachedFragment) {
+      for (const entry of cachedOriginalPages) {
+        const pages = suppliedOriginalPages.get(entry.resourceId) ?? new Set<number>();
+        entry.pages.forEach(page => pages.add(page));
+        suppliedOriginalPages.set(entry.resourceId, pages);
+      }
       fragments.push(scopeRequestedTaskFragment(cachedFragment, slice));
       await config.diagnostics?.log(
         "info",
@@ -735,11 +748,11 @@ async function analyzeDenseChapter(
     ])].slice(0, 3);
     for (const candidate of visualManifest?.candidates ?? []) {
       if (!candidate.source_id || !candidate.source_page || !candidate.relative_path ||
-        !slice.scopeAssessmentResourceIds?.includes(candidate.source_id) ||
+        !slice.sourceReadingResourceIds?.includes(candidate.source_id) ||
         !localImages.includes(path.resolve(config.runDir, candidate.relative_path))) continue;
-      const pages = suppliedExplorationPages.get(candidate.source_id) ?? new Set<number>();
+      const pages = suppliedOriginalPages.get(candidate.source_id) ?? new Set<number>();
       pages.add(candidate.source_page);
-      suppliedExplorationPages.set(candidate.source_id, pages);
+      suppliedOriginalPages.set(candidate.source_id, pages);
     }
     let fragment: ChapterFragment | null = null;
     let localRepairFeedback = sliceRepairFeedback;
@@ -805,7 +818,8 @@ async function analyzeDenseChapter(
       );
     }
     await Promise.all(fragmentCachePaths.map((cachePath) =>
-      writeFile(cachePath, `${JSON.stringify(fragment, null, 2)}\n`, "utf8")
+      writeFile(cachePath, `${JSON.stringify({ ...fragment, source_reading_pages: (slice.sourceReadingResourceIds ?? [])
+        .map(resourceId => ({ resourceId, pages: [...(suppliedOriginalPages.get(resourceId) ?? [])] })) }, null, 2)}\n`, "utf8")
     ));
     fragments.push(scopeRequestedTaskFragment(fragment, slice));
   }
@@ -820,11 +834,15 @@ async function analyzeDenseChapter(
   );
   return enrichCachedChapterHandoff(config, state, focus, validateExtractedData({
     ...materialized,
-    warnings: [...new Set([...materialized.warnings, ...exploratoryReadingResources(state, focus).map(resource => {
-      const supplied = [...(suppliedExplorationPages.get(resource.id) ?? [])].sort((left, right) => left - right);
+    warnings: [...new Set([...materialized.warnings, ...state.resource_manifest.resources.filter(resource =>
+      (focus.resourceIds.includes(resource.id) || exploratoryReadingResources(state, focus).some(source => source.id === resource.id)) &&
+      (state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.medium === "pdf_pages")
+    ).map(resource => {
+      const supplied = [...(suppliedOriginalPages.get(resource.id) ?? [])].sort((left, right) => left - right);
       const pageCount = resource.extraction?.pageCount;
       const remaining = pageCount ? Array.from({ length: pageCount }, (_, index) => index + 1).filter(page => !supplied.includes(page)) : null;
-      return `Exploratory reading boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ") || "none"}; ` +
+      const exploratory = (state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.purpose === "scope_assessment");
+      return `${exploratory ? "Exploratory reading" : "Original-reading"} boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ") || "none"}; ` +
         `pages not supplied: ${remaining?.join(", ") || (remaining ? "none" : "unknown")}. ` +
         "Page availability does not verify methods or examination scope; retain the existing request and learning goals.";
     })])],
@@ -1107,7 +1125,7 @@ function packSelectedSlices(
     if (
       previousPack &&
       previousPackSize < maxSlicesPerCall &&
-      (!(previousPack.scopeAssessmentResourceIds?.length || candidate.slice.scopeAssessmentResourceIds?.length) ||
+      (!(previousPack.sourceReadingResourceIds?.length || candidate.slice.sourceReadingResourceIds?.length) ||
         new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds]).size <= MAX_FRAGMENT_VISUAL_CANDIDATES) &&
       combinedCharacters <= PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT
     ) {
@@ -1116,6 +1134,9 @@ function packSelectedSlices(
         label: `${previousPack.label} + ${candidate.slice.label}`,
         resourceIds: [...new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds])],
         records: combinedRecords,
+        ...((previousPack.sourceReadingResourceIds?.length || candidate.slice.sourceReadingResourceIds?.length)
+          ? { sourceReadingResourceIds: [...new Set([...(previousPack.sourceReadingResourceIds ?? []), ...(candidate.slice.sourceReadingResourceIds ?? [])])] }
+          : {}),
         ...((previousPack.scopeAssessmentResourceIds?.length || candidate.slice.scopeAssessmentResourceIds?.length)
           ? { scopeAssessmentResourceIds: [...new Set([...(previousPack.scopeAssessmentResourceIds ?? []), ...(candidate.slice.scopeAssessmentResourceIds ?? [])])] }
           : {}),
@@ -1594,19 +1615,33 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
       resourceIds: [resource.id], records: chunk, scopeAssessmentResourceIds: [resource.id],
     }));
   }
-  // Compact sparse read candidates without crowding their original-page
+  slices.push(...explorationSlices);
+  const readingIds = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.medium === "pdf_pages").map(read => read.resourceId));
+  const resourceSliceCounts = new Map<string, number>();
+  for (const slice of slices) for (const id of slice.resourceIds) resourceSliceCounts.set(id, (resourceSliceCounts.get(id) ?? 0) + 1);
+  const readingSlices = slices.map(slice => ({ ...slice,
+    ...(slice.resourceIds.some(id => readingIds.has(id)) ? { sourceReadingResourceIds: slice.resourceIds.filter(id => readingIds.has(id)) } : {}),
+  }));
+  const bundled: ChapterSlice[] = [];
+  // Compact complete sparse read candidates without crowding their original-page
   // attachments out of the existing per-fragment visual ceiling.
-  for (const slice of explorationSlices) {
-    const previous = slices.at(-1);
+  for (const slice of readingSlices) {
+    const previous = bundled.at(-1);
     const resourceIds = [...new Set([...(previous?.resourceIds ?? []), ...slice.resourceIds])];
     const records = uniqueBy([...(previous?.records ?? []), ...slice.records], record => record.id);
-    if (previous?.scopeAssessmentResourceIds?.length && resourceIds.length <= MAX_FRAGMENT_VISUAL_CANDIDATES &&
+    if (previous?.sourceReadingResourceIds?.length && slice.sourceReadingResourceIds?.length &&
+      resourceIds.every(id => resourceSliceCounts.get(id) === 1) && resourceIds.length <= MAX_FRAGMENT_VISUAL_CANDIDATES &&
       records.reduce((sum, record) => sum + JSON.stringify(record).length, 0) <= FRAGMENT_EVIDENCE_CHARACTER_LIMIT) {
-      slices[slices.length - 1] = { key: `${previous.key}-${slice.key}`, label: `${previous.label} + ${slice.label}`,
-        resourceIds, records, scopeAssessmentResourceIds: resourceIds };
-    } else slices.push(slice);
+      bundled[bundled.length - 1] = { key: `${previous.key}-${slice.key}`, label: `${previous.label} + ${slice.label}`,
+        resourceIds, records, sourceReadingResourceIds: resourceIds,
+        ...((previous.scopeAssessmentResourceIds?.length || slice.scopeAssessmentResourceIds?.length)
+          ? { scopeAssessmentResourceIds: [...new Set([...(previous.scopeAssessmentResourceIds ?? []), ...(slice.scopeAssessmentResourceIds ?? [])])] }
+          : {}),
+      };
+    } else bundled.push(slice);
   }
-  return slices.length > 0 ? slices : [{
+  return bundled.length > 0 ? bundled : [{
     key: `${focus.key}-evidence`,
     label: focus.title,
     resourceIds: focus.resourceIds,
@@ -1817,7 +1852,7 @@ function selectChapterVisualCandidates(
       return pages?.size && candidate.source_page ? pages.has(candidate.source_page) : true;
     })
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left));
-  const sourceRepresentatives = slice.scopeAssessmentResourceIds?.length
+  const sourceRepresentatives = slice.sourceReadingResourceIds?.length
     ? slice.resourceIds.map(id => ranked.find(candidate => candidate.source_id === id))
       .filter((candidate): candidate is VisualCandidate => Boolean(candidate))
     : [];

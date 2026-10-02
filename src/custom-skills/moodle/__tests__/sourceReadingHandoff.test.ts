@@ -44,6 +44,38 @@ async function fixture() {
 }
 
 describe("acquired source reading handoff", () => {
+  it("hands explicitly assigned acquired visual-required sources to the readers when request_more has no download URL", async () => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = [];
+      const codex = { run: vi.fn(async (_prompt: string) => JSON.stringify(f.response)) };
+      const result = await createSourceArchitectNode(f.config, codex)(f.state);
+      expect(result.error_log).toBeNull();
+      expect(result.source_architect_decision?.status).toBe("sufficient");
+      expect(result.source_architect_decision?.pendingReads).toEqual([{ resourceId: "task", url: f.taskUrl, medium: "pdf_pages", limitation: null }]);
+      expect(result.source_architect_decision?.learningArchitecture).toEqual(f.response.learning_architecture);
+      expect(result.source_architect_decision?.coverageSummary).toContain("subject reading remains pending");
+      expect(codex.run.mock.calls[0]?.[0]).toContain("requested_urls includes already acquired original-reading targets");
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it.each(["unassigned", "missing", "deselected", "excluded", "skipped", "failed", "usable-text-only"])("does not invent an implicit reading target from %s sources", async invalid => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = [];
+      if (invalid === "unassigned") f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl];
+      if (invalid === "missing") await rm(f.state.resource_manifest.resources[1].localPath!);
+      if (invalid === "deselected") f.state.resource_manifest.resources[1].selection!.selected = false;
+      if (invalid === "excluded") f.response.learning_architecture.excludedResourceUrls.push(f.taskUrl);
+      if (invalid === "skipped") f.state.resource_manifest.resources[1].status = "skipped";
+      if (invalid === "failed") f.state.resource_manifest.resources[1].status = "failed";
+      if (invalid === "usable-text-only") f.state.resource_manifest.resources[1].extraction!.status = "usable";
+      const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(result.source_architect_decision?.status).toBe("blocked");
+      expect(result.error_log).toContain("Source architect blocked publication");
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
   it("invalidates chapter and fragment caches when exploratory original bytes change, while reusing unchanged originals", async () => {
     const f = await fixture();
     try {
@@ -81,7 +113,7 @@ describe("acquired source reading handoff", () => {
     } finally { await rm(f.runDir, { recursive: true, force: true }); }
   });
 
-  it("supplies seven exploratory originals through actual bounded model packs and retains unread-page limits", async () => {
+  it.each(["exploratory", "assigned"])("supplies seven %s originals through actual bounded model packs and preserves page limits on partial cache reuse", async ownership => {
     const f = await fixture();
     try {
       const module = f.state.source_architect_decision.learningArchitecture!.modules[0];
@@ -91,11 +123,13 @@ describe("acquired source reading handoff", () => {
       const tasks = Array.from({ length: 7 }, (_, index) => ({ ...f.state.resource_manifest.resources[1],
         id: `task-${index}`, title: `Exploratory original ${index}`, originUrl: `https://example.edu/reading/${index}`, localPath: path.join(f.runDir, `original-${index}.pdf`) }));
       f.state.resource_manifest.resources = [f.state.resource_manifest.resources[0], f.state.resource_manifest.resources[2], ...tasks];
+      if (ownership === "assigned") module.resourceUrls.push(...tasks.map(resource => resource.originUrl));
       const wrapper = f.state.resource_manifest.resources[1];
       f.state.evidence_package.records[0].content = "Evidence interpretation compares source statements and assumptions.";
       f.state.source_architect_decision.learningArchitecture!.supportResources = [{ id: "support", title: "Evidence interpretation", purpose: "general_reference", resourceUrls: [wrapper.originUrl] }];
       f.state.source_architect_decision.pendingReads = [{ resourceId: "lecture", url: f.lectureUrl, medium: "pdf_pages", limitation: null },
-        ...tasks.map(resource => ({ resourceId: resource.id, url: resource.originUrl, medium: "pdf_pages" as const, purpose: "scope_assessment" as const, limitation: null }))];
+        ...tasks.map(resource => ({ resourceId: resource.id, url: resource.originUrl, medium: "pdf_pages" as const,
+          ...(ownership === "exploratory" ? { purpose: "scope_assessment" as const } : {}), limitation: null }))];
       const visualDir = path.join(f.runDir, "assets", "visuals"); await mkdir(visualDir, { recursive: true });
       const candidates = tasks.flatMap((resource, index) => [1, 2].map(page => ({ id: `${resource.id}-${page}`, kind: "moodle_pdf_page" as const,
         title: resource.title, relative_path: `assets/visuals/${resource.id}-${page}.png`, mime_type: "image/png", width_px: 1200, height_px: 1600,
@@ -105,26 +139,37 @@ describe("acquired source reading handoff", () => {
       for (const candidate of candidates) await writeFile(path.join(f.runDir, candidate.relative_path), "nonempty attachment fixture");
       await writeFile(path.join(f.runDir, "visual-candidates.json"), JSON.stringify({ tooling: { pdfinfo: true, pdftotext: true, pdftoppm: true, pdfimages: true, magick: true }, warnings: [], candidates }));
       const calls: { images: string[]; prompt: string }[] = [];
-      const result = await createAnalyzerNode({ ...f.config, executionProfile: "balanced", artifactIntent: { ...f.config.artifactIntent, profile: "study_guide" } }, {
+      const analyze = createAnalyzerNode({ ...f.config, executionProfile: "balanced", artifactIntent: { ...f.config.artifactIntent, profile: "study_guide" } }, {
         async run(prompt, options) {
           calls.push({ prompt, images: options?.localImages ?? [] });
           const ids = JSON.parse(prompt.split("Erlaubte Ressourcen: ")[1]!.split("\n\n")[0]!).map((resource: { id: string }) => resource.id);
           return JSON.stringify({ sections: [{ heading: "Evidence interpretation", summary: "Source relevance remains bounded by the existing learning goals.", key_concepts: [], source_ids: ids }], formulas: [], worked_examples: [], figures: [], warnings: [] });
         },
-      })(f.state);
+      });
+      const result = await analyze(f.state);
       expect(result.error_log).toBeNull();
       expect(calls.length).toBeLessThanOrEqual(6);
       expect(calls.every(call => call.images.length <= 2)).toBe(true);
       expect(tasks.every(resource => calls.some(call => call.images.some(image => path.basename(image).startsWith(resource.id))))).toBe(true);
-      expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).learning_modules[0]?.resource_ids).toEqual(["ch1_method_lecture", "wrapper"]);
+      expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).learning_modules[0]?.resource_ids).toEqual(expect.arrayContaining(["ch1_method_lecture", "wrapper"]));
+      if (ownership === "exploratory") expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).learning_modules[0]?.resource_ids).toHaveLength(2);
+      else expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).learning_modules[0]?.resource_ids).toHaveLength(9);
       expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).sources.map(source => source.url)).toEqual(expect.arrayContaining(tasks.map(resource => resource.originUrl)));
       for (const resource of tasks) {
         const supplied = candidates.filter(candidate => candidate.source_id === resource.id &&
           calls.some(call => call.images.includes(path.join(f.runDir, candidate.relative_path)))).map(candidate => candidate.source_page);
         const remaining = [1, 2].filter(page => !supplied.includes(page));
         expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).warnings)
-          .toEqual(expect.arrayContaining([expect.stringContaining(`Exploratory reading boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ")}; pages not supplied: ${remaining.join(", ") || "none"}. Page availability does not verify methods or examination scope; retain the existing request and learning goals.`)]));
+          .toEqual(expect.arrayContaining([expect.stringContaining(`${ownership === "exploratory" ? "Exploratory reading" : "Original-reading"} boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ")}; pages not supplied: ${remaining.join(", ") || "none"}. Page availability does not verify methods or examination scope; retain the existing request and learning goals.`)]));
       }
+      const initialCalls = calls.length;
+      tasks[3]!.checksum = createHash("sha256").update("changed acquired source").digest("hex");
+      await writeFile(tasks[3]!.localPath, "%PDF-1.4 changed acquired source");
+      const recovered = await analyze(f.state);
+      expect(recovered.error_log).toBeNull();
+      expect(calls.length).toBe(initialCalls + 1);
+      expect((recovered.extracted_data as ReturnType<typeof moodleExtractedData>).warnings)
+        .toEqual((result.extracted_data as ReturnType<typeof moodleExtractedData>).warnings);
     } finally { await rm(f.runDir, { recursive: true, force: true }); }
   });
 
