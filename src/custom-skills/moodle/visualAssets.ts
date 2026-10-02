@@ -8,6 +8,7 @@ import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
 import type { VisualCropMode } from "./types.js";
 import { ensureInside } from "./validation.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "./resourceAcquisition.js";
 import { plannedPagesByResource, readVisualRetrievalPlan } from "./visualPlanner.js";
 import { runBoundedProcess } from "../shared/boundedProcess.js";
 
@@ -207,7 +208,7 @@ export function visualRequiredResourceIds(
   return new Set(state.resource_manifest.resources
     .filter((resource) =>
       resource.selection?.selected === true &&
-      resource.extraction?.status === "partial" &&
+      (resource.extraction?.status === "partial" || resource.extraction?.status === "unusable") &&
       resource.localPath?.toLocaleLowerCase("en").endsWith(".pdf")
     )
     .map((resource) => resource.id));
@@ -444,40 +445,58 @@ async function findVisualTooling(): Promise<VisualManifest["tooling"]> {
   };
 }
 
-function visualSourceArtifacts(
+export function visualSourceArtifacts(
   coverage: SourceCoverage | undefined,
   state: LangGraphAgentState,
 ): VisualSourceArtifact[] {
-  if (!coverage) {
-    return [];
-  }
   const resourcesByPath = new Map(
     state.resource_manifest.resources
       .filter((resource) => resource.localPath)
       .map((resource) => [path.resolve(resource.localPath!), resource]),
   );
-  return [
-    ...coverage.moodle.artifacts.map((artifact) => {
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const assigned = new Set([
+    ...(state.source_architect_decision.learningArchitecture?.modules.flatMap(module => module.resourceUrls) ?? []),
+    ...(state.source_architect_decision.learningArchitecture?.supportResources.flatMap(support => support.resourceUrls) ?? []),
+  ].map(canonicalizeResourceUrl));
+  const pendingIds = new Set((state.source_architect_decision.pendingReads ?? []).map(read => read.resourceId));
+  const artifacts: VisualSourceArtifact[] = [
+    ...(coverage?.moodle.artifacts ?? []).map((artifact) => {
       const resource = resourcesByPath.get(path.resolve(artifact));
       return {
         path: artifact,
         resourceId: resource?.id ?? null,
         sourceName: "moodle" as const,
-        sourceUrl: resource?.originUrl ?? coverage.moodle.urls[0] ?? coverage.moodle.lastUrl ?? null,
+        sourceUrl: resource?.originUrl ?? coverage?.moodle.urls[0] ?? coverage?.moodle.lastUrl ?? null,
         sectionPath: resource?.sectionPath ?? [],
       };
     }),
-    ...coverage.cis.artifacts.map((artifact) => {
+    ...(coverage?.cis.artifacts ?? []).map((artifact) => {
       const resource = resourcesByPath.get(path.resolve(artifact));
       return {
         path: artifact,
         resourceId: resource?.id ?? null,
         sourceName: "cis" as const,
-        sourceUrl: resource?.originUrl ?? coverage.cis.urls[0] ?? coverage.cis.lastUrl ?? null,
+        sourceUrl: resource?.originUrl ?? coverage?.cis.urls[0] ?? coverage?.cis.lastUrl ?? null,
         sectionPath: resource?.sectionPath ?? [],
       };
     }),
+    ...state.resource_manifest.resources.filter(resource => resource.localPath && pendingIds.has(resource.id) &&
+      assigned.has(canonicalizeResourceUrl(resource.originUrl))).map(resource => ({
+        path: resource.localPath!, resourceId: resource.id, sourceName: "moodle" as const,
+        sourceUrl: resource.originUrl, sectionPath: resource.sectionPath,
+      })),
   ];
+  const seen = new Set<string>();
+  return artifacts.filter(artifact => {
+    const resource = resourcesByPath.get(path.resolve(artifact.path));
+    if (resource && (resource.selection?.selected === false || resource.status === "skipped" ||
+      isResourceFailureStatus(resource.status) || excluded.has(canonicalizeResourceUrl(resource.originUrl)))) return false;
+    const key = path.resolve(artifact.path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function estimateVisualBudget(

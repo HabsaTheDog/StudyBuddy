@@ -1,6 +1,6 @@
 import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CodexClient } from "./codexClient.js";
 import type { ResourceRole } from "./resourcePlanning.js";
@@ -25,6 +25,13 @@ import {
 
 export type SourceArchitectStatus = "sufficient" | "request_more" | "blocked";
 
+export interface SourceEvidenceRead {
+  resourceId: string;
+  url: string;
+  medium: "pdf_pages" | "native_text" | "local_file";
+  limitation: string | null;
+}
+
 export interface SourceArchitectDecision {
   round: number;
   status: SourceArchitectStatus;
@@ -33,6 +40,8 @@ export interface SourceArchitectDecision {
   remainingAvailable: number;
   reasons: string[];
   learningArchitecture?: LearningArchitecture;
+  /** Server-owned acquired sources awaiting substantive reading, not new downloads. */
+  pendingReads?: SourceEvidenceRead[];
 }
 
 export const emptySourceArchitectDecision = (): SourceArchitectDecision => ({
@@ -61,7 +70,7 @@ interface ResourceCatalog {
   entries: CatalogEntry[];
 }
 
-const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.3-acquisition-content-assessment";
+const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.4-acquired-reading-handoff";
 export const MAX_LEARNING_MODULES = 24;
 const REQUEST_LIMITS: Record<MoodleRuntimeConfig["executionProfile"], number> = {
   auto: 10,
@@ -180,7 +189,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
     const cachePath = sourceArchitectCachePath(config, state, catalog);
     if (round === 1) {
       const cached = await readCachedSourceArchitectDecision(cachePath);
-      if (cached) {
+      if (cached && !cached.pendingReads?.length) {
         const reconciledArchitecture = consolidateLearningArchitecture(
           reconcileLearningArchitectureWithCatalog(
             cached.learningArchitecture!,
@@ -248,20 +257,21 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
       state.source_architect_decision.requestedUrls.length > 0 &&
       hasViableAcquiredArchitecture(previousArchitecture, briefs) &&
       !hasPendingArchitectureAssignments &&
-      !hasUnassessedRequestedSources(state, previousArchitecture) &&
+      !(await hasUnassessedRequestedSources(state, previousArchitecture)) &&
       !needsPracticeReassessment(state, available)
     ) {
       const decision: SourceArchitectDecision = {
         round,
         status: "sufficient",
         coverageSummary:
-          "The acquired evidence covers every essential planned module. Remaining catalog entries are optional and were not crawled.",
+          "Acquisition planning is ready for the assigned modules; subject reading remains pending where recorded. Remaining catalog entries are optional and were not crawled.",
         requestedUrls: [],
         remainingAvailable: available.length,
         reasons: [
           "Reused the validated first-round learning architecture instead of starting another planning/download cycle.",
         ],
         learningArchitecture: previousArchitecture,
+        pendingReads: state.source_architect_decision.pendingReads ?? [],
       };
       await persistDecision(config.runDir, decision);
       await config.diagnostics?.log(
@@ -321,7 +331,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
     }
 
     if ((!config.intentDecision?.needsCourseMaterial || !catalog || available.length === 0) &&
-      !hasUnassessedRequestedSources(state, previousArchitecture)) {
+      !(await hasUnassessedRequestedSources(state, previousArchitecture))) {
       const architecture = deterministicArchitectureForBriefs(
         briefs,
         enrichedCatalog,
@@ -355,7 +365,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
         task: "artifact_planner", operation: "source_planning",
         attempt: 1,
       });
-      decision = validateDecision(
+      decision = await validateDecision(
         response,
         available,
         enrichedCatalog,
@@ -363,6 +373,8 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
         round,
         config.executionProfile,
         config.outputLanguage,
+        state,
+        config.runDir,
       );
       const architectureFindings = sourceArchitectureFindings(decision, config.outputLanguage);
       if (architectureFindings.length > 0) {
@@ -382,7 +394,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
           task: "artifact_planner", operation: "source_planning",
           attempt: 2,
         });
-        decision = validateDecision(
+        decision = await validateDecision(
           repairedResponse,
           available,
           enrichedCatalog,
@@ -390,6 +402,8 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
           round,
           config.executionProfile,
           config.outputLanguage,
+          state,
+          config.runDir,
         );
         const remainingFindings = sourceArchitectureFindings(decision, config.outputLanguage);
         if (remainingFindings.length > 0) {
@@ -397,6 +411,13 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
         }
       }
     } catch (error) {
+      if (error instanceof SourceReadingRequestError) {
+        // Preserve validated semantic scope. A genuinely invalid request must
+        // not be converted into a broad fallback architecture or sufficient.
+        await persistDecision(config.runDir, error.decision);
+        return { source_architect_decision: error.decision,
+          error_log: `Source architect blocked publication: ${error.message}` };
+      }
       decision = deterministicFallback(
         available,
         enrichedCatalog,
@@ -507,7 +528,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
       decision.status !== "sufficient" &&
       decision.requestedUrls.length === 0 &&
       hasViableAcquiredArchitecture(decision.learningArchitecture, briefs) &&
-      !hasUnassessedRequestedSources(state, decision.learningArchitecture) &&
+      !(await hasUnassessedRequestedSources(state, decision.learningArchitecture)) &&
       !needsPracticeReassessment(state, available)
     ) {
       decision = {
@@ -523,7 +544,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
     }
     decision = enforceArchitectureLimitPolicy(decision, state, enrichedCatalog);
     await persistDecision(config.runDir, decision);
-    if (round === 1 && decision.status !== "blocked" && decision.learningArchitecture) {
+    if (round === 1 && decision.status !== "blocked" && decision.learningArchitecture && !decision.pendingReads?.length) {
       await writeCachedSourceArchitectDecision(cachePath, decision);
     }
     await config.diagnostics?.log(
@@ -541,7 +562,7 @@ export function createSourceArchitectNode(config: MoodleRuntimeConfig, codex: Co
   };
 }
 
-function hasUnassessedRequestedSources(state: LangGraphAgentState, architecture: LearningArchitecture | undefined): boolean {
+async function hasUnassessedRequestedSources(state: LangGraphAgentState, architecture: LearningArchitecture | undefined): Promise<boolean> {
   if (state.source_architect_decision.requestedUrls.length === 0) return false;
   const excluded = new Set((architecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
   const assigned = new Set([
@@ -549,14 +570,22 @@ function hasUnassessedRequestedSources(state: LangGraphAgentState, architecture:
     ...(architecture?.supportResources.flatMap(support => support.resourceUrls) ?? []),
   ].map(canonicalizeResourceUrl));
   const resources = new Map(state.resource_manifest.resources.map(resource => [canonicalizeResourceUrl(resource.originUrl), resource]));
-  return state.source_architect_decision.requestedUrls.some(url => {
+  for (const url of state.source_architect_decision.requestedUrls) {
     const canonical = canonicalizeResourceUrl(url);
-    if (excluded.has(canonical)) return false;
+    if (excluded.has(canonical)) continue;
     const resource = resources.get(canonical);
-    // A downloaded file/diagnostic record is not a content assessment. The
-    // existing next architect round must assign it or disclose the actual gap.
-    return !assigned.has(canonical) || resource?.extraction?.status === "unusable" || resource?.extraction?.status === "partial";
-  });
+    if (!assigned.has(canonical)) return true;
+    const delegated = state.source_architect_decision.pendingReads?.find(read =>
+      canonicalizeResourceUrl(read.url) === canonical && read.resourceId === resource?.id);
+    if (delegated) {
+      if (!resource || resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status)) return true;
+      if (delegated.medium !== "native_text") {
+        const available = resource.localPath && await stat(resource.localPath).then(info => info.isFile() && info.size > 0).catch(() => false);
+        if (!available) return true;
+      } else if (!state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim())) return true;
+    } else if (resource?.extraction?.status === "unusable" || resource?.extraction?.status === "partial") return true;
+  }
+  return false;
 }
 
 function needsPracticeReassessment(
@@ -1172,7 +1201,7 @@ function normalizeSection(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function validateDecision(
+async function validateDecision(
   response: string,
   available: CatalogEntry[],
   catalog: CatalogEntry[],
@@ -1180,7 +1209,9 @@ function validateDecision(
   round: number,
   profile: MoodleRuntimeConfig["executionProfile"],
   outputLanguage: MoodleRuntimeConfig["outputLanguage"],
-): SourceArchitectDecision {
+  state: LangGraphAgentState,
+  runDir: string,
+): Promise<SourceArchitectDecision> {
   const parsed = JSON.parse(response) as {
     status?: unknown;
     coverage_summary?: unknown;
@@ -1225,10 +1256,7 @@ function validateDecision(
   const status: SourceArchitectStatus = requestedUrls.length > 0
     ? "request_more"
     : modelStatus;
-  if (status === "request_more" && requestedUrls.length === 0) {
-    throw new Error("Source architect requested more evidence without selecting a valid catalog URL.");
-  }
-  return {
+  const decision: SourceArchitectDecision = {
     round,
     status,
     coverageSummary: typeof parsed.coverage_summary === "string"
@@ -1241,6 +1269,69 @@ function validateDecision(
       : [],
     learningArchitecture,
   };
+  const rawRequests = Array.isArray(parsed.requested_urls)
+    ? [...new Set(parsed.requested_urls.filter((value): value is string => typeof value === "string"))]
+    : [];
+  const assigned = new Set([
+    ...learningArchitecture.modules.flatMap(module => module.resourceUrls),
+    ...learningArchitecture.supportResources.flatMap(support => support.resourceUrls),
+  ].map(canonicalizeResourceUrl));
+  const excluded = new Set(learningArchitecture.excludedResourceUrls.map(canonicalizeResourceUrl));
+  const pendingReads: SourceEvidenceRead[] = [];
+  const nativeRawText = state.moodle_raw_text.startsWith("[see ")
+    ? await readFile(path.join(runDir, "moodle_raw.txt"), "utf8").catch(() => "")
+    : state.moodle_raw_text;
+  const nativePageBlocks = nativeRawText.split(/\n(?=\[(?:Moodle page|Linked file|Calendar|CIS))/g)
+    .filter(block => /^\[(?:Moodle page|CIS[^\]]*)\]/.test(block))
+    .map(block => ({ url: /^URL:\s*(\S+)/m.exec(block)?.[1], content: block.replace(/\s+/g, " ").trim() }));
+  for (const url of rawRequests) {
+    const canonical = canonicalizeResourceUrl(url);
+    const resource = state.resource_manifest.resources.find(item => canonicalizeResourceUrl(item.originUrl) === canonical);
+    if (allowed.has(canonical) && !excluded.has(canonical)) continue;
+    const usableNativeText = resource && state.evidence_package.records.some(record =>
+      record.resourceId === resource.id && record.sourceUrl && record.content.trim().length > 0 &&
+      canonicalizeResourceUrl(record.sourceUrl) === canonical && nativePageBlocks.some(block =>
+        block.url && canonicalizeResourceUrl(block.url) === canonical &&
+        block.content.includes(record.content.replace(/\s+/g, " ").trim())));
+    const fileAvailable = resource?.localPath
+      ? await stat(resource.localPath).then(info => info.isFile() && info.size > 0).catch(() => false)
+      : false;
+    if (!resource || !assigned.has(canonical) || excluded.has(canonical) ||
+      resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
+      (!fileAvailable && !usableNativeText) || (resource.localPath && !fileAvailable)) {
+      throw new SourceReadingRequestError({ ...decision, status: "blocked", requestedUrls: [],
+        reasons: [...decision.reasons, `Requested source is not an admissible acquired reading target: ${url}`] },
+        `Requested source is not an admissible acquired reading target: ${url}`);
+    }
+    pendingReads.push({ resourceId: resource.id, url: resource.originUrl,
+      medium: fileAvailable ? (/\.pdf$/i.test(resource.localPath!) ? "pdf_pages" : "local_file") : "native_text",
+      limitation: !fileAvailable && resource.activityType === "url"
+        ? "Native page text and a resolved URL alone do not prove linked target content is read; linked target content is not verified."
+        : null });
+  }
+  if (status === "request_more" && requestedUrls.length === 0) {
+    if (pendingReads.length === 0) throw new SourceReadingRequestError({ ...decision, status: "blocked" },
+      "Source architect requested more evidence without selecting a valid catalog URL or acquired reading target.");
+    return { ...decision, status: "sufficient", requestedUrls: [], pendingReads,
+      coverageSummary: `${decision.coverageSummary} Acquisition planning is ready; subject reading remains pending.`,
+      reasons: [...decision.reasons, "Read the listed acquired sources in the existing visual planner/analyzer; availability does not establish subject coverage."] };
+  }
+  return { ...decision, pendingReads };
+}
+
+class SourceReadingRequestError extends Error {
+  constructor(readonly decision: SourceArchitectDecision, message: string) { super(message); }
+}
+
+/** Reading debt is source-owned and remains visible to the existing analysis stages. */
+export function pendingSourceReadPrompt(state: LangGraphAgentState, resourceIds?: string[]): string {
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const reads = (state.source_architect_decision.pendingReads ?? []).filter(read => {
+    const resource = state.resource_manifest.resources.find(item => item.id === read.resourceId);
+    return resource && (!resourceIds || resourceIds.includes(resource.id)) && resource.selection?.selected !== false &&
+      resource.status !== "skipped" && !isResourceFailureStatus(resource.status) && !excluded.has(canonicalizeResourceUrl(resource.originUrl));
+  });
+  return reads.length ? `Acquired sources awaiting subject reading (not new downloads): ${JSON.stringify(reads)}\nAcquisition readiness does not prove subject coverage. Inspect supplied original evidence/images; disclose exact unreadable or unprovided content and linked-target limitations instead of substituting titles/diagnostics for content.` : "";
 }
 
 export function reconcileLearningArchitectureWithCatalog(

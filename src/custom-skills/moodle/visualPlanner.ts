@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "./resourceAcquisition.js";
 import { assertReadableDownloadedFile } from "./fileTextExtraction.js";
 import { runBoundedProcess } from "../shared/boundedProcess.js";
 
@@ -82,7 +83,10 @@ export async function buildVisualPageIndex(
 ): Promise<VisualPageIndex> {
   const warnings: string[] = [];
   const entries: VisualPageIndexEntry[] = [];
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
   const resources = state.resource_manifest.resources
+    .filter(resource => resource.selection?.selected !== false && resource.status !== "skipped" &&
+      !isResourceFailureStatus(resource.status) && !excluded.has(canonicalizeResourceUrl(resource.originUrl)))
     .filter((resource) => resource.localPath)
     .filter((resource) => path.extname(resource.localPath!).toLowerCase() === ".pdf");
 

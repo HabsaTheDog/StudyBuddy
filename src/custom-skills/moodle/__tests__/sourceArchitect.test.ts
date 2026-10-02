@@ -1259,7 +1259,7 @@ describe("source architect", () => {
       run: vi.fn().mockResolvedValue(JSON.stringify({
         status: "request_more",
         coverage_summary: "Chapter two is missing.",
-        requested_urls: [requestedUrl, "https://example.org/invented.pdf"],
+        requested_urls: [requestedUrl],
         reasons: ["The requested guide must cover chapter two."],
       })),
     };

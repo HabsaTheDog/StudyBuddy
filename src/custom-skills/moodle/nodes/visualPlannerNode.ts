@@ -1,3 +1,4 @@
+import { pendingSourceReadPrompt } from "../sourceArchitect.js";
 import type { CodexClient } from "../codexClient.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
@@ -78,6 +79,7 @@ export function buildVisualPlannerPrompt(
     `Execution profile: ${config.executionProfile}`,
     `Exact original request:\n${config.originalUserPrompt}`,
     `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
+    pendingSourceReadPrompt(state),
     `Evaluated learning architecture:\n${JSON.stringify(state.source_architect_decision.learningArchitecture ?? null)}`,
     `Compact PDF page candidate index:\n${JSON.stringify(compactVisualPageIndexForPrompt(pageIndex, 30_000))}`,
   ].join("\n\n");

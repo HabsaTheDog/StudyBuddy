@@ -1,3 +1,4 @@
+import { pendingSourceReadPrompt } from "../sourceArchitect.js";
 import { reserveOperationAttempt, operationPolicyFingerprint } from "../../shared/operationCheckpoint.js";
 import { createObligationHandoff } from "../obligationAnswer.js";
 import { readObligationInventory } from "../obligationInventory.js";
@@ -55,7 +56,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.5-assigned-native-page";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.6-acquired-reading-handoff";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -629,6 +630,7 @@ async function analyzeDenseChapter(
     const fingerprintBase = {
       producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
+      pendingReads: pendingSourceReadPrompt(state, slice.resourceIds),
       visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
@@ -1526,6 +1528,18 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
     }));
   }
 
+  // A scan can have no native text records. Preserve its assigned reading
+  // slot so existing original-page attachments can reach the fragment.
+  const representedIds = new Set(slices.flatMap(slice => slice.resourceIds));
+  const pendingIds = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.medium !== "native_text").map(read => read.resourceId));
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  for (const resource of resources) {
+    if (!pendingIds.has(resource.id) || representedIds.has(resource.id) || !resource.localPath ||
+      resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
+      excluded.has(canonicalizeResourceUrl(resource.originUrl))) continue;
+    slices.push({ key: `${resource.id}-source-reading`, label: resource.title, resourceIds: [resource.id], records: [] });
+  }
   return slices.length > 0 ? slices : [{
     key: `${focus.key}-evidence`,
     label: focus.title,
@@ -1632,6 +1646,7 @@ export function buildChapterFragmentPrompt(
       : "",
     "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
     "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
+    pendingSourceReadPrompt(state, slice.resourceIds),
     MATHEMATICAL_INTEGRITY_POLICY,
     SOURCE_FIDELITY_POLICY,
     "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
@@ -1777,7 +1792,7 @@ async function requestedTaskSourcePageImage(
   return imagePath;
 }
 
-async function chapterVisualAttachments(
+export async function chapterVisualAttachments(
   runDir: string,
   slice: ChapterSlice,
   visualManifest: VisualManifest | null,
@@ -2609,6 +2624,7 @@ function chapterFingerprint(
     requestContract: state.request_contract,
     documentContext: buildDocumentContext(state),
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
+    pendingReads: pendingSourceReadPrompt(state, focus.resourceIds),
     visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
     materializationVersion: CHAPTER_MATERIALIZATION_VERSION,
     outputLanguage: config.outputLanguage,
@@ -2881,6 +2897,7 @@ export async function buildAnalyzerPrompt(
         : null,
     })}`,
     documentContextPrompt(state),
+    pendingSourceReadPrompt(state, focus?.resourceIds),
     focus
       ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
       : "",
