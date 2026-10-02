@@ -8,6 +8,38 @@ import { runBoundedProcess } from "../../shared/boundedProcess.js";
 import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 describe("Study Buddy Typst components", () => {
+  it("retains scalar content, strings and ordered tuple formula metadata with a visible double-dot accent", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "formula-scalar-ddot-"));
+    try {
+      const source = studyBuddyTypstDocument(`
+        #sb-formula(name: "ScalarMetadataUnique", variables: [ScalarVariableUnique $x$],
+          units: [ScalarUnitUnique $"m" / "s"^2$])[$ ddot(x) $]
+        #sb-formula(name: "StringMetadataUnique", variables: "StringVariableUnique",
+          units: "StringUnitUnique")[$ accent(x, dot.double) $]
+        #sb-formula(name: "TupleMetadataUnique",
+          variables: ([TupleVariableFirstUnique $x$], [TupleVariableSecondUnique $y$]),
+          units: ("TupleUnitFirstUnique", [TupleUnitSecondUnique $"s"$]))[$ x + y $]
+        #sb-formula(name: "ScalarProductUnique")[$ 2 cdot 3 $]
+      `);
+      await writeTypstSupportFiles(runDir, await getStudyBuddyTypstSupportFiles());
+      const sourcePath = path.join(runDir, "document.typ");
+      const pdfPath = path.join(runDir, "document.pdf");
+      await writeFile(sourcePath, source);
+      expect(await compileTypstPdf(sourcePath, pdfPath, { packagePath: path.join(runDir, ".typst-packages") })).toEqual({ ok: true, skipped: false });
+      const text = await runBoundedProcess("pdftotext", ["-layout", pdfPath, "-"]);
+      expect(text.code).toBe(0);
+      for (const marker of ["ScalarVariableUnique", "ScalarUnitUnique", "StringVariableUnique", "StringUnitUnique",
+        "TupleVariableFirstUnique", "TupleVariableSecondUnique", "TupleUnitFirstUnique", "TupleUnitSecondUnique"]) {
+        expect(text.stdout).toContain(marker);
+      }
+      expect(text.stdout.indexOf("TupleVariableFirstUnique")).toBeLessThan(text.stdout.indexOf("TupleVariableSecondUnique"));
+      expect(text.stdout.indexOf("TupleUnitFirstUnique")).toBeLessThan(text.stdout.indexOf("TupleUnitSecondUnique"));
+      expect(text.stdout.normalize("NFKC").match(/x\u0308|ẍ/g), text.stdout).toHaveLength(2);
+      expect(text.stdout).toMatch(/2\s*⋅\s*3/);
+      expect(await readFile(sourcePath, "utf8")).toBe(source);
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  }, 30_000);
+
   it("retains compact source notes and complete nested trailing content across pages", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "source-note-body-"));
     try {

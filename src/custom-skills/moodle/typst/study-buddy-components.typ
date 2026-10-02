@@ -261,7 +261,10 @@
   body,
 )
 
-#let sb-sequence(value) = if type(value) == str { (value,) } else { value }
+#let sb-sequence(value) = if type(value) == str or type(value) == content { (value,) } else { value }
+
+#let ddot(body) = math.accent(body, math.dot.double)
+#let cdot = sym.dot
 
 #let sb-formula(
   name: "Formel",
