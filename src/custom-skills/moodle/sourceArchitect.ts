@@ -72,7 +72,7 @@ interface ResourceCatalog {
   entries: CatalogEntry[];
 }
 
-const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.5-exploration-before-assignment";
+const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.6-prior-acquisition-reading";
 export const MAX_LEARNING_MODULES = 24;
 const REQUEST_LIMITS: Record<MoodleRuntimeConfig["executionProfile"], number> = {
   auto: 10,
@@ -1291,6 +1291,7 @@ async function validateDecision(
     .map(block => ({ url: /^URL:\s*(\S+)/m.exec(block)?.[1], content: block.replace(/\s+/g, " ").trim() }));
   const continuingExploration = (state.source_architect_decision.pendingReads ?? []).filter(read =>
     read.purpose === "scope_assessment" && !excluded.has(canonicalizeResourceUrl(read.url)));
+  const previousAcquisitionRequests = new Set(state.source_architect_decision.requestedUrls.map(canonicalizeResourceUrl));
   const readingRequests = [...new Set([...rawRequests,
     ...continuingExploration.map(read => read.url),
   ])];
@@ -1307,6 +1308,7 @@ async function validateDecision(
       ? await stat(resource.localPath).then(info => info.isFile() && info.size > 0).catch(() => false)
       : false;
     const explorationAllowed = (modelStatus === "request_more" && requestedUrls.length > 0) ||
+      (modelStatus === "request_more" && previousAcquisitionRequests.has(canonical)) ||
       continuingExploration.some(read => read.resourceId === resource?.id && canonicalizeResourceUrl(read.url) === canonical);
     if (!resource || (!assigned.has(canonical) && !explorationAllowed) || excluded.has(canonical) ||
       resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||

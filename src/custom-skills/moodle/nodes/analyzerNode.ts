@@ -56,7 +56,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.7-exploration-before-assignment";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.8-exploratory-source-slices";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -70,6 +70,7 @@ const DENSE_CHAPTER_CHARACTER_LIMIT = 13_000;
 const FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 9_000;
 const PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 40_000;
 const MAX_SLICES_PER_MODEL_CALL = 4;
+const MAX_FRAGMENT_VISUAL_CANDIDATES = 2;
 const FRAGMENT_RECORD_OVERLAP = 2;
 // Codex SDK threads in one process can contend without emitting any usage when
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
@@ -476,6 +477,7 @@ export interface ChapterSlice {
   label: string;
   resourceIds: string[];
   records: EvidenceRecord[];
+  scopeAssessmentResourceIds?: string[];
 }
 
 interface VisualRetrievalRequest {
@@ -492,7 +494,8 @@ function isDenseChapter(state: LangGraphAgentState, focus: ChapterFocus): boolea
     focus.resourceIds.includes(record.resourceId)
   );
   const characters = records.reduce((sum, record) => sum + JSON.stringify(record).length, 0);
-  return records.length > DENSE_CHAPTER_RECORD_LIMIT || characters > DENSE_CHAPTER_CHARACTER_LIMIT;
+  return records.length > DENSE_CHAPTER_RECORD_LIMIT || characters > DENSE_CHAPTER_CHARACTER_LIMIT ||
+    exploratoryReadingResources(state, focus).length > 0;
 }
 
 async function analyzeDenseChapter(
@@ -513,11 +516,12 @@ async function analyzeDenseChapter(
   const broadlyRelevantSlices = directEvidenceCharacters >= 600
     ? allCandidateSlices.filter((slice) =>
         slice.resourceIds.some((resourceId) => directResourceIds.has(resourceId)) ||
+        Boolean(slice.scopeAssessmentResourceIds?.length) ||
         supportSliceMatchesFocus(slice, focus)
       )
     : allCandidateSlices;
   const candidateSlices = requestedTasks.length > 0 && requestedTaskSlices.length >= requestedTasks.length
-    ? requestedTaskSlices
+    ? [...requestedTaskSlices, ...broadlyRelevantSlices.filter(slice => slice.scopeAssessmentResourceIds?.length)]
     : broadlyRelevantSlices;
   const profileBudget = resolveAnalysisBudget(config.executionProfile);
   const repairFeedback = repairFeedbackOverride === undefined
@@ -545,7 +549,7 @@ async function analyzeDenseChapter(
       const sourceRole = dominantSliceRole(state, slice);
       const reservation = slice.resourceIds.some((id) =>
         (focus.directResourceIds ?? focus.resourceIds).includes(id)
-      )
+      ) || Boolean(slice.scopeAssessmentResourceIds?.length)
         ? "dependency" as const
         : slice.resourceIds.some((id) => dependencyResourceIds.has(id))
           ? "dependency" as const
@@ -617,6 +621,7 @@ async function analyzeDenseChapter(
   );
   const visualManifest = await readVisualManifest(config.runDir);
   const fragments: ChapterFragment[] = [];
+  const suppliedExplorationPages = new Map<string, Set<number>>();
   const fragmentCacheDir = path.join(config.runtimeCacheDir, "chapter-fragments");
   await mkdir(fragmentCacheDir, { recursive: true });
 
@@ -631,6 +636,9 @@ async function analyzeDenseChapter(
       producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
       pendingReads: pendingSourceReadPrompt(state, slice.resourceIds),
+      exploratorySources: state.resource_manifest.resources
+        .filter(resource => slice.scopeAssessmentResourceIds?.includes(resource.id))
+        .map(resource => ({ id: resource.id, checksum: resource.checksum, status: resource.status, localPath: resource.localPath })),
       visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
@@ -725,6 +733,14 @@ async function analyzeDenseChapter(
       retrievalRequests,
       ),
     ])].slice(0, 3);
+    for (const candidate of visualManifest?.candidates ?? []) {
+      if (!candidate.source_id || !candidate.source_page || !candidate.relative_path ||
+        !slice.scopeAssessmentResourceIds?.includes(candidate.source_id) ||
+        !localImages.includes(path.resolve(config.runDir, candidate.relative_path))) continue;
+      const pages = suppliedExplorationPages.get(candidate.source_id) ?? new Set<number>();
+      pages.add(candidate.source_page);
+      suppliedExplorationPages.set(candidate.source_id, pages);
+    }
     let fragment: ChapterFragment | null = null;
     let localRepairFeedback = sliceRepairFeedback;
     const localAttempts = 1;
@@ -802,7 +818,17 @@ async function analyzeDenseChapter(
     visualManifest,
     retrievalRequests,
   );
-  return enrichCachedChapterHandoff(config, state, focus, materialized);
+  return enrichCachedChapterHandoff(config, state, focus, validateExtractedData({
+    ...materialized,
+    warnings: [...new Set([...materialized.warnings, ...exploratoryReadingResources(state, focus).map(resource => {
+      const supplied = [...(suppliedExplorationPages.get(resource.id) ?? [])].sort((left, right) => left - right);
+      const pageCount = resource.extraction?.pageCount;
+      const remaining = pageCount ? Array.from({ length: pageCount }, (_, index) => index + 1).filter(page => !supplied.includes(page)) : null;
+      return `Exploratory reading boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ") || "none"}; ` +
+        `pages not supplied: ${remaining?.join(", ") || (remaining ? "none" : "unknown")}. ` +
+        "Page availability does not verify methods or examination scope; retain the existing request and learning goals.";
+    })])],
+  }));
 }
 
 function supportSliceMatchesFocus(
@@ -1081,6 +1107,8 @@ function packSelectedSlices(
     if (
       previousPack &&
       previousPackSize < maxSlicesPerCall &&
+      (!(previousPack.scopeAssessmentResourceIds?.length || candidate.slice.scopeAssessmentResourceIds?.length) ||
+        new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds]).size <= MAX_FRAGMENT_VISUAL_CANDIDATES) &&
       combinedCharacters <= PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT
     ) {
       packed[packed.length - 1] = {
@@ -1088,6 +1116,9 @@ function packSelectedSlices(
         label: `${previousPack.label} + ${candidate.slice.label}`,
         resourceIds: [...new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds])],
         records: combinedRecords,
+        ...((previousPack.scopeAssessmentResourceIds?.length || candidate.slice.scopeAssessmentResourceIds?.length)
+          ? { scopeAssessmentResourceIds: [...new Set([...(previousPack.scopeAssessmentResourceIds ?? []), ...(candidate.slice.scopeAssessmentResourceIds ?? [])])] }
+          : {}),
       };
       packSizes[packSizes.length - 1] = previousPackSize + 1;
     } else {
@@ -1445,6 +1476,20 @@ function splitRequestedTaskEvidence(
   return result;
 }
 
+function exploratoryReadingResources(state: LangGraphAgentState, focus: ChapterFocus): ManifestResource[] {
+  const architecture = state.source_architect_decision.learningArchitecture;
+  const owner = chapterFocuses(state).sort((left, right) => focusPriority(right) - focusPriority(left))[0];
+  if (!architecture || owner?.key !== focus.key) return [];
+  const assigned = new Set([...architecture.modules.flatMap(module => module.resourceUrls),
+    ...architecture.supportResources.flatMap(support => support.resourceUrls)].map(canonicalizeResourceUrl));
+  const excluded = new Set(architecture.excludedResourceUrls.map(canonicalizeResourceUrl));
+  const ids = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.purpose === "scope_assessment" && read.medium !== "native_text").map(read => read.resourceId));
+  return state.resource_manifest.resources.filter(resource => ids.has(resource.id) && resource.localPath &&
+    resource.selection?.selected !== false && resource.status !== "skipped" && !isResourceFailureStatus(resource.status) &&
+    !assigned.has(canonicalizeResourceUrl(resource.originUrl)) && !excluded.has(canonicalizeResourceUrl(resource.originUrl)));
+}
+
 export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFocus): ChapterSlice[] {
   const resources = state.resource_manifest.resources.filter((resource) =>
     focus.resourceIds.includes(resource.id)
@@ -1539,6 +1584,27 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
       resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
       excluded.has(canonicalizeResourceUrl(resource.originUrl))) continue;
     slices.push({ key: `${resource.id}-source-reading`, label: resource.title, resourceIds: [resource.id], records: [] });
+  }
+  const explorationSlices: ChapterSlice[] = [];
+  for (const resource of exploratoryReadingResources(state, focus)) {
+    const records = state.evidence_package.records.filter(record => record.resourceId === resource.id);
+    const chunks = chunkEvidenceRecords(records, FRAGMENT_EVIDENCE_CHARACTER_LIMIT, 1);
+    (chunks.length ? chunks : [[]]).forEach((chunk, index) => explorationSlices.push({
+      key: `${resource.id}-scope-reading-${index + 1}`, label: resource.title,
+      resourceIds: [resource.id], records: chunk, scopeAssessmentResourceIds: [resource.id],
+    }));
+  }
+  // Compact sparse read candidates without crowding their original-page
+  // attachments out of the existing per-fragment visual ceiling.
+  for (const slice of explorationSlices) {
+    const previous = slices.at(-1);
+    const resourceIds = [...new Set([...(previous?.resourceIds ?? []), ...slice.resourceIds])];
+    const records = uniqueBy([...(previous?.records ?? []), ...slice.records], record => record.id);
+    if (previous?.scopeAssessmentResourceIds?.length && resourceIds.length <= MAX_FRAGMENT_VISUAL_CANDIDATES &&
+      records.reduce((sum, record) => sum + JSON.stringify(record).length, 0) <= FRAGMENT_EVIDENCE_CHARACTER_LIMIT) {
+      slices[slices.length - 1] = { key: `${previous.key}-${slice.key}`, label: `${previous.label} + ${slice.label}`,
+        resourceIds, records, scopeAssessmentResourceIds: resourceIds };
+    } else slices.push(slice);
   }
   return slices.length > 0 ? slices : [{
     key: `${focus.key}-evidence`,
@@ -1647,6 +1713,9 @@ export function buildChapterFragmentPrompt(
     "For a requested/evidenced application, choose the discipline-appropriate calculation, case, source interpretation, decision, comparison or procedure, using only its needed structure. Do not invent examples to fill that structure.",
     "Use Typst math. Each formula must include nonempty variables, units (or explicit dimensionless status), context and allowed source_ids.",
     pendingSourceReadPrompt(state, slice.resourceIds),
+    slice.scopeAssessmentResourceIds?.length
+      ? `Evaluate exploratory sources only against the existing request and learning goals: ${JSON.stringify(slice.scopeAssessmentResourceIds)}. These are document-level reading candidates, not assigned curriculum. Do not infer new examination topics or required methods from their titles/content; retain unverified, unread or irrelevant material as an explicit scoped limitation. Use a method/example only if the supplied content establishes its relevance to existing goals.`
+      : "",
     MATHEMATICAL_INTEGRITY_POLICY,
     SOURCE_FIDELITY_POLICY,
     "Check dimensions term by term before calculating: numerical coefficients of time functions carry their own units; equations retain evidenced derivative order. A unit after a whole polynomial is insufficient.",
@@ -1741,14 +1810,18 @@ function selectChapterVisualCandidates(
     request.pages.forEach((page) => pages.add(page));
     requestedPages.set(request.resourceId, pages);
   }
-  return (visualManifest?.candidates ?? [])
+  const ranked = (visualManifest?.candidates ?? [])
     .filter((candidate) => {
       if (!candidate.source_id || !slice.resourceIds.includes(candidate.source_id)) return false;
       const pages = requestedPages.get(candidate.source_id);
       return pages?.size && candidate.source_page ? pages.has(candidate.source_page) : true;
     })
-    .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
-    .slice(0, 2);
+    .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left));
+  const sourceRepresentatives = slice.scopeAssessmentResourceIds?.length
+    ? slice.resourceIds.map(id => ranked.find(candidate => candidate.source_id === id))
+      .filter((candidate): candidate is VisualCandidate => Boolean(candidate))
+    : [];
+  return uniqueBy([...sourceRepresentatives, ...ranked], candidate => candidate.id).slice(0, MAX_FRAGMENT_VISUAL_CANDIDATES);
 }
 
 export function locateRequestedTaskPage(pages: string[], taskNumber: number): number | null {
@@ -1916,6 +1989,7 @@ function materializeDenseChapter(
     course: { title: courseTitle, url: state.resource_manifest.courseUrl },
     sources: uniqueBy([
       ...resources.map(manifestResourceToSource),
+      ...exploratoryReadingResources(state, focus).map(manifestResourceToSource),
       ...state.resource_manifest.resources.filter(resource => documentSourceIds.has(resource.id)).map(manifestResourceToSource),
     ], source => source.id),
     sections: mergeSections(fragments.flatMap((fragment) => fragment.sections)),
@@ -2473,7 +2547,8 @@ function assignPracticeResourcesToModules(
   }
   const result = new Map<string, ManifestResource[]>();
   const practiceResources = state.resource_manifest.resources.filter((resource) =>
-    Boolean(resource.localPath) && practiceRoles.has(resource.selection?.role ?? "")
+    Boolean(resource.localPath) && practiceRoles.has(resource.selection?.role ?? "") &&
+    !(state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.purpose === "scope_assessment")
   );
 
   for (const resource of practiceResources) {
@@ -2616,8 +2691,9 @@ function chapterFingerprint(
   state: LangGraphAgentState,
   focus: ChapterFocus,
 ): string {
+  const exploratoryIds = new Set(exploratoryReadingResources(state, focus).map(resource => resource.id));
   const resources = state.resource_manifest.resources
-    .filter((resource) => focus.resourceIds.includes(resource.id))
+    .filter((resource) => focus.resourceIds.includes(resource.id) || exploratoryIds.has(resource.id))
     .map((resource) => ({ id: resource.id, checksum: resource.checksum, status: resource.status }));
   return createHash("sha256").update(JSON.stringify({
     producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],

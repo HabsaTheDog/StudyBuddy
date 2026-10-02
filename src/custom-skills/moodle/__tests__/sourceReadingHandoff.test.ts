@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { buildVisualPlannerPrompt } from "../nodes/visualPlannerNode.js";
 import { buildAnalyzerPrompt, buildChapterFragmentPrompt, buildChapterSlices, createAnalyzerNode } from "../nodes/analyzerNode.js";
@@ -43,6 +44,128 @@ async function fixture() {
 }
 
 describe("acquired source reading handoff", () => {
+  it("invalidates chapter and fragment caches when exploratory original bytes change, while reusing unchanged originals", async () => {
+    const f = await fixture();
+    try {
+      const resource = f.state.resource_manifest.resources[1];
+      const writeOriginal = async (content: string) => {
+        await writeFile(resource.localPath!, content);
+        resource.checksum = createHash("sha256").update(content).digest("hex");
+      };
+      await writeOriginal("%PDF-1.4 original acquired source");
+      f.state.source_architect_decision.pendingReads = [{ resourceId: resource.id, url: resource.originUrl, medium: "pdf_pages", purpose: "scope_assessment", limitation: null }];
+      const codex = { run: vi.fn(async () => JSON.stringify({ sections: [{ heading: "Evidence interpretation", summary: "Relevance is bounded by the existing goals.", key_concepts: [], source_ids: ["lecture", "task"] }], formulas: [], worked_examples: [], figures: [], warnings: [] })) };
+      const config = { ...f.config, artifactIntent: { ...f.config.artifactIntent, profile: "study_guide" as const } };
+      expect((await createAnalyzerNode(config, codex)(f.state)).error_log).toBeNull();
+      const originalCalls = codex.run.mock.calls.length;
+      expect((await createAnalyzerNode(config, codex)(f.state)).error_log).toBeNull();
+      expect(codex.run.mock.calls).toHaveLength(originalCalls);
+      await writeOriginal("%PDF-1.4 corrected original source with changed source geometry");
+      expect((await createAnalyzerNode(config, codex)(f.state)).error_log).toBeNull();
+      expect(codex.run.mock.calls.length).toBeGreaterThan(originalCalls);
+      const correctedCalls = codex.run.mock.calls.length;
+      expect((await createAnalyzerNode(config, codex)(f.state)).error_log).toBeNull();
+      expect(codex.run.mock.calls).toHaveLength(correctedCalls);
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it.each(["normalized-id", "empty-first-module"])("owns exploratory slices through the first actual admissible %s focus", async scenario => {
+    const f = await fixture();
+    try {
+      const module = f.state.source_architect_decision.learningArchitecture!.modules[0];
+      module.id = "Evidence Interpretation / first";
+      if (scenario === "empty-first-module") f.state.source_architect_decision.learningArchitecture!.modules.unshift({ ...module, id: "empty", priority: "supplementary", resourceUrls: [] });
+      f.state.source_architect_decision.pendingReads = [{ resourceId: "task", url: f.taskUrl, medium: "pdf_pages", purpose: "scope_assessment", limitation: null }];
+      expect(buildChapterSlices(f.state, { key: "evidence-interpretation-first", title: module.title, resourceIds: ["lecture"], matchTerms: [] })
+        .some(slice => slice.resourceIds.includes("task"))).toBe(true);
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it("supplies seven exploratory originals through actual bounded model packs and retains unread-page limits", async () => {
+    const f = await fixture();
+    try {
+      const module = f.state.source_architect_decision.learningArchitecture!.modules[0];
+      module.resourceUrls = [f.lectureUrl];
+      module.learningObjectives = Array(4).fill("Evidence interpretation: compare source statements and assumptions.");
+      f.state.resource_manifest.resources[0].selection!.role = "primary_lecture";
+      const tasks = Array.from({ length: 7 }, (_, index) => ({ ...f.state.resource_manifest.resources[1],
+        id: `task-${index}`, title: `Exploratory original ${index}`, originUrl: `https://example.edu/reading/${index}`, localPath: path.join(f.runDir, `original-${index}.pdf`) }));
+      f.state.resource_manifest.resources = [f.state.resource_manifest.resources[0], f.state.resource_manifest.resources[2], ...tasks];
+      const wrapper = f.state.resource_manifest.resources[1];
+      f.state.evidence_package.records[0].content = "Evidence interpretation compares source statements and assumptions.";
+      f.state.source_architect_decision.learningArchitecture!.supportResources = [{ id: "support", title: "Evidence interpretation", purpose: "general_reference", resourceUrls: [wrapper.originUrl] }];
+      f.state.source_architect_decision.pendingReads = [{ resourceId: "lecture", url: f.lectureUrl, medium: "pdf_pages", limitation: null },
+        ...tasks.map(resource => ({ resourceId: resource.id, url: resource.originUrl, medium: "pdf_pages" as const, purpose: "scope_assessment" as const, limitation: null }))];
+      const visualDir = path.join(f.runDir, "assets", "visuals"); await mkdir(visualDir, { recursive: true });
+      const candidates = tasks.flatMap((resource, index) => [1, 2].map(page => ({ id: `${resource.id}-${page}`, kind: "moodle_pdf_page" as const,
+        title: resource.title, relative_path: `assets/visuals/${resource.id}-${page}.png`, mime_type: "image/png", width_px: 1200, height_px: 1600,
+        source_id: resource.id, source_url: resource.originUrl, source_path: resource.localPath, source_page: page,
+        confidence: index % 2 === 0 ? 1 : 0.7, caption_hint: "Original page", relevance_reason: "Explicit reading request", generation_prompt: null })));
+      for (const resource of tasks) await writeFile(resource.localPath, "%PDF-1.4 acquired fixture");
+      for (const candidate of candidates) await writeFile(path.join(f.runDir, candidate.relative_path), "nonempty attachment fixture");
+      await writeFile(path.join(f.runDir, "visual-candidates.json"), JSON.stringify({ tooling: { pdfinfo: true, pdftotext: true, pdftoppm: true, pdfimages: true, magick: true }, warnings: [], candidates }));
+      const calls: { images: string[]; prompt: string }[] = [];
+      const result = await createAnalyzerNode({ ...f.config, executionProfile: "balanced", artifactIntent: { ...f.config.artifactIntent, profile: "study_guide" } }, {
+        async run(prompt, options) {
+          calls.push({ prompt, images: options?.localImages ?? [] });
+          const ids = JSON.parse(prompt.split("Erlaubte Ressourcen: ")[1]!.split("\n\n")[0]!).map((resource: { id: string }) => resource.id);
+          return JSON.stringify({ sections: [{ heading: "Evidence interpretation", summary: "Source relevance remains bounded by the existing learning goals.", key_concepts: [], source_ids: ids }], formulas: [], worked_examples: [], figures: [], warnings: [] });
+        },
+      })(f.state);
+      expect(result.error_log).toBeNull();
+      expect(calls.length).toBeLessThanOrEqual(6);
+      expect(calls.every(call => call.images.length <= 2)).toBe(true);
+      expect(tasks.every(resource => calls.some(call => call.images.some(image => path.basename(image).startsWith(resource.id))))).toBe(true);
+      expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).learning_modules[0]?.resource_ids).toEqual(["ch1_method_lecture", "wrapper"]);
+      expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).sources.map(source => source.url)).toEqual(expect.arrayContaining(tasks.map(resource => resource.originUrl)));
+      for (const resource of tasks) {
+        const supplied = candidates.filter(candidate => candidate.source_id === resource.id &&
+          calls.some(call => call.images.includes(path.join(f.runDir, candidate.relative_path)))).map(candidate => candidate.source_page);
+        const remaining = [1, 2].filter(page => !supplied.includes(page));
+        expect((result.extracted_data as ReturnType<typeof moodleExtractedData>).warnings)
+          .toEqual(expect.arrayContaining([expect.stringContaining(`Exploratory reading boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ")}; pages not supplied: ${remaining.join(", ") || "none"}. Page availability does not verify methods or examination scope; retain the existing request and learning goals.`)]));
+      }
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it("bridges an explicit previously acquired request into exploratory original-page slices without assigning curriculum", async () => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = [f.lectureUrl, f.taskUrl];
+      f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl];
+      const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(result.error_log).toBeNull();
+      expect(result.source_architect_decision?.status).toBe("sufficient");
+      expect(result.source_architect_decision?.pendingReads?.find(read => read.resourceId === "task")?.purpose).toBe("scope_assessment");
+      expect(result.source_architect_decision?.learningArchitecture?.modules[0].resourceUrls).toEqual([f.lectureUrl]);
+      const next = { ...f.state, ...result };
+      const focus = { key: "method", title: "Evidence interpretation", resourceIds: ["lecture"], matchTerms: [] };
+      const slices = buildChapterSlices(next, focus);
+      const exploration = slices.find(slice => slice.resourceIds.includes("task"));
+      expect(exploration).toBeDefined();
+      expect(exploration?.records).toEqual([]);
+      expect(buildChapterFragmentPrompt(f.config, next, focus, exploration!, 0, slices.length, null, []))
+        .toContain("Evaluate exploratory sources only against the existing request and learning goals");
+      expect(buildChapterSlices(next, { ...focus, key: "another-module" }).some(slice => slice.resourceIds.includes("task"))).toBe(false);
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
+  it.each(["unrequested", "unknown", "deselected", "missing", "excluded"])("does not bridge %s prior-acquisition targets into exploration", async invalid => {
+    const f = await fixture();
+    try {
+      f.response.requested_urls = [f.taskUrl];
+      f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl];
+      if (invalid === "unrequested") f.state.source_architect_decision.requestedUrls = [];
+      if (invalid === "unknown") f.response.requested_urls = ["https://example.edu/unrequested-unknown.pdf"];
+      if (invalid === "deselected") f.state.resource_manifest.resources[1].selection!.selected = false;
+      if (invalid === "missing") await rm(f.state.resource_manifest.resources[1].localPath!);
+      if (invalid === "excluded") f.response.learning_architecture.excludedResourceUrls.push(f.taskUrl);
+      const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
+      expect(result.source_architect_decision?.status).toBe("blocked");
+      expect(result.error_log).toContain("not an admissible acquired reading target");
+    } finally { await rm(f.runDir, { recursive: true, force: true }); }
+  });
+
   it("hands assigned acquired files and native launcher evidence to the existing readers without claiming verified coverage", async () => {
     const f = await fixture();
     try {
@@ -230,7 +353,10 @@ describe("acquired source reading handoff", () => {
         f.state.resource_manifest.resources[1].status = "discovered";
         f.state.evidence_package.records.push({ ...f.state.evidence_package.records[0], id: "discovery-diagnostic", resourceId: "task", kind: "claim", sourceUrl: f.taskUrl, content: "Resource discovered; no source content acquired or downloaded." });
       }
-      if (failure === "unassigned") f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl, f.wrapperUrl];
+      if (failure === "unassigned") {
+        f.response.learning_architecture.modules[0].resourceUrls = [f.lectureUrl, f.wrapperUrl];
+        f.state.source_architect_decision.requestedUrls = []; // No prior authorized acquisition intent.
+      }
       const result = await createSourceArchitectNode(f.config, { async run() { return JSON.stringify(f.response); } })(f.state);
       expect(result.source_architect_decision?.status).toBe("blocked");
       expect(result.error_log).toContain("Source architect blocked publication");
