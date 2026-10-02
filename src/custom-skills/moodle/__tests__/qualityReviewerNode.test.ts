@@ -15,6 +15,7 @@ import {
 import { readPendingExtractionRepairs } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 import { RequestContractSchema } from "../../shared/requestContract.js";
+import { MATHEMATICAL_INTEGRITY_POLICY } from "../studentFirstPolicy.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 const chapters = [
@@ -47,6 +48,10 @@ const chapters = [
 ];
 
 describe("qualityReviewerNode", () => {
+  it("requires explicit defect classification and applies the shared mathematical review policy", () => {
+    expect(qualityReviewSchema.properties.findings.items.required).toContain("defectKind");
+    expect(buildQualityReviewPrompt(moodleTestConfig(), moodleTestState())).toContain(MATHEMATICAL_INTEGRITY_POLICY);
+  });
   it("keeps an explicitly global contradiction global even when its text names another chapter", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-global-review-"));
     try {
@@ -392,7 +397,11 @@ describe("qualityReviewerNode", () => {
     }
   });
 
-  it("keeps evidence-derived should findings advisory even if the reviewer marks them blocking", async () => {
+  it.each([
+    ["A source figure could improve orientation.", "Die empfohlene Abbildung wurde nicht verwendet.", "requirement_gap"],
+    ["Additional mathematics worked examples could broaden practice.", "Optional mathematical examples are missing; the included content is correct.", "requirement_gap"],
+    ["Legacy source figure recommendation.", "Die empfohlene Abbildung wurde nicht verwendet.", undefined],
+  ] as const)("keeps the should recommendation %s advisory even if the reviewer marks it blocking", async (statement, message, defectKind) => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-review-should-"));
     try {
       const baseContract = moodleTestState().request_contract;
@@ -402,7 +411,7 @@ describe("qualityReviewerNode", () => {
           ...baseContract.requirements,
           {
             id: "recommended-visual",
-            statement: "A source figure could improve orientation.",
+            statement,
             origin: "evidence_derived",
             priority: "should",
             appliesTo: ["deliverable-1"],
@@ -419,12 +428,13 @@ describe("qualityReviewerNode", () => {
               ok: false,
               summary: "Optional visual absent",
               findings: [{
-                message: "Die empfohlene Abbildung wurde nicht verwendet.",
+                message,
                 chapterTitle: null,
                 requirementId: "recommended-visual",
                 deliverableId: "deliverable-1",
                 owner: "visual",
                 severity: "blocking",
+                defectKind,
                 repairTarget: "visual_pipeline",
               }],
             });
@@ -442,10 +452,64 @@ describe("qualityReviewerNode", () => {
       expect(review.advisory_findings[0]).toMatchObject({
         requirementId: "recommended-visual",
         severity: "advisory",
+        defectKind: defectKind ?? null,
       });
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }
+  });
+
+  it.each([
+    ["mathematical_error", "The shown 2 + 2 calculation concludes 5.", "Toleranzen und Passungen", "blocking"],
+    ["factual_error", "The global scope note contradicts the included source-backed chapter content.", null, "blocking"],
+    ["citation_error", "The included claim cites a source ID that does not exist.", "Tribologie und Viskosität", "advisory"],
+    ["prohibition_violation", "The handoff includes an explicitly prohibited official scoring claim.", null, "advisory"],
+  ] as const)("keeps concrete %s defects blocking when associated with a should requirement", async (defectKind, message, chapterTitle, severity) => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-concrete-review-"));
+    try {
+      const baseContract = moodleTestState().request_contract;
+      const requestContract = RequestContractSchema.parse({
+        ...baseContract,
+        requirements: [...baseContract.requirements, {
+          id: "recommended-practice",
+          statement: "Source-backed worked practice can improve understanding.",
+          origin: "evidence_derived", priority: "should", appliesTo: ["deliverable-1"],
+          acceptanceCheck: "Include it when useful.", evidenceRefs: [],
+        }],
+      });
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), {
+        async run() { return JSON.stringify({ ok: false, summary: "Concrete included-content defect", findings: [{
+          message, chapterTitle, requirementId: "recommended-practice", deliverableId: "deliverable-1",
+          owner: "content", severity, defectKind, repairTarget: "content_analyzer",
+        }] }); },
+      })(moodleTestState({ request_contract: requestContract, study_model: { ...emptyStudyModel(), courseChapters: chapters } }));
+      expect(result.error_log).toContain(message);
+      expect(result.error_log).toContain(chapterTitle ? `[chapter: ${chapterTitle}]` : "[scope: document]");
+      expect(result.retry_count).toBe(1);
+      const review = JSON.parse(await readFile(path.join(runDir, "quality-review.json"), "utf8"));
+      expect(review.advisory_findings).toEqual([]);
+      expect(review.blocking_findings).toEqual([expect.objectContaining({
+        defectKind, severity: "blocking", chapterTitle, requirementId: "recommended-practice",
+        deliverableId: "deliverable-1", owner: "content", repairTarget: "content_analyzer",
+      })]);
+      const pending = await readPendingExtractionRepairs(runDir);
+      if (chapterTitle) expect(pending?.pendingChapterTitles).toEqual([chapterTitle]);
+      else expect(pending).toBeNull();
+    } finally { await rm(runDir, { recursive: true, force: true }); }
+  });
+
+  it("rejects unknown defect kinds without guessing from finding text", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-defect-kind-"));
+    try {
+      const result = await createQualityReviewerNode(moodleTestConfig({ runDir }), {
+        async run() { return JSON.stringify({ ok: false, summary: "Invalid classification", findings: [{
+          message: "Missing optional mathematical examples.", chapterTitle: null, requirementId: null,
+          deliverableId: "deliverable-1", owner: "content", severity: "blocking",
+          defectKind: "guessed_math", repairTarget: "content_analyzer",
+        }] }); },
+      })(moodleTestState());
+      expect(result.error_log).toBe("Quality reviewer failed: Quality reviewer finding defectKind is invalid.");
+    } finally { await rm(runDir, { recursive: true, force: true }); }
   });
 
   it("keeps renderer-owned global presentation feedback advisory", async () => {

@@ -14,7 +14,23 @@ import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray } from "../validation.js";
-import { ASSESSMENT_SCORING_POLICY } from "../studentFirstPolicy.js";
+import {
+  ASSESSMENT_SCORING_POLICY,
+  MATHEMATICAL_INTEGRITY_POLICY,
+} from "../studentFirstPolicy.js";
+
+const QUALITY_DEFECT_KINDS = [
+  "requirement_gap",
+  "factual_error",
+  "mathematical_error",
+  "citation_error",
+  "prohibition_violation",
+  "presentation",
+] as const;
+type QualityDefectKind = typeof QUALITY_DEFECT_KINDS[number];
+const CONCRETE_BLOCKING_DEFECTS = new Set<QualityDefectKind>([
+  "factual_error", "mathematical_error", "citation_error", "prohibition_violation",
+]);
 
 export const qualityReviewSchema = {
   type: "object",
@@ -35,6 +51,7 @@ export const qualityReviewSchema = {
           "deliverableId",
           "owner",
           "severity",
+          "defectKind",
           "repairTarget",
         ],
         properties: {
@@ -47,6 +64,7 @@ export const qualityReviewSchema = {
             enum: ["source", "content", "interaction", "visual", "technical"],
           },
           severity: { type: "string", enum: ["blocking", "advisory"] },
+          defectKind: { type: "string", enum: QUALITY_DEFECT_KINDS },
           repairTarget: {
             type: "string",
             enum: ["source_architect", "content_analyzer", "visual_pipeline", "formatter", "none"],
@@ -65,6 +83,8 @@ interface QualityFinding {
   deliverableId: string | null;
   owner: "source" | "content" | "interaction" | "visual" | "technical";
   severity: "blocking" | "advisory";
+  /** Null preserves legacy responses that predate explicit defect classification. */
+  defectKind: QualityDefectKind | null;
   repairTarget: "source_architect" | "content_analyzer" | "visual_pipeline" | "formatter" | "none";
 }
 
@@ -163,6 +183,7 @@ export function buildQualityReviewPrompt(
     "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
     "Derived examples with declared values are valid when the cited rule is source-backed. A lookup-dependent example is invalid if it merely copies table/diagram values without showing the visible asset and selection method.",
     ASSESSMENT_SCORING_POLICY,
+    MATHEMATICAL_INTEGRITY_POLICY,
     "Unsupported claims of official grading are factual contradictions. Check any included grading claim against exact cited scoring evidence; do not confuse a task's source basis with an official allocation. Do not speculate about scoring absent from this extraction handoff or demand a grading scheme for ordinary practice.",
     "Narrow documented source gaps and publicationStatus='partial' are acceptable. Do not demand optional breadth, a detached practice bank, invented material, one example per formula, or one worked example per official Moodle topic.",
     "The workedExampleCoverageLedger lists every included example and every step outline. Chapter workedExamples are truncated samples for mathematical review; never infer a missing task or step solely because it is absent from those samples. Use the ledger to check coverage, and flag only a concrete gap visible there or in the full deterministic findings.",
@@ -174,6 +195,7 @@ export function buildQualityReviewPrompt(
       : "",
     "Formula strings use Typst, not TeX. Source-index mappings are valid citations.",
     "Return structured findings. Use exact IDs from the contract when a finding evaluates a requirement or deliverable; otherwise use null. chapterTitle must be an exact allowed title or null. severity=blocking is reserved for an explicit must/prohibition or a concrete factual, citation, or mathematical defect. Evidence-derived should recommendations and renderer-owned presentation observations are advisory.",
+    "Classify every finding with defectKind. requirement_gap means a missing or unmet requirement, not incorrect included content; a missing should recommendation remains advisory. factual_error, mathematical_error, citation_error and prohibition_violation identify concrete defects in included content or actions and remain blocking even when associated with a should requirement. Describe the exact visible contradiction, invalid calculation/citation or violated prohibition; do not use these kinds for optional breadth, missing examples or speculative improvements. presentation identifies renderer-owned observations and remains advisory.",
     "chapterTitle identifies the chapter that owns the defective content. Use null for global metadata or cross-chapter contradictions, even when the message names a topic taught by one chapter. Chapter-specific source notes describe only that chapter's evaluated packet; they do not establish document-wide exclusions.",
     "Choose the narrowest repairTarget: source_architect only for missing/unavailable evidence, content_analyzer for source-backed semantic content, visual_pipeline for visual evidence selection, formatter for renderer-owned presentation, and none when no automated repair is appropriate.",
     `Exact original user request:\n${config.originalUserPrompt}`,
@@ -224,7 +246,11 @@ function localizeQualityFindings(
       deliverableId: finding.deliverableId && deliverableIds.has(finding.deliverableId)
         ? finding.deliverableId
         : null,
-      severity: requirement?.priority === "should" ? "advisory" : finding.severity,
+      severity: finding.defectKind && CONCRETE_BLOCKING_DEFECTS.has(finding.defectKind)
+        ? "blocking"
+        : finding.defectKind === "presentation" || requirement?.priority === "should"
+          ? "advisory"
+          : finding.severity,
     };
     if (normalizedFinding.severity === "blocking") blocking.push(normalizedFinding);
     else advisory.push(normalizedFinding);
@@ -241,6 +267,7 @@ function formatFindingForRepair(finding: QualityFinding): string {
     finding.requirementId ? `[requirement: ${finding.requirementId}]` : "",
     finding.deliverableId ? `[deliverable: ${finding.deliverableId}]` : "",
     `[owner: ${finding.owner}]`,
+    finding.defectKind ? `[defect: ${finding.defectKind}]` : "",
     `[repair: ${finding.repairTarget}]`,
     finding.message,
   ].filter(Boolean).join(" ");
@@ -644,6 +671,9 @@ function validateQualityFinding(value: unknown): QualityFinding {
   if (!severities.includes(record.severity as typeof severities[number])) {
     throw new Error("Quality reviewer finding severity is invalid.");
   }
+  if (record.defectKind !== undefined && record.defectKind !== null && !QUALITY_DEFECT_KINDS.includes(record.defectKind as QualityDefectKind)) {
+    throw new Error("Quality reviewer finding defectKind is invalid.");
+  }
   if (!repairTargets.includes(record.repairTarget as typeof repairTargets[number])) {
     throw new Error("Quality reviewer finding repairTarget is invalid.");
   }
@@ -654,6 +684,7 @@ function validateQualityFinding(value: unknown): QualityFinding {
     deliverableId: nullableString("deliverableId"),
     owner: record.owner as QualityFinding["owner"],
     severity: record.severity as QualityFinding["severity"],
+    defectKind: record.defectKind == null ? null : record.defectKind as QualityDefectKind,
     repairTarget: record.repairTarget as QualityFinding["repairTarget"],
   };
 }
