@@ -98,11 +98,13 @@ async function prepare(context: DirectDocumentContext, prompt: string): Promise<
     "Select a concise, flexible structure appropriate to the request; no fixed curriculum or compulsory chapter pattern.",
     "Make direct source facts and conflicts visible with their original titles, URLs and page anchors. Do not invent dates, official points, or tasks.",
     "Attribute a technical claim, formula or derivation to a source only after actually reading its supporting passage, equation or derivation. Course overview and learning-objective pages establish scope, not technical proof. Read the relevant technical material before citing it; otherwise transparently label standard subject knowledge, your supplemental explanation or your own derivation instead of assigning a misleading course-source citation.",
+    "In attributed definitions, preserve the source's technical terms verbatim. Paraphrasing must not rename a symbol's role or reference point; compare every definition and symbol legend with the actual source passage and keep its mapping intact.",
     "Use authentic source examples when requested; supplementary examples must stay in the established scope and be labelled as derived.",
     "Explain useful steps, assumptions, variables, units and checked results; keep source and derived work distinguishable.",
     "Verify every generated numerical result with an actual short local Python or shell calculation. Compare the computed values with every printed calculation step and result, preserving signs, factors, powers, units and rounding; correct all mismatches before publication.",
     "Copy the source tool's returned manifestPath to sources-manifest.json before compiling. Preserve source files and their original hashes.",
     "Use real file edits and compile diagnostics to make local repairs; never regenerate unrelated verified mathematics for layout.",
+    'Every math-bearing component argument, including note, must be a content block: note: [Notation: $ bold(q) $.], not a quoted string containing $bold(q)$; quoted math markup prints literally.',
     "After successful compilation, inspect document.txt and every composed PDF preview page. Verify every technical definition, legend and explanatory note against the supporting material you actually read; preserve each symbol's stated role, reference point, frame, basis and derivative order wherever these appear. Check annotations in their visible placement and meaning, not only numerical results or page layout. In the same final text/source pass, distinguish a complete quantity from each contributing term; do not label a single summand as the entire sum without establishing that all other contributions vanish. Validate each generated question's premise independently of its answer: a valid general formula stays valid when a special case makes its value zero. Correct factual and visual defects before publishing.",
     "Compilation and publication checks are technical checks, not independent factual approval. Three unsuccessful validations end this document invocation.",
     "Do not open, fill, save or submit quiz attempts. Never access credentials or browser storage.",
@@ -149,7 +151,7 @@ function directDocumentSyntaxExamples(): string {
 
     #sb-formula(
       name: "Generic notation", variables: (), units: (),
-      source: "Syntax illustration only", note: "Verify any actual mathematical relationship against the selected source.",
+      source: "Syntax illustration only", note: [Verify any actual mathematical relationship against the selected source. Math note: $ bold(q) $.],
     )[$ bold(x)_"ref" quad dot(x) quad accent(x, dot.double) $]
 
     #sb-example(title: "Math in content arguments", result: [$ frac(a, b) $])[

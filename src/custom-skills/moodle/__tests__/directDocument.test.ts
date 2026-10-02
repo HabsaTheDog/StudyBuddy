@@ -71,6 +71,8 @@ describe("direct native-owner document tools", () => {
     expect(text.code).toBe(0);
     expect(text.stdout).toContain("Complete differential fractions");
     expect(text.stdout.normalize("NFKC")).toMatch(/a\s*×\s*\(b\s*×\s*c\)/);
+    expect(text.stdout.normalize("NFKC")).toMatch(/Math note:\s*q/);
+    expect(text.stdout).not.toMatch(/\$\s*bold\(q\)|bold\(q\)/);
     expect(await readFile(path.join(runDir, "document.typ"))).toEqual(original);
     expect(JSON.parse(await readFile(path.join(runDir, "direct-document.json"), "utf8"))).toMatchObject({ status: "prepared", retry_count: 0 });
     expect(await readFile(path.join(runDir, "brief.txt"), "utf8")).toContain("syntax-examples.typ");
