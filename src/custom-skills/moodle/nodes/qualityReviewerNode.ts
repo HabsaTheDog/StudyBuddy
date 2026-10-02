@@ -17,6 +17,7 @@ import { parseJsonObjectOrArray } from "../validation.js";
 import {
   ASSESSMENT_SCORING_POLICY,
   MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
 } from "../studentFirstPolicy.js";
 
 const QUALITY_DEFECT_KINDS = [
@@ -178,6 +179,8 @@ export function buildQualityReviewPrompt(
     return [
     "Review this Study Buddy artifact against the exact original request and evaluated request contract, then for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Return JSON only and do not rewrite, invoke tools, open files, or infer facts from omitted source material.",
+    SOURCE_FIDELITY_POLICY,
+    "A global claim that an assessment date, topic or format is undocumented contradicts an explicit request-level source record stating it; classify that concrete contradiction as factual_error. Missing exclusive/full syllabus evidence remains a precise coverage limitation, not a reason to deny a confirmed attribute.",
     "This is an extraction-handoff review. Deterministic gates check schema, citations, formula metadata and file integrity; do not reject renderer-owned layout, navigation, schedules, or presentation.",
     "Set ok=false only for a localized violated explicit must requirement, explicit prohibition, factual contradiction, invalid citation, broken mathematics/units, or an included example whose shown givens and steps cannot produce its result. Missing evidence-derived should recommendations are advisory.",
     "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
@@ -200,6 +203,7 @@ export function buildQualityReviewPrompt(
     "Choose the narrowest repairTarget: source_architect only for missing/unavailable evidence, content_analyzer for source-backed semantic content, visual_pipeline for visual evidence selection, formatter for renderer-owned presentation, and none when no automated repair is appropriate.",
     `Exact original user request:\n${config.originalUserPrompt}`,
     `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
+    `Direct request-level document source evidence:\n${JSON.stringify(!Array.isArray(state.extracted_data) && "document_context" in state.extracted_data ? state.extracted_data.document_context : [])}`,
     `Allowed exact chapter titles:\n${JSON.stringify(state.study_model.courseChapters.map((chapter) => chapter.title))}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,

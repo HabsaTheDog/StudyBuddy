@@ -28,16 +28,18 @@ import {
 } from "../analysisBudget.js";
 import {
   MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
   STUDENT_FIRST_POLICY,
   STUDENT_FIRST_POLICY_VERSION,
 } from "../studentFirstPolicy.js";
 import { resolveTaskBudget } from "../taskBudget.js";
 import { readObligationCoverage } from "../obligationCoverage.js";
 import { compactObligationRawSource } from "../obligationDiscovery.js";
-import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
 import { languageName } from "../../shared/languagePolicy.js";
+import { buildDocumentContext, documentContextPrompt } from "../documentContext.js";
 import {
   extractResolvedCourseIdentity,
   resolveRequestedCourseCode,
@@ -53,7 +55,7 @@ const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-10-02.1-chapter-warning-ownership";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.2-document-source-context";
 const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
@@ -99,7 +101,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
         : await analyzeWholeRequest(config, state, codex);
       const validated = reconcileRequestedCourseIdentity(
         config,
-        analyzed,
+        attachDocumentContext(state, analyzed),
         state.moodle_raw_text,
       );
       throwIfAborted(config.abortSignal);
@@ -122,7 +124,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
       const partialData = error instanceof IncompleteChapterAnalysisError && error.partialData
         ? reconcileRequestedCourseIdentity(
             config,
-            error.partialData,
+            attachDocumentContext(state, error.partialData),
             state.moodle_raw_text,
           )
         : null;
@@ -209,6 +211,15 @@ async function analyzeWholeRequest(
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
   return validateAnalyzerResponse(response, config);
+}
+
+function attachDocumentContext(state: LangGraphAgentState, data: ReturnType<typeof validateExtractedData>) {
+  const documentContext = buildDocumentContext(state);
+  return validateExtractedData({ ...data, document_context: documentContext, sources: uniqueBy([
+    ...documentContext.map(entry => ({ id: entry.source_id, title: entry.title, kind: "moodle_page" as const,
+      url: entry.url, path: null, page: null })),
+    ...data.sources,
+  ], source => source.id) });
 }
 
 function validateAnalyzerResponse(
@@ -314,7 +325,7 @@ async function analyzeCourseChapters(
           await readChapterCache(sharedCachePath, fingerprint);
       throwIfAborted(config.abortSignal);
       if (cached) {
-        const enrichedData = await enrichCachedChapterHandoff(config, state, focus, cached.data);
+        const enrichedData = attachDocumentContext(state, await enrichCachedChapterHandoff(config, state, focus, cached.data));
         throwIfAborted(config.abortSignal);
         results[index] = enrichedData;
         const enrichedCache = { fingerprint, data: enrichedData };
@@ -364,7 +375,7 @@ async function analyzeCourseChapters(
                 localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
             ), config);
-        const data = ensureFocusLearningModule(analyzed, focus);
+        const data = ensureFocusLearningModule(attachDocumentContext(state, analyzed), focus);
         throwIfAborted(config.abortSignal);
         assertChapterHandoff(data, focus);
         const serialized = `${JSON.stringify({ fingerprint, data }, null, 2)}\n`;
@@ -596,6 +607,7 @@ async function analyzeDenseChapter(
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
       requestContract: state.request_contract,
+      documentContext: buildDocumentContext(state),
       policy: STUDENT_FIRST_POLICY_VERSION,
       focus,
       slice: slice.key,
@@ -624,6 +636,7 @@ async function analyzeDenseChapter(
           ChapterFragmentSchema.parse(JSON.parse(text)),
           slice,
           visualManifest,
+          buildDocumentContext(state).map(entry => entry.source_id),
         ))
         .catch(() => null);
       if (cachedFragment) break;
@@ -717,6 +730,7 @@ async function analyzeDenseChapter(
           ChapterFragmentSchema.parse(parseJsonObjectOrArray(response)),
           slice,
           visualManifest,
+          buildDocumentContext(state).map(entry => entry.source_id),
         );
         const formulaError = fragmentFormulaQualityError(candidate, focus);
         if (formulaError) {
@@ -1591,6 +1605,7 @@ export function buildChapterFragmentPrompt(
     "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
     "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
     MATHEMATICAL_INTEGRITY_POLICY,
+    SOURCE_FIDELITY_POLICY,
     "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
     "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
     "For a numbered PDF task, an attached original task-page image is source evidence. Read equations and diagrams from that image when text extraction omits or distorts them, and cite the matching allowed resource ID. If the image is still illegible, report the exact gap.",
@@ -1605,6 +1620,7 @@ export function buildChapterFragmentPrompt(
       part: `${index + 1}/${total}`,
       evidenceBlock: slice.label,
     })}`,
+    documentContextPrompt(state),
     `Teil ${index + 1}/${total}: ${slice.label}. Lernmodus: ${focus.contentMode ?? "mixed"}.`,
     `Nutzerauftrag: ${localizedRepairFeedback ? state.request_contract.originalPrompt : config.prompt}`,
     localizedRepairFeedback
@@ -1752,8 +1768,9 @@ function normalizeFragmentReferences(
   fragment: ChapterFragment,
   slice: ChapterSlice,
   visualManifest: VisualManifest | null,
+  documentSourceIds: string[] = [],
 ): ChapterFragment {
-  const allowedSources = new Set(slice.resourceIds);
+  const allowedSources = new Set([...slice.resourceIds, ...documentSourceIds]);
   const allowedAssets = new Set((visualManifest?.candidates ?? []).map((candidate) => candidate.id));
   const fallbackSources = slice.resourceIds.filter((id) =>
     slice.records.some((record) => record.resourceId === id)
@@ -1811,6 +1828,7 @@ function materializeDenseChapter(
   const resources = state.resource_manifest.resources.filter((resource) =>
     focus.resourceIds.includes(resource.id)
   );
+  const documentSourceIds = new Set(buildDocumentContext(state).map(entry => entry.source_id));
   const figures = mergeFigures(
     fragments.flatMap((fragment) => fragment.figures),
     requiredLookupFigures(focus, visualManifest, retrievalRequests),
@@ -1844,7 +1862,10 @@ function materializeDenseChapter(
     document_title: `${courseTitle} – Study Guide`,
     language: config.outputLanguage,
     course: { title: courseTitle, url: state.resource_manifest.courseUrl },
-    sources: resources.map(manifestResourceToSource),
+    sources: uniqueBy([
+      ...resources.map(manifestResourceToSource),
+      ...state.resource_manifest.resources.filter(resource => documentSourceIds.has(resource.id)).map(manifestResourceToSource),
+    ], source => source.id),
     sections: mergeSections(fragments.flatMap((fragment) => fragment.sections)),
     formulas: uniqueBy(
       fragments.flatMap((fragment) => fragment.formulas),
@@ -2246,6 +2267,7 @@ async function readVisualRetrievalRequests(runDir: string): Promise<VisualRetrie
 function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
   const architecture = state.source_architect_decision.learningArchitecture;
   if (architecture?.modules.length) {
+    const excluded = new Set(architecture.excludedResourceUrls.map(canonicalizeResourceUrl));
     const resourcesByUrl = new Map(state.resource_manifest.resources.map((resource) => [
       canonicalizeResourceUrl(resource.originUrl),
       resource,
@@ -2255,7 +2277,10 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
       support,
       resourceIds: support.resourceUrls
         .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
-        .filter((resource): resource is ManifestResource => Boolean(resource?.localPath))
+        .filter((resource): resource is ManifestResource => Boolean(resource &&
+          resource.selection?.selected !== false && resource.status !== "skipped" && !isResourceFailureStatus(resource.status) &&
+          !excluded.has(canonicalizeResourceUrl(resource.originUrl)) && (resource.localPath ||
+          state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim()))))
         .map((resource) => resource.id),
     }));
     const focuses = architecture.modules.flatMap((module): ChapterFocus[] => {
@@ -2542,6 +2567,7 @@ function chapterFingerprint(
   return createHash("sha256").update(JSON.stringify({
     producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
     requestContract: state.request_contract,
+    documentContext: buildDocumentContext(state),
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
     materializationVersion: CHAPTER_MATERIALIZATION_VERSION,
     outputLanguage: config.outputLanguage,
@@ -2605,6 +2631,7 @@ export function mergeChapterHandoffs(
     document_title: first.document_title,
     language: config.outputLanguage,
     course: first.course,
+    document_context: uniqueBy(namespaced.flatMap(data => data.document_context), entry => entry.source_id),
     sources: uniqueBy(namespaced.flatMap((data) => data.sources), (source) => source.id),
     sections: namespaced.flatMap((data) => data.sections),
     formulas: namespaced.flatMap((data) => data.formulas),
@@ -2623,7 +2650,9 @@ function namespaceChapterHandoff(
   data: ReturnType<typeof validateExtractedData>,
   prefix: string,
 ): ReturnType<typeof validateExtractedData> {
-  const sourceIds = new Map(data.sources.map((source) => [source.id, `${prefix}_${source.id}`]));
+  const documentSourceIds = new Set(data.document_context.map(entry => entry.source_id));
+  const sourceIds = new Map(data.sources.map((source) => [source.id,
+    documentSourceIds.has(source.id) ? source.id : `${prefix}_${source.id}`]));
   const assetIds = new Map(data.visual_assets.map((asset) => [asset.id, `${prefix}_${asset.id}`]));
   const mapSources = (ids: string[]) => ids.map((id) => sourceIds.get(id)).filter((id): id is string => Boolean(id));
   return validateExtractedData({
@@ -2809,6 +2838,7 @@ export async function buildAnalyzerPrompt(
           }
         : null,
     })}`,
+    documentContextPrompt(state),
     focus
       ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
       : "",

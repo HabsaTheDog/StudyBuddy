@@ -9,6 +9,7 @@ import {
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { SOURCE_FIDELITY_POLICY } from "../studentFirstPolicy.js";
 import { validateExtractedData, validateTypst } from "../validation.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
@@ -307,6 +308,7 @@ export function buildFormatterPrompt(config: MoodleRuntimeConfig, state: LangGra
 function buildInitialFormatterPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): string {
   return [
     "Generate a complete, source-grounded Typst learning document appropriate to the course discipline.",
+    SOURCE_FIDELITY_POLICY,
     "Return only Typst source. Do not include Markdown fences or explanation.",
     studyBuddyTemplatePromptReference(config.outputLanguage),
     `Artifact language: ${config.outputLanguage === "en" ? "English" : "German"}. Do not let the source language override it.`,
@@ -337,6 +339,7 @@ function buildRepairPrompt(
 ): string {
   return [
     "Repair the supplied complete Typst document. Return the complete corrected Typst source only.",
+    SOURCE_FIDELITY_POLICY,
     "Treat the existing document as the authoritative draft. Make the smallest local edits that resolve every supplied compiler or review diagnostic.",
     "After fixing each diagnostic, scan the complete existing source for other occurrences of the same concrete syntax class and normalize those consistently in the same response. For example, one bare decimal-comma diagnostic requires checking every bare decimal-comma numeric literal inside Typst math. Do not use this scan to rewrite unrelated content.",
     "If diagnostics report raw-typesetting-markup, convert every math-bearing component argument from a quoted markup string to Typst content, for example result: [$ x = 2 \"m\" $] and variables: ([$bold(r)$: Ortsvektor],). Preserve the mathematical meaning and all surrounding content.",
@@ -347,6 +350,7 @@ function buildRepairPrompt(
     studyBuddyTemplatePromptReference(config.outputLanguage),
     `Exact original user request (repair boundary only):\n${config.originalUserPrompt}`,
     `Verified request contract (repair boundary only):\n${JSON.stringify(state.request_contract)}`,
+    `Request-level document source evidence (preserve confirmed facts and provenance):\n${JSON.stringify(!Array.isArray(state.extracted_data) && "document_context" in state.extracted_data ? state.extracted_data.document_context : [])}`,
     `Diagnostics to repair:\n${state.error_log}`,
     `Existing complete Typst source:\n${priorDocument}`,
   ].join("\n\n");

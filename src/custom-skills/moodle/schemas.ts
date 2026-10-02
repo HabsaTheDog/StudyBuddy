@@ -99,6 +99,18 @@ export const ExtractedDataSchema = z.object({
     url: z.string().default(""),
   }),
   sources: z.array(SourceSchema).default([]),
+  // Runtime-projected native context; producers do not infer or manufacture it.
+  document_context: z.array(z.object({
+    source_id: z.string().min(1),
+    title: z.string().min(1),
+    url: z.string().min(1),
+    records: z.array(z.object({
+      record_id: z.string().min(1),
+      locator: z.object({ section: z.string().optional(), page: z.number().int().positive().optional(), timestamp: z.string().optional() }),
+      excerpt: z.string().min(1),
+    })),
+    omitted_records: z.number().int().nonnegative(),
+  })).default([]),
   sections: z.array(SectionSchema).default([]),
   formulas: z.array(FormulaSchema).default([]),
   worked_examples: z.array(WorkedExampleSchema).default([]),

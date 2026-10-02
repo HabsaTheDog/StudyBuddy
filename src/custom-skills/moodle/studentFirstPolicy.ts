@@ -5,7 +5,16 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.4";
+export const STUDENT_FIRST_POLICY_VERSION = "1.5";
+
+export const SOURCE_FIDELITY_POLICY = [
+  "Cite direct selected-assessment statements for dates, topics and format. Portal announcements/titles with an actual URL and record locator are evidence; arbitrary filenames are not.",
+  "Separate confirmed attributes from uncertainty about exclusive or complete assessment coverage; describe the exact remaining gap or conflict.",
+  "For conflicting course-group labels and a specific assessment announcement, preserve the conflict and use the announcement for its stated attributes. Never merge their scopes silently.",
+  "The absence of a calendar entry cannot negate a documented Moodle date or announcement. A missing source role describes only that role's coverage.",
+  "Reconcile chapter-local warnings and contract interpretations against document_context before global claims. A local packet gap cannot deny available document evidence. Cite directly confirmed attributes even if the contract calls an interpretation probable; retain only the actual uncertainty.",
+  "Respect each subtask's own instructions, assumptions and givens; reuse previous numerical results only when these permit it.",
+].join(" ");
 
 export const MATHEMATICAL_INTEGRITY_POLICY = [
   "Check mathematical claims in prose and checklists as well as displayed calculations. Distinguish necessary conditions from sufficient conditions; do not reverse an implication or assert an equivalence without justification.",
@@ -33,6 +42,7 @@ export const STUDENT_FIRST_POLICY = [
   "Related course topics may share a chapter, but official topic labels, subtopics, and practice routes must remain visibly traceable.",
   "Practice items require a concrete learning goal and source evidence.",
   MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
 ].join(" ");
 
 export interface ArtifactIntent {
