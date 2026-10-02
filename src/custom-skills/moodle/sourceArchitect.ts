@@ -61,7 +61,7 @@ interface ResourceCatalog {
   entries: CatalogEntry[];
 }
 
-const SOURCE_ARCHITECT_CACHE_VERSION = "2026-09-29.2-evidence-pages-and-overview-support";
+const SOURCE_ARCHITECT_CACHE_VERSION = "2026-10-02.2-semantic-module-assignments";
 export const MAX_LEARNING_MODULES = 24;
 const REQUEST_LIMITS: Record<MoodleRuntimeConfig["executionProfile"], number> = {
   auto: 10,
@@ -1233,7 +1233,7 @@ export function reconcileLearningArchitectureWithCatalog(
     isAdministrativeContainerModule(module, byUrl)
   );
   if (removedModules.length === 0) {
-    return ensureSelectedOverviewCoverage(architecture, catalog, language);
+    return ensureSelectedOverviewSupport(architecture, catalog);
   }
 
   const retainedModules = architecture.modules.filter((module) =>
@@ -1269,10 +1269,9 @@ export function reconcileLearningArchitectureWithCatalog(
     supportResources,
   };
   const validated = validateLearningArchitectureModelJson(candidate);
-  return ensureSelectedOverviewCoverage(
+  return ensureSelectedOverviewSupport(
     validated.success ? validated.data : architecture,
     catalog,
-    language,
   );
 }
 
@@ -1301,11 +1300,11 @@ function isAdministrativeContainerModule(
   );
 }
 
-function ensureSelectedOverviewCoverage(
+function ensureSelectedOverviewSupport(
   architecture: LearningArchitecture,
   catalog: CatalogEntry[],
-  language: MoodleRuntimeConfig["outputLanguage"] = "en",
 ): LearningArchitecture {
+  const excluded = new Set(architecture.excludedResourceUrls.map(canonicalizeResourceUrl));
   const represented = new Set(
     [
       ...architecture.modules.flatMap((module) => module.resourceUrls),
@@ -1313,13 +1312,12 @@ function ensureSelectedOverviewCoverage(
     ]
       .map(canonicalizeResourceUrl),
   );
-  const selectedMissing = catalog.filter((entry) =>
-    (entry.selected || entry.priority >= 900 ||
-      (entry.role === "primary_lecture" && Boolean(entry.topic))) &&
-    ["primary_lecture", "overview"].includes(entry.role) &&
+  const overviewMissing = catalog.filter((entry) =>
+    !excluded.has(canonicalizeResourceUrl(entry.href)) &&
+    (entry.selected || entry.priority >= 900) &&
+    entry.role === "overview" &&
     !represented.has(canonicalizeResourceUrl(entry.href))
   );
-  const overviewMissing = selectedMissing.filter((entry) => entry.role === "overview");
   const supportResources = architecture.supportResources.map((support) => ({
     ...support,
     resourceUrls: [...support.resourceUrls],
@@ -1338,67 +1336,15 @@ function ensureSelectedOverviewCoverage(
       });
     }
   }
-  const baseArchitecture = {
+  // Acquisition probes and priority scores are not curriculum requirements.
+  // Only the semantic source architect assigns subject modules and their exact
+  // sources against the request contract; deterministic reconciliation cannot
+  // invent a missing chapter or attach a source from lexical title overlap.
+  return learningArchitectureSchema.parse({
     ...architecture,
     supportResources,
-  };
-  const missing = selectedMissing.filter((entry) => entry.role !== "overview");
-  if (missing.length === 0) {
-    return learningArchitectureSchema.parse({
-      ...baseArchitecture,
-      modules: sortArchitectureModulesByCatalog(baseArchitecture.modules, catalog),
-    });
-  }
-
-  const originalModules = baseArchitecture.modules.map((module) => ({
-    ...module,
-    resourceUrls: [...module.resourceUrls],
-  }));
-  const unmatched: CatalogEntry[] = [];
-  for (const entry of missing) {
-    const entryTerms = matchArchitectureTerms(
-      `${entry.label} ${entry.topic ?? ""} ${entry.sectionTitle ?? ""}`,
-    );
-    const ranked = originalModules
-      .map((module, index) => ({
-        module,
-        index,
-        score: semanticArchitectureOverlap(
-          matchArchitectureTerms(
-            `${module.id} ${module.title} ${module.learningObjectives.join(" ")} ${module.assessmentSignals.join(" ")}`,
-          ),
-          entryTerms,
-        ),
-      }))
-      .sort((left, right) => right.score - left.score || left.index - right.index);
-    const matchingModules = ranked.filter((candidate) => candidate.score >= 1);
-    if (matchingModules.length > 0) {
-      // One primary course resource can legitimately teach several planned
-      // submodules. Attach it to every semantic match;
-      // assigning it only to the top result leaves sibling modules grounded in
-      // summaries/formula sheets and can move them ahead of the course order.
-      for (const match of matchingModules) {
-        match.module.resourceUrls = [...new Set([
-          ...match.module.resourceUrls,
-          entry.href,
-        ])];
-      }
-    } else {
-      unmatched.push(entry);
-    }
-  }
-  const remainingSlots = Math.max(0, MAX_LEARNING_MODULES - originalModules.length);
-  const derived = buildDeterministicLearningArchitecture({
-    briefs: [],
-    catalog: unmatched,
-    language,
-  }).modules.slice(0, remainingSlots);
-  const candidate = {
-    ...baseArchitecture,
-    modules: sortArchitectureModulesByCatalog([...originalModules, ...derived], catalog),
-  };
-  const validated = validateLearningArchitectureModelJson(candidate);
-  return validated.success ? validated.data : baseArchitecture;
+    modules: sortArchitectureModulesByCatalog(architecture.modules, catalog),
+  });
 }
 
 function sortArchitectureModulesByCatalog(

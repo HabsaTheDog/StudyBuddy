@@ -355,7 +355,7 @@ function applyAcquisitionResults(resources: Map<string, ResourceNode>, rawText: 
   for (const block of blocks) {
     if (!block.startsWith("[Linked file]")) continue;
     const url = /^URL:\s*(\S+)/m.exec(block)?.[1];
-    if (!url) continue;
+    if (!url || !normalizeUrl(url)) continue;
     const id = stableResourceId(url);
     const current = resources.get(id) ?? resourceNode({
       title: /^Title:\s*(.+)$/m.exec(block)?.[1]?.trim() || url,
@@ -622,7 +622,12 @@ function cleanTitle(value: string): string {
 
 function normalizeUrl(value: string): string | null {
   try {
-    return canonicalizeResourceUrl(value);
+    const url = new URL(value);
+    // Browser/OS launch controls (e.g. SEB) are operational links, not study
+    // references. Keep their surrounding page evidence but never turn their
+    // pathname into a quiz/resource identity or rewrite their launch protocol.
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return canonicalizeResourceUrl(url.toString());
   } catch {
     return null;
   }

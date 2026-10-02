@@ -1,5 +1,71 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## Operational source links — 2026-10-02
+
+The owner authorized fixing and repeating the two failed desktop requests.
+Campaign `latest-kinetik-pdf` preserves the failed first-test preparation run.
+Its resource manifest misclassified a `sebs:` Safe Exam Browser launcher as a
+quiz source, and the strict publication review correctly rejected it. Restrict
+snapshot and raw-text resource discovery to actual HTTP(S) references, including
+the acquisition-result merge. Keep page text about SEB requirements, actual quiz
+landing URLs, legitimate web resources, and all quiz permissions unchanged;
+never rewrite launch protocols or relax the link reviewer. Add deterministic
+manifest-to-review regressions, replay preserved evidence without modifying it,
+and let fresh desktop rounds establish answer quality and first-test scope.
+Development checks alone do not establish desktop or release acceptance.
+
+Preserved evidence also shows the source architect correctly excluding later
+topics for the first test, while deterministic catalogue reconciliation restores
+those exclusions and adds unselected primary topics. Make explicit exclusions
+authoritative during coverage repair and require actual selection/high priority
+before restoring a missing reference. A primary-topic classification alone does
+not establish request scope. Retain selected-source repair and shared-lecture
+grounding, invalidate polluted architecture caches, and regress both narrowly
+scoped requests and legitimate full-course coverage without subject rules.
+
+Fresh desktop `f2a2f502` disproves the selected/high-priority guard: default
+acquisition priorities still add later topics absent from the evaluated scope.
+Treat the semantic architecture's exact subject modules and source assignments
+as authoritative. Remove deterministic primary-module creation and lexical
+source attachment altogether; acquisition selection is not curriculum intent.
+Keep administrative-container demotion and excluded-aware overview support,
+and preserve explicitly planned full-course modules and shared sources. Test
+selected priority-900 probes as observed, rather than only unselected fixtures,
+and invalidate architecture caches again before a fresh desktop repetition.
+
+Desktop `873360e3` produces a scoped, mathematically correct PDF but invents
+unlabelled exercise points. The shared component reference advertises a points
+argument without provenance rules. Add one universal scoring/origin policy to
+the initial and repair author prompts and extraction reviewer: derived tasks
+receive no invented point allocations; official scoring requires exact cited
+evidence for that source task. Offer a clearly non-official percentage/checklist
+only when useful and label generated task origin locally. Present the exercise
+component without points by default. Verify those prompt boundaries without
+adding model calls, lexical output rules, or modifying generated artifacts,
+then repeat the original request in a fresh desktop thread.
+
+Desktop `fab7de42` exposes course identity drift: the existing literal matcher
+finds the single explicitly named course, but a legacy alias-only resolver must
+also report resolved before the direct path is used. Remove that extra condition
+so arbitrary unique literal course titles/codes/URLs retain their bounded
+canonical-title probe and cannot be displaced by related historical content.
+Keep multi-match ambiguity visible. Strengthen semantic shortlist/evidence
+instructions for user uncertainty/self-correction, explicit identity before
+topic similarity, and observed course-period/upcoming-assessment evidence using
+the immutable request time context. Do not invent semester calendars or encode
+subject/course IDs. Regress unrelated subject titles and ambiguous named pairs,
+then repeat the exact original desktop request.
+
+Independent review reproduced conflicting explicit code/title and negated-title
+regressions in that direct path. Reuse the existing generic local negation helper
+and explicit-code alias resolver: omit excluded literal mentions and defer a
+unique title when another explicitly requested code identifies a different
+enrolled course. Keep those conflicts in the semantic evidence path, prevent its
+literal shortcut from undoing the deferral, and reject an excluded course even
+if a model or cached search result selects it. Regress English/German unrelated
+subjects, explicit code/title conflict, and direct URLs. Preserve the original
+unique arbitrary-title path with one canonical probe and zero model calls.
+
 ## Provider-independent execution — 2026-09-22
 
 Implement the owner's Codex, Claude and Gemini/Antigravity integration request

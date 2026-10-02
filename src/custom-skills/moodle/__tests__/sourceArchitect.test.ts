@@ -87,7 +87,7 @@ describe("source architect", () => {
     ]);
   });
 
-  it("demotes administrative containers and adds newly selected subject modules", () => {
+  it("demotes administrative containers without treating selected acquisition probes as new subject modules", () => {
     const pointUrl = "https://moodle.example/point.pdf";
     const vectorUrl = "https://moodle.example/vector.pdf";
     const balanceUrl = "https://moodle.example/balance.pdf";
@@ -129,11 +129,7 @@ describe("source architect", () => {
     const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog);
     const titles = reconciled.modules.map((module) => module.title);
 
-    expect(titles).toEqual(expect.arrayContaining([
-      "Punktkinematik",
-      "Vektorkinematik",
-      "Schwerpunktsatz",
-    ]));
+    expect(titles).toEqual(["Punktkinematik"]);
     expect(titles).not.toContain("LV-Kommunikation");
     expect(reconciled.supportResources.flatMap((support) => support.resourceUrls))
       .toContain(overviewUrl);
@@ -176,7 +172,7 @@ describe("source architect", () => {
       .toContain(overviewUrl);
   });
 
-  it("restores an unselected but explicitly classified primary course topic", () => {
+  it("does not expand the evaluated scope merely because an unselected source is a primary course topic", () => {
     const pointUrl = "https://moodle.example/point.pdf";
     const massGeometryUrl = "https://moodle.example/mass-geometry.pdf";
     const architecture = {
@@ -206,10 +202,75 @@ describe("source architect", () => {
 
     expect(reconciled.modules.map((module) => module.title)).toEqual([
       "Punktkinematik",
-      "Massengeometrie",
     ]);
-    expect(reconciled.modules.flatMap((module) => module.resourceUrls)).toContain(massGeometryUrl);
-    expect(reconciled.modules[1].learningObjectives.join(" ")).not.toMatch(/\b(?:Explain|Apply)\b/);
+    expect(reconciled.modules.flatMap((module) => module.resourceUrls)).not.toContain(massGeometryUrl);
+  });
+
+  it("honors explicit exclusions over initial-probe selection and overlapping subject labels", () => {
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const excludedUrl = "https://moodle.example/later.pdf";
+    const excludedOverview = "https://moodle.example/full-course-overview";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "topic", title: "Relative movement", priority: "essential" as const,
+        contentMode: "quantitative" as const, learningObjectives: ["Calculate relative velocity."],
+        assessmentSignals: [], resourceUrls: [topicUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [excludedUrl, excludedOverview],
+    };
+    const catalog = [
+      { ...entry(topicUrl, "Relative movement", true, 900), role: "primary_lecture" as const, topic: "Relative movement" },
+      { ...entry(`${excludedUrl}#page=3`, "Relative movement in a later unit", true, 1000), role: "primary_lecture" as const, topic: "Relative movement" },
+      { ...entry(excludedOverview, "Full course overview", true, 1000), role: "overview" as const, topic: null },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog);
+
+    expect(reconciled.modules).toEqual(architecture.modules);
+    expect(reconciled.supportResources).toEqual([]);
+    expect(reconciled.excludedResourceUrls).toEqual(architecture.excludedResourceUrls);
+  });
+
+  it("requests only evaluated first-assessment sources from a broader course catalog", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-assessment-scope-"));
+    directories.push(runDir);
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const probeUrl = "https://moodle.example/probe.pdf";
+    const laterUrl = "https://moodle.example/later.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1, entries: [
+        { ...entry(topicUrl, "First assessment topic", false, 890), role: "primary_lecture", topic: "First assessment topic" },
+        { ...entry(probeUrl, "Earlier course topic", true, 900), role: "primary_lecture", topic: "Earlier course topic" },
+        { ...entry(laterUrl, "Later course topic", true, 900), role: "primary_lecture", topic: "Later course topic", reason: "Selected to complete the bounded initial course probe." },
+      ],
+    }));
+    const architecture = {
+      schemaVersion: 1, modules: [{
+        id: "first", title: "First assessment topic", priority: "essential", contentMode: "mixed",
+        learningObjectives: ["Explain the first assessment topic."], assessmentSignals: [], resourceUrls: [topicUrl],
+      }], supportResources: [], excludedResourceUrls: [probeUrl],
+    };
+    const codex = { run: vi.fn().mockResolvedValue(JSON.stringify({
+      status: "request_more", coverage_summary: "Only the first assessment topic is requested.",
+      requested_urls: [topicUrl], reasons: ["The probe is outside the confirmed assessment scope."],
+      learning_architecture: architecture,
+    })) };
+    const prompt = "Prepare a PDF for the first assessment only.";
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir, runtimeCacheDir: runDir, prompt, outputLanguage: "en",
+      intentDecision: classifyStudyBuddyIntent({
+        prompt, stage: "extract", diagnosticOnly: false, autoAnswer: false,
+        includeCis: false, hasCisUrls: false,
+      }),
+    }), codex)(moodleTestState());
+
+    expect(codex.run).toHaveBeenCalledOnce();
+    expect(result.error_log).toBeNull();
+    expect(result.source_architect_decision?.requestedUrls).toEqual([topicUrl]);
+    expect(result.source_architect_decision?.learningArchitecture?.modules.map((module) => module.id)).toEqual(["first"]);
+    expect(result.source_architect_decision?.learningArchitecture?.excludedResourceUrls).toEqual([probeUrl]);
   });
 
   it("orders modules by their primary lecture instead of a shared overview", () => {
@@ -252,7 +313,7 @@ describe("source architect", () => {
     ]);
   });
 
-  it("attaches one shared primary lecture to every matching submodule", () => {
+  it("preserves full-course modules with an explicitly shared primary lecture", () => {
     const overviewUrl = "https://moodle.example/overview.pdf";
     const pointUrl = "https://moodle.example/point.pdf";
     const massUrl = "https://moodle.example/mass.pdf";
@@ -265,7 +326,7 @@ describe("source architect", () => {
         contentMode: "mixed" as const,
         learningObjectives: ["Massenschwerpunkte berechnen."],
         assessmentSignals: [],
-        resourceUrls: [overviewUrl],
+        resourceUrls: [overviewUrl, massUrl],
       }, {
         id: "massentraegheit",
         title: "Massenträgheitsmomente aufbauen",
@@ -273,7 +334,7 @@ describe("source architect", () => {
         contentMode: "quantitative" as const,
         learningObjectives: ["Massenträgheitsmomente bestimmen."],
         assessmentSignals: [],
-        resourceUrls: [overviewUrl],
+        resourceUrls: [overviewUrl, massUrl],
       }, {
         id: "punktkinematik",
         title: "Punktkinematik",
