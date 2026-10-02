@@ -206,7 +206,7 @@ describe("visual asset discovery", () => {
     });
   });
 
-  it("prefers the extracted graphic in focused mode and the page body in context mode", async () => {
+  it("preserves the PDF page composition in focused and context modes", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-visual-strategy-"));
     const sourcePath = path.join(runDir, "sources", "tribologie.pdf");
     const candidates = [
@@ -274,8 +274,8 @@ describe("visual asset discovery", () => {
     const context = await hydrateExtractedVisualAssets(runDir, selected, "context");
 
     expect(focused.visual_assets[0]).toMatchObject({
-      kind: "moodle_pdf_image",
-      relative_path: "assets/visuals/tribologie-viscosity-table.png",
+      kind: "moodle_pdf_page",
+      relative_path: "assets/visuals/tribologie-page-9.png",
     });
     expect(context.visual_assets[0]).toMatchObject({
       kind: "moodle_pdf_page",

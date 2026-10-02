@@ -30,6 +30,7 @@ export interface VisualCandidate {
 }
 
 export interface VisualManifest {
+  compositionVersion?: string;
   tooling: {
     pdfinfo: boolean;
     pdftotext: boolean;
@@ -42,6 +43,7 @@ export interface VisualManifest {
 }
 
 const VISUALS_DIR = "assets/visuals";
+export const VISUAL_SOURCE_COMPOSITION_VERSION = "2026-10-02.1-rendered-page-composition";
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".svg"]);
 const OFFICE_EXTENSIONS = new Set([".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"]);
 
@@ -57,7 +59,6 @@ interface VisualBudget {
   mode: "auto" | "manual";
   candidateLimit: number;
   sourceArtifactLimit: number;
-  embeddedImagesPerPdf: number;
   pageCropsPerPdf: number;
   estimatedPdfPages: number;
 }
@@ -98,9 +99,6 @@ export async function discoverVisualCandidates(
   if (!tooling.pdftoppm) {
     warnings.push("Poppler 'pdftoppm' was not found; PDF page visual extraction is unavailable.");
   }
-  if (!tooling.pdfimages) {
-    warnings.push("Poppler 'pdfimages' was not found; embedded PDF image extraction is unavailable.");
-  }
 
   for (const artifact of artifacts) {
     const visualPath = await resolveVisualArtifactPath(artifact.path);
@@ -118,28 +116,8 @@ export async function discoverVisualCandidates(
         continue;
       }
       const artifactPlannedPages = artifact.resourceId ? plannedPages.get(artifact.resourceId) ?? [] : [];
-      // `pdfimages` without a page boundary scans the complete document. On a
-      // 298-page script this created hundreds of temporary images even though
-      // the visual planner had requested only a few pages. Embedded extraction
-      // is therefore restricted to explicitly planned pages; page screenshots
-      // remain the deterministic fallback for every PDF.
-      const extracted = tooling.pdfimages && artifactPlannedPages.length > 0
-        ? await extractEmbeddedPdfImages({
-            pdfPath: visualPath,
-            resourceId: artifact.resourceId,
-            sourceName: artifact.sourceName,
-            sourceUrl: artifact.sourceUrl,
-            visualDir,
-            startIndex: candidates.length,
-            maxImages: Math.min(80, Math.max(visualBudget.embeddedImagesPerPdf, artifactPlannedPages.length * 2)),
-            plannedPages: artifactPlannedPages,
-            hasMagick: tooling.magick,
-          }).catch((error) => {
-            warnings.push(`Embedded PDF image extraction failed for ${visualPath}: ${errorMessage(error)}`);
-            return [];
-          })
-        : [];
-      candidates.push(...extracted);
+      // Raw PDF image objects omit text/vector overlays, clipping and masks.
+      // Only the rendered page composition is publishable source evidence.
       const rendered = await renderRelevantPdfPages({
         config,
         pdfPath: visualPath,
@@ -200,6 +178,7 @@ export async function discoverVisualCandidates(
   );
 
   const manifest = {
+    compositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
     tooling,
     candidates: diverseSelection,
     warnings: [
@@ -263,7 +242,17 @@ export function formatVisualCandidatesForAnalyzer(manifest: VisualManifest): str
 export async function readVisualManifest(runDir: string): Promise<VisualManifest | null> {
   const manifestPath = path.join(runDir, "visual-candidates.json");
   const text = await readFile(manifestPath, "utf8").catch(() => null);
-  return text ? JSON.parse(text) as VisualManifest : null;
+  if (!text) return null;
+  const manifest = JSON.parse(text) as VisualManifest;
+  return { ...manifest, candidates: manifest.candidates.filter(candidate => !isUncomposedPdfRaster(candidate)) };
+}
+
+function isUncomposedPdfRaster(asset: { kind: string; source_path: string | null; source_page?: number | null; relative_path: string | null }): boolean {
+  // A direct image's actual source path outranks a coincidental legacy-like name.
+  if (IMAGE_EXTENSIONS.has(path.extname(asset.source_path ?? "").toLowerCase())) return false;
+  const fromPdf = (asset.source_page != null && Number.isInteger(asset.source_page) && asset.source_page > 0) ||
+    path.extname(asset.source_path ?? "").toLowerCase() === ".pdf";
+  return /-embedded-page-(?:\d+-)+\d+\./i.test(asset.relative_path ?? "") || (fromPdf && asset.kind === "moodle_pdf_image");
 }
 
 export async function hydrateExtractedVisualAssets(
@@ -272,11 +261,12 @@ export async function hydrateExtractedVisualAssets(
   cropMode: VisualCropMode = "auto",
 ): Promise<ExtractedData> {
   const manifest = await readVisualManifest(sourceRunDir);
-  if (!manifest) return data;
+  const warnings = [...data.warnings];
   const hydrated = {
     ...data,
     visual_assets: await Promise.all(data.visual_assets.map(async (asset) => {
-      if (asset.relative_path) {
+      const legacyPdfRaster = isUncomposedPdfRaster(asset);
+      if (asset.relative_path && !legacyPdfRaster) {
         const existingPath = ensureInside(sourceRunDir, path.join(sourceRunDir, asset.relative_path));
         const existing = await stat(existingPath).catch(() => null);
         if (existing?.isFile()) return asset;
@@ -287,8 +277,11 @@ export async function hydrateExtractedVisualAssets(
       ) {
         return { ...asset, relative_path: null, mime_type: null };
       }
-      const match = bestVisualCandidate(asset, manifest.candidates, cropMode);
-      if (!match) return { ...asset, relative_path: null, mime_type: null };
+      const match = bestVisualCandidate(asset, manifest?.candidates ?? [], cropMode, legacyPdfRaster);
+      if (!match) {
+        if (legacyPdfRaster) warnings.push(`Visual ${asset.id} omitted: the embedded PDF raster has no matching source/page composition.`);
+        return { ...asset, relative_path: null, mime_type: null };
+      }
       return {
         ...asset,
         kind: match.kind,
@@ -306,20 +299,21 @@ export async function hydrateExtractedVisualAssets(
   // selected by the request/evidence planning and content-review lanes. It
   // must not silently invent additional media because an example happens to
   // contain a subject keyword.
-  return hydrated;
+  return { ...hydrated, warnings: [...new Set(warnings)] };
 }
 
 function bestVisualCandidate(
   asset: ExtractedData["visual_assets"][number],
   candidates: VisualCandidate[],
   cropMode: VisualCropMode,
+  requireExactPage = false,
 ): VisualCandidate | null {
-  const assetFile = asset.source_path ? path.basename(asset.source_path).toLocaleLowerCase("de") : null;
+  const assetFile = asset.source_path ? path.resolve(asset.source_path) : null;
   const titleTokens = visualMatchTokens(`${asset.title} ${asset.caption_hint}`);
   const ranked = candidates
     .map((candidate) => {
       const candidateFile = candidate.source_path
-        ? path.basename(candidate.source_path).toLocaleLowerCase("de")
+        ? path.resolve(candidate.source_path)
         : null;
       const sameFile = Boolean(assetFile && candidateFile && assetFile === candidateFile);
       const sameUrl = Boolean(asset.source_url && candidate.source_url === asset.source_url);
@@ -332,10 +326,11 @@ function bestVisualCandidate(
       const tokenOverlap = titleTokens.filter((token) =>
         `${candidate.title} ${candidate.caption_hint}`.toLocaleLowerCase("de").includes(token)
       ).length;
-      const kindScore = visualCandidateKindScore(candidate, asset, cropMode);
+      const kindScore = visualCandidateKindScore(candidate, cropMode);
       return {
         candidate,
-        eligible: (sameFile || sameUrl) && !pageMismatch,
+        eligible: !isUncomposedPdfRaster(candidate) && (sameFile || sameUrl) && !pageMismatch &&
+          (!requireExactPage || (asset.source_page != null && samePage)),
         score: (sameFile ? 8 : 0) + (sameUrl ? 4 : 0) + (samePage ? 6 : 0) + kindScore + Math.min(tokenOverlap, 4),
       };
     })
@@ -347,25 +342,11 @@ function bestVisualCandidate(
 
 function visualCandidateKindScore(
   candidate: VisualCandidate,
-  asset: ExtractedData["visual_assets"][number],
   cropMode: VisualCropMode,
 ): number {
   const page = candidate.kind === "moodle_pdf_page";
-  const embedded = candidate.kind === "moodle_pdf_image";
-  if (cropMode === "original") return page ? 14 : embedded ? 1 : 0;
-  if (cropMode === "context") return page ? 12 : embedded ? 2 : 0;
-  if (!embedded) return page ? (cropMode === "focused" ? 2 : 4) : 0;
-
-  const width = candidate.width_px ?? 0;
-  const height = candidate.height_px ?? 0;
-  const aspect = width > 0 && height > 0 ? Math.max(width / height, height / width) : 1;
-  const wantsDrawing = /(?:skizze|zeichnung|diagramm|schema|geometr|kontakt|verbindung|schnitt)/i.test(
-    `${asset.title} ${asset.caption_hint}`,
-  );
-  const overlyStripLike = aspect > 3 && wantsDrawing;
-  const usefulSize = width * height >= 100_000;
-  if (!usefulSize || overlyStripLike) return cropMode === "focused" ? -2 : -4;
-  return cropMode === "focused" ? 14 : 10;
+  if (cropMode === "original" || cropMode === "context") return page ? 14 : 0;
+  return page ? 10 : 0;
 }
 
 function visualMatchTokens(value: string): string[] {
@@ -387,6 +368,7 @@ export async function copyRenderVisualAssets(
   const canCrop = Boolean(await findExecutable("magick"));
   const resolutionLog: Array<Record<string, unknown>> = [];
   for (const [relativePath, asset] of referenced) {
+    if (isUncomposedPdfRaster(asset)) throw new Error(`Visual ${asset.id} requires a matching rendered PDF page composition before copying.`);
     assertVisualRelativePath(relativePath);
     const sourcePath = ensureInside(sourceRunDir, path.join(sourceRunDir, relativePath));
     const targetPath = ensureInside(renderRunDir, path.join(renderRunDir, relativePath));
@@ -402,11 +384,11 @@ export async function copyRenderVisualAssets(
     let cropApplied = false;
     if (
       canCrop &&
-      asset.kind === "moodle_pdf_page" &&
+      (asset.kind === "moodle_pdf_page" || (asset.kind === "cis_page_screenshot" && asset.source_page != null)) &&
       cropMode !== "original" &&
       /\.(?:png|jpe?g)$/i.test(targetPath)
     ) {
-      cropApplied = await cropPdfPageVisual(targetPath, asset, cropMode).catch(() => false);
+      cropApplied = await trimRasterWhitespace(targetPath, true).then(result => result.changed).catch(() => false);
     }
     const after = canCrop && /\.(?:png|jpe?g)$/i.test(targetPath)
       ? await imageDimensions(targetPath).catch(() => null)
@@ -431,74 +413,6 @@ export async function copyRenderVisualAssets(
     `${JSON.stringify({ strategy: cropMode, assets: resolutionLog }, null, 2)}\n`,
     "utf8",
   );
-}
-
-async function cropPdfPageVisual(
-  imagePath: string,
-  asset: ExtractedData["visual_assets"][number],
-  cropMode: Exclude<VisualCropMode, "original">,
-): Promise<boolean> {
-  const dimensions = await imageDimensions(imagePath);
-  const portrait = dimensions.height / dimensions.width > 1.18;
-  const descriptor = `${asset.title} ${asset.caption_hint}`;
-  const tableLike = /(?:tabelle|klassifikation|belastungsverlauf|kennwerte|formelübersicht)/i.test(descriptor);
-  const drawingLike = /(?:skizze|zeichnung|diagramm|schema|geometr|kontakt|verbindung|schnitt)/i.test(descriptor);
-
-  let region: { x: number; y: number; width: number; height: number };
-  if (portrait) {
-    region = cropMode === "context"
-      ? { x: 0, y: 0.07, width: 1, height: 0.9 }
-      : cropMode === "focused" && drawingLike
-        ? { x: 0, y: 0.14, width: 1, height: 0.64 }
-        : tableLike
-          ? { x: 0, y: 0.1, width: 1, height: 0.82 }
-          : { x: 0, y: 0.11, width: 1, height: 0.74 };
-  } else if (cropMode === "context") {
-    region = { x: 0, y: 0.16, width: 1, height: 0.78 };
-  } else if (cropMode === "focused") {
-    region = tableLike
-      ? { x: 0, y: 0.19, width: 1, height: 0.72 }
-      : { x: 0, y: 0.20, width: 1, height: drawingLike ? 0.68 : 0.7 };
-  } else {
-    region = tableLike
-      ? { x: 0, y: 0.18, width: 1, height: 0.74 }
-      : { x: 0, y: 0.17, width: 1, height: 0.74 };
-  }
-
-  const x = Math.max(0, Math.floor(dimensions.width * region.x));
-  const y = Math.max(0, Math.floor(dimensions.height * region.y));
-  const width = Math.min(dimensions.width - x, Math.ceil(dimensions.width * region.width));
-  const height = Math.min(dimensions.height - y, Math.ceil(dimensions.height * region.height));
-  if (width < 180 || height < 120) return false;
-
-  const extension = path.extname(imagePath);
-  const temporaryPath = `${imagePath.slice(0, -extension.length)}.focused${extension}`;
-  const result = await runCommand("magick", [
-    imagePath,
-    "-crop",
-    `${width}x${height}+${x}+${y}`,
-    "+repage",
-    "-fuzz",
-    "4%",
-    "-trim",
-    "+repage",
-    "-bordercolor",
-    "white",
-    "-border",
-    "16x16",
-    temporaryPath,
-  ]);
-  if (result.code !== 0) {
-    await rm(temporaryPath, { force: true });
-    throw new Error(result.stderr || result.stdout || "ImageMagick page crop failed.");
-  }
-  const cropped = await imageDimensions(temporaryPath);
-  if (cropped.width < 180 || cropped.height < 120) {
-    await rm(temporaryPath, { force: true });
-    return false;
-  }
-  await rename(temporaryPath, imagePath);
-  return true;
 }
 
 export function assertVisualRelativePath(relativePath: string): void {
@@ -578,7 +492,6 @@ async function estimateVisualBudget(
       mode: "manual",
       candidateLimit: limit,
       sourceArtifactLimit: Math.max(10, limit * 3),
-      embeddedImagesPerPdf: Math.max(2, Math.min(12, Math.ceil(limit / 3))),
       pageCropsPerPdf: Math.max(1, Math.min(8, Math.ceil(limit / 5))),
       estimatedPdfPages: 0,
     };
@@ -622,7 +535,6 @@ async function estimateVisualBudget(
     mode: "auto",
     candidateLimit,
     sourceArtifactLimit: clampInteger(Math.ceil(candidateLimit / 2), 10, 80),
-    embeddedImagesPerPdf: clampInteger(Math.ceil(4 + averagePdfPages / 7), 4, 18),
     pageCropsPerPdf: clampInteger(Math.ceil(3 + averagePdfPages / 10), 3, 12),
     estimatedPdfPages,
   };
@@ -715,132 +627,6 @@ async function resolveVisualArtifactPath(filePath: string): Promise<string> {
   return convertedStat?.isFile() ? convertedPdf : filePath;
 }
 
-async function extractEmbeddedPdfImages(input: {
-  pdfPath: string;
-  resourceId: string | null;
-  sourceName: "moodle" | "cis";
-  sourceUrl: string | null;
-  visualDir: string;
-  startIndex: number;
-  maxImages: number;
-  plannedPages: number[];
-  hasMagick: boolean;
-}): Promise<VisualCandidate[]> {
-  const baseName = safeFileName(path.basename(input.pdfPath, ".pdf"));
-  const plannedPages = [...new Set(input.plannedPages)]
-    .filter((page) => Number.isInteger(page) && page > 0)
-    .sort((left, right) => left - right)
-    .slice(0, 12);
-  if (plannedPages.length === 0) return [];
-  const outputs: string[] = [];
-  for (const page of plannedPages) {
-    const prefix = path.join(
-      input.visualDir,
-      safeFileName(`${input.startIndex + 1}-${baseName}-embedded-page-${page}`),
-    );
-    const result = await runCommand("pdfimages", [
-      "-png",
-      "-j",
-      "-p",
-      "-print-filenames",
-      "-f",
-      String(page),
-      "-l",
-      String(page),
-      input.pdfPath,
-      prefix,
-    ]);
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `pdfimages exited with code ${result.code}`);
-    }
-    outputs.push(result.stdout);
-  }
-  const files = outputs.join("\n")
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const ranked: Array<{
-    filePath: string;
-    width: number | null;
-    height: number | null;
-    size: number;
-    page: number | null;
-  }> = [];
-  for (const filePath of files) {
-    const fileStat = await stat(filePath).catch(() => null);
-    if (!fileStat?.isFile()) continue;
-    const raster = await prepareRasterCandidate(filePath, input.hasMagick, {
-      dropMostlyEmpty: true,
-    });
-    if (!raster.usable) {
-      await rm(filePath, { force: true });
-      continue;
-    }
-    const width = raster.width;
-    const height = raster.height;
-    if (
-      width &&
-      height &&
-      (
-        width < 300 ||
-        height < 180 ||
-        width * height < 110_000 ||
-        width / height > 6 ||
-        height / width > 6
-      )
-    ) {
-      await rm(filePath, { force: true });
-      continue;
-    }
-    if (!width && !height && fileStat.size < 15_000) {
-      await rm(filePath, { force: true });
-      continue;
-    }
-    const fileName = path.basename(filePath);
-    const page = /-(\d+)-\d+\.[^.]+$/i.exec(fileName)?.[1];
-    ranked.push({
-      filePath,
-      width,
-      height,
-      size: fileStat.size,
-      page: page ? Number(page) : null,
-    });
-  }
-  const planned = new Set(plannedPages);
-  const selected = ranked
-    .sort((left, right) =>
-      Number(planned.has(right.page ?? -1)) - Number(planned.has(left.page ?? -1)) ||
-      ((right.width ?? 0) * (right.height ?? 0) || right.size) -
-      ((left.width ?? 0) * (left.height ?? 0) || left.size)
-    )
-    .slice(0, input.maxImages);
-  const selectedPaths = new Set(selected.map((image) => image.filePath));
-  await Promise.all(ranked
-    .filter((image) => !selectedPaths.has(image.filePath))
-    .map((image) => rm(image.filePath, { force: true })));
-  return selected.map((image, offset) => {
-      const fileName = path.basename(image.filePath);
-      const extension = path.extname(fileName).toLowerCase();
-      return {
-        id: `fig-${String(input.startIndex + offset + 1).padStart(3, "0")}`,
-        kind: input.sourceName === "moodle" ? "moodle_pdf_image" : "cis_page_screenshot",
-        title: `${path.basename(input.pdfPath)} – eingebettete Abbildung`,
-        relative_path: path.posix.join(VISUALS_DIR, fileName),
-        mime_type: extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : "image/png",
-        width_px: image.width,
-        height_px: image.height,
-        source_id: input.resourceId,
-        source_url: input.sourceUrl,
-        source_path: input.pdfPath,
-        source_page: image.page,
-        confidence: 0.82,
-        caption_hint: `Eingebettete Originalabbildung aus ${path.basename(input.pdfPath)}${image.page ? `, Seite ${image.page}` : ""}.`,
-        relevance_reason: "Direkt aus einer Moodle-Kursdatei extrahierte technische Abbildung.",
-        generation_prompt: null,
-      };
-    });
-}
-
 async function renderRelevantPdfPages(input: {
   config: MoodleRuntimeConfig;
   pdfPath: string;
@@ -892,7 +678,7 @@ async function renderRelevantPdfPages(input: {
     }
     const absolutePath = path.join(input.visualDir, file);
     if (input.hasMagick) {
-      await trimRasterWhitespace(absolutePath).catch(() => false);
+      await trimRasterWhitespace(absolutePath, true).catch(() => false);
     }
     const dimensions = input.hasMagick ? await imageDimensions(absolutePath).catch(() => null) : null;
     const relativePath = path.posix.join(VISUALS_DIR, file);
@@ -912,8 +698,8 @@ async function renderRelevantPdfPages(input: {
       confidence: plannerHit ? Math.min(0.82, rankedPage.score + 0.08) : Math.min(0.72, rankedPage.score),
       caption_hint: `${plannerHit ? "Visual-Planner-Treffer. " : ""}${input.sourceName.toUpperCase()}-PDF ${path.basename(input.pdfPath)}, Seite ${rankedPage.page}: ${rankedPage.hint}`,
       relevance_reason: plannerHit
-        ? "Vom Visual Planner angeforderte PDF-Seite; als Vollseiten-Screenshot nur verwenden, wenn kein besserer Diagramm- oder Tabellen-Ausschnitt existiert."
-        : "Vollseiten-Screenshot aus einer PDF-Quelle; nachrangig gegen direkt extrahierte Abbildungen.",
+        ? "Vom Visual Planner angeforderte, vollständig gerenderte PDF-Seitenkomposition mit Text-/Vektor-Overlays."
+        : "Vollständig gerenderte PDF-Seitenkomposition; bewahrt Text-/Vektor-Overlays, Masken und Clipping.",
       generation_prompt: null,
     });
   }
@@ -1145,14 +931,15 @@ async function prepareRasterCandidate(
   return { usable: true, width: dimensions.width, height: dimensions.height };
 }
 
-async function trimRasterWhitespace(imagePath: string): Promise<RasterTrimResult> {
+async function trimRasterWhitespace(imagePath: string, preserveComposition = false): Promise<RasterTrimResult> {
   const before = await imageDimensions(imagePath);
   const extension = path.extname(imagePath);
   const temporaryPath = `${imagePath.slice(0, -extension.length)}.trimmed${extension}`;
   const result = await runCommand("magick", [
     imagePath,
+    ...(preserveComposition ? ["-bordercolor", "white", "-border", "1x1"] : []),
     "-fuzz",
-    "4%",
+    preserveComposition ? "0%" : "4%",
     "-trim",
     "+repage",
     "-bordercolor",

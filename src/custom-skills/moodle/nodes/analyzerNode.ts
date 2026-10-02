@@ -19,7 +19,7 @@ import {
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray, validateExtractedData } from "../validation.js";
-import { readVisualManifest } from "../visualAssets.js";
+import { readVisualManifest, VISUAL_SOURCE_COMPOSITION_VERSION } from "../visualAssets.js";
 import { StudyBuddyCheckpointError, throwIfAborted } from "../runtimeAbort.js";
 import {
   resolveAnalysisBudget,
@@ -604,6 +604,7 @@ async function analyzeDenseChapter(
     const fingerprintBase = {
       producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
+      visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
       requestContract: state.request_contract,
@@ -2569,6 +2570,7 @@ function chapterFingerprint(
     requestContract: state.request_contract,
     documentContext: buildDocumentContext(state),
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
+    visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
     materializationVersion: CHAPTER_MATERIALIZATION_VERSION,
     outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
