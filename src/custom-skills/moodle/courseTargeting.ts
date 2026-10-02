@@ -245,10 +245,10 @@ export function rawTextContainsRequestedCourse(prompt: string, rawText: string):
   return hint.requestedNames.some((name) => textIncludesPhrase(rawText, name));
 }
 
-export function explicitCourseCodesFromText(text: string): string[] {
+export function explicitCourseCodesFromText(text: string, includeNegated = false): string[] {
   const codes = text.match(/\b[A-ZÄÖÜ]{2,8}\d{0,3}\b/g) ?? [];
   return [...new Set(codes.filter((code) =>
-    !GENERIC_CODE_STOPWORDS.has(code) && !mentionIsNegated(text, code)
+    !GENERIC_CODE_STOPWORDS.has(code) && (includeNegated || !mentionIsNegated(text, code))
   ))];
 }
 
@@ -312,7 +312,7 @@ function textIncludesPhrase(text: string, phrase: string): boolean {
  * heuristic deliberately local to the mention so ordinary negation elsewhere
  * in the prompt does not suppress a valid target.
  */
-function mentionIsNegated(text: string, phrase: string): boolean {
+export function mentionIsNegated(text: string, phrase: string): boolean {
   const textWords = textTokens(text);
   const phraseWords = textTokens(phrase);
   if (phraseWords.length === 0) return false;

@@ -36,6 +36,8 @@ export async function resolveSemanticSearch(input: {
   model: CodexClient; runDir: string; cacheDir?: string; sourceScope: string;
   mode?: "one" | "many"; signal?: AbortSignal;
   requireInspection?: boolean;
+  /** Callers may already have found contradictory or excluded literal mentions. */
+  allowLiteralIdentity?: boolean;
 }): Promise<SemanticSearchResult> {
   const catalog = new Map(input.candidates.map(c => [c.id, { ...c }]));
   const trace: Array<Record<string, unknown>> = [];
@@ -45,6 +47,7 @@ export async function resolveSemanticSearch(input: {
   const key = createHash("sha256").update(JSON.stringify([
     "semantic-v3-source-excerpts", input.sourceScope, input.prompt, stableContext(input.context), input.mode, input.requireInspection,
     input.candidates.map(c => [c.id, c.url, c.label, c.text]),
+    ...(input.allowLiteralIdentity === false ? ["semantic-only-literal-deferral"] : []),
   ])).digest("hex");
   const cachePath = input.cacheDir ? path.join(input.cacheDir, `${key}.json`) : null;
   const persist = async (result: SemanticSearchResult) => {
@@ -61,7 +64,7 @@ export async function resolveSemanticSearch(input: {
     const title = c.label.trim().toLocaleLowerCase();
     return prompt.includes(c.url.toLocaleLowerCase()) || (title.length >= 5 && prompt.includes(title));
   });
-  if (exact.length === 1 && input.mode !== "many" && !input.requireInspection) return persist({
+  if (exact.length === 1 && input.mode !== "many" && !input.requireInspection && input.allowLiteralIdentity !== false) return persist({
     status: "resolved", selectedIds: [exact[0].id], evidence: [{ id: exact[0].id, quote: exact[0].label }],
     reason: "Literal source identity in the original request.", method: "direct",
   });

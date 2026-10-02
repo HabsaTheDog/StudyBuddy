@@ -52,6 +52,15 @@ it("preserves the literal URL fast path without a model call", async () => {
   expect((await resolveSemanticSearch(input)).method).toBe("direct");
   expect(input.model.run).not.toHaveBeenCalled();
 });
+it("lets a caller defer a conflicting literal identity to normal inspected semantics without an equivalence-review call", async () => {
+  const input = await fixture([inspect, resolve]);
+  input.prompt = `Prepare for ${candidates[0].label} or the current mathematics assessment; unclear which.`;
+  const result = await resolveSemanticSearch({ ...input, allowLiteralIdentity: false });
+  expect(result.method).toBe("model");
+  expect(result.selectedIds).toEqual(["c2"]);
+  expect(input.reader.inspect).toHaveBeenCalledTimes(2);
+  expect(input.model.run).toHaveBeenCalledTimes(2);
+});
 it("uses Luna for source search with the existing restricted worker boundary", () => {
   expect(resolveTaskModelPolicy({ profile: "balanced", task: "source_search" }).model).toBe("gpt-6-luna");
   expect(resolveCodexTaskAccessPolicy("source_search")).toMatchObject({ leafWorker: true, sandboxMode: "read-only", networkAccessEnabled: false });
