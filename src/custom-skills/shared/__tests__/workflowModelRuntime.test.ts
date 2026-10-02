@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   createWorkflowModelRuntime,
   workflowModelBridgeEnvironment,
@@ -26,6 +29,44 @@ afterEach(() => {
 });
 
 describe("selected-provider workflow execution", () => {
+  it("runs Codex workers with the desktop-selected CLI and isolated account environment", async () => {
+    bridge("codex", "catalog-current-model");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "workflow-cli-"));
+    try {
+      const executable = path.join(directory, "provider-codex");
+      const capture = path.join(directory, "invocation.json");
+      await writeFile(executable, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify({args: process.argv.slice(2), home: process.env.CODEX_HOME, password: process.env.MOODLE_PASSWORD}));
+process.stdin.resume();
+process.stdin.on("end", () => {
+  for (const event of [
+    {type:"thread.started",thread_id:"fixture"},
+    {type:"turn.started"},
+    {type:"item.completed",item:{id:"answer",type:"agent_message",text:"ok"}},
+    {type:"turn.completed",usage:{input_tokens:12,cached_input_tokens:2,output_tokens:3}}
+  ]) process.stdout.write(JSON.stringify(event) + "\\n");
+});
+`);
+      await chmod(executable, 0o700);
+      vi.stubEnv("STUDY_BUDDY_CODEX_PATH", executable);
+      vi.stubEnv("MOODLE_PASSWORD", "portal-secret-canary");
+      const runtime = createWorkflowModelRuntime({
+        env: { PATH: process.env.PATH!, CODEX_HOME: "/private/selected-codex-home" },
+      });
+      const result = await runtime.startThread({
+        model: "catalog-current-model", sandboxMode: "read-only", approvalPolicy: "never",
+        networkAccessEnabled: false, webSearchMode: "disabled",
+      }).run("supplied evidence");
+      expect(result.finalResponse).toBe("ok");
+      expect(result.usage).toMatchObject({ input_tokens: 12, output_tokens: 3 });
+      const invocation = JSON.parse(await readFile(capture, "utf8"));
+      expect(invocation.home).toBe("/private/selected-codex-home");
+      expect(invocation.password).toBeUndefined();
+      expect(invocation.args).toContain("catalog-current-model");
+      expect(invocation.args).toContain("read-only");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it.each([
     ["claude", "claude-sonnet"],
     ["antigravity", "gemini-pro"],

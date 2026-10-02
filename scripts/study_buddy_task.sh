@@ -2,6 +2,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+CURRENT_WRAPPER="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
+# Desktop credentials are owned by the workflow broker, never this shell.
+# Honor the app wrapper even when an agent invokes this repository fallback.
+if [[ "${STUDY_BUDDY_BROKER_EXECUTION:-}" != "1" && -n "${STUDY_BUDDY_TASK_WRAPPER:-}" ]]; then
+  APP_WRAPPER="$STUDY_BUDDY_TASK_WRAPPER"
+  if [[ ! -x "$APP_WRAPPER" ]]; then
+    echo "Study Buddy's configured app wrapper is unavailable. Restart the app and retry." >&2
+    exit 1
+  fi
+  RESOLVED_APP_WRAPPER="$(cd -- "$(dirname -- "$APP_WRAPPER")" && pwd -P)/$(basename -- "$APP_WRAPPER")"
+  if [[ "$RESOLVED_APP_WRAPPER" != "$CURRENT_WRAPPER" && ! "$APP_WRAPPER" -ef "$CURRENT_WRAPPER" ]]; then
+    exec "$APP_WRAPPER" "$@"
+  fi
+fi
 REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 STUDY_BUDDY_ROOT="${STUDY_BUDDY_ROOT:-${STUDY_BUDDY_WORKFLOW_ROOT:-$REPOSITORY_ROOT}}"
 export STUDY_BUDDY_ROOT

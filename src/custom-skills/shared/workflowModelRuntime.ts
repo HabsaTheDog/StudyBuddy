@@ -59,7 +59,17 @@ export function createWorkflowModelRuntime(
   options: CodexOptions,
 ): WorkflowModelRuntime {
   const bridge = workflowModelBridgeEnvironment();
-  const codex = new Codex(options);
+  // The desktop provider owns its CLI version and account home. Using the
+  // SDK's bundled binary here can reject models supported by the coordinator.
+  const providerCodexPath = bridge?.provider === "codex"
+    ? process.env.STUDY_BUDDY_CODEX_PATH?.trim()
+    : undefined;
+  const codex = new Codex({
+    ...options,
+    ...(providerCodexPath && !options.codexPathOverride
+      ? { codexPathOverride: providerCodexPath }
+      : {}),
+  });
   if (!bridge)
     return {
       startThread: (thread) => {
