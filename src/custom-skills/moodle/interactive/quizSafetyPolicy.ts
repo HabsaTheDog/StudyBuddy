@@ -32,6 +32,8 @@ export interface QuizMetadata {
   attemptsLeft: number | null;
   attemptsUnlimited: boolean;
   hasActiveAttempt: boolean;
+  activeAttemptId?: string | null;
+  activeAttemptNumber?: number | null;
   canStartNewAttempt: boolean;
   availabilityStatus: QuizAvailabilityStatus;
   opensAt: string | null;
@@ -125,6 +127,28 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
   }
   const hasAttemptHistory = /(?:ihre versuche|your attempts|previous attempts)/i.test(bodyText) ||
     Boolean(document.querySelector(".quizattempt, .attempt-row, a[href*='/mod/quiz/review.php'][href*='attempt=']"));
+  const attemptUrl = /\/mod\/quiz\/attempt\.php$/.test(location.pathname)
+    ? location.href : controlDetails.find(control => /\/mod\/quiz\/attempt\.php[^\s]*[?&]attempt=/i.test(control.href))?.href;
+  let activeAttemptId = null;
+  try { if (attemptUrl) activeAttemptId = new URL(attemptUrl,location.href).searchParams.get("attempt"); } catch {}
+  let activeAttemptNumber = null;
+  const historyNumbers = [];
+  for (const row of document.querySelectorAll("table tbody tr, .quizattempt, .attempt-row")) {
+    const text = normalize(row.innerText || row.textContent);
+    const firstCell = normalize(row.querySelector("td")?.textContent);
+    const number = Number(/(?:versuch|attempt)\s*(\d+)/i.exec(text)?.[1] || (/^\d+$/.test(firstCell) ? firstCell : ""));
+    const link = row.querySelector("a[href*='/mod/quiz/attempt.php'][href*='attempt=']");
+    if (number > 0) historyNumbers.push(number);
+    if (link && activeAttemptId) {
+      try { if (new URL(link.href,location.href).searchParams.get("attempt") === activeAttemptId && number > 0) activeAttemptNumber = number; } catch {}
+    }
+  }
+  const firstStartControl = controlDetails.some(control => /^(?:test versuchen|attempt quiz)$/i.test(control.text));
+  const repeatControl = controlDetails.some(control => /test wiederholen|versuch wiederholen|re-attempt quiz|attempt again|repeat attempt/i.test(control.text));
+  const noAttemptEvidence = !hasContinueControl && !repeatControl && attemptKeys.size === 0 &&
+    (/(?:no attempts yet|no previous attempts|noch keine versuche|bisher keine versuche)/i.test(bodyText) || firstStartControl);
+  const attemptsUsed = historyNumbers.length ? Math.max(...historyNumbers) :
+    (activeAttemptNumber || (noAttemptEvidence ? 0 : null));
   const dateValue = kind => {
     const label = kind === "open"
       ? /(?:^|\s)(?:geöffnet|geoeffnet|öffnet|oeffnet|opens?)(?=\s|:)/i
@@ -149,6 +173,9 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
   };
   return JSON.stringify({
     bodyText,
+    attemptsUsed,
+    activeAttemptId,
+    activeAttemptNumber,
     attemptRowCount: hasAttemptHistory ? attemptKeys.size : null,
     hasStartControl,
     hasContinueControl,
@@ -246,6 +273,8 @@ export function normalizeQuizMetadata(
     attemptsLeft,
     attemptsUnlimited,
     hasActiveAttempt,
+    activeAttemptId: typeof value.activeAttemptId === "string" && /^\d+$/.test(value.activeAttemptId) ? value.activeAttemptId : null,
+    activeAttemptNumber: finiteOrNull(value.activeAttemptNumber),
     canStartNewAttempt,
     availabilityStatus,
     opensAt,
@@ -296,6 +325,10 @@ export function enforceQuizSafetyPolicy(
   }
 }
 
+export function requiresFirstQuizAttempt(policy: QuizSafetyPolicy | undefined, metadata: QuizMetadata | undefined): boolean {
+  return policy?.firstAttemptOnly === true || Boolean(metadata && metadata.attemptsAllowed !== null && metadata.attemptsAllowed >= 2);
+}
+
 export function questionHasExistingAnswer(question: QuizQuestion): boolean {
   return question.controls.some((control) => {
     const type = String(control.type ?? control.tag ?? "").toLowerCase();
@@ -333,6 +366,14 @@ function enforceAttemptPolicy(
       "starting-or-continuing-attempts-disabled",
       "allow_start_or_continue_attempt",
     );
+  }
+  if (requiresFirstQuizAttempt(policy, metadata)) {
+    if (!metadata?.hasActiveAttempt && metadata?.attemptsUsed !== 0) {
+      return blocked(action, "first-attempt-only-history-not-zero", "first_quiz_attempt_only");
+    }
+    if (metadata?.hasActiveAttempt && (metadata.attemptsUsed !== 1 || metadata.activeAttemptNumber !== 1 || !metadata.activeAttemptId)) {
+      return blocked(action, "first-attempt-only-active-identity-unconfirmed", "first_quiz_attempt_only");
+    }
   }
   if (
     metadata?.appearsTimed &&

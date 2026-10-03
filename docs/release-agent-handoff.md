@@ -18,6 +18,51 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Agent-owned mini-test tooling, 2026-10-03
+
+Owner authorized implementation of direct mini-test tooling and explicitly forbids
+using the second of two attempts, including after a first-attempt failure. Local
+fixtures are the test surface; no real Moodle attempt is consumed for acceptance.
+Final submission remains outside the existing permission boundary.
+
+Native Codex/Claude/Gemini instructions now route quiz assistance to deterministic
+`quiz` JSON tools. The owner discovers the exact quiz through read-only sources,
+reads packets/media, delegates native question solving, checks answers, and supplies
+complete current control plans. Tools authenticate, fill, save and reload-verify;
+they do not create another planner, solver or review model chain. Unsupported
+interactions hand off the exact same attempt; they do not start a replacement.
+Evidence/state remains in the owning workspace/thread, with the global first-start
+ledger under the Study Buddy app state root.
+
+An account-and-quiz reservation and irreversible atomic HTTP debit permit at most
+one first-start request. Binding requires native overview proof of actual ordinal1
+and the exact returned attempt ID. Recovery retains that ID across browser/process
+restarts. New runs, approvals, uncertain responses and concurrent workers cannot
+release the debit. HTTP admission blocks cross-attempt requests and hidden final
+form fields independently of button labels. Legacy quiz start sites share the same
+ledger and first-attempt rules for finite quizzes with two or more attempts;
+initial inspection is read-only. Unlimited practice remains compatible.
+
+Final frozen verification:1,596 root tests pass with four existing skips,75 UI
+routing/approval/native-instruction/packaged tests pass, root TypeScript and all13
+UI typechecks pass, UI format/lint and workflow-package contract pass. Independent
+source freezes for attempt ledger, HTTP/media guard and direct tools are verified
+byte-for-byte in `agent-owned-minitest/evidence/final-review.json`. UI dependency
+`cc8a01fa3` is committed locally. A pre-freeze media fixture used undiscovered
+`data-src`; the corrected real lazy-image case and final full suite pass without
+loosening the product guard or changing test timeouts.
+
+Native approval cards are still required by the selected access policy. The broker
+validates the exact native grant, stages it privately and passes authenticated
+request IDs; an agent-created JSON file alone cannot approve an attempt. Owner,
+workspace, selected-source credentials and private ledger location stay server-owned.
+
+Evidence is under `study-buddy-data/optimization-campaigns/agent-owned-minitest/`;
+the separately approved local tooling contract is `agent-owned-minitest-tools`.
+Browser fixtures establish tool/network behavior, not desktop or native mathematical
+answer-quality acceptance. Neither repository is pushed, merged, deployed, packaged
+or release-accepted. Do not consume a real limited attempt as a release test.
+
 ## Native attachment durability repair, 2026-10-03
 
 The prior PDF publisher and common native developer instructions wrongly reused

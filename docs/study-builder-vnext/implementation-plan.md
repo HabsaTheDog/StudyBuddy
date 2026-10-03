@@ -1,5 +1,51 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-03: agent-owned mini-test operations with one-attempt protection
+
+Owner explicitly requests direct mini-test tools and native/subagent reasoning,
+with at most the first of two Moodle attempts and no second attempt even after
+failure. This authorizes implementation and local fixture tests, not consumption
+of a live test attempt for development. Existing final-submit prohibition stays.
+
+Expose deterministic inspect/start/read/fill/next/status/recovery operations to the
+native owner via the existing app-owned broker. Reuse extraction, question media,
+answer adapters, safe navigation and reload verification. The owner delegates
+question packets to subagents and supplies answers; tools do not start another
+model-backed planner/solver/reviewer pipeline. Preserve exact-target native quiz
+approval. Credentials, workspace and stable owner remain server-owned.
+
+For limited quizzes, new starts require positive first-attempt evidence. Atomically
+reserve the first start in a durable account+quiz ledger before mutation; bind the
+actual Moodle attempt ID afterwards. Recovery continues that ID only. Concurrent
+workers, new approval files, browser restarts, uncertain HTTP outcomes and expired
+or ended attempts cannot start a second attempt. Add request-level safeguards
+against second starts, cross-attempt requests and hidden final-submit form fields.
+Unknown start outcome fails closed with no automatic replacement attempt.
+
+Validate on local real-browser fixtures (including concurrency, failed start
+responses and disguised final POSTs), never on the user's limited Moodle attempts.
+Provide a same-attempt handoff for unsupported interactions, not a new attempt.
+Discovery/evidence and implementation checkpoints live under
+study-buddy-data/optimization-campaigns/agent-owned-minitest/. No release/push.
+
+Ownership: attempt ledger and legacy hooks to quiz_credentials; direct operations
+and fixtures to pdf_sources; HTTP/request boundary and independent adversarial
+review to independent_review; native instructions, broker/packaged routing and
+integration to root. This is a focused replacement of quiz orchestration, not a
+change to the earlier PDF workflow or quiz submission permissions.
+
+Scoped implementation is complete: shared native instructions use direct quiz JSON
+operations and native question subagents, with exact packet/control plans and
+save/reload verification. UI integration is locally committed as `cc8a01fa3`.
+No real Moodle attempt was opened. Actual local two-attempt Playwright evidence
+shows one start POST, one save POST, answers4/21 persisted, same-ID recovery,
+second-run refusal and zero final submits. Three original RED counterexamples are
+covered by real guarded-browser cases and the global ledger. Review also closed
+native ordinal spoofing, initial inspection autoPOST and authenticated media
+request bypasses; dead process locks support same-attempt recovery. This is local
+tooling validation, not native mathematical output or desktop/release acceptance.
+Final verification:1,596 root tests/four existing skips,75 UI routing/approval/packaged tests,root TypeScript,all13 UI typechecks and UI format/lint pass. Final regression evidence and verified source hashes are recorded in the scoped campaign.
+
 ## 2026-10-03: durable native artifact delivery
 
 Owner reports native PDF attachment loss after temporary-file cleanup. The direct

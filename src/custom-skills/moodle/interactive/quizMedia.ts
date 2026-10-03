@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import { sanitizeModelVisibleUrl } from "./browserSecurity.js";
+import { assertNoFinalQuizSubmission, type QuizRequestGuard } from "./quizAttemptRequestGuard.js";
 
 export interface QuizImageEvidence {
   path: string;
@@ -29,6 +30,7 @@ export async function captureQuizQuestionEvidence(
   questionId: string,
   directory: string,
   sensitiveValues: ReadonlyArray<string | undefined> = [],
+  requestGuard: QuizRequestGuard = assertNoFinalQuizSubmission,
 ): Promise<QuizQuestionEvidence> {
   if (!/^question-[a-zA-Z0-9_-]+$/.test(questionId)) throw new Error("Invalid question image target");
   const evidence: QuizQuestionEvidence = { images: [], errors: [] };
@@ -97,7 +99,7 @@ export async function captureQuizQuestionEvidence(
       while (next < sources.length) {
         const index = next++;
         try {
-          outcomes[index] = await downloadQuestionImage(page, sources[index]!, directory, index, sensitiveValues);
+          outcomes[index] = await downloadQuestionImage(page, sources[index]!, directory, index, sensitiveValues, requestGuard);
         } catch (error) {
           // Only controlled error codes leave this boundary; request errors can contain credentials.
           const code = error instanceof QuizMediaError ? error.message : "image-download-failed";
@@ -121,10 +123,13 @@ class QuizMediaError extends Error {}
 async function downloadQuestionImage(
   page: Page, source: string, directory: string, index: number,
   sensitiveValues: ReadonlyArray<string | undefined>,
+  requestGuard: QuizRequestGuard,
 ): Promise<QuizImageEvidence> {
   const url = new URL(source);
   if (url.origin !== new URL(page.url()).origin || !/^https?:$/.test(url.protocol) || url.username || url.password)
     throw new QuizMediaError("image-origin-not-allowed");
+  // APIRequestContext bypasses browser routing; admit the same request explicitly.
+  await requestGuard({ url: url.href, method: "GET", postData: null });
   // No redirects: in particular an expired session must not fetch a login/SSO page.
   const response = await page.context().request.get(url.href, {
     maxRedirects: 0, timeout: REQUEST_TIMEOUT, failOnStatusCode: false,

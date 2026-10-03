@@ -261,7 +261,7 @@ describe("quizSafetyPolicy", () => {
     );
 
     expect(decision.status).toBe("blocked");
-    expect(decision.reason).toBe("limited-attempt-quiz-below-minimum-attempts-left");
+    expect(decision.reason).toBe("first-attempt-only-history-not-zero");
   });
 
   it("requires permission for an ordinary untimed attempt in ask-before mode", () => {
@@ -279,12 +279,27 @@ describe("quizSafetyPolicy", () => {
   });
 
   it("allows continuing an open attempt without requiring unused new attempts", () => {
-    const current = metadata({ hasActiveAttempt: true, attemptsAllowed: 2, attemptsUsed: 2,
-      attemptsLeft: 0, appearsLimitedAttempt: true, availabilityStatus: "open" });
+    const current = metadata({ hasActiveAttempt: true, attemptsAllowed: 2, attemptsUsed: 1,
+      attemptsLeft: 1, activeAttemptId:"321", activeAttemptNumber:1, appearsLimitedAttempt: true, availabilityStatus: "open" });
     const allowed = policy({ allowStartingOrContinuingAttempts: true, askBeforeLimitedAttemptQuizzes: false });
     expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: current }).status).toBe("allowed");
     expect(enforceQuizSafetyPolicy({ ...allowed, askBeforeStartingOrContinuingAttempts: true }, "start_or_continue_attempt", { metadata: current }).status).toBe("permission_required");
     expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: { ...current, hasActiveAttempt: false } }).status).toBe("blocked");
+    expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: { ...current, attemptsUsed:2, activeAttemptNumber:2 } }).status).toBe("blocked");
+  });
+
+  it("requires known zero history for limited first starts, even if a caller disables first-only", () => {
+    const allowed = policy({allowStartingOrContinuingAttempts:true,firstAttemptOnly:false});
+    const fresh = metadata({attemptsAllowed:2,attemptsUsed:0,attemptsLeft:2});
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:fresh}).status).toBe("allowed");
+    for (const attemptsUsed of [null,1,2]) expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:{...fresh,attemptsUsed}}).status).toBe("blocked");
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:{...fresh,attemptsUsed:1,attemptsUnlimited:true}}).status).toBe("blocked");
+  });
+  it("keeps unlimited legacy practice unless first-only is explicitly required", () => {
+    const allowed = policy({allowStartingOrContinuingAttempts:true});
+    const practice = metadata({attemptsUsed:3,attemptsUnlimited:true});
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:practice}).status).toBe("allowed");
+    expect(enforceQuizSafetyPolicy({...allowed,firstAttemptOnly:true},"start_or_continue_attempt",{metadata:practice}).status).toBe("blocked");
   });
 
   it("prevents filling when filling is disabled", () => {

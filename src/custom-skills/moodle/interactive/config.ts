@@ -1,6 +1,7 @@
 import { parseReasoningEffort } from "../modelPolicy.js";
 import { requestTimeBoundary } from "../temporalRequest.js";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -159,6 +160,8 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     autoAnswer: input.autoAnswer ?? quizSafetyPolicy.allowFillingAnswers,
     quizSolverConcurrency: Math.max(1, Math.min(32, Math.floor(input.quizSolverConcurrency ?? 8))),
     quizSafetyPolicy,
+    quizAttemptLedgerRoot: environment.STUDY_BUDDY_QUIZ_ATTEMPT_LEDGER_ROOT,
+    quizAttemptAccountKey: environment.MOODLE_USERNAME ? createHash("sha256").update(environment.MOODLE_USERNAME).digest("hex") : undefined,
     approvedQuizPermission,
     assignmentFiles: (input.assignmentFiles ?? []).map((file) =>
       resolveStudyBuddyWorkspacePath(file, workspaceRoot),

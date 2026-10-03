@@ -121,6 +121,8 @@ export interface MoodleRuntimeConfig {
   autoAnswer?: boolean | undefined;
   quizSolverConcurrency?: number | undefined;
   quizSafetyPolicy?: QuizSafetyPolicy | undefined;
+  quizAttemptLedgerRoot?: string | undefined;
+  quizAttemptAccountKey?: string | undefined;
   approvedQuizPermission?: ApprovedQuizPermission | undefined;
   assignmentFiles?: string[] | undefined;
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
@@ -166,6 +168,8 @@ export interface AssignmentFileGrant {
 }
 
 export interface QuizSafetyPolicy {
+  /** Explicit first-only scope; finite multi-attempt quizzes are always first-only. */
+  firstAttemptOnly?: boolean;
   accessMode: QuizAccessMode;
   allowOpeningQuizPages: boolean;
   allowStartingOrContinuingAttempts: boolean;

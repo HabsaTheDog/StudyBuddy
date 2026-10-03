@@ -54,7 +54,8 @@
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "check:release": "npm run verify && npm run check:links && npm run check:public-tree && npm run check:licenses && npm run check:sbom && npm run check:submodule-pin && npm run check:release-contract && npm run audit:all",
     "moodle:sources": "tsx src/custom-skills/moodle/directSourcesCli.ts",
-    "moodle:document": "tsx src/custom-skills/moodle/directDocumentCli.ts"
+    "moodle:document": "tsx src/custom-skills/moodle/directDocumentCli.ts",
+    "moodle:quiz": "tsx src/custom-skills/moodle/directQuizCli.ts"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.9",

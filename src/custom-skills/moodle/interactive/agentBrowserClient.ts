@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_AGENT_BROWSER_PACKAGE = "agent-browser@0.27.0";
 
 export interface AgentBrowserClient {
+  setQuizRequestGuard?(guard: import("./quizAttemptRequestGuard.js").QuizRequestGuard): void;
   captureQuestionEvidence?(questionId: string, directory: string): Promise<QuizQuestionEvidence>;
   captureQuestionImage?(questionId: string, targetPath: string): Promise<void>;
   enrolledCourses?(): Promise<CourseInventory>;

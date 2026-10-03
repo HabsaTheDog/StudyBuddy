@@ -327,6 +327,15 @@ describe("quizReviewNode", () => {
     expect(client.calls).toContain("click:@e-start");
   });
 
+  it("blocks a limited second attempt even under an approved work policy", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-first-only-"));
+    const client = new FakeQuizBrowserClient({metadataSequence:[{...openQuizMetadata(),
+      attemptsAllowed:2,attemptsUsed:1,attemptsLeft:1,attemptsUnlimited:false,appearsLimitedAttempt:true}]});
+    const result = await createQuizPageNode(testConfig(runDir,allowQuizWorkPolicy()),{agentBrowser:client})(quizWorkflowState());
+    expect(result.final_document).toContain("first-attempt-only-history-not-zero");
+    expect(client.calls.some(call => call.startsWith("click:"))).toBe(false);
+  });
+
   it("ignores a parent container whose text contains the start label", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-quiz-start-container-"));
     const client = new FakeQuizBrowserClient({
@@ -640,6 +649,7 @@ describe("quizReviewNode", () => {
 });
 
 class FakeQuizBrowserClient implements AgentBrowserClient {
+  setQuizRequestGuard(): void {}
   readonly calls: string[] = [];
   private started = false;
   private reviewingPreviousAttempt = false;
@@ -959,11 +969,14 @@ function ok(): AgentBrowserCommandResult {
 }
 
 function openQuizMetadata(): Partial<QuizMetadata> {
+  // General navigation/permission fixtures model legacy unlimited practice;
+  // finite first-attempt constraints have explicit metadata in their own tests.
   return {
     timeLimitMinutes: 120,
-    attemptsAllowed: 3,
-    attemptsUsed: 1,
-    attemptsLeft: 2,
+    attemptsAllowed: null,
+    attemptsUsed: null,
+    attemptsLeft: null,
+    attemptsUnlimited: true,
     hasActiveAttempt: false,
     canStartNewAttempt: true,
     availabilityStatus: "open",
@@ -971,7 +984,7 @@ function openQuizMetadata(): Partial<QuizMetadata> {
     closesAt: null,
     availabilityEvidence: ["enabled-start-control"],
     appearsTimed: true,
-    appearsLimitedAttempt: true,
+    appearsLimitedAttempt: false,
   };
 }
 

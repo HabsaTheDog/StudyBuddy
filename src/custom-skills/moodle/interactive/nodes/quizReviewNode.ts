@@ -23,6 +23,7 @@ import {
 } from "../quizSafetyPolicy.js";
 import type { JsonObject, LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { openFirstQuizAttempt, assertFirstQuizAttemptContext, installQuizInspectionGuard, releaseQuizInspectionForPractice } from "../quizAttemptGuard.js";
 import {
   buildPendingQuizPermissionRequest,
   persistPendingQuizPermission,
@@ -318,9 +319,11 @@ export function createQuizReviewNode(
         return await stopForQuizPolicy(config, state, target, openDecision);
       }
 
+      installQuizInspectionGuard(client,target);
       await client.open(target);
       await client.wait(1_000);
       let metadata = await extractQuizMetadata(client);
+      releaseQuizInspectionForPractice(config,client,metadata);
       const dateGate = quizDateGate(config, metadata);
       if (dateGate) return await stopForQuizPolicy(config, state, target, dateGate, metadata);
       const readDecision = enforceQuizSafetyPolicy(config.quizSafetyPolicy, "read_questions");
@@ -375,10 +378,13 @@ export function createQuizReviewNode(
       }
       const startResult =
         wantsAttempt && beforeStart.questions.length === 0
-          ? await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt })
+          ? await openFirstQuizAttempt({config,client,targetUrl:target,metadata,open:continueOnly => clickSafeStartOrContinue(client,{continueOnly})})
           : { clicked: false, reason: "not-requested-or-questions-visible" };
       if (startResult.clicked) {
         await client.wait(1_500);
+      }
+      if (wantsAttempt && (startResult.clicked || config.autoAnswer && config.quizSafetyPolicy?.allowFillingAnswers)) {
+        await assertFirstQuizAttemptContext(config,client,target,metadata);
       }
       const fillResults = config.autoAnswer
         ? await autoAnswerVisibleQuiz(config, client, dependencies.codex)

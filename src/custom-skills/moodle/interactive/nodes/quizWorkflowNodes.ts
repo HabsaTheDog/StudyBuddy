@@ -15,6 +15,7 @@ import {
 } from "../quizSafetyPolicy.js";
 import type { JsonObject, LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { openFirstQuizAttempt, assertFirstQuizAttemptContext, installQuizInspectionGuard, releaseQuizInspectionForPractice } from "../quizAttemptGuard.js";
 import {
   buildPendingQuizPermissionRequest,
   assertApprovedQuizTarget,
@@ -153,8 +154,10 @@ export function createQuizPageNode(
       if (openDecision.status !== "allowed") {
         return await stopQuizWorkflowForPolicy(config, state, workflow, openDecision);
       }
+      installQuizInspectionGuard(client,workflow.target_url);
       await client.open(workflow.target_url);
       metadata = await extractQuizMetadata(client);
+      releaseQuizInspectionForPractice(config,client,metadata);
       const openedPage: QuizPageExtraction = {
         title: await client.getTitle(),
         url: await client.getUrl(),
@@ -227,8 +230,10 @@ export function createQuizPageNode(
         await claimApprovedQuizPermission(config.approvedQuizPermission);
         permissionClaimed = true;
       }
-      startResult = await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt });
+      startResult = await openFirstQuizAttempt({config,client,targetUrl:workflow.target_url,metadata,
+        open:continueOnly => clickSafeStartOrContinue(client,{continueOnly})});
     }
+    if (promptWantsQuizAttempt(config.prompt)) await assertFirstQuizAttemptContext(config,client,workflow.target_url,metadata);
     // Both direct attempt links and Moodle's resume control can open a later
     // page. Rewind only when a real question-navigation anchor permits it.
     if (workflow.page_number === 1 && promptWantsQuizAttempt(config.prompt) && metadata?.hasActiveAttempt &&
