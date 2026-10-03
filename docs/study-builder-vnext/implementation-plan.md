@@ -1,5 +1,31 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-03: durable native artifact delivery
+
+Owner reports native PDF attachment loss after temporary-file cleanup. The direct
+publisher and native developer instructions incorrectly inherited T3's `/tmp`
+attachment convention. T3 session delivery remains separate from Study Buddy.
+
+Scoped repair: retain canonical run files and publish verified, collision-protected
+PDF copies under the owning workspace's existing `study-buddy-deliverables/`
+directory. Quick Chat workspaces are already per-thread. The native final answer
+links the returned durable path and does not make a temporary final-link copy.
+Preserve current-input/source hashes, workspace/symlink guards, same owner,
+three unsuccessful validation retries and all quiz boundaries. Check actual PDF
+publication, collisions, symlink rejection and readability after temporary-file
+cleanup; validate native attachment handling without another model/source run.
+Recover the already accepted PDF from its canonical bytes without regeneration.
+No release, push, unrelated T3 state change or broad pipeline redesign.
+
+Storage regression checks passed:21 actual document tests,5 shared native
+instruction tests and24 existing Markdown/preview consumer tests, plus full UI
+format/lint and13 typechecks. Canonical38/39 PDFs recovered byte-for-byte into
+each Quick Chat's deliverables folder, with all original run hashes unchanged.
+No model rerun or historical message rewrite. Independent source/consumer review
+passed, including six actual durable-path cases and cross-thread rejection. UI
+instructions committed locally as `711938591`; publisher/tests and dependency pin
+belong to the scoped parent commit. No new live desktop or release acceptance.
+
 ## 2026-10-02: single native owner for PDF documents
 
 Current repair status (2026-10-02): the default PDF route now keeps one native

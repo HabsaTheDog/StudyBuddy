@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, readFile, readdir, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { runBoundedProcess, type BoundedProcessResult } from "../shared/boundedProcess.js";
@@ -11,6 +10,7 @@ import { getStudyBuddyTypstSupportFiles, studyBuddyTypstPackagePath } from "./ty
 import { studyBuddyTemplatePromptReference } from "./typstTemplate.js";
 import { validateStudyBuddyDocumentStructure } from "./typstDocumentRules.js";
 import { resolveExtractionExecutable } from "./fileTextExtraction.js";
+import { STUDY_BUDDY_DELIVERABLES_DIRECTORY } from "../shared/workspaceData.js";
 import { checkPath, containedPath, directDocumentContext, readOwnedFile, writeOwnedFile,
   type DirectDocumentContext } from "./directDocumentPaths.js";
 
@@ -211,14 +211,28 @@ async function publish(context: DirectDocumentContext, state: DirectDocumentStat
     const manifest = JSON.parse((await readOwnedFile(state.runDir, manifestPath)).toString());
     const provenancePath = path.join(state.runDir, "published-sources-manifest.json");
     await writeOwnedFile(state.runDir, provenancePath, await readOwnedFile(state.runDir, manifestPath));
+    const deliveryRoot = path.join(context.workspace, STUDY_BUDDY_DELIVERABLES_DIRECTORY);
+    await checkPath(context.workspace, deliveryRoot, true);
     let deliveryPath = "";
     for (let attempt = 0; attempt < 5; attempt++) {
-      const candidate = path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", attempt ? `${filename.slice(0, -4)}-${randomUUID().slice(0, 8)}.pdf` : filename);
+      const candidate = path.join(deliveryRoot, attempt ? `${filename.slice(0, -4)}-${randomUUID().slice(0, 8)}.pdf` : filename);
       try { await copyFile(pdfPath, candidate, constants.COPYFILE_EXCL); deliveryPath = candidate; break; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        await checkPath(context.workspace, candidate);
+        const existing = await lstat(candidate);
+        if (!existing.isFile() || existing.nlink !== 1) throw new Error("PDF delivery collision must be a regular file without hardlinks.");
+      }
     }
     if (!deliveryPath) throw new Error("Could not allocate an unused PDF delivery filename.");
-    const copied = await readFile(deliveryPath);
+    await checkPath(context.workspace, deliveryPath);
+    const handle = await open(deliveryPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const entry = await handle.stat();
+      if (!entry.isFile() || entry.nlink !== 1) throw new Error("PDF delivery must be a regular file without hardlinks.");
+      await handle.chmod(0o600);
+    } finally { await handle.close(); }
+    const copied = await readOwnedFile(context.workspace, deliveryPath);
     if (!copied.length || sha256(copied) !== hashes["document.pdf"]) { await unlink(deliveryPath); throw new Error("PDF delivery copy verification failed."); }
     if (!sameHashes(hashes, { ...await inputHashes(context, state), "document.pdf": sha256(await readOwnedFile(state.runDir, pdfPath)) })) {
       await unlink(deliveryPath); throw new Error("Canonical files changed during publication.");

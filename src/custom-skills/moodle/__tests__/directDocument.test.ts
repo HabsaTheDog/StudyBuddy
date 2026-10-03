@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, unlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, unlink, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -93,16 +93,74 @@ describe("direct native-owner document tools", () => {
     for (const preview of previews) expect((await readFile(preview.path)).length).toBeGreaterThan(0);
     expect(await readFile(path.join(runDir, "document.typ"))).toEqual(original);
     const filename = `direct-document-${randomUUID()}.pdf`;
-    const occupied = path.join("/tmp", filename);
+    const exportRoot = path.join(workspace, "study-buddy-deliverables");
+    await mkdir(exportRoot);
+    const occupied = path.join(exportRoot, filename);
     await writeFile(occupied, "Existing delivery must remain unchanged."); deliveries.push(occupied);
     const published = await executeDirectDocument({ op: "publish", runDir, filename }, environment);
     expect(published).toMatchObject({ ok: true, status: "published", kind: "direct_document", sourceStatus: "not_attached", factualReview: "owner_responsibility" });
     deliveries.push(published.deliveryPath as string);
+    expect(path.dirname(published.deliveryPath as string)).toBe(exportRoot);
     expect(published.deliveryPath).not.toBe(occupied);
     expect(await readFile(occupied, "utf8")).toBe("Existing delivery must remain unchanged.");
     expect(await readFile(published.deliveryPath as string)).toEqual(await readFile(path.join(runDir, "document.pdf")));
+    if (process.platform !== "win32") expect((await stat(published.deliveryPath as string)).mode & 0o777).toBe(0o600);
     expect(await readFile(path.join(runDir, "document.typ"))).toEqual(original);
   }, 30_000);
+
+  it("keeps published PDFs readable after temporary-copy cleanup and a fresh CLI process", async () => {
+    const runDir = await prepare();
+    await author(runDir);
+    expect(await executeDirectDocument({ op: "compile", runDir }, environment)).toMatchObject({ ok: true });
+    const filename = `durable-${randomUUID()}.pdf`;
+    const published = await executeDirectDocument({ op: "publish", runDir, filename }, environment);
+    expect(published.ok).toBe(true);
+    const deliveryPath = published.deliveryPath as string;
+    expect(deliveryPath).toBe(path.join(workspace, "study-buddy-deliverables", filename));
+    const canonical = await readFile(path.join(runDir, "document.pdf"));
+    const transient = path.join(os.tmpdir(), `old-delivery-${randomUUID()}.pdf`);
+    deliveries.push(transient);
+    await writeFile(transient, canonical);
+    await unlink(transient);
+    const receipt = JSON.parse(await readFile(published.receiptPath as string, "utf8"));
+    expect(receipt.deliveryPath).toBe(deliveryPath);
+    expect(await readFile(receipt.deliveryPath)).toEqual(canonical);
+    const restarted = await runBoundedProcess(process.execPath, ["--import", "tsx", path.resolve("src/custom-skills/moodle/directDocumentCli.ts"), JSON.stringify({ op: "publish", runDir, filename })], { env: environment });
+    expect(restarted.code).toBe(0);
+    const fresh = JSON.parse(restarted.stdout);
+    expect(fresh).toMatchObject({ ok: true, status: "published" });
+    expect(path.dirname(fresh.deliveryPath)).toBe(path.dirname(deliveryPath));
+    expect(fresh.deliveryPath).not.toBe(deliveryPath);
+    expect(await readFile(deliveryPath)).toEqual(canonical);
+    expect(await readFile(fresh.deliveryPath)).toEqual(canonical);
+    expect(await readFile(path.join(runDir, "document.pdf"))).toEqual(canonical);
+  }, 30_000);
+
+  it.each(["directory", "filename"])("rejects a symlinked publication %s without changing the external sentinel", async kind => {
+    const runDir = await prepare();
+    await author(runDir);
+    expect(await executeDirectDocument({ op: "compile", runDir }, environment)).toMatchObject({ ok: true });
+    const external = await mkdtemp(path.join(os.tmpdir(), "direct-export-external-"));
+    try {
+      const sentinel = path.join(external, "sentinel.pdf");
+      await writeFile(sentinel, "Unchanged external sentinel.");
+      const exportRoot = path.join(workspace, "study-buddy-deliverables");
+      if (kind === "directory") await symlink(external, exportRoot, "dir");
+      else { await mkdir(exportRoot); await symlink(sentinel, path.join(exportRoot, "notes.pdf")); }
+      const result = await executeDirectDocument({ op: "publish", runDir, filename: "notes.pdf" }, environment);
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/symlink|regular file/);
+      expect(await readFile(sentinel, "utf8")).toBe("Unchanged external sentinel.");
+    } finally { await rm(external, { recursive: true, force: true }); }
+  }, 30_000);
+
+  it("rejects caller-selected publication destinations and filename path escapes", async () => {
+    const runDir = await prepare();
+    for (const filename of ["../escape.pdf", "/tmp/escape.pdf", "nested/notes.pdf"]) {
+      await expect(executeDirectDocument({ op: "publish", runDir, filename }, environment)).rejects.toThrow();
+    }
+    await expect(executeDirectDocument({ op: "publish", runDir, deliverTo: workspace }, environment)).rejects.toThrow();
+  });
 
   it("returns the real unknown-variable diagnostic, allows same-file repair, and never rewrites math", async () => {
     const runDir = await prepare();
@@ -167,12 +225,18 @@ describe("direct native-owner document tools", () => {
     await expect(executeDirectDocument({ op: "prepare", prompt: "x" }, {})).rejects.toThrow("broker-owned");
   });
 
-  it("uses the direct root for a native Quick Chat", async () => {
+  it("uses the direct root and durable workspace delivery for a native Quick Chat", async () => {
     const quick = path.join(workspace, "quick-chats", "owner-a");
     await mkdir(quick, { recursive: true });
-    const prepared = await executeDirectDocument({ op: "prepare", prompt: "x" }, { ...environment, STUDY_BUDDY_WORKSPACE: quick, STUDY_BUDDY_WORKSPACE_KIND: "quick-chat" });
+    const quickEnvironment = { ...environment, STUDY_BUDDY_WORKSPACE: quick, STUDY_BUDDY_WORKSPACE_KIND: "quick-chat" };
+    const prepared = await executeDirectDocument({ op: "prepare", prompt: "x" }, quickEnvironment);
     expect(path.dirname(path.dirname(prepared.runDir!))).toBe(path.join(quick, "study-buddy-data"));
-  });
+    await author(prepared.runDir!);
+    expect(await executeDirectDocument({ op: "compile", runDir: prepared.runDir! }, quickEnvironment)).toMatchObject({ ok: true });
+    const published = await executeDirectDocument({ op: "publish", runDir: prepared.runDir!, filename: "quick-notes.pdf" }, quickEnvironment);
+    expect(published).toMatchObject({ ok: true, deliveryPath: path.join(quick, "study-buddy-deliverables", "quick-notes.pdf") });
+    expect(await readFile(published.deliveryPath as string)).toEqual(await readFile(path.join(prepared.runDir!, "document.pdf")));
+  }, 30_000);
 
   it.each(["symlink", "hardlink"])("rejects a %s to an external sentinel before broker reading/compiling", async kind => {
     const runDir = await prepare();

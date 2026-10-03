@@ -18,6 +18,33 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Native attachment durability repair, 2026-10-03
+
+The prior PDF publisher and common native developer instructions wrongly reused
+external T3's temporary attachment convention. Accepted native38/39 canonical
+files remain intact; only their old temporary link targets disappeared.
+
+Direct publication now uses the existing owning-workspace
+`study-buddy-deliverables/` directory and returns its byte-verified durable path.
+Quick Chat workspaces already isolate threads. Original run artifacts/provenance
+and current compile/source hash checks remain unchanged; no model generation,
+new stage or retry-budget change. Native Codex, Claude and Gemini share the fixed
+instructions. External T3's `/tmp` delivery rule and global reusable skill remain
+outside this product fix. Workspace links with spaces use Markdown angle delimiters
+or a workspace-relative path; the existing preview consumer needs no UI change.
+
+Regression evidence: 21 real direct-document tests,5 native-instruction tests,
+24 existing Markdown/preview consumer tests, actual original/durable path checks,
+full UI format/lint and13 typechecks. Existing PDF bytes were recovered into each
+owning Quick Chat's deliverables directory; original run hashes stayed unchanged.
+Historical chat messages were not rewritten. No new native model/release acceptance
+is claimed. Independent source and actual recovered-file consumer review passed; UI dependency
+`711938591` is committed locally, with the publisher/source tests included in the
+parent repair commit. Neither repository was pushed, merged or release-accepted.
+Evidence lives under `single-owner-pdf-quality/evidence/durable-delivery-source-fix/`,
+`durable-links-independent-review/` and `durable-delivery-recovery.json`.
+The backend was not running during review; no new live desktop acceptance is claimed.
+
 ## Failed native-run repair intake, 2026-10-02
 
 Current repair status (2026-10-02): the default PDF route now keeps one native
