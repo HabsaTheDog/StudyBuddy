@@ -29,6 +29,11 @@ routing acceptance is not real Moodle or packaged desktop acceptance. Real first
 attempt remains independently tracked; second attempt and final submission forbidden.
 Source changes are local only and must be included in later batch reconciliation.
 
+Transport follow-up: typed static quiz-routing denial is now surfaced by HTTP;
+arbitrary errors remain redacted. Direct quiz JSON is in the client broker allowlist.
+116 focused tests,13 typechecks,scoped format/lint and backend build pass. Include
+both repairs together; earlier local guard acceptance did not test this transport.
+
 
 Owner authorized implementation of direct mini-test tooling and explicitly forbids
 using the second of two attempts, including after a first-attempt failure. Local

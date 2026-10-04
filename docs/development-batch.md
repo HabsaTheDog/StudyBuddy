@@ -25,6 +25,13 @@ Local command-contract campaign accepted; real Moodle execution remains a separa
 pending run. This repair does not authorize second attempts or final submission.
 Local-only source; no push, merge, deployment, packaging or release acceptance.
 
+Same-day transport follow-up: a fresh Electron chat stopped before an attempt
+because HTTP hid the routing denial. The static typed denial now survives HTTP
+without leaking unrelated errors; the client broker allowlist includes direct
+quiz JSON. The missing client route and error mapping have RED-to-GREEN regressions.
+116 focused tests,13 typechecks,scoped format/lint and backend rebuild pass.
+Real Moodle execution remains separately pending; no development attempt consumed.
+
 
 Current repair status (2026-10-02): the default PDF route now keeps one native
 agent as document owner. `doc` is normalized to deterministic `document prepare`
