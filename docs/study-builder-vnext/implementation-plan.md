@@ -2210,3 +2210,15 @@ card as an application domain decision, preserving filesystem/network protocol
 permissions. Require an actual tool error before reporting the card unavailable.
 Local instruction regressions precede a fresh native userrun; approval is never
 fabricated and the quiz-access setting remains unchanged.
+
+Instruction transport follow-up: native public TurnStart schema omits the locally
+added collaborationMode field. Actual model probes confirm that field is ignored,
+and successful thread/resume does not refresh instructions on a loaded thread.
+The supported thread/inject_items developer message is followed before both the
+first and later turns on the same ID. Deliver the fully assembled current
+instructions through that channel before generation; preserve the original eager
+thread lifecycle, profile, model, personality and mode. Avoid repeated unchanged
+instruction text within the live context, refreshing after changes or compaction.
+Abort generation on injection failure. Non-Study-Buddy routing stays unchanged.
+RPC-order regressions and the real protocol proof precede fresh native acceptance;
+these diagnostics used no Moodle attempts.

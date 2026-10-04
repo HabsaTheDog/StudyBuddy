@@ -39,6 +39,20 @@ system-permission escalation, preserving the actual CLI restriction block.35 foc
 tests,13 typechecks,scoped checks pass. Actual quiz inspection confirms2allowed/0used;
 no real execution acceptance is inferred from local prompt tests.
 
+Native instruction delivery follow-up: Codex0.160 ignores the locally added
+turn collaborationMode instruction field. Session metadata was insufficient
+evidence. Real bounded protocol probes also reject loaded thread/resume refresh:
+it returns success but retains earlier instructions. Supported thread/inject_items
+developer messages are obeyed before first and later turns on the same thread.
+The scoped runtime fix retains eager creation and injects current assembled
+instructions before generation, skips unchanged successful delivery and refreshes
+after compaction. No profile, permission, worker or quiz-ledger change. Protocol
+evidence is in agent-owned-minitest/evidence/codex-direct-instruction-probe;
+UI `dad2fba2f` is committed locally;61 focused tests plus43 adjacent checks,
+all13 typechecks, scoped format/lint, backend bundle and independent review pass.
+Local native-instruction-transport campaign is complete; fresh desktop execution
+is tracked separately. Nothing is pushed, merged or release-accepted.
+
 
 Owner authorized implementation of direct mini-test tooling and explicitly forbids
 using the second of two attempts, including after a first-attempt failure. Local
