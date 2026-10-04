@@ -20,6 +20,16 @@ claim it is pushed or silently include it in a candidate.
 
 ## Agent-owned mini-test tooling, 2026-10-03
 
+2026-10-04 follow-up: a stopped Electron diagnostic exposed stale shared-skill
+auto-answer dispatch. Native broker admission now rejects explicit and implicit
+legacy quiz execution before credentials/spawn, and direct quiz instructions have
+early precedence. Local fixtures: 95 focused UI tests,62 direct tool/attempt guards,
+13 typechecks,final server typecheck,format/lint,independent review pass. Local
+routing acceptance is not real Moodle or packaged desktop acceptance. Real first
+attempt remains independently tracked; second attempt and final submission forbidden.
+Source changes are local only and must be included in later batch reconciliation.
+
+
 Owner authorized implementation of direct mini-test tooling and explicitly forbids
 using the second of two attempts, including after a first-attempt failure. Local
 fixtures are the test surface; no real Moodle attempt is consumed for acceptance.

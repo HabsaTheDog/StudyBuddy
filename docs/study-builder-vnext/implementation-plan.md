@@ -1,5 +1,24 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-04: real-run native quiz routing repair
+
+Owner requests one real run and explicitly approves attachment to the actual
+Electron window. First desktop-dev Balanced run2822d931 receives the new Direct
+Quiz contract but follows the older shared skill's prompt --auto-answer route.
+Stopped before attempts: native generation ready, owned workers exited, zero
+ledger/direct-state/question evidence. Preserve all original run/rollout hashes.
+
+Before retry: reject app-broker legacy interactive quiz entry points and
+--auto-answer before credentials or worker spawn; provide actionable sources/quiz
+inspect instructions. Move direct quiz precedence into the native Core Rule and
+separate overview/preparation from actual quiz execution. Keep global skills and
+independently installed T3 untouched. Validate observed stale commands RED/GREEN,
+existing direct contracts and native instruction delivery; then fresh Quick Chat,
+same natural prompt, first only, same-ID recovery and never final submission.
+Repair contract: native-quiz-direct-routing; actual production run evidence remains
+in agent-owned-minitest/evidence/real-desktop-20261004. This uses the existing
+owner authorization for implementation, iterative repairs and the real run.
+
 ## 2026-10-03: agent-owned mini-test operations with one-attempt protection
 
 Owner explicitly requests direct mini-test tools and native/subagent reasoning,

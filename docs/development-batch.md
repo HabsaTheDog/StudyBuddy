@@ -14,6 +14,18 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+2026-10-04 native quiz routing repair: actual Electron run followed obsolete
+shared-skill commands despite receiving Direct Quiz instructions; stopped before
+an attempt. The broker now rejects explicit and implicit legacy auto-answer routes
+before credential resolution or worker spawn. Early instructions prioritize direct
+quiz JSON operations and native question delegation. Six routing regressions went
+RED to GREEN; 95 focused UI tests, 62 direct browser/first-attempt guards, all 13 UI
+typechecks, final server typecheck, scoped format/lint and independent review pass.
+Local command-contract campaign accepted; real Moodle execution remains a separate
+pending run. This repair does not authorize second attempts or final submission.
+Local-only source; no push, merge, deployment, packaging or release acceptance.
+
+
 Current repair status (2026-10-02): the default PDF route now keeps one native
 agent as document owner. `doc` is normalized to deterministic `document prepare`
 before worker-profile dispatch; direct source tools and compile/publish remain
