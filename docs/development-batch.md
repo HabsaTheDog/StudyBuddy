@@ -32,6 +32,13 @@ quiz JSON. The missing client route and error mapping have RED-to-GREEN regressi
 116 focused tests,13 typechecks,scoped format/lint and backend rebuild pass.
 Real Moodle execution remains separately pending; no development attempt consumed.
 
+Native quiz-card follow-up: the actual enabled Codex0.160 runtime adds Default
+system-permission restrictions. App instructions now distinguish the domain quiz
+decision and require actual tool failure before an unavailable claim, preserving
+the CLI restrictions, native grant, access mode and first-attempt safeguards.
+35 prompt/runtime/policy tests,13 typechecks and scoped format/lint pass. The
+real quiz was inspected:2allowed/0used/open; native approval/start remains pending.
+
 
 Current repair status (2026-10-02): the default PDF route now keeps one native
 agent as document owner. `doc` is normalized to deterministic `document prepare`

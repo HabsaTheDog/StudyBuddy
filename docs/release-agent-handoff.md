@@ -34,6 +34,11 @@ arbitrary errors remain redacted. Direct quiz JSON is in the client broker allow
 116 focused tests,13 typechecks,scoped format/lint and backend build pass. Include
 both repairs together; earlier local guard acceptance did not test this transport.
 
+Native card clarification distinguishes Study Buddy domain decisions from Codex0.160
+system-permission escalation, preserving the actual CLI restriction block.35 focused
+tests,13 typechecks,scoped checks pass. Actual quiz inspection confirms2allowed/0used;
+no real execution acceptance is inferred from local prompt tests.
+
 
 Owner authorized implementation of direct mini-test tooling and explicitly forbids
 using the second of two attempts, including after a first-attempt failure. Local

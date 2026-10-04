@@ -2203,3 +2203,10 @@ guidance with a generic error. Add a static typed route-denial response while ke
 arbitrary errors redacted. Include direct quiz JSON in the packaged client broker
 allowlist and usage. Verify transport locally before another fresh native chat; no
 real attempts for development, no second attempt, no final submission.
+
+Native UI follow-up: Codex0.160 enables the input feature but its new Default
+instructions restrict system permission escalation. Clarify the Study Buddy quiz
+card as an application domain decision, preserving filesystem/network protocol
+permissions. Require an actual tool error before reporting the card unavailable.
+Local instruction regressions precede a fresh native userrun; approval is never
+fabricated and the quiz-access setting remains unchanged.
