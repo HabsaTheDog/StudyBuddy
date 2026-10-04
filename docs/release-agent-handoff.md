@@ -53,6 +53,32 @@ all13 typechecks, scoped format/lint, backend bundle and independent review pass
 Local native-instruction-transport campaign is complete; fresh desktop execution
 is tracked separately. Nothing is pushed, merged or release-accepted.
 
+Authorized real desktop run `b63d7809-1f9d-4fde-8108-66d574acff2c` on
+root `03afd77`/UI `dad2fba2f`: actual developer response item contains current
+instructions, and the exact native quiz card was displayed and selected under
+the owner's explicit first-run authorization. These integration gates pass.
+Quiz execution fails: immutable start debit is written, then a request guard
+blocks before attempt binding; same-run recovery cannot confirm an active first
+identity. No questions/answers are saved; no second attempt or final submission.
+The stored zero-used metadata predates the start and cannot establish the current
+Moodle attempt count. Do not release the debit or issue another start. Native
+thread ended after3m08s with no owned quiz workers. Evidence is in
+real-desktop-20261004/independent-review/fifth-thread-terminal.json; exact denied
+request is unproven. Local redirect/preflight hypotheses are investigation,
+not real quiz acceptance. Further diagnosis uses fixtures only.
+
+Offline redirect repair: actual Playwright loopback reproduces the redirected GET
+bypassing context.route; later same-ID reads fail without manual binding. The
+guarded start transport now fetches its admitted POST once without redirects or
+retries, validates the actual302/303 Location through the existing guard, and
+only then fulfills the browser response. Other traffic/authentication unchanged;
+unsafe redirects and unbound writes remain blocked.51 focused tests, full1,604
+root tests/four existing skips, root TypeScript/package checks, server Moodle
+typecheck and independent review pass. Same original fixture changes RED→GREEN,
+one POST/debit and zero unbound writes. Local native-quiz-start-redirect campaign;
+no new Moodle action and no claim to resolve the unrecorded real denied request.
+The real run remains stopped permanently under its first-attempt restriction.
+
 
 Owner authorized implementation of direct mini-test tooling and explicitly forbids
 using the second of two attempts, including after a first-attempt failure. Local

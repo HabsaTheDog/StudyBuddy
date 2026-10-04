@@ -71,8 +71,8 @@ describe("quiz HTTP action admission", () => {
   });
 });
 
-async function browserFixture(run: (client: ReturnType<typeof createPlaywrightBrowserClient>, origin: string, counters: { starts: number; finals: number; saves: number }) => Promise<void>, failAfterCreation = false) {
-  const counters = { starts: 0, finals: 0, saves: 0 };
+async function browserFixture(run: (client: ReturnType<typeof createPlaywrightBrowserClient>, origin: string, counters: { starts: number; finals: number; saves: number; attemptReads: number }) => Promise<void>, failAfterCreation = false, startRedirect = { status: 303, location: "/mod/quiz/attempt.php?attempt=31" }) {
+  const counters = { starts: 0, finals: 0, saves: 0, attemptReads: 0 };
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fixture");
     res.setHeader("content-type", "text/html");
@@ -86,7 +86,11 @@ async function browserFixture(run: (client: ReturnType<typeof createPlaywrightBr
     if (url.pathname.endsWith("/startattempt.php")) {
       counters.starts++;
       if (failAfterCreation) { res.writeHead(503); res.end("Ambiguous start outcome"); return; }
-      res.writeHead(303, { location: "/mod/quiz/attempt.php?attempt=31" }); res.end(); return;
+      res.writeHead(startRedirect.status, { location: startRedirect.location }); res.end(); return;
+    }
+    if (url.pathname.endsWith("/attempt.php")) {
+      counters.attemptReads++;
+      res.end("<main>Original first attempt</main>"); return;
     }
     if (url.pathname.endsWith("/processattempt.php")) {
       let body = ""; for await (const chunk of req) body += chunk;
@@ -105,6 +109,51 @@ async function browserFixture(run: (client: ReturnType<typeof createPlaywrightBr
 }
 
 describe("real browser request gate", () => {
+  it.each([302, 303])("admits the actual %s start redirect and later same-attempt reads before binding", async status => {
+    await browserFixture(async (client, base, counters) => {
+      const observations: Array<{method: string; path: string; parent: string | null}> = [];
+      let debit = 0;
+      const guard = createFirstQuizAttemptRequestGuard({ targetUrl: `${base}/mod/quiz/view.php?id=7`, loadBinding: async () => null,
+        debitStartBeforeForward: async () => { if (debit++) throw new Error("second debit"); } });
+      client.setQuizRequestGuard!(async request => {
+        observations.push({ method: request.method, path: new URL(request.url).pathname, parent: request.redirectedFrom ? `${request.redirectedFrom.method} ${new URL(request.redirectedFrom.url).pathname}` : null });
+        await guard(request);
+      });
+      await client.open(`${base}/mod/quiz/view.php?id=7`);
+      await client.click("#start");
+      expect(observations).toContainEqual({ method: "GET", path: "/mod/quiz/attempt.php", parent: "POST /mod/quiz/startattempt.php" });
+      await client.open(`${base}/mod/quiz/attempt.php?attempt=31&page=1`);
+      expect(await client.getText()).toContain("Original first attempt");
+      expect(counters.attemptReads).toBe(2);
+      expect(counters.starts).toBe(1);
+      expect(debit).toBe(1);
+      await expect(client.evalJson(`(async()=>{await fetch('/mod/quiz/processattempt.php',{method:'POST',body:'attempt=31&finishattempt=0'});return JSON.stringify(true);})()`)).rejects.toThrow("Quiz request blocked");
+      expect(counters.saves).toBe(0);
+      expect(counters.finals).toBe(0);
+    }, false, { status, location: "/mod/quiz/attempt.php?attempt=31" });
+  });
+
+  it.each([
+    { status: 301, location: "/mod/quiz/attempt.php?attempt=31" },
+    { status: 307, location: "/mod/quiz/startattempt.php" },
+    { status: 308, location: "/mod/quiz/startattempt.php" },
+    { status: 303, location: "/mod/quiz/submit.php" },
+    { status: 303, location: "http://127.0.0.1:9/not-a-quiz" },
+    { status: 303, location: "/not-a-quiz" },
+    { status: 303, location: "/mod/quiz/attempt.php?attempt=31&attempt=32" },
+  ])("blocks unsafe start redirects before browser continuation: %j", async redirect => {
+    await browserFixture(async (client, base, counters) => {
+      let debit = 0;
+      client.setQuizRequestGuard!(createFirstQuizAttemptRequestGuard({ targetUrl: `${base}/mod/quiz/view.php?id=7`, loadBinding: async () => null,
+        debitStartBeforeForward: async () => { if (debit++) throw new Error("second debit"); } }));
+      await client.open(`${base}/mod/quiz/view.php?id=7`);
+      await expect(client.click("#start")).rejects.toThrow("Quiz request blocked");
+      expect(counters.starts).toBe(1);
+      expect(debit).toBe(1);
+      expect(counters.attemptReads).toBe(0);
+      expect(counters.finals).toBe(0);
+    }, false, redirect);
+  });
   it("does not bypass request admission when authenticated APIRequestContext downloads a lazy question image", async () => {
     await browserFixture(async (client, base, counters) => {
       const directory = await mkdtemp(path.join(os.tmpdir(), "quiz-action-image-"));

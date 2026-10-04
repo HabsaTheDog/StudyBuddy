@@ -2222,3 +2222,22 @@ instruction text within the live context, refreshing after changes or compaction
 Abort generation on injection failure. Non-Study-Buddy routing stays unchanged.
 RPC-order regressions and the real protocol proof precede fresh native acceptance;
 these diagnostics used no Moodle attempts.
+
+Authorized native quiz run on the reviewed transport passes actual model-visible
+delivery and native card presentation. The one start request is debited but a
+subsequent request is blocked before attempt binding. Recovery cannot prove the
+first identity; stop this real run permanently under the owner's constraint.
+Preserve its ledger and artifacts. Investigate redirect-provenance/preflight
+edges only with local HTTP/browser fixtures; do not infer current zero attempts
+from stale pre-start state, issue another start, or weaken final/second guards.
+
+Local actual Playwright fixture confirms a redirect handoff defect: the server
+receives the303 attempt GET, but context.route sees only the original start POST.
+The provisional ID is never recorded and a later same-attempt GET is blocked.
+Repair only the guarded start transport: fetch its already admitted single POST
+without automatic redirects/retries, validate its actual redirect through the
+existing first-attempt guard, then fulfill the response to the browser. Keep
+unbound writes blocked, second starts/debits impossible and final/foreign requests
+blocked. Add real HTTP/browser counterexamples and review before commit. This
+local defect is not asserted to be the unrecorded real denied request; never
+retry the stopped real quiz after this source change.

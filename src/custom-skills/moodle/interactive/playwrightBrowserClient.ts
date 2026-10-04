@@ -345,7 +345,32 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
       const admission = (async () => {
         try {
           await this.#admitQuizRequest(input);
-          await route.continue();
+          if (this.#quizRequestGuard && request.method().toUpperCase() === "POST" &&
+              /\/mod\/quiz\/startattempt\.php$/i.test(new URL(request.url()).pathname)) {
+            // Playwright routing only sees the first request in a redirect chain.
+            // Fetch this already-admitted start exactly once and validate its real
+            // redirect before exposing it to the browser or replaying any POST.
+            const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
+            try {
+              const status = response.status();
+              if (status >= 300 && status < 400) {
+                if (status !== 302 && status !== 303) throw new QuizRequestBlockedError();
+                const location = response.headers()["location"];
+                if (!location) throw new QuizRequestBlockedError();
+                const start = new URL(request.url());
+                const target = new URL(location, start);
+                if (target.origin !== start.origin || target.username || target.password ||
+                    target.pathname !== start.pathname.replace(/startattempt\.php$/i, "attempt.php")) {
+                  throw new QuizRequestBlockedError();
+                }
+                await this.#admitQuizRequest({ url: target.toString(), method: "GET", postData: null,
+                  redirectedFrom: { url: request.url(), method: request.method() } });
+              }
+              await route.fulfill({ response });
+            } finally { await response.dispose(); }
+          } else {
+            await route.continue();
+          }
         } catch {
           // Never expose URLs, sesskeys, request bodies or callback errors. A
           // denied autosave remains a sticky failure, not a successful write.
