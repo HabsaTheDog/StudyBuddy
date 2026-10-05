@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchCalendarText,
+  formatCalendarEventsForWorkflow,
   filterCalendarEvents,
   normalizeCalendarUrl,
   parseCalendarEvents,
@@ -11,6 +12,27 @@ import {
 const NOW = new Date("2026-06-27T10:00:00.000Z");
 
 describe("calendar adapter", () => {
+  it("preserves calendar contact roles without assuming a teaching identity",()=>{
+    const body=event({uid:"history",start:"DTSTART:20260701T090000Z",end:"DTEND:20260701T100000Z",summary:"History seminar"})
+      .replace("END:VEVENT",'ORGANIZER;CN="Calendar service":mailto:service@example.org\r\nATTENDEE;CN="Dr Ada Example";ROLE=CHAIR:mailto:ada%40college.example\r\nATTENDEE;CN="Student Example";ROLE=REQ-PARTICIPANT:mailto:student@college.example\r\nATTENDEE;CN="No address":urn:uuid:unknown\r\nEND:VEVENT');
+    const [entry]=parseCalendarEvents(calendar([body]),NOW);
+    expect(entry.contacts).toEqual([
+      {property:"organizer",name:"Calendar service",email:"service@example.org"},
+      {property:"attendee",name:"Dr Ada Example",email:"ada@college.example",participationRole:"CHAIR"},
+      {property:"attendee",name:"Student Example",email:"student@college.example",participationRole:"REQ-PARTICIPANT"},
+      {property:"attendee",name:"No address"},
+    ]);
+    expect(formatCalendarEventsForWorkflow([entry])).toContain("ada@college.example");
+    expect(formatCalendarEventsForWorkflow([entry])).toContain("attendee");
+  });
+  it("keeps changed recurrence contact evidence on the observed exception",()=>{
+    const master=event({uid:"series",start:"DTSTART:20260701T090000Z",end:"DTEND:20260701T100000Z",summary:"History seminar"})
+      .replace("END:VEVENT","RRULE:FREQ=WEEKLY;COUNT=2\r\nORGANIZER;CN=First coordinator:mailto:first@college.example\r\nEND:VEVENT");
+    const exception=event({uid:"series",start:"DTSTART:20260708T110000Z",end:"DTEND:20260708T120000Z",summary:"History seminar changed"})
+      .replace("END:VEVENT","RECURRENCE-ID:20260708T090000Z\r\nORGANIZER;CN=Replacement coordinator:mailto:replacement@college.example\r\nEND:VEVENT");
+    const events=parseCalendarEvents(calendar([master,exception]),NOW);
+    expect(events.map(entry=>entry.contacts?.[0]?.email)).toEqual(["first@college.example","replacement@college.example"]);
+  });
   it("resolves next week as the following Vienna Monday through Sunday", () => {
     const range = resolveRequestedTimeRange("Was muss ich nächste Woche alles machen?", NOW);
     expect(range.start.toISOString()).toBe("2026-06-28T22:00:00.000Z");

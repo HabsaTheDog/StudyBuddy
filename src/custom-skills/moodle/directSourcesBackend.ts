@@ -19,7 +19,7 @@ export class PlaywrightDirectSourceBackend implements DirectSourceBackend {
     const portal = this.portals.find(portal => new URL(portal.dashboard).origin === new URL(url).origin)!;
     const browser = await launchMoodleBrowser({ headless: true, purpose: "Direct read-only sources" });
     try {
-      const context = await browser.newContext({ ...(portal.storageState ? { storageState: portal.storageState } : {}) });
+      const context = await browser.newContext({ ...(portal.storageState ? { storageState: portal.storageState } : {}), ...(portal.username && portal.password ? { httpCredentials: { username: portal.username, password: portal.password, origin: new URL(portal.dashboard).origin } } : {}) });
       let authenticating = true;
       await context.route("**/*", async route => {
         const request = route.request();

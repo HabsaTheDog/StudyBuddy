@@ -1,13 +1,19 @@
 import {mkdtemp,readFile,rm,symlink,writeFile}from"node:fs/promises";import os from"node:os";import path from"node:path";
 import{beforeEach,describe,expect,it,vi}from"vitest";
-const mocks=vi.hoisted(()=>({goto:vi.fn(),close:vi.fn(),login:vi.fn(),cookies:vi.fn(async()=>[]),route:vi.fn(),page:null as any}));
-vi.mock("../browserLaunch.js",()=>({launchMoodleBrowser:async()=>({newContext:async()=>({route:mocks.route,newPage:async()=>mocks.page}),close:mocks.close})}));
+const mocks=vi.hoisted(()=>({goto:vi.fn(),close:vi.fn(),login:vi.fn(),cookies:vi.fn(async()=>[]),route:vi.fn(),newContext:vi.fn(),page:null as any}));
+vi.mock("../browserLaunch.js",()=>({launchMoodleBrowser:async()=>({newContext:async(options:any)=>{mocks.newContext(options);return {route:mocks.route,newPage:async()=>mocks.page};},close:mocks.close})}));
 vi.mock("../browserAuth.js",()=>({ensureLoggedIn:mocks.login}));
 vi.mock("../urlSecurity.js",()=>({assertPublicHttpsUrl:async()=>undefined}));
 import{PlaywrightDirectSourceBackend}from"../directSourcesBackend.js";
 import {runBoundedProcess} from "../../shared/boundedProcess.js";
 describe("direct source transport",()=>{
  beforeEach(()=>{vi.clearAllMocks();mocks.page={url:()=>"https://portal.example/my/",goto:mocks.goto,context:()=>({cookies:mocks.cookies})};});
+ it("binds HTTP authentication to the configured portal origin",async()=>{
+   mocks.page.evaluate=vi.fn(async()=>({title:"Portal",url:"https://portal.example/my/",text:"Staff",links:[]}));
+   const backend=new PlaywrightDirectSourceBackend([{dashboard:"https://portal.example/my/",username:"test-user",password:"test-password",loginOrigins:["https://login.example"]}]);
+   await backend.page("https://portal.example/my/");
+   expect(mocks.newContext).toHaveBeenCalledWith({httpCredentials:{username:"test-user",password:"test-password",origin:"https://portal.example"}});
+ });
  it("authenticates dashboard and downloads attachment redirects without page navigation",async()=>{
    const directory=await mkdtemp(path.join(os.tmpdir(),"direct-attachment-"));const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValueOnce(new Response(null,{status:302,headers:{location:"/pluginfile.php/7/original.pdf"}})).mockResolvedValueOnce(new Response("%PDF-1.7\noriginal",{headers:{"content-type":"application/pdf"}}));
    try{const backend=new PlaywrightDirectSourceBackend([{dashboard:"https://portal.example/my/",loginOrigins:[]}]);const result=await backend.download("https://portal.example/mod/resource/view.php?id=7",directory,"source");expect(mocks.goto).not.toHaveBeenCalled();expect(mocks.login).toHaveBeenCalled();expect(fetchMock).toHaveBeenCalledTimes(2);expect(await readFile(result.path,"utf8")).toContain("%PDF");}finally{fetchMock.mockRestore();await rm(directory,{recursive:true,force:true});}

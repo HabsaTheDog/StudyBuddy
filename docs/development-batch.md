@@ -14,6 +14,23 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Source-grounded study communication (2026-10-05): native addressed drafts now
+research the configured course, recipient and session, retain explicit contact
+provenance ahead of long source text, and present a usable conditional draft
+with nonblocking clarification for genuine date ambiguity. Deterministic source
+inventory/calendar operations include current-day evidence without changing the
+original prompt; portal credentials are origin-bound. Provider-neutral account
+policy preserves mailbox scope; exact native send approvals bind payload,
+question and opaque selection tokens, cannot replay/renew/recover expired grants,
+and report success only after transport completion. Independent code/security
+reviews pass; three unchanged real Electron Balanced runs score 4/4 against the
+original 1/4 baseline (65–75 seconds), with no repair prompts or real mail sends.
+Integrated root suite: 1,729 passing/four existing skips across 179 files; root
+TypeScript, UI 284 focused regressions, all 13 typechecks and full format/lint pass.
+UI dependency ccd90d6fa is committed and integrated locally; root scoped commit
+queues the source tools and report. No push, deployment, packaged acceptance
+or release approval. See [communication context report](study-communication-context-2026-10-05.md).
+
 First-attempt recovery follow-up (2026-10-05): actual native Balanced owner
 `41276119…` / run `a5a4aa29…` is independently **accepted**. All ten preserved
 answers in the same existing first attempt were saved and freshly reloaded, with

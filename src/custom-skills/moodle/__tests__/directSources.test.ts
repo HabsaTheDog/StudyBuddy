@@ -14,6 +14,108 @@ async function setup() {
   return {directory,root,backend,tools:new DirectSources(root,[origin],backend,async()=>undefined)};
 }
 describe("direct read-only owner sources",()=>{
+  it("preserves explicit mailto contacts separately from navigable sources",async()=>{
+    const f=await setup();try{
+      const pageUrl=origin+"/course/view.php?id=2";
+      f.backend.page=async()=>({title:"History",url:pageUrl,text:"Teaching staff: Dr Ada Example",links:[
+        {title:"Dr Ada Example",url:"mailto:ada%40college.example?subject=Hello&cc=other@example.org",section:"Teaching staff"},
+        {title:"Contact",url:"mailto:other@college.example"},
+        {title:"Malformed",url:"mailto:bad%0D%0Aaddress@example.org"},
+        {title:"Only query",url:"mailto:?to=guessed@example.org"},
+        {title:"mailto:blank@college.example?body=not-contact-evidence",url:"mailto:blank@college.example?body=not-contact-evidence"},
+        {title:"Original slides",url},
+      ]});
+      const result=await f.tools.run({op:"page",url:pageUrl});
+      expect(result.contacts).toEqual([
+        {label:"Dr Ada Example",email:"ada@college.example",sourceUrl:pageUrl,section:"Teaching staff"},
+        {label:"Contact",email:"other@college.example",sourceUrl:pageUrl},
+        {label:"blank@college.example",email:"blank@college.example",sourceUrl:pageUrl},
+      ]);
+      expect(result.links).toEqual([expect.objectContaining({url})]);
+      const manifest=JSON.parse(await readFile(result.manifestPath as string,"utf8"));
+      expect(manifest.sources.find((item:any)=>item.id===result.sourceID).contacts).toEqual(result.contacts);
+      expect(manifest.sources.every((item:any)=>item.url.startsWith("https:"))).toBe(true);
+      const pageSpy=vi.spyOn(f.backend,"page"),downloadSpy=vi.spyOn(f.backend,"download");
+      await expect(f.tools.run({op:"page",url:"mailto:ada@college.example"})).rejects.toThrow();
+      await expect(f.tools.run({op:"download",url:"mailto:ada@college.example"})).rejects.toThrow();
+      expect(pageSpy).not.toHaveBeenCalled();expect(downloadSpy).not.toHaveBeenCalled();
+      await f.tools.run({op:"download",url:pageUrl});
+      const reused=await f.tools.run({op:"courses"});
+      const updated=JSON.parse(await readFile(reused.manifestPath as string,"utf8"));
+      expect(updated.sources.find((item:any)=>item.id===result.sourceID).contacts).toEqual(result.contacts);
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
+  it("keeps contact provenance and navigation visible when a native tool truncates long page text",async()=>{
+    const f=await setup();try{
+      const pageUrl=origin+"/course/view.php?id=2",longText="Course material ".repeat(10000);
+      f.backend.page=async()=>({title:"History",url:pageUrl,text:longText,links:[
+        {title:"Dr Ada Example",url:"mailto:ada@college.example",section:"Teaching staff"},
+        {title:"Course details",url:origin+"/details?id=2"},
+      ]});
+      const result=await f.tools.run({op:"page",url:pageUrl});
+      const nativePrefix=JSON.stringify(result).slice(0,2000);
+      expect(nativePrefix).toContain('"email":"ada@college.example"');
+      expect(nativePrefix).toContain('"sourceUrl":"'+pageUrl+'"');
+      expect(nativePrefix).toContain('"title":"Course details"');
+      expect(await readFile(result.textPath as string,"utf8")).toBe(longText);
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
+  it("exposes public configured targets while removing credentials and preserving course IDs",async()=>{
+    const f=await setup();try{
+      const tools=new DirectSources(f.root,[origin],f.backend,async()=>undefined,{portals:[
+        {kind:"moodle",dashboard:origin+"/course/view.php?id=42&access_token=private-access#section-2"},
+        {kind:"cis",dashboard:"https://user:password@university.example/cis.php?page=1&secret=private-secret"},
+      ],calendarUrl:"https://calendar.example/private-feed"});
+      const result=await tools.run({op:"inventory"});
+      expect(result.portals).toEqual([{kind:"moodle",dashboard:origin+"/course/view.php?id=42"},{kind:"cis",dashboard:origin+"/cis.php?page=1"}]);
+      expect(result.calendarConfigured).toBe(true);
+      expect(JSON.stringify(result)).not.toMatch(/private-|password|user:/);
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
+  it("reads a calendar-only source with event provenance and no private feed URL in result/artifact",async()=>{
+    const f=await setup();try{
+      const feed="https://calendar.example/private-feed";
+      const ics=["BEGIN:VCALENDAR","VERSION:2.0","BEGIN:VEVENT","UID:history-test","DTSTART:20260701T090000Z","DTEND:20260701T100000Z","SUMMARY:History minitest",`DESCRIPTION:Personal feed ${feed}`,"ORGANIZER;CN=Calendar service:mailto:calendar@college.example","END:VEVENT","END:VCALENDAR"].join("\r\n");
+      const fetchImpl=vi.fn(async()=>new Response(ics));
+      const tools=new DirectSources(f.root,[],f.backend,async()=>undefined,{calendarUrl:feed,calendarOptions:{now:new Date("2026-07-01T08:00:00Z"),fetchImpl}});
+      expect(await tools.run({op:"inventory"})).toMatchObject({portals:[],calendarConfigured:true});
+      const result=await tools.run({op:"calendar",prompt:"today"});
+      expect(result).toMatchObject({status:"success",complete:true,events:[{uid:"history-test",contacts:[{property:"organizer",email:"calendar@college.example",name:"Calendar service"}]}],provenance:{source:"configured_calendar",observedAt:"2026-07-01T08:00:00.000Z"}});
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(result)).not.toContain(feed);
+      expect(await readFile(result.artifactPath as string,"utf8")).not.toContain(feed);
+      const promptWithFeed=await tools.run({op:"calendar",prompt:`today ${feed}`});
+      expect(JSON.stringify(promptWithFeed)).not.toContain(feed);
+      expect(await readFile(promptWithFeed.artifactPath as string,"utf8")).not.toContain(feed);
+      const unconfigured=new DirectSources(f.root,[],f.backend,async()=>undefined);
+      expect(await unconfigured.run({op:"calendar",prompt:"heute"})).toMatchObject({status:"failed",events:[],needsCisFallback:true});
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
+  it("keeps the original communication prompt while selecting today's ongoing evidence",async()=>{
+    const f=await setup();try{
+      const originalPrompt="Schreib bitte eine Entschuldigung an meinen Kinetik-Prof: Mein Zug hat Verspätung und ich werde verspätet am Minitest teilnehmen.";
+      const fixture=["BEGIN:VCALENDAR","VERSION:2.0",...["20261005","20261012"].map((date,index)=>[
+        "BEGIN:VEVENT",`UID:event-${index}`,`DTSTART:${date}T080000Z`,`DTEND:${date}T090000Z`,"SUMMARY:Kinetik Minitest","END:VEVENT",
+      ].join("\r\n")),"END:VCALENDAR"].join("\r\n");
+      const tools=new DirectSources(f.root,[],f.backend,async()=>undefined,{calendarUrl:"https://calendar.example/feed",calendarOptions:{now:new Date("2026-10-05T08:15:00Z"),fetchImpl:vi.fn(async()=>new Response(fixture))}});
+      const implicit=await tools.run({op:"calendar",prompt:originalPrompt});
+      expect((implicit.events as any[]).map(event=>event.uid)).toEqual(["event-1"]);
+      const current=await tools.run({op:"calendar",prompt:originalPrompt,scope:"today"});
+      expect((current.events as any[]).map(event=>event.uid)).toEqual(["event-0"]);
+      expect(current.provenance).toMatchObject({originalPrompt,selectionScope:"today"});
+      expect(current.requestedRange).toEqual({start:"2026-10-04T22:00:00.000Z",end:"2026-10-05T21:59:59.999Z"});
+      const unknown=await tools.run({op:"calendar",prompt:"Write an apology to the professor for course Thermodynamik",scope:"today"});
+      expect((unknown.events as any[]).map(event=>event.uid)).toEqual(["event-0"]);
+      expect(unknown.detail).toContain("not a confirmed course match");
+    }finally{await rm(f.directory,{recursive:true,force:true});}
+  });
+  it("accepts only server-owned inventory and calendar requests",()=>{
+    expect(parseDirectSourceRequest({op:"inventory"})).toEqual({op:"inventory"});
+    expect(parseDirectSourceRequest({op:"calendar",prompt:"today"})).toEqual({op:"calendar",prompt:"today"});
+    expect(parseDirectSourceRequest({op:"calendar",prompt:"original request",scope:"today"})).toEqual({op:"calendar",prompt:"original request",scope:"today"});
+    for(const input of [{op:"inventory",url:origin},{op:"calendar",prompt:"today",url:origin},{op:"calendar"},{op:"calendar",prompt:""},{op:"calendar",prompt:"today",scope:"tomorrow"}])expect(()=>parseDirectSourceRequest(input)).toThrow();
+  });
   it("retains observed page/download identity across catalog backlinks and permits explicit refresh",async()=>{
     const f=await setup();try{
       const course=origin+"/course/view.php?id=2", quiz=origin+"/mod/quiz/view.php?id=4", unknown=origin+"/mod/resource/view.php?id=99";

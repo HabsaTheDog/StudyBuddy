@@ -3,16 +3,27 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from "no
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import path from "node:path";
+import { resolveTemporalRequest } from "./temporalRequest.js";
+import { mailtoAddresses } from "./contactEvidence.js";
+import { readCalendarEvents, normalizeCalendarUrl, type CalendarAdapterOptions } from "./calendarAdapter.js";
+import { redactSensitiveValues, sanitizeModelVisibleUrl } from "./interactive/browserSecurity.js";
 import { stableResourceId } from "./resourceManifest.js";
 import { assertPublicHttpsUrl } from "./urlSecurity.js";
 import { resolveStudyBuddyWorkspaceDataPaths } from "../shared/workspaceData.js";
 
 export interface DirectSourceLink { title: string; url: string; section?: string }
+export interface DirectSourceContact { label: string; email: string; sourceUrl: string; section?: string }
+export interface DirectSourceConfiguration {
+  portals?: Array<{ kind: "moodle" | "cis"; dashboard: string }>;
+  calendarUrl?: string;
+  calendarOptions?: CalendarAdapterOptions;
+}
 export interface DirectSourceRecord extends DirectSourceLink {
+  contacts?: DirectSourceContact[];
   id: string; resolvedUrl?: string; textPath?: string; localPath?: string; sha256?: string;
   pageCount?: number | null; readability?: string; pages?: Array<{ page: number; path: string; sha256: string }>;
 }
-export type DirectSourceRequest = { op: "courses"; query?: string } | { op: "page"; url: string } |
+export type DirectSourceRequest = { op: "inventory" } | { op: "calendar"; prompt: string; scope?: "today" } | { op: "courses"; query?: string } | { op: "page"; url: string } |
   { op: "download"; url?: string; sourceID?: string; resourceID?: string; title?: string } |
   { op: "text"; sourceID: string; pages?: number[] } | { op: "pages"; sourceID: string; pages: number[] };
 export interface DirectSourceBackend {
@@ -37,10 +48,11 @@ function pageNumbers(value: unknown): number[] {
 export function parseDirectSourceRequest(value: unknown): DirectSourceRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Source request must be one JSON object.");
   const r = value as Record<string, unknown>;
-  const allowed = { courses: ["op", "query"], page: ["op", "url"], download: ["op", "url", "sourceID", "resourceID", "title"], text: ["op", "sourceID", "pages"], pages: ["op", "sourceID", "pages"] };
+  const allowed = { inventory: ["op"], calendar: ["op", "prompt", "scope"], courses: ["op", "query"], page: ["op", "url"], download: ["op", "url", "sourceID", "resourceID", "title"], text: ["op", "sourceID", "pages"], pages: ["op", "sourceID", "pages"] };
   if (typeof r.op !== "string" || !Object.hasOwn(allowed, r.op) || Object.keys(r).some(key => !allowed[r.op as keyof typeof allowed].includes(key))) throw new Error("Unknown source operation or argument.");
-  for (const key of ["url", "query", "sourceID", "resourceID", "path", "title"]) if (r[key] !== undefined && (typeof r[key] !== "string" || !(r[key] as string).trim())) throw new Error(`Invalid ${key}.`);
-  if (r.op === "page" && !r.url || r.op === "download" && Number(Boolean(r.url)) + Number(Boolean(r.sourceID)) + Number(Boolean(r.resourceID)) !== 1 || (r.op === "text" || r.op === "pages") && !r.sourceID) throw new Error("Exactly one required source target is needed.");
+  for (const key of ["url", "query", "sourceID", "resourceID", "path", "title", "prompt"]) if (r[key] !== undefined && (typeof r[key] !== "string" || !(r[key] as string).trim())) throw new Error(`Invalid ${key}.`);
+  if (r.op === "calendar" && !r.prompt || r.op === "page" && !r.url || r.op === "download" && Number(Boolean(r.url)) + Number(Boolean(r.sourceID)) + Number(Boolean(r.resourceID)) !== 1 || (r.op === "text" || r.op === "pages") && !r.sourceID) throw new Error("Exactly one required source target is needed.");
+  if (r.scope !== undefined && r.scope !== "today") throw Error("Unsupported calendar evidence scope.");
   if (r.pages !== undefined) pageNumbers(r.pages);
   if (r.op === "pages" && r.pages === undefined) throw new Error("Explicit page numbers are required.");
   return r as unknown as DirectSourceRequest;
@@ -48,10 +60,11 @@ export function parseDirectSourceRequest(value: unknown): DirectSourceRequest {
 export function directSourcesRoot(env: NodeJS.ProcessEnv = process.env) {
   return path.join(resolveStudyBuddyWorkspaceDataPaths({ ...env, STUDY_BUDDY_THREAD_ID: env.STUDY_BUDDY_DOCUMENT_OWNER_THREAD_ID || env.STUDY_BUDDY_THREAD_ID }).threadRoot, "direct-sources");
 }
-const recordSchema = z.object({ id: z.string().regex(/^res_[a-f0-9]{16}$/), title: z.string(), url: z.string().url(), section: z.string().optional(), resolvedUrl: z.string().url().optional(), textPath: z.string().optional(), localPath: z.string().optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(), pageCount: z.number().int().positive().nullable().optional(), readability: z.string().optional(), pages: z.array(z.object({ page: z.number().int().positive(), path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) })).optional() }).strict();
+const contactSchema = z.object({ label: z.string(), email: z.string(), sourceUrl: z.string().url(), section: z.string().optional() }).strict();
+const recordSchema = z.object({ id: z.string().regex(/^res_[a-f0-9]{16}$/), contacts: z.array(contactSchema).optional(), title: z.string(), url: z.string().url(), section: z.string().optional(), resolvedUrl: z.string().url().optional(), textPath: z.string().optional(), localPath: z.string().optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(), pageCount: z.number().int().positive().nullable().optional(), readability: z.string().optional(), pages: z.array(z.object({ page: z.number().int().positive(), path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) })).optional() }).strict();
 const digest = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex");
 export class DirectSources {
-  constructor(readonly root: string, readonly origins: string[], private readonly backend: DirectSourceBackend, private readonly validatePublic = assertPublicHttpsUrl) {}
+  constructor(readonly root: string, readonly origins: string[], private readonly backend: DirectSourceBackend, private readonly validatePublic = assertPublicHttpsUrl, private readonly configuration: DirectSourceConfiguration = {}) {}
   private async directory(directory: string) {
     let current = path.parse(path.resolve(directory)).root;
     for (const segment of path.resolve(directory).slice(current.length).split(path.sep)) {
@@ -77,6 +90,10 @@ export class DirectSources {
       if (`${record.id}.json` !== file || stableResourceId(record.url) !== record.id) throw Error("Source record identity mismatch.");
       assertDirectReadUrl(record.url, this.origins);
       if (record.resolvedUrl) assertDirectReadUrl(record.resolvedUrl, this.origins);
+      for (const contact of record.contacts ?? []) {
+        assertDirectReadUrl(contact.sourceUrl, this.origins);
+        if (!mailtoAddresses(`mailto:${contact.email}`).includes(contact.email)) throw Error("Invalid explicit contact address.");
+      }
       for (const file of [record.localPath, record.textPath, ...(record.pages ?? []).map(page => page.path)].filter((file): file is string => Boolean(file))) await this.owned(file);
       return record;
     }));
@@ -100,7 +117,32 @@ export class DirectSources {
   async run(input: unknown): Promise<Record<string, unknown>> {
     const r = parseDirectSourceRequest(input); await this.directory(this.root);
     let result: Record<string, unknown>;
-    if (r.op === "courses") {
+    if (r.op === "inventory") {
+      const portals = (this.configuration.portals ?? []).map(portal => {
+        const dashboard = new URL(sanitizeModelVisibleUrl(portal.dashboard));
+        // Keep public routing IDs, remove credential placeholders rather than return a broken auth URL.
+        for (const key of [...dashboard.searchParams.keys()]) {
+          if (dashboard.searchParams.getAll(key).some(value => value.includes("[REDACTED"))) dashboard.searchParams.delete(key);
+        }
+        return { kind: portal.kind, dashboard: assertDirectReadUrl(dashboard.toString(), this.origins) };
+      });
+      result = { portals, calendarConfigured: Boolean(this.configuration.calendarUrl?.trim()) };
+    } else if (r.op === "calendar") {
+      const observedAt = (this.configuration.calendarOptions?.now ?? new Date()).toISOString();
+      const feed = this.configuration.calendarUrl?.trim();
+      const selection = feed ? await readCalendarEvents(feed, r.prompt, { ...this.configuration.calendarOptions, ...(r.scope === "today" ? {
+        temporalRequest: resolveTemporalRequest("heute", new Date(observedAt)), allowUnrecognizedCourseEvidence: true,
+      } : {}) }) : {
+        status: "failed", events: [], complete: false, missingFields: [], needsCisFallback: true,
+        detail: "No calendar source is configured.",
+      };
+      const secrets = feed ? [feed, (() => { try { return normalizeCalendarUrl(feed); } catch { return feed; } })()] : [];
+      const safeSelection = JSON.parse(redactSensitiveValues(JSON.stringify(selection), secrets)) as Record<string, unknown>;
+      const artifactPath = path.join(this.root, "calendar-events.json");
+      const provenance = JSON.parse(redactSensitiveValues(JSON.stringify({ source: "configured_calendar", observedAt, originalPrompt: r.prompt, selectionScope: r.scope ?? "request" }), secrets)) as Record<string, unknown>;
+      await this.write(artifactPath, JSON.stringify({ untrusted: true, provenance, ...safeSelection }));
+      result = { ...safeSelection, provenance, artifactPath };
+    } else if (r.op === "courses") {
       const found = await this.backend.courses(); const links = found.links.filter(link => { try { assertDirectReadUrl(link.url, this.origins); return true; } catch { return false; } });
       for (const link of links) await this.save({ ...link, id: stableResourceId(link.url) }, true);
       const terms = (r.query ?? "").toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -108,10 +150,13 @@ export class DirectSources {
     } else if (r.op === "page") {
       const url = await this.url(r.url), page = await this.backend.page(url); await this.url(page.url);
       const id = stableResourceId(url), textPath = path.join(this.root, `${id}.native.txt`);
-      await this.write(textPath, page.text); await this.save({ id, title: page.title, url, resolvedUrl: page.url, textPath });
+      const contacts = page.links.flatMap(link => mailtoAddresses(link.url).map(email => ({
+        label: /^mailto:/i.test(link.title) ? email : link.title, email, sourceUrl: page.url, ...(link.section ? { section: link.section } : {}),
+      })));
+      await this.write(textPath, page.text); await this.save({ id, title: page.title, url, resolvedUrl: page.url, textPath, contacts });
       const links = page.links.filter(link => { try { assertDirectReadUrl(link.url, this.origins); return true; } catch { return false; } });
       for (const link of links) if (stableResourceId(link.url) !== id) await this.save({ ...link, id: stableResourceId(link.url) }, true);
-      result = { id, title: page.title, url, resolvedUrl: page.url, textPath, text: page.text, links: links.map(link => ({ ...link, id: stableResourceId(link.url) })) };
+      result = { id, title: page.title, url, resolvedUrl: page.url, textPath, contacts, links: links.map(link => ({ ...link, id: stableResourceId(link.url) })), text: page.text };
     } else if (r.op === "download") {
       const known = (await this.readRecords()).find(record => record.id === (r.sourceID ?? r.resourceID));
       if (!r.url && !known) throw new Error("Unknown source ID.");
