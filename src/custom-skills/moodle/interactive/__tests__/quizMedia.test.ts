@@ -61,8 +61,11 @@ describe("quiz original image evidence (local browser diagnostic)", () => {
       response.end('<div id="question-1" style="height:1400px"><p>Which graph?</p><img style="width:160px" src="/protected.png?token=private-canary"><p style="margin-top:1100px">Last option</p></div>');
     });
     await client.open(`${origin}/quiz`);
+    const originalDom = await client.evalJson('JSON.stringify(Array.from(document.querySelectorAll("#question-1 img"), i => i.getAttribute("loading")))');
     const result = await client.captureQuestionEvidence!("question-1", directory);
+    expect(await client.evalJson('JSON.stringify(Array.from(document.querySelectorAll("#question-1 img"), i => i.getAttribute("loading")))')).toEqual(originalDom);
     expect(result.errors).toEqual([]);
+    expect(result).toMatchObject({ complete: true, expectedImageCount: 1, capturedImageCount: 1 });
     expect(result.images).toHaveLength(1);
     expect(result.images[0]).toMatchObject({ width: 1600, height: 1000, mimeType: "image/png", sha256: createHash("sha256").update(original).digest("hex") });
     expect(await readFile(result.images[0]!.path)).toEqual(original);
@@ -98,6 +101,7 @@ describe("quiz original image evidence (local browser diagnostic)", () => {
     const result = await client.captureQuestionEvidence!("question-2", directory);
     expect(result.images).toHaveLength(1);
     expect(result.errors).toHaveLength(6);
+    expect(result).toMatchObject({ complete: false, expectedImageCount: 7, capturedImageCount: 1 });
     expect(result.errors.join(" ")).toContain("image-redirect-rejected");
     expect(result.errors.join(" ")).toContain("image-origin-not-allowed");
     expect(JSON.stringify(result)).not.toContain("secret-canary");
@@ -121,6 +125,28 @@ describe("quiz original image evidence (local browser diagnostic)", () => {
     expect(result.errors).toEqual([]);
     expect(result.images[0]).toMatchObject({ width: 2048, height: 1024, mimeType: "image/svg+xml" });
     expect(await readFile(result.images[0]!.path)).toEqual(svg);
+    const view = await readFile(result.images[0]!.viewPath!);
+    expect(view.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(view.readUInt32BE(16)).toBe(2048);
+    expect(view.readUInt32BE(20)).toBe(1024);
+  });
+
+  it("prioritizes the largest source variant before the rendered thumbnail", async () => {
+    const small = png(80, 50), large = png(1600, 1000);
+    const { client, origin, directory } = await fixture((request, response) => {
+      if (request.url === "/small.png" || request.url === "/large.png") {
+        response.writeHead(200, { "content-type": "image/png" });
+        response.end(request.url === "/small.png" ? small : large); return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end('<div id="question-5"><img width="80" src="/small.png" srcset="/small.png 80w, /large.png 1600w" sizes="80px"></div>');
+    });
+    await client.open(`${origin}/quiz`);
+    const result = await client.captureQuestionEvidence!("question-5", directory);
+    expect(result.images).toHaveLength(2);
+    expect(result.images[0]).toMatchObject({ width: 1600, height: 1000, sourceIndex: 1 });
+    expect(await readFile(result.images[0]!.path)).toEqual(large);
+    expect(result.complete).toBe(true);
   });
 
   it("retains original images even when writing the question screenshot fails", async () => {
@@ -135,6 +161,23 @@ describe("quiz original image evidence (local browser diagnostic)", () => {
     expect(result.screenshotPath).toBeUndefined();
     expect(result.errors).toEqual(["question-screenshot-failed"]);
     expect(result.images).toHaveLength(1);
+    expect(await readFile(result.images[0]!.path)).toEqual(original);
+  });
+
+  it("includes original shared description graphics in the solver evidence", async () => {
+    const original = png(1600, 1000);
+    const { client, origin, directory } = await fixture((request, response) => {
+      if (request.url === "/shared.png") {
+        response.writeHead(200, { "content-type": "image/png" }); response.end(original); return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end('<div id="question-1" class="que description"><img width="100" src="/shared.png"></div><div id="question-2" class="que">Read the shared graph.</div>');
+    });
+    await client.open(`${origin}/quiz`);
+    const result = await client.captureQuestionEvidence!("question-2", directory);
+    expect(result.complete).toBe(true);
+    expect(result.images).toHaveLength(1);
+    expect(result.images[0]).toMatchObject({ width: 1600, height: 1000 });
     expect(await readFile(result.images[0]!.path)).toEqual(original);
   });
 });

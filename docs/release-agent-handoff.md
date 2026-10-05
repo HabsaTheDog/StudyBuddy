@@ -18,6 +18,31 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Current quiz-completeness follow-up, 2026-10-05
+
+Include the reviewed whole-quiz capture/media/metadata and broker/instruction
+changes described in [the repair report](quiz-completeness-repair-2026-10-05.md).
+Final frozen root checks: 1,625 passed / four existing skips, 176 files, 69.34s;
+five direct-browser/six media tests, 24 direct unit checks including Windows
+separators, 87 UI tests, format/lint and all 13 typechecks pass. Independent source and counterexample review
+passes. Native owner `47503def…` on the isolated fixture at port 41893 reached
+terminal **PASS** in about 4m41s: five captured/five verified, no unresolved questions,
+all five answers correct, one start/three saves/zero final submissions. The original
+image was viewed and three overlapping native workers served five questions.
+Independent first-run native review is **PASS 4/4**. The unchanged fresh repeat
+`b2ca8522…` independently passes with five correct saved/reloaded answers
+in about 5m52s and all five native solver turns terminal. No real Moodle answer acceptance is claimed.
+
+Actual read-only Moodle status supersedes the historical zero-used observations
+below: two allowed / one used / one left, active attempt indicated, first ordinal confirmed only
+by the history card, no actual attempt ID/binding. There is no quiz timer; the
+closing deadline is Tuesday 6 October 2026, 23:59 Europe/Vienna. The exact request
+denied after the original immutable start debit remains unknown. Never reset the
+debit, start a second attempt or submit finally. UI dependency `c73e34b6f` is committed locally; root source/pin and handoff are
+in this integration commit. Reconcile
+these exact pins before a candidate; nothing here is pushed, merged, deployed, packaged or
+release-accepted. Windows path regressions are not Windows VM acceptance.
+
 ## Agent-owned mini-test tooling, 2026-10-03
 
 2026-10-04 follow-up: a stopped Electron diagnostic exposed stale shared-skill

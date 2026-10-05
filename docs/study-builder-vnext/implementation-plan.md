@@ -2241,3 +2241,20 @@ unbound writes blocked, second starts/debits impossible and final/foreign reques
 blocked. Add real HTTP/browser counterexamples and review before commit. This
 local defect is not asserted to be the unrecorded real denied request; never
 retry the stopped real quiz after this source change.
+
+### 2026-10-05 complete agent-owned quiz reliability
+
+Owner explicitly reopens optimization: all questions, per-question native solvers,
+readable original images and reliable full saves. Keep one serial browser owner,
+deterministic tools and native question delegation. Capture an observed navigation
+inventory across all free-navigation pages before solving; preserve each question's
+original media, shared stem and packet identity. Persist save/reload receipts per
+page and require complete known question coverage before reporting completion.
+Unknown/sequential navigation and unreadable media disclose precise limitations;
+never advance an empty page to discover more questions. Strengthen generic active
+attempt evidence and sanitized diagnostics without manufacturing IDs or ordinal1.
+Fresh read-only Moodle metadata confirms one active attempt but lacks its ID; no
+second start and no real debit reset. Full regression and real multi-page browser
+fixtures precede native desktop solver/answer acceptance on an isolated local source.
+Current campaign: complete-agent-owned-quiz. Actual Moodle continuation requires
+positive first-attempt identity, preserves the same owner/run, and never submits.

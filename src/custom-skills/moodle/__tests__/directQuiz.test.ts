@@ -100,6 +100,13 @@ beforeEach(async () => {
     },
     getUrl: async () => currentUrl,
     getTitle: async () => "Actual native quiz",
+    captureQuestionEvidence: async () => ({
+      images: [],
+      errors: [],
+      complete: true,
+      expectedImageCount: 0,
+      capturedImageCount: 0,
+    }),
     close: async () => {
       operations.closes++;
       return { stdout: "", stderr: "" };
@@ -157,6 +164,179 @@ async function start() {
   return executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env, deps);
 }
 describe("direct deterministic quiz owner tools", () => {
+  it("keeps shared originals ahead of screenshots with Windows path separators", async () => {
+    deps.extract = async () => {
+      const captured = structuredClone(page());
+      return {
+        ...captured,
+        descriptions: [
+          {
+            ...captured.questions[0],
+            question_id: "question-1-99",
+            question_type: "description",
+            controls: [],
+          },
+        ],
+      };
+    };
+    const browser = deps.browser!;
+    deps.browser = (config) => ({
+      ...browser(config),
+      captureQuestionEvidence: async (questionID) => ({
+        images:
+          questionID === "question-1-99"
+            ? [
+                {
+                  path: "C:\\context\\original.png",
+                  url: "https://university.example/original.png",
+                  mimeType: "image/png",
+                  sha256: "original-sha",
+                },
+              ]
+            : [],
+        screenshotPath:
+          questionID === "question-1-99" ? "C:\\context\\question.png" : "C:\\packet\\question.png",
+        errors: [],
+        complete: true,
+      }),
+    });
+    const started = await start();
+    const packet = JSON.parse(
+      await readFile((started.packets as Array<{ packetPath: string }>)[0].packetPath, "utf8"),
+    );
+    expect(packet.image_paths).toEqual([
+      "C:\\context\\original.png",
+      "C:\\packet\\question.png",
+      "C:\\context\\question.png",
+    ]);
+  });
+  it("binds immutable radio choice values and rejects changed encoding before any response write", async () => {
+    let choice = "original-choice";
+    deps.extract = async () => {
+      const captured = structuredClone(page());
+      for (const question of captured.questions) {
+        question.controls[0] = {
+          ...question.controls[0],
+          type: "radio",
+          value: choice,
+          checked: false,
+        };
+        question.prompt_html = `<input type="radio" value="${choice}">`;
+      }
+      return captured;
+    };
+    const started = await start();
+    choice = "different-choice";
+    await expect(
+      executeDirectQuiz(
+        {
+          op: "fill",
+          runDir: started.runDir,
+          packetDigest: started.packetDigest,
+          answers: [answer],
+        },
+        env,
+        deps,
+      ),
+    ).rejects.toThrow("stale");
+    expect(operations).toMatchObject({ fills: 0, saves: 0 });
+  });
+  it("does not collect hidden sequential pages or treat current-page capture as the whole attempt", async () => {
+    deps.navigation = async () => "unknown";
+    deps.inventory = async () => ({
+      confirmed: true,
+      questions: [
+        { key: "slot:1", slot: "1", number: 1, page: 0 },
+        { key: "slot:2", slot: "2", number: 2, page: 1 },
+      ],
+      pages: [0, 1],
+    });
+    const started = await start();
+    const collected = await executeDirectQuiz({ op: "collect", runDir: started.runDir }, env, deps);
+    expect(collected).toMatchObject({
+      ok: false,
+      status: "manual_action_required",
+      progress: { total: 2, captured: 1, captureComplete: false, complete: false },
+    });
+    expect(requests.some((request) => request.url.includes("page=1"))).toBe(false);
+    expect(operations).toMatchObject({ starts: 1, fills: 0, saves: 0 });
+  });
+
+  it("refuses stable missing-original media before writing any answer", async () => {
+    const browser = deps.browser!;
+    deps.browser = (config) => ({
+      ...browser(config),
+      captureQuestionEvidence: async () => ({
+        images: [],
+        errors: ["image-1:image-http-404"],
+        complete: false,
+        expectedImageCount: 1,
+        capturedImageCount: 0,
+      }),
+    });
+    const started = await start();
+    const result = await executeDirectQuiz(
+      { op: "fill", runDir: started.runDir, packetDigest: started.packetDigest, answers: [answer] },
+      env,
+      deps,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: "manual_action_required",
+      blocked_questions: ["question-1-1"],
+      progress: { complete: false },
+    });
+    expect(operations).toMatchObject({ fills: 0, saves: 0 });
+  });
+
+  it("binds original HTML even when image alt text and extracted prose stay unchanged", async () => {
+    let html = '<img src="/source-a.png" alt="diagram">';
+    deps.extract = async () => {
+      const value = page();
+      value.questions.forEach((question) => {
+        question.prompt_html = html;
+      });
+      return value;
+    };
+    const started = await start();
+    html = '<img src="/source-b.png" alt="diagram">';
+    await expect(
+      executeDirectQuiz(
+        {
+          op: "fill",
+          runDir: started.runDir,
+          packetDigest: started.packetDigest,
+          answers: [answer],
+        },
+        env,
+        deps,
+      ),
+    ).rejects.toThrow("stale");
+    expect(operations).toMatchObject({ fills: 0, saves: 0 });
+  });
+
+  it("rejects a disappearing question before safe-next instead of accepting vacuous verification", async () => {
+    deps.extract = async () => {
+      const value = page();
+      if (operations.fills) value.questions = [];
+      return value;
+    };
+    const started = await start();
+    await expect(
+      executeDirectQuiz(
+        {
+          op: "fill",
+          runDir: started.runDir,
+          packetDigest: started.packetDigest,
+          answers: [answer],
+        },
+        env,
+        deps,
+      ),
+    ).rejects.toThrow("DOM answer verification");
+    expect(operations).toMatchObject({ fills: 1, saves: 0 });
+  });
+
   it("inspects metadata without starting, solving, or capturing an attempt", async () => {
     const result = await executeDirectQuiz(
       { op: "inspect", url: target, prompt: "Inspect exact quiz" },

@@ -13,12 +13,18 @@ export interface QuizImageEvidence {
   sha256: string;
   width?: number;
   height?: number;
+  sourceIndex?: number;
+  /** Faithful raster view for native image tools; path and sha256 retain original bytes. */
+  viewPath?: string;
 }
 
 export interface QuizQuestionEvidence {
   screenshotPath?: string;
   images: QuizImageEvidence[];
   errors: string[];
+  complete?: boolean;
+  expectedImageCount?: number;
+  capturedImageCount?: number;
 }
 
 const IMAGE_BYTES = 16 * 1024 * 1024;
@@ -33,10 +39,12 @@ export async function captureQuizQuestionEvidence(
   requestGuard: QuizRequestGuard = assertNoFinalQuizSubmission,
 ): Promise<QuizQuestionEvidence> {
   if (!/^question-[a-zA-Z0-9_-]+$/.test(questionId)) throw new Error("Invalid question image target");
-  const evidence: QuizQuestionEvidence = { images: [], errors: [] };
+  const evidence: QuizQuestionEvidence = { images: [], errors: [], complete: false, expectedImageCount: 0, capturedImageCount: 0 };
   await mkdir(directory, { recursive: true });
   const question = page.locator(`[id="${questionId}"]`);
+  let originalLoading: Array<string | null> = [];
   try {
+    originalLoading = await question.evaluate((element) => Array.from(element.querySelectorAll("img"), image => image.getAttribute("loading")), undefined, { timeout: 5_000 });
     await question.scrollIntoViewIfNeeded({ timeout: 5_000 });
     const ready = await question.evaluate(async (element) => {
       const images = Array.from(element.querySelectorAll("img"));
@@ -71,7 +79,9 @@ export async function captureQuizQuestionEvidence(
     try {
       sources = await question.evaluate((element) => {
         const urls = new Set<string>();
-        for (const image of Array.from(element.querySelectorAll("img"))) {
+        // Moodle descriptions and quiz introductions can contain the shared task graphic.
+        const roots = [element, ...Array.from(document.querySelectorAll(".que.description, #intro, .quizintro, .quizattemptinstructions"))];
+        for (const image of roots.flatMap(root => Array.from(root.querySelectorAll("img")))) {
           if (image.src) urls.add(image.src);
           if (image.currentSrc) urls.add(image.currentSrc);
           // Preserve the highest resolution variant when the browser chose a smaller srcset.
@@ -81,11 +91,11 @@ export async function captureQuizQuestionEvidence(
             .sort((a, b) => parseFloat(b[1]!) - parseFloat(a[1]!));
           if (candidates[0]?.[0]) urls.add(new URL(candidates[0][0], document.baseURI).href);
         }
-        for (const image of Array.from(element.querySelectorAll("svg image"))) {
+        for (const image of roots.flatMap(root => Array.from(root.querySelectorAll("svg image")))) {
           const source = image.getAttribute("href") || image.getAttribute("xlink:href");
           if (source) urls.add(new URL(source, document.baseURI).href);
         }
-        for (const node of [element, ...Array.from(element.querySelectorAll("*"))]) {
+        for (const node of roots.flatMap(root => [root, ...Array.from(root.querySelectorAll("*"))])) {
           for (const match of getComputedStyle(node).backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
             if (match[1]) urls.add(new URL(match[1], document.baseURI).href);
           }
@@ -93,6 +103,7 @@ export async function captureQuizQuestionEvidence(
         return [...urls];
       }, undefined, { timeout: 5_000 });
     } catch { evidence.errors.push("question-image-discovery-failed"); return; }
+    evidence.expectedImageCount = sources.length;
     const outcomes = new Array<QuizImageEvidence | undefined>(sources.length);
     let next = 0;
     await Promise.all(Array.from({ length: Math.min(4, sources.length) }, async () => {
@@ -107,7 +118,9 @@ export async function captureQuizQuestionEvidence(
         }
       }
     }));
-    evidence.images = outcomes.filter((image): image is QuizImageEvidence => Boolean(image));
+    evidence.images = outcomes.filter((image): image is QuizImageEvidence => Boolean(image))
+      .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0));
+    evidence.capturedImageCount = evidence.images.length;
   })();
   try {
     const screenshotPath = path.resolve(directory, "question.png");
@@ -115,6 +128,17 @@ export async function captureQuizQuestionEvidence(
     evidence.screenshotPath = screenshotPath;
   } catch { evidence.errors.push("question-screenshot-failed"); }
   await mediaTask;
+  try {
+    await question.evaluate((element, attributes) => {
+      Array.from(element.querySelectorAll("img")).forEach((image, index) => {
+        const original = attributes[index];
+        if (original === undefined) return;
+        if (original === null) image.removeAttribute("loading");
+        else image.setAttribute("loading", original);
+      });
+    }, originalLoading, { timeout: 5_000 });
+  } catch { evidence.errors.push("question-render-restore-failed"); }
+  evidence.complete = evidence.errors.length === 0 && evidence.capturedImageCount === evidence.expectedImageCount;
   return evidence;
 }
 
@@ -163,7 +187,17 @@ async function downloadQuestionImage(
         const image = new Image();
         image.src = objectUrl;
         await image.decode();
-        return { width: image.naturalWidth, height: image.naturalHeight };
+        const width = image.naturalWidth, height = image.naturalHeight;
+        if (mime === "image/svg+xml") {
+          if (width * height > 16 * 1024 * 1024) return null;
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) return null;
+          context.drawImage(image, 0, 0);
+          return { width, height, raster: canvas.toDataURL("image/png").split(",")[1] };
+        }
+        return { width, height };
       } catch { return null; }
       finally { URL.revokeObjectURL(objectUrl); }
     }, { data: bytes.toString("base64"), mime: mimeType });
@@ -171,7 +205,13 @@ async function downloadQuestionImage(
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     const imagePath = path.resolve(directory, `image-${index + 1}-${sha256.slice(0, 12)}.${extension}`);
     await writeFile(imagePath, bytes);
-    return { path: imagePath, url: sanitizeModelVisibleUrl(source, sensitiveValues), mimeType, sha256, ...dimensions };
+    let viewPath: string | undefined;
+    if (dimensions.raster) {
+      viewPath = path.resolve(directory, `image-${index + 1}-${sha256.slice(0, 12)}.view.png`);
+      await writeFile(viewPath, Buffer.from(dimensions.raster, "base64"));
+    }
+    return { path: imagePath, url: sanitizeModelVisibleUrl(source, sensitiveValues), mimeType, sha256,
+      width: dimensions.width, height: dimensions.height, sourceIndex: index, ...(viewPath ? { viewPath } : {}) };
   } finally { await response.dispose(); }
 }
 
