@@ -14,10 +14,23 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Scored-answer correction (2026-10-05): user confirms the sole Q5.3 True→False
+change reduced9 to8.67. Withdraw the earlier Q5 culprit/literalFalse advice for
+this assessed item; controlled user comparison supports True. Authenticated
+overview now shows both attempts finished, none left, best-attempt grading and
+review available6October23:59. Original full-point culprit remains unverified;
+Q6 exact real-domain wording versus offered−∞ is a concrete possible author-key
+conflict in native all-or-nothing multichoiceset. No new tool attempt/write.
+Add only native-proven grading metadata and selected/excluded option check to
+existing solver packets; never invent points/weights/keys from control counts.
+Correct the [audit](quiz-answer-risk-audit-2026-10-05.md); preserve earlier
+failed advice/evidence. Source-only local follow-up: 93 relevant tests across three files pass, root
+TypeScript and diff checks pass. No new model calls or Moodle writes; no release claim.
+
 Graded quiz answer-risk audit (2026-10-05): user reports 9/10 after submitting the
 recovered first attempt. All ten archived questions independently reassessed;
-existing response controls and 65 protected originals unchanged. Q5.3 remains a
-source/interpretation candidate; authenticated Moodle overview exposes completed
+existing response controls and 65 protected originals unchanged. At that historical checkpoint Q5.3 was a
+source/interpretation candidate, now superseded by the score correction above; authenticated Moodle overview exposes completed
 status but review only from 6 October 23:59, so the official lost-point item is
 not established. Existing native/packet briefs now require exact domain,
 quantifiers, existence conditions and source-based resolution of answer-changing

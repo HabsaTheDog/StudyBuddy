@@ -42,6 +42,60 @@ afterEach(async () => {
 });
 
 describe("quizReviewNode", () => {
+  it("exposes native all-or-nothing grading without supplying an answer key or changing selections", () => {
+    const question: QuizQuestion = {
+      question_id: "q", question_index: 1, question_type: "multichoiceset",
+      prompt: "Select all applicable choices", options: ["A", "B"], visible_context: "",
+      controls: [
+        {control_id:"a",type:"checkbox",value:"A",checked:true},
+        {control_id:"b",type:"checkbox",value:"B",checked:false},
+      ],
+    };
+    const original = structuredClone(question);
+    const input = {page:{title:"Quiz",url:"https://moodle.example/quiz",body_text:"",questions:[question]},question,pageNumber:1};
+    const packet = buildQuestionPacket(input);
+    expect(packet.question).toMatchObject({
+      grading_metadata:{scoring:"all_or_nothing",selection_requirement:"exact_correct_set",
+        official_answer_key:"not_supplied",source:"native_question_type",
+        reference_url:"https://docs.moodle.org/503/en/All_or_nothing_multiple_choice_question_type"},
+      controls:original.controls,
+    });
+    expect((packet.instructions as string[]).find(instruction => instruction.includes("all-or-nothing")))
+      .toMatch(/selected.*excluded.*zero.*full/i);
+    expect((packet.question as any).grading_metadata).not.toHaveProperty("points");
+    expect((packet.question as any).grading_metadata).not.toHaveProperty("correct_choices");
+    expect(question).toEqual(original);
+    expect((buildQuestionPacket(input).question as any).grading_metadata)
+      .toEqual((packet.question as any).grading_metadata);
+  });
+
+  it("keeps grading unknown for ordinary or unknown question types regardless of checkbox count", () => {
+    for (const question_type of ["multichoice", "unknown", "multianswer", "multichoiceset-extra"]) {
+      for (const count of [1, 4]) {
+        const question: QuizQuestion = {
+          question_id:"q",question_index:1,question_type,prompt:"Select choices",
+          options:[],visible_context:"",controls:Array.from({length:count},(_,index)=>({
+            control_id:`c${index}`,type:"checkbox",value:`choice-${index}`,checked:index===0,
+          })),
+        };
+        const original = structuredClone(question);
+        const packet = buildQuestionPacket({
+          page:{title:"Quiz",url:"https://moodle.example/quiz",body_text:"",questions:[question]},
+          question,pageNumber:1,
+        });
+        expect(packet.question).toMatchObject({
+          grading_metadata:{scoring:"unknown",official_answer_key:"not_supplied"},
+          controls:original.controls,
+        });
+        expect((packet.question as any).grading_metadata).not.toHaveProperty("selection_requirement");
+        expect((packet.question as any).grading_metadata).not.toHaveProperty("points");
+        expect((packet.instructions as string[]).some(instruction => instruction.includes("all-or-nothing")))
+          .toBe(false);
+        expect(question).toEqual(original);
+      }
+    }
+  });
+
   it("keeps solver packets compact while preserving semantic controls and geometry", () => {
     const question: QuizQuestion = {
       question_id: "q1", question_index: 1, question_type: "multianswer", prompt: "Find x", prompt_latex: "x^2=4",

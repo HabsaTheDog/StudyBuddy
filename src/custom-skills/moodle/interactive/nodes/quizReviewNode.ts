@@ -532,6 +532,7 @@ export function buildQuestionPacket(input: {
   question: QuizQuestion;
   pageNumber: number;
 }): Record<string, unknown> {
+  const allOrNothing = input.question.question_type === "multichoiceset";
   return {
     captured_at: new Date().toISOString(),
     page_number: input.pageNumber,
@@ -541,6 +542,16 @@ export function buildQuestionPacket(input: {
       question_id: input.question.question_id,
       question_index: input.question.question_index,
       question_type: input.question.question_type,
+      grading_metadata: allOrNothing
+        ? {
+            scoring: "all_or_nothing",
+            selection_requirement: "exact_correct_set",
+            official_answer_key: "not_supplied",
+            source: "native_question_type",
+            reference_url:
+              "https://docs.moodle.org/503/en/All_or_nothing_multiple_choice_question_type",
+          }
+        : { scoring: "unknown", official_answer_key: "not_supplied" },
       prompt: input.question.prompt,
       prompt_latex: input.question.prompt_latex,
       options: input.question.options,
@@ -553,6 +564,11 @@ export function buildQuestionPacket(input: {
       "When controls expose control_id values, return one control_answers entry for every editable control.",
       "For text, number, and select controls, put the exact answer or exact visible select-option text in answer and set selected=false.",
       "For every radio or checkbox control, copy its control_id and option text into answer and set selected=true only for each correct option.",
+      ...(allOrNothing
+        ? [
+            "Native all-or-nothing grading: verify every selected and excluded option. Omitting any correct option or including any incorrect option yields zero credit; only the exact correct selection earns full credit.",
+          ]
+        : []),
       "For dragdrop controls, use the attached question image and the bounds relative to that image to identify each drop zone and draggable option. Place numbers do NOT imply visual order; identify each target by its bounds, including when a previous answer occupies it. Return the exact option value (not its label) as answer for each control_id, with selected=false. Never reuse a non-reusable option within its group.",
       "Never collapse a multi-field Cloze question into one answer and never collapse a multiple-response checkbox question into one option.",
       "Read the exact quantifiers, declared domain and existence conditions before choosing each answer. Do not silently add a condition that changes the answer.",
