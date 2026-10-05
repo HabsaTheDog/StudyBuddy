@@ -169,6 +169,78 @@ async function start() {
   return executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env, deps);
 }
 describe("direct deterministic quiz owner tools", () => {
+  it("refuses reported answer risks despite high confidence without reflecting arbitrary risk text", async () => {
+    const started = await start();
+    const result = await executeDirectQuiz({
+      op: "fill", runDir: started.runDir, packetDigest: started.packetDigest,
+      answers: [{...answer, confidence: 0.98, risk_flags: ["answer-changing-ambiguity", "private-risk-canary"]}],
+    }, env, deps);
+    expect(result).toMatchObject({
+      ok: false, status: "needs_clarification", error: "answer-risk-flags-present",
+      blocked_questions: [{question_id: answer.question_id, risk_flag_count: 2}],
+      persisted: false, safeNextClicked: false, finalSubmitClicked: false,
+    });
+    expect(result.next_action).toBe("Resolve the reported answer risks from supporting sources or an explicit user decision before filling this page.");
+    expect(JSON.stringify(result)).not.toContain("private-risk-canary");
+    expect(operations).toMatchObject({starts: 1, fills: 0, saves: 0});
+  });
+
+  it("refuses a mixed-page unresolved answer before changing any resolved question", async () => {
+    const original = deps.extract!;
+    deps.extract = async client => {
+      const extracted = await original(client);
+      if (extracted.questions.length) {
+        const second = structuredClone(extracted.questions[0]);
+        second.question_id = "question-1-2";
+        second.question_index = 2;
+        second.controls[0] = {...second.controls[0], id: "answer-2", control_id: "answer-2"};
+        extracted.questions.push(second);
+      }
+      return extracted;
+    };
+    const started = await start();
+    const result = await executeDirectQuiz({
+      op: "fill", runDir: started.runDir, packetDigest: started.packetDigest,
+      answers: [answer, {...answer, question_id: "question-1-2", confidence: 0.99,
+        risk_flags: ["unresolved-assumption"],
+        control_answers: [{control_id: "answer-2", answer: "4", selected: false}]}],
+    }, env, deps);
+    expect(result).toMatchObject({ok:false, status:"needs_clarification",
+      blocked_questions:[{question_id:"question-1-2", risk_flag_count:1}],
+      persisted:false, safeNextClicked:false, finalSubmitClicked:false});
+    expect(operations).toMatchObject({fills:0, saves:0});
+    await expect(executeDirectQuiz({op:"next", runDir:started.runDir}, env, deps))
+      .rejects.toThrow("verified after");
+  });
+
+  it("allows a source-resolved qualification without guessing risk from its wording", async () => {
+    const started = await start();
+    const result = await executeDirectQuiz({op:"fill", runDir:started.runDir,
+      packetDigest:started.packetDigest, answers:[{...answer, confidence:0.98,
+        risk_flags:[], rationale:"The stated assumption is resolved by the referenced definition; the formerly ambiguous alternatives give the same answer under that explicit definition."}]}, env, deps);
+    expect(result).toMatchObject({ok:true, persisted:true});
+    expect(operations).toMatchObject({fills:1,saves:1});
+  });
+
+  it("labels persisted and complete checks as response persistence even for a mathematically wrong submitted answer", async () => {
+    const started = await start();
+    const wrong = {...answer, control_answers:[{control_id:"answer-1",answer:"5",selected:false}]};
+    deps.fill = async (_client, _question, plan) => {
+      operations.fills++;
+      domValue = plan.control_answers![0].answer;
+      return {filled:true};
+    };
+    const filled = await executeDirectQuiz({op:"fill",runDir:started.runDir,
+      packetDigest:started.packetDigest,answers:[wrong]},env,deps);
+    expect(filled).toMatchObject({ok:true,persisted:true,checks:[{verified:true}],
+      verification_scope:"response_persistence",answer_correctness:"not_assessed"});
+    const completed = await executeDirectQuiz({op:"complete",runDir:started.runDir},env,deps);
+    expect(completed).toMatchObject({ok:true,progress:{verified:1,complete:true},
+      verification_scope:"response_persistence",answer_correctness:"not_assessed",finalSubmitClicked:false});
+    expect(serverValue).toBe("5");
+    expect(operations).toMatchObject({starts:1,fills:1,saves:1});
+  });
+
   it.each(["layout", "response-value", "response-selected"])(
     "normalizes immutable drag geometry before filling but binds concurrent %s state", async (change) => {
       let changed = false;

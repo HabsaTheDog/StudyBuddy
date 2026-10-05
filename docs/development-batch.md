@@ -14,6 +14,26 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Graded quiz answer-risk audit (2026-10-05): user reports 9/10 after submitting the
+recovered first attempt. All ten archived questions independently reassessed;
+existing response controls and 65 protected originals unchanged. Q5.3 remains a
+source/interpretation candidate; authenticated Moodle overview exposes completed
+status but review only from 6 October 23:59, so the official lost-point item is
+not established. Existing native/packet briefs now require exact domain,
+quantifiers, existence conditions and source-based resolution of answer-changing
+uncertainty. Explicit risk_flags are representable and block the whole page
+before any fill/save, regardless of confidence; persistence output explicitly
+says mathematical correctness is not assessed. No extra model stage or Moodle
+write/start/submission. Four focused RED-to-GREEN tool regressions; 1,733 root
+tests pass/four existing skips, TypeScript and full UI format/lint plus all13
+UI typechecks pass. Six real App-CLI prompt calls preserve the first conditioned-control false alarm;
+a refined brief passes the same Q5/conditioned two-case confirmation. Local commit
+status and exact diagnostic limits are recorded in [answer audit](quiz-answer-risk-audit-2026-10-05.md).
+UI dependency `f19b91646de39944ee6461d354da97cc0b5245f5` is committed and pinned locally; the
+root scoped change queues the reviewed answer contract and audit. Source-only
+development batch; no push, merge, deployed installation, packaged acceptance
+or release approval.
+
 Source-grounded study communication (2026-10-05): native addressed drafts now
 research the configured course, recipient and session, retain explicit contact
 provenance ahead of long source text, and present a usable conditional draft

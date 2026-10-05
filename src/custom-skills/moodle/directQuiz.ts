@@ -64,7 +64,7 @@ const Answer = z
     confidence: z.number().min(0).max(1),
     citations: z.array(z.string()),
     rationale: z.string().optional(),
-    risk_flags: z.array(z.string()).max(0).optional(),
+    risk_flags: z.array(z.string()).optional(),
     control_answers: z
       .array(
         z
@@ -625,6 +625,24 @@ export async function executeDirectQuiz(
     if (request.op !== "fill") throw Error("Unsupported quiz operation.");
     allowed(policy, "suggest_answers");
     allowed(policy, "save_or_next_page");
+    // A solver's explicit unresolved risk is independent of its confidence.
+    // Reject the whole page before any answer is changed, including resolved
+    // questions preceding the risky one. Do not reflect untrusted risk text.
+    const riskyAnswers = request.answers.filter((answer) => answer.risk_flags?.length);
+    if (riskyAnswers.length)
+      return out(state, false, {
+        status: "needs_clarification",
+        error: "answer-risk-flags-present",
+        blocked_questions: riskyAnswers.map((answer) => ({
+          question_id: answer.question_id,
+          risk_flag_count: answer.risk_flags!.length,
+        })),
+        next_action:
+          "Resolve the reported answer risks from supporting sources or an explicit user decision before filling this page.",
+        persisted: false,
+        safeNextClicked: false,
+        finalSubmitClicked: false,
+      });
     const freshMedia = await mediaIdentities(state, client, page);
     if (
       freshMedia.incomplete.length ||
@@ -1467,6 +1485,10 @@ function out(state: QuizState, ok: boolean, extra: Record<string, unknown> = {})
     ok,
     kind: "direct_quiz",
     status: state.status,
+    // These tools compare the supplied plan with saved Moodle responses;
+    // they do not assess the plan's mathematics or the official marking key.
+    verification_scope: "response_persistence",
+    answer_correctness: "not_assessed",
     runDir: state.runDir,
     targetUrl: state.targetUrl,
     attemptUrl: state.attemptUrl,

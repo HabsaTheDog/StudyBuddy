@@ -555,7 +555,12 @@ export function buildQuestionPacket(input: {
       "For every radio or checkbox control, copy its control_id and option text into answer and set selected=true only for each correct option.",
       "For dragdrop controls, use the attached question image and the bounds relative to that image to identify each drop zone and draggable option. Place numbers do NOT imply visual order; identify each target by its bounds, including when a previous answer occupies it. Return the exact option value (not its label) as answer for each control_id, with selected=false. Never reuse a non-reusable option within its group.",
       "Never collapse a multi-field Cloze question into one answer and never collapse a multiple-response checkbox question into one option.",
-      "If unsure, set confidence below 0.65 or add a risk flag so the orchestrator leaves the answer unchanged.",
+      "Read the exact quantifiers, declared domain and existence conditions before choosing each answer. Do not silently add a condition that changes the answer.",
+      "For an asserted rule, test a counterexample and boundary case; for calculations, recompute the result and check signs and units against the original question.",
+      "Solve from the explicit premises first. If those premises and a valid derivation already determine the answer, an unavailable or narrower supporting reference alone is not a risk. Use the stated existence conditions rather than treating them as missing.",
+      "If the content of a referenced definition or course source could still change the answer, read that exact available source and cite the actual passage/page. A question-packet citation alone does not prove a referenced definition was read.",
+      "Return risk_flags explicitly. An unresolved ambiguity, missing prerequisite or conflicting source that changes the selected answer is a risk flag even at high confidence. A source-supported resolution should be explained in rationale; ordinary explanatory qualifications do not require a risk flag.",
+      "If insufficiently supported, lower confidence and leave the answer unchanged. Never guess to achieve complete coverage; persistence checks assess saved values, not mathematical correctness or official grading.",
     ],
   };
 }
