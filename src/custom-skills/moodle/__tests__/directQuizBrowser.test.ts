@@ -4,7 +4,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { describe, expect, it } from "vitest";
+import { chromium } from "playwright";
 import { executeDirectQuiz } from "../directQuiz.js";
+import { canonicalDirectQuizPage } from "../directQuizCapture.js";
+import { extractQuizPage, fillVisibleQuestion, verifyQuestionAnswers } from "../interactive/nodes/quizReviewNode.js";
+import type { AgentBrowserClient } from "../interactive/agentBrowserClient.js";
 
 async function multiPageFixture(
   run: (
@@ -15,8 +19,12 @@ async function multiPageFixture(
       mediaVersion: number;
       addAfterSave: boolean;
       inline: boolean;
+      cloze: boolean;
       sharedPrice: number;
+      navigationOpen: boolean;
       invalidNavigation: boolean;
+      idlessCard: boolean;
+      hideHistory: boolean;
       starts: number;
       saves: number;
       finals: number;
@@ -32,8 +40,12 @@ async function multiPageFixture(
     mediaVersion: 1,
     addAfterSave: false,
     inline: false,
+    cloze: false,
     sharedPrice: 7,
+    navigationOpen: false,
     invalidNavigation: false,
+    idlessCard: false,
+    hideHistory: false,
     starts: 0,
     saves: 0,
     finals: 0,
@@ -57,7 +69,7 @@ async function multiPageFixture(
       response.end();
     } else if (url.pathname.endsWith("/view.php")) {
       response.end(
-        `<title>Five original questions</title><p>Attempts allowed: 2</p>${control.starts ? '<table><tr><th>Attempt</th></tr><tr><td>1</td><td><a href="/mod/quiz/attempt.php?attempt=123&page=0">Continue attempt</a></td></tr></table>' : '<p>No attempts yet</p><form method="post" action="/mod/quiz/startattempt.php"><input name="cmid" type="hidden" value="7"><button>Attempt quiz</button></form>'}`,
+        `<title>Five original questions</title><p>Attempts allowed: 2</p>${control.starts ? (control.hideHistory ? "<button>Continue attempt</button>" : control.idlessCard ? '<div class="card"><h3>Attempt 1</h3><dl><dt>Status</dt><dd>In progress</dd></dl></div><form method="post" action="/mod/quiz/startattempt.php"><input name="cmid" type="hidden" value="7"><button>Continue attempt</button></form>' : '<table><tr><th>Attempt</th></tr><tr><td>1</td><td><a href="/mod/quiz/attempt.php?attempt=123&page=0">Continue attempt</a></td></tr></table>') : '<p>No attempts yet</p><form method="post" action="/mod/quiz/startattempt.php"><input name="cmid" type="hidden" value="7"><button>Attempt quiz</button></form>'}`,
       );
     } else if (url.pathname.endsWith("/processattempt.php")) {
       let body = "";
@@ -81,7 +93,7 @@ async function multiPageFixture(
       const questions = [...(groups[number] ?? [])];
       if (control.addAfterSave && control.saves > 0 && number === 0) questions.push(6);
       response.end(
-        `<title>Five original questions</title><p>Shared stem: price ${control.sharedPrice}; add each number to itself.</p><div id="mod_quiz_navblock">${descriptionPage ? '<a class="qnbutton" id="quiznavbutton99" data-quiz-page="0" href="/mod/quiz/attempt.php?attempt=123&amp;page=0"><span class="accesshide">Information </span>i</a>' : ""}${control.invalidNavigation ? '<a class="qnbutton" data-quiz-page="0">Unknown</a>' : ""}${groups.flatMap((group, page) => group.map((slot) => `<a class="qnbutton" id="quiznavbutton${slot}" data-quiz-page="${page}" href="/mod/quiz/attempt.php?attempt=123&page=${page}#question-${slot}"><span class="accesshide">Question </span>${slot}<span class="accesshide"> Not yet answered</span></a>`)).join("")}</div><form method="post" action="/mod/quiz/processattempt.php"><input type="hidden" name="attempt" value="123"><input type="hidden" name="finishattempt" value="0"><input type="hidden" name="nextpage" value="${number === lastPage ? -1 : number + 1}">${descriptionPage && number === 0 ? '<div class="que description" id="question-123-99"><div class="qtext">Shared original diagram: all questions use this geometry.<img src="/original.svg" width="160"></div></div>' : ""}${questions.map((slot) => `<div class="que shortanswer" id="question-123-${slot}"><div class="info">Question ${slot}</div><div class="qtext">What is ${slot} + ${slot}?${slot === 3 ? '<img src="/original.svg" width="160">' : ""}${control.inline ? input(slot) : ""}</div>${control.inline ? "" : input(slot)}</div>`).join("")}<button>${number === lastPage ? "Finish attempt..." : "Next page"}</button></form>`,
+        `<title>Five original questions</title>${control.navigationOpen ? '<div id="theme_boost-drawers-courseindex"><div class="courseindex">Course navigation list</div></div><aside class="drawer">Other courses</aside><aside data-region="drawer">Activities</aside><nav role="navigation">Course topics</nav><div role="navigation">Breadcrumb navigation</div>' : ""}<p>Shared stem: price ${control.sharedPrice}; add each number to itself.</p><div id="mod_quiz_navblock">${descriptionPage ? '<a class="qnbutton" id="quiznavbutton99" data-quiz-page="0" href="/mod/quiz/attempt.php?attempt=123&amp;page=0"><span class="accesshide">Information </span>i</a>' : ""}${control.invalidNavigation ? '<a class="qnbutton" data-quiz-page="0">Unknown</a>' : ""}${groups.flatMap((group, page) => group.map((slot) => `<a class="qnbutton" id="quiznavbutton${slot}" data-quiz-page="${page}" href="/mod/quiz/attempt.php?attempt=123&page=${page}#question-${slot}"><span class="accesshide">Question </span>${slot}<span class="accesshide"> Not yet answered</span></a>`)).join("")}</div><form method="post" action="/mod/quiz/processattempt.php"><input type="hidden" name="attempt" value="123"><input type="hidden" name="finishattempt" value="0"><input type="hidden" name="nextpage" value="${number === lastPage ? -1 : number + 1}">${descriptionPage && number === 0 ? '<div class="que description" id="question-123-99"><div class="qtext">Shared original diagram: all questions use this geometry.<img src="/original.svg" width="160"></div></div>' : ""}${questions.map((slot) => control.cloze ? `<div class="que multianswer deferredfeedback ${control.saves ? "complete" : "notyetanswered"}" id="question-123-${slot}"><div class="info"><h3>Question <span class="qno">${slot}</span></h3><div class="state">${control.saves ? "Answer saved" : "Not yet answered"}</div></div><div class="content"><div class="formulation"><input type="hidden" name="sequencecheck" value="${control.saves + 1}"><p>What is ${slot} + ${slot}?${input(slot)}</p></div></div></div>` : `<div class="que shortanswer" id="question-123-${slot}"><div class="info">Question ${slot}</div><div class="qtext">What is ${slot} + ${slot}?${slot === 3 ? '<img src="/original.svg" width="160">' : ""}${control.inline ? input(slot) : ""}</div>${control.inline ? "" : input(slot)}</div>`).join("")}<button>${number === lastPage ? "Finish attempt..." : "Next page"}</button></form>`,
       );
     } else if (url.pathname.endsWith("/summary.php"))
       response.end(
@@ -132,6 +144,79 @@ async function suppliedAnswers(result: Record<string, unknown>) {
 }
 
 describe("whole-attempt capture and durable server receipts", () => {
+  it("keeps saved receipts when course navigation closes but invalidates a changed shared task stem", async () => {
+    await multiPageFixture(async (env, control) => {
+      control.navigationOpen = true;
+      const inspected = await executeDirectQuiz(
+        { op: "inspect", url: `${env.MOODLE_BASE_URL}/mod/quiz/view.php?id=7` }, env,
+      );
+      const started = await executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env);
+      await executeDirectQuiz({ op: "collect", runDir: started.runDir }, env);
+      for (const page of [0, 1, 2]) {
+        const current = await executeDirectQuiz({ op: "read", runDir: started.runDir, page }, env);
+        expect(await executeDirectQuiz({
+          op: "fill", runDir: started.runDir, packetDigest: current.packetDigest,
+          answers: await suppliedAnswers(current),
+        }, env)).toMatchObject({ persisted: true });
+      }
+      control.navigationOpen = false;
+      expect(await executeDirectQuiz({ op: "complete", runDir: started.runDir }, env))
+        .toMatchObject({ ok: true, progress: { total: 5, verified: 5, complete: true } });
+      control.navigationOpen = true;
+      expect(await executeDirectQuiz({ op: "complete", runDir: started.runDir }, env))
+        .toMatchObject({ ok: true, progress: { total: 5, verified: 5, complete: true } });
+      control.sharedPrice++;
+      expect(await executeDirectQuiz({ op: "complete", runDir: started.runDir }, env))
+        .toMatchObject({ ok: false, progress: { verified: 0, complete: false } });
+      expect(control).toMatchObject({ starts: 1, saves: 3, finals: 0 });
+    });
+  }, 120_000);
+  it("recovers a durably received first ID after post-start native metadata was initially unreadable", async () => {
+    await multiPageFixture(async (env, control) => {
+      control.idlessCard = true;
+      control.hideHistory = true;
+      const inspected = await executeDirectQuiz(
+        { op: "inspect", url: `${env.MOODLE_BASE_URL}/mod/quiz/view.php?id=7` },
+        env,
+      );
+      await expect(
+        executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env),
+      ).rejects.toThrow("exact active first attempt");
+      expect(control.starts).toBe(1);
+      control.hideHistory = false;
+      const recovered = await executeDirectQuiz({ op: "recover", runDir: inspected.runDir }, env);
+      expect(new URL(recovered.attemptUrl as string).searchParams.get("attempt")).toBe("123");
+      expect(recovered).toMatchObject({ ok: true, progress: { total: 5, captured: 2 } });
+      expect(control).toMatchObject({ starts: 1, saves: 0, finals: 0 });
+    });
+  }, 120_000);
+  it("binds and recovers its actual first redirect when a Moodle-style active card has no attempt ID", async () => {
+    await multiPageFixture(async (env, control) => {
+      control.idlessCard = true;
+      const inspected = await executeDirectQuiz(
+        { op: "inspect", url: `${env.MOODLE_BASE_URL}/mod/quiz/view.php?id=7` },
+        env,
+      );
+      const started = await executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env);
+      expect(started).toMatchObject({
+        ok: true,
+        status: "active",
+        progress: { total: 5, captured: 2 },
+      });
+      const status = await executeDirectQuiz({ op: "status", runDir: started.runDir }, env);
+      expect(status.metadata).toMatchObject({
+        hasActiveAttempt: true,
+        attemptsUsed: 1,
+        activeAttemptId: null,
+        activeAttemptNumber: null,
+      });
+      expect(status).toMatchObject({ firstAttemptBound: true });
+      const recovered = await executeDirectQuiz({ op: "recover", runDir: started.runDir }, env);
+      expect(new URL(recovered.attemptUrl as string).searchParams.get("attempt")).toBe("123");
+      expect(recovered).toMatchObject({ ok: true, progress: { captured: 2 } });
+      expect(control).toMatchObject({ starts: 1, saves: 0, finals: 0 });
+    });
+  }, 120_000);
   it("collects a native information-only page and supplies its original image and text to every answer packet", async () => {
     await multiPageFixture(async (env, control) => {
       const inspected = await executeDirectQuiz(
@@ -506,3 +591,190 @@ describe("direct quiz tools through real guarded Playwright", () => {
     }
   }, 60_000);
 });
+
+
+it("verifies a Moodle Cloze save when status classes and hidden sequence state change", async () => {
+  await multiPageFixture(async (env, control) => {
+    control.cloze = true;
+    const inspected = await executeDirectQuiz({ op: "inspect", url: `${env.MOODLE_BASE_URL}/mod/quiz/view.php?id=7` }, env);
+    const current = await executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env);
+    const result = await executeDirectQuiz({ op: "fill", runDir: inspected.runDir,
+      packetDigest: current.packetDigest, answers: await suppliedAnswers(current) }, env);
+    expect(result).toMatchObject({ ok: true, persisted: true });
+    expect(control.saves).toBe(1);
+    expect(control.finals).toBe(0);
+  });
+}, 30000);
+
+
+it("still rejects changed Cloze givens before saving", async () => {
+  await multiPageFixture(async (env, control) => {
+    control.cloze = true;
+    const inspected = await executeDirectQuiz({ op: "inspect", url: `${env.MOODLE_BASE_URL}/mod/quiz/view.php?id=7` }, env);
+    const current = await executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env);
+    control.sharedPrice++;
+    await expect(executeDirectQuiz({ op: "fill", runDir: inspected.runDir,
+      packetDigest: current.packetDigest, answers: await suppliedAnswers(current) }, env)).rejects.toThrow("stale");
+    expect(control.saves).toBe(0);
+    expect(control.finals).toBe(0);
+  });
+}, 30000);
+
+it("keeps Cloze source mathematics stable through MathJax v2 rendering and rejects changed source TeX", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(String.raw`<p>Shared given <span id="shared-math">\(c=2\)</span>.</p>
+      <div class="que multianswer deferredfeedback" id="question-42-1">
+      <div class="content"><div class="formulation"><span class="filter_mathjaxloader_equation"><p>Differentiate
+      <span id="inline-math" class="nolink">\(f(x)=x^2+1\)</span>.
+      <span id="display-math">\[f'(x)=2x\]</span>
+      <span class="subquestion"><label for="answer-1">Choose the derivative</label>
+        <select id="answer-1"><option value=""></option><option value="two-x">2x</option><option value="x">x</option></select>
+      </span></p></span></div></div></div>`);
+    const client = {
+      evalJson: async <T,>(expression: string): Promise<T> => {
+        const result = await page.evaluate(expression);
+        return (typeof result === "string" ? JSON.parse(result) : result) as T;
+      },
+    } as AgentBrowserClient;
+    const capture = async () => canonicalDirectQuizPage(client, await extractQuizPage(client));
+    const before = await capture();
+    await page.evaluate(() => {
+      document.getElementById("answer-1")!.addEventListener("change", () => {
+        document.getElementById("question-42-1")!.classList.add("answersaved");
+        document.querySelector(".formulation p")!.id = "yui_3_18_1_1_1791200183558_267";
+        document.querySelector(".subquestion")!.id = "yui_3_18_1_1_1791200183558_268";
+        document.querySelector(".filter_mathjaxloader_equation")!.id = "yui_3_18_1_1_1791200183558_269";
+        document.getElementById("answer-1")!.setAttribute("data-initial-value", "");
+        for (const [id, tex, display] of [
+          ["inline-math", "f(x)=x^2+1", false],
+          ["display-math", "f'(x)=2x", true],
+          ["shared-math", "c=2", false],
+        ] as const) {
+          const wrapper = document.getElementById(id)!;
+          wrapper.replaceChildren();
+          const preview = document.createElement("span");
+          preview.className = "MathJax_Preview";
+          preview.textContent = tex;
+          preview.style.display = "none";
+          const output = document.createElement("span");
+          output.className = display ? "MathJax MathJax_Display" : "MathJax";
+          output.setAttribute("role", "presentation");
+          output.textContent = "typeset presentation";
+          const source = document.createElement("script");
+          source.type = display ? "math/tex; mode=display" : "math/tex";
+          source.textContent = tex;
+          wrapper.append(preview, output, source);
+        }
+      }, { once: true });
+    });
+    const answer = { confidence: 0.99, citations: ["visible local question"],
+      control_answers: [{ control_id: "answer-1", answer: "two-x", selected: false }] };
+    expect(await fillVisibleQuestion(client, before.questions[0], answer)).toMatchObject({ filled: true });
+    const after = await capture();
+    expect(verifyQuestionAnswers(after.questions[0], answer)).toMatchObject({ verified: true });
+    expect(after.body_text).toEqual(before.body_text);
+    expect(after.body_text).toContain("c=2");
+    const identity = (question: typeof before.questions[number]) => ({
+      ...question,
+      controls: question.controls.map(({ value, checked: _checked, raw_html: _raw, options, ...control }) => ({
+        ...control,
+        value: ["radio", "checkbox"].includes(String(control.type)) ? value : undefined,
+        options: Array.isArray(options) ? options.map(({ selected: _selected, ...option }) => option) : options,
+      })),
+    });
+    expect(identity(after.questions[0])).toEqual(identity(before.questions[0]));
+    expect(JSON.stringify(identity(after.questions[0]))).toContain("x^2+1");
+    expect(after.questions[0].prompt_html).toContain('id="inline-math"');
+    expect(after.questions[0].prompt_html).toContain('id="answer-1"');
+    await page.evaluate(() => {
+      document.querySelector('#inline-math script[type="math/tex"]')!.textContent = "f(x)=x^3+1";
+    });
+    const changed = await capture();
+    expect(identity(changed.questions[0])).not.toEqual(identity(after.questions[0]));
+    expect(JSON.stringify(identity(changed.questions[0]))).toContain("x^3+1");
+  } finally { await browser.close(); }
+}, 30_000);
+
+it("binds public drag sources and targets while reusable response clones move", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    // All traffic stays offline; source URLs are public task identifiers only.
+    const fixtureUrl = "http://127.0.0.1:1/fixture";
+    const html = `<style>
+      .que {position:relative;width:600px;height:420px}
+      .droparea {position:absolute;left:20px;top:70px;width:500px;height:240px}
+      .dropzone,.draghome {position:absolute;width:80px;height:40px;box-sizing:border-box}
+      .place1 {left:100px;top:50px}.place2 {left:260px;top:50px}
+      .draghomes .choice1 {left:20px;top:350px}.draghomes .choice2 {left:140px;top:350px}
+      </style><div class="que ddimageortext" id="question-42-2"><div class="formulation">
+      <div class="qtext">Match each target to its source graphic.</div><div class="ddarea">
+      <div class="droparea"><img class="dropbackground" src="http://127.0.0.1:1/background.png" alt="original diagram" width="500" height="240">
+        <div class="dropzone place1 group1" tabindex="0" aria-label="First target">First target</div>
+        <div class="dropzone place2 group1" tabindex="0" aria-label="Second target">Second target</div>
+      </div><div class="draghomes">
+        <img class="draghome choice1 group1 infinite" src="http://127.0.0.1:1/alpha.png" alt="Alpha">
+        <img class="draghome choice2 group1" src="http://127.0.0.1:1/beta.png" alt="Beta">
+      </div><input class="placeinput place1 group1" id="drop-answer-1" type="hidden" value="0">
+      <input class="placeinput place2 group1" id="drop-answer-2" type="hidden" value="0">
+      </div></div></div>`;
+    await page.route("**/*", route => route.request().url() === fixtureUrl
+      ? route.fulfill({ contentType: "text/html", body: html }) : route.abort());
+    await page.goto(fixtureUrl);
+    await page.evaluate(() => {
+      document.addEventListener("keydown", event => {
+        const drop = (event.target as Element).closest<HTMLElement>(".dropzone");
+        if (!drop) return;
+        const place = Array.from(drop.classList).find(name => /^place\d+$/.test(name))!;
+        const input = document.querySelector<HTMLInputElement>(`input.${place}`)!;
+        if (event.key === "Escape") {
+          input.value = "0";
+          document.querySelector(`.placed.in${place}`)?.remove();
+          drop.style.visibility = "";
+        } else if (event.key === "ArrowRight") {
+          input.value = "1";
+          const item = document.querySelector<HTMLImageElement>(".draghomes .choice1")!.cloneNode(true) as HTMLImageElement;
+          item.classList.add("placed", `in${place}`);
+          item.style.left = `${drop.offsetLeft}px`;
+          item.style.top = `${drop.offsetTop}px`;
+          document.querySelector(".droparea")!.append(item);
+          drop.style.visibility = "hidden";
+        }
+      });
+    });
+    const client = {
+      evalJson: async <T,>(expression: string): Promise<T> => {
+        const result = await page.evaluate(expression);
+        return (typeof result === "string" ? JSON.parse(result) : result) as T;
+      },
+    } as AgentBrowserClient;
+    const capture = async () => canonicalDirectQuizPage(client, await extractQuizPage(client));
+    const before = await capture();
+    const answer = { confidence: 0.99, citations: ["visible local diagram"],
+      control_answers: [1, 2].map(place => ({ control_id: `drop-answer-${place}`, answer: "1", selected: false })) };
+    expect(await fillVisibleQuestion(client, before.questions[0], answer)).toMatchObject({ filled: true });
+    const after = await capture();
+    expect(verifyQuestionAnswers(after.questions[0], answer)).toMatchObject({ verified: true });
+    const identity = (question: typeof before.questions[number]) => ({
+      ...question,
+      controls: question.controls.map(({ value: _value, checked: _checked, raw_html: _raw, options, ...control }) => ({
+        ...control,
+        options: Array.isArray(options) ? options.map(({ selected: _selected, bounds: _responsePosition, ...option }) => option) : options,
+      })),
+    });
+    expect(identity(after.questions[0])).toEqual(identity(before.questions[0]));
+    expect(after.questions[0].controls).toHaveLength(2);
+    expect(after.questions[0].controls.every(control => (control.options as unknown[]).length === 2)).toBe(true);
+    await page.evaluate(() => { document.querySelector<HTMLImageElement>(".draghomes .choice2")!.src = "http://127.0.0.1:1/changed-beta.png"; });
+    const changedSource = await capture();
+    expect(identity(changedSource.questions[0])).not.toEqual(identity(after.questions[0]));
+    await page.evaluate(() => {
+      document.querySelector<HTMLImageElement>(".draghomes .choice2")!.src = "http://127.0.0.1:1/beta.png";
+      document.querySelector<HTMLElement>(".dropzone.place2")!.style.left = "310px";
+    });
+    const changedTarget = await capture();
+    expect(identity(changedTarget.questions[0])).not.toEqual(identity(after.questions[0]));
+  } finally { await browser.close(); }
+}, 30_000);

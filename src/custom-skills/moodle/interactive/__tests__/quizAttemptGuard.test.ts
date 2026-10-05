@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, rm, symlink, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -12,6 +12,9 @@ import {
   reconcileFirstQuizAttempt,
   consumeFirstQuizStartRequest,
   openFirstQuizAttempt,
+  recordFirstQuizStartRedirect,
+  loadFirstQuizStartRedirect,
+  proveFirstQuizAttemptIdentity,
 } from "../quizAttemptGuard.js";
 import type { AgentBrowserClient } from "../agentBrowserClient.js";
 import type { MoodleRuntimeConfig } from "../types.js";
@@ -30,6 +33,89 @@ async function config(accountKey = "account-one") {
 const fresh = () =>
   normalizeQuizMetadata({ attemptsUsed: 0, attemptsAllowed: 2, hasStartControl: true });
 describe("durable first quiz attempt", () => {
+  it("recovers an ID-less native first-attempt card only from its own durable verified start response", async () => {
+    const c = await config();
+    const card: ReturnType<typeof normalizeQuizMetadata> = {
+      ...fresh(),
+      attemptsUsed: 1,
+      hasActiveAttempt: true,
+      activeAttemptId: null,
+      activeAttemptNumber: null,
+      identityEvidence: {
+        currentAttemptId: null,
+        continuation: [],
+        history: [{ ordinal: 1, attemptId: null, source: "history-card" }],
+      },
+    };
+    await reserveFirstQuizAttempt(c, fresh());
+    await consumeFirstQuizStartRequest(c);
+    await expect(proveFirstQuizAttemptIdentity(c, card)).rejects.toThrow();
+    await recordFirstQuizStartRedirect(c, {
+      status: 303,
+      startUrl: "https://moodle.example/mod/quiz/startattempt.php",
+      attemptUrl: "https://moodle.example/mod/quiz/attempt.php?attempt=321&cmid=7",
+    });
+    expect(await loadFirstQuizStartRedirect({ ...c })).toMatchObject({
+      attemptId: "321",
+      status: 303,
+    });
+    expect(await reconcileFirstQuizAttempt({ ...c }, card)).toMatchObject({
+      attemptId: "321",
+      attemptNumber: 1,
+    });
+    await expect(consumeFirstQuizStartRequest(c)).rejects.toThrow(/already consumed/);
+    const changes: Array<ReturnType<typeof normalizeQuizMetadata>> = [
+      { ...card, attemptsUsed: 2 },
+      { ...card, hasActiveAttempt: false },
+      { ...card, activeAttemptId: "322" },
+      { ...card, activeAttemptNumber: 2 },
+      {
+        ...card,
+        identityEvidence: {
+          ...card.identityEvidence!,
+          history: [{ ordinal: 2, attemptId: null, source: "history-card" }],
+        },
+      },
+      { ...card, identityEvidence: { ...card.identityEvidence!, history: [] } },
+    ];
+    for (const changed of changes)
+      await expect(proveFirstQuizAttemptIdentity(c, changed)).rejects.toThrow();
+  });
+  it("does not synthesize a response receipt from a legacy debit or conflicting/foreign redirect", async () => {
+    const c = await config();
+    await reserveFirstQuizAttempt(c, fresh());
+    const valid = {
+      status: 303 as const,
+      startUrl: "https://moodle.example/mod/quiz/startattempt.php",
+      attemptUrl: "https://moodle.example/mod/quiz/attempt.php?attempt=321",
+    };
+    await expect(recordFirstQuizStartRedirect(c, valid)).rejects.toThrow();
+    await consumeFirstQuizStartRequest(c);
+    await expect(
+      recordFirstQuizStartRedirect(c, {
+        ...valid,
+        attemptUrl: "https://foreign.example/mod/quiz/attempt.php?attempt=321",
+      }),
+    ).rejects.toThrow();
+    await recordFirstQuizStartRedirect(c, valid);
+    await recordFirstQuizStartRedirect(c, valid);
+    await expect(
+      recordFirstQuizStartRedirect(c, {
+        ...valid,
+        attemptUrl: valid.attemptUrl.replace("321", "322"),
+      }),
+    ).rejects.toThrow();
+    const legacy = await config();
+    await reserveFirstQuizAttempt(legacy, fresh());
+    await consumeFirstQuizStartRequest(legacy);
+    const [folder] = await readdir(legacy.ledgerRoot);
+    const reservationPath = path.join(legacy.ledgerRoot, folder!, "reservation.json");
+    const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
+    delete reservation.preflight;
+    await writeFile(reservationPath, JSON.stringify(reservation));
+    await expect(recordFirstQuizStartRedirect(legacy, valid)).rejects.toThrow(/fresh reservation/);
+    expect(await loadFirstQuizStartRedirect(legacy)).toBeNull();
+  });
   it("reads actual native zero/history/active ordinal facts without double-counting review links", async () => {
     let html = "Erlaubte Versuche: 2 <button>Test versuchen</button>";
     const server = createServer((_request, response) => {

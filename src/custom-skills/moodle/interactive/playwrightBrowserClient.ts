@@ -45,7 +45,7 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
       assertNoFinalQuizSubmission(input);
       await this.#quizRequestGuard?.(input);
     } catch {
-      this.#quizRequestError = new QuizRequestBlockedError();
+      this.#quizRequestError ??= new QuizRequestBlockedError(input);
       throw this.#quizRequestError;
     }
   }
@@ -364,7 +364,7 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
                   throw new QuizRequestBlockedError();
                 }
                 await this.#admitQuizRequest({ url: target.toString(), method: "GET", postData: null,
-                  redirectedFrom: { url: request.url(), method: request.method() } });
+                  redirectedFrom: { url: request.url(), method: request.method(), status } });
               }
               await route.fulfill({ response });
             } finally { await response.dispose(); }
@@ -374,7 +374,7 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
         } catch {
           // Never expose URLs, sesskeys, request bodies or callback errors. A
           // denied autosave remains a sticky failure, not a successful write.
-          this.#quizRequestError = new QuizRequestBlockedError();
+          this.#quizRequestError ??= new QuizRequestBlockedError(input);
           await route.abort("blockedbyclient").catch(() => undefined);
         }
       })();

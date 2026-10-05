@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,11 @@ import { executeDirectQuiz, type DirectQuizDependencies } from "../directQuiz.js
 import { normalizeQuizMetadata } from "../interactive/quizSafetyPolicy.js";
 import type { AgentBrowserClient } from "../interactive/agentBrowserClient.js";
 import type { QuizPageExtraction } from "../interactive/nodes/quizReviewNode.js";
+import {
+  reserveFirstQuizAttempt,
+  consumeFirstQuizStartRequest,
+  loadFirstQuizStartRedirect,
+} from "../interactive/quizAttemptGuard.js";
 
 const target = "https://university.example/mod/quiz/view.php?id=7";
 const attempt = "https://university.example/mod/quiz/attempt.php?attempt=123&page=0";
@@ -22,7 +27,7 @@ let guard: (request: {
   url: string;
   method: string;
   postData: string | null;
-  redirectedFrom?: { url: string; method: string };
+  redirectedFrom?: { url: string; method: string; status?: number };
 }) => void | Promise<void>;
 let operations: { starts: number; fills: number; saves: number; closes: number };
 const answer = {
@@ -136,7 +141,7 @@ beforeEach(async () => {
         url: attempt,
         method: "GET",
         postData: null,
-        redirectedFrom: { url, method: "POST" },
+        redirectedFrom: { url, method: "POST", status: 303 },
       });
       currentUrl = attempt;
       active = true;
@@ -164,6 +169,287 @@ async function start() {
   return executeDirectQuiz({ op: "start", runDir: inspected.runDir }, env, deps);
 }
 describe("direct deterministic quiz owner tools", () => {
+  it.each(["layout", "response-value", "response-selected"])(
+    "normalizes immutable drag geometry before filling but binds concurrent %s state", async (change) => {
+      let changed = false;
+      const original = deps.extract!;
+      deps.extract = async (client) => {
+        const result = await original(client);
+        const question = result.questions[0];
+        question.question_type = "ddimageortext";
+        question.controls[0] = {...question.controls[0], type:"dragdrop",
+          value: changed && change === "response-value" ? "unexpected-current-answer" : domValue,
+          bounds:{x:changed ? 250.5 : 250,y:100,width:50,height:30},
+          target_geometry:{left:250,top:100,width:50,height:30,
+            transform:[1,0,0,1,0,0],transform_origin:[0,0]},
+          options:[{value:"4",text:"four",reusable:false,
+            image_src:"https://university.example/original.png",
+            selected:changed && change === "response-selected",
+            bounds:{x:changed ? 20.5 : 20,y:220,width:50,height:30}}],
+        };
+        question.response_model={adapter:"drag-drop-image",support:"supported",
+          questionType:"ddimageortext",controlCount:1,controlTypes:["dragdrop"],
+          reason:"complete-native-control-surface"};
+        return result;
+      };
+      const current = await start();
+      changed = true;
+      const invoke = () => executeDirectQuiz({op:"fill",runDir:current.runDir,
+        packetDigest:current.packetDigest,answers:[answer]},env,deps);
+      if (change === "layout") {
+        expect(await invoke()).toMatchObject({ok:true,persisted:true});
+        expect(operations).toMatchObject({fills:1,saves:1});
+      } else {
+        await expect(invoke()).rejects.toThrow("stale");
+        expect(operations).toMatchObject({fills:0,saves:0});
+      }
+    },
+  );
+  it.each(["transient-recovers", "transient-persists", "unknown", "policy", "http403", "changed-bytes"])(
+    "bounds fresh original-media retry without relaxing identity for %s", async (scenario) => {
+      let fresh = false, initialCaptures = 0, preFillCaptures = 0;
+      const client = deps.browser!({} as any);
+      const valid = (changed = false) => ({images:[{path:"original.png", url:"https://university.example/original.png",
+        sha256:changed ? "changed-original" : "original-sha", mimeType:"image/png"}],
+        errors:[], complete:true, expectedImageCount:1, capturedImageCount:1});
+      deps.browser = () => ({...client, captureQuestionEvidence: async () => {
+        if (!fresh) { initialCaptures++; return valid(); }
+        if (operations.fills > 0) return valid();
+        preFillCaptures++;
+        if (scenario === "changed-bytes") return valid(true);
+        if (scenario === "transient-recovers" && preFillCaptures > 1) return valid();
+        const code = scenario === "unknown" ? "unknown-backend-failure"
+          : scenario === "policy" ? "image-1:image-origin-not-allowed"
+          : scenario === "http403" ? "image-1:image-http-403" : "question-screenshot-failed";
+        return {images:[],errors:[code],complete:false,expectedImageCount:1,capturedImageCount:0};
+      }} as AgentBrowserClient);
+      const current = await start();
+      expect(initialCaptures).toBe(1);
+      fresh = true;
+      const invoke = () => executeDirectQuiz({op:"fill", runDir:current.runDir,
+        packetDigest:current.packetDigest, answers:[answer]}, env, deps);
+      if (scenario === "changed-bytes") {
+        await expect(invoke()).rejects.toThrow("stale");
+        expect(preFillCaptures).toBe(1);
+        expect(operations).toMatchObject({fills:0,saves:0});
+      } else if (scenario === "transient-recovers") {
+        expect(await invoke()).toMatchObject({ok:true,persisted:true});
+        expect(preFillCaptures).toBe(2);
+        expect(operations).toMatchObject({fills:1,saves:1});
+      } else {
+        expect(await invoke()).toMatchObject({ok:false,status:"manual_action_required",finalSubmitClicked:false});
+        expect(preFillCaptures).toBe(scenario === "transient-persists" ? 3 : 1);
+        expect(operations).toMatchObject({fills:0,saves:0});
+      }
+    },
+  );
+  it("blocks a fresh media failure and exposes only sanitized diagnostic codes and readiness fields", async () => {
+    let failed = false;
+    const canary = "https://private.example/image?token=DO_NOT_EXPOSE";
+    const client = deps.browser!({} as any);
+    deps.browser = () => ({...client, captureQuestionEvidence: async () => failed ? {
+      images:[], errors:["question-render-readiness-timeout", canary], complete:false,
+      expectedImageCount:2, capturedImageCount:1,
+      readinessDiagnostics:{incompleteImages:1, incompletePlaceholders:0,
+        fontsLoading:false, mathJaxHub:true, questionMath:true, internalSource:canary},
+    } : {images:[], errors:[], complete:true, expectedImageCount:0, capturedImageCount:0}} as AgentBrowserClient);
+    const current = await start();
+    failed = true;
+    const result = await executeDirectQuiz({op:"fill", runDir:current.runDir,
+      packetDigest:current.packetDigest, answers:[answer]}, env, deps);
+    expect(result).toMatchObject({ok:false, status:"manual_action_required", finalSubmitClicked:false,
+      media_diagnostics:[{question_id:"question-1-1", complete:false,
+        errors:["question-render-readiness-timeout", "original-image-capture-failed"],
+        expected_images:2, captured_images:1,
+        readiness:{incompleteImages:1,incompletePlaceholders:0,fontsLoading:false,mathJaxHub:true,questionMath:true}}]});
+    expect(JSON.stringify(result)).not.toContain(canary);
+    expect(JSON.stringify(result)).not.toContain("internalSource");
+    expect(operations).toMatchObject({starts:1, fills:0, saves:0});
+  });
+  it("keeps original-media identity when response clones change acquisition order, but rejects changed bytes", async () => {
+    let reversed = false;
+    let changed = false;
+    const base = deps.browser!( {} as any );
+    deps.browser = () => ({ ...base, captureQuestionEvidence: async () => {
+      const images = [
+        {path: "original-a.png", url: "https://university.example/a.png", sha256: "a", mimeType: "image/png"},
+        {path: "original-b.png", url: "https://university.example/b.png", sha256: changed ? "changed-b" : "b", mimeType: "image/png"},
+      ];
+      return { images: reversed ? images.reverse() : images, errors: [], complete: true, expectedImageCount: 2, capturedImageCount: 2 };
+    }} as AgentBrowserClient);
+    const started = await start();
+    reversed = true;
+    const filled = await executeDirectQuiz({op: "fill", runDir: started.runDir, packetDigest: started.packetDigest, answers: [answer]}, env, deps);
+    expect(filled).toMatchObject({ok: true, persisted: true, progress: {verified: 1}});
+    changed = true;
+    const complete = await executeDirectQuiz({op: "complete", runDir: started.runDir}, env, deps);
+    expect(complete).toMatchObject({ok: false, progress: {verified: 0, complete: false}});
+    expect(operations).toMatchObject({starts: 1, saves: 1});
+  });
+  it.each(["layout", "geometry", "choice", "fallback"])(
+    "binds declared drag target geometry and conservatively handles %s changes", async (mutation) => {
+      const original = deps.extract!;
+      deps.extract = async (client) => {
+        const result = await original(client);
+        const question = result.questions[0];
+        question.question_type = "ddimageortext";
+        question.controls[0] = {
+          ...question.controls[0], type: "dragdrop",
+          bounds: {x: domValue ? 250.5 : 250, y:100, width:50, height:30},
+          target_geometry: mutation === "fallback" ? null : {
+            left:250, top:100, width: mutation === "geometry" && domValue ? 51 : 50,
+            height:30, transform:[1,0,0,1,0,0], transform_origin:[0,0],
+          },
+          options:[{value:"4", text:"four", reusable:false,
+            image_src: mutation === "choice" && domValue
+              ? "https://university.example/changed.png" : "https://university.example/original.png",
+            bounds:{x:domValue ? 250 : 20, y:domValue ? 100 : 220, width:50, height:30}}],
+        };
+        question.response_model = {adapter:"drag-drop-image", support:"supported",
+          questionType:"ddimageortext", controlCount:1, controlTypes:["dragdrop"],
+          reason:"complete-native-control-surface"};
+        return result;
+      };
+      const current = await start();
+      const filled = await executeDirectQuiz({op:"fill", runDir:current.runDir,
+        packetDigest:current.packetDigest, answers:[answer]}, env, deps);
+      if (mutation === "layout") {
+        expect(filled).toMatchObject({ok:true, persisted:true});
+        expect(operations.saves).toBe(1);
+      } else {
+        expect(filled).toMatchObject({ok:false, status:"dom_verification_failed", safeNextClicked:false});
+        expect(operations.saves).toBe(0);
+      }
+    },
+  );
+  it("verifies saved drag placement while retaining target and choice identity", async () => {
+    const original = deps.extract!;
+    deps.extract = async (client) => {
+      const result = await original(client);
+      const question = result.questions[0];
+      question.question_type = "ddimageortext";
+      question.controls[0] = {
+        ...question.controls[0],
+        type: "dragdrop",
+        bounds: { x: 250, y: 100, width: 50, height: 30 },
+        options: [
+          {
+            value: "4",
+            text: "four",
+            reusable: false,
+            bounds: { x: domValue ? 250 : 20, y: domValue ? 100 : 220, width: 50, height: 30 },
+          },
+        ],
+      };
+      question.response_model = {
+        adapter: "drag-drop-image",
+        support: "supported",
+        questionType: "ddimageortext",
+        controlCount: 1,
+        controlTypes: ["dragdrop"],
+        reason: "complete-native-control-surface",
+      };
+      return result;
+    };
+    const current = await start();
+    const result = await executeDirectQuiz(
+      { op: "fill", runDir: current.runDir, packetDigest: current.packetDigest, answers: [answer] },
+      env,
+      deps,
+    );
+    expect(result).toMatchObject({ ok: true, persisted: true });
+    expect(operations).toMatchObject({ fills: 1, saves: 1 });
+  });
+
+  it("revalidates an API-recovered legacy attempt without a start receipt on fresh read and fill", async () => {
+    const config = {
+      ledgerRoot: env.STUDY_BUDDY_QUIZ_ATTEMPT_LEDGER_ROOT!,
+      targetUrl: target,
+      accountKey: createHash("sha256").update(env.MOODLE_USERNAME!).digest("hex"),
+    };
+    await reserveFirstQuizAttempt(config, metadata);
+    await consumeFirstQuizStartRequest(config);
+    active = true;
+    deps.metadata = async () => ({
+      ...metadata,
+      hasActiveAttempt: true,
+      attemptsUsed: 1,
+      activeAttemptId: null,
+      activeAttemptNumber: null,
+      canStartNewAttempt: false,
+      identityEvidence: {
+        currentAttemptId: null,
+        continuation: [],
+        history: [{ ordinal: 1, attemptId: null, source: "history-card" }],
+      },
+    });
+    const browser = deps.browser!;
+    deps.browser = (runtime) => ({
+      ...browser(runtime),
+      evalJson: async <T>(expression: string): Promise<T> => {
+        if (expression.includes("globalThis.M")) return 42 as T;
+        if (expression.includes(".qnbutton")) return [{ slot: "1", number: 1, page: 0 }] as T;
+        if (expression.includes("document.body.cloneNode")) {
+          const current = page();
+          return {
+            shared: current.body_text,
+            questions: current.questions.map((question) => ({
+              id: question.question_id,
+              html: question.prompt,
+              prompt: question.prompt,
+              context: question.visible_context,
+              controls: [],
+            })),
+          } as T;
+        }
+        throw Error("Unexpected local DOM fixture query.");
+      },
+    });
+    let reads = 0;
+    let available = true;
+    deps.readIdentity = async () => {
+      reads++;
+      return available
+        ? {
+            ok: true,
+            identityEvidence: {
+              source: "moodle-mobile-read-api",
+              courseId: 42,
+              courseModuleId: 7,
+              quizId: 27,
+              userId: 17,
+              attemptId: "123",
+              attemptNumber: 1,
+              state: "inprogress",
+              preview: false,
+            },
+          }
+        : { ok: false, error: "read-api-service-unavailable" };
+    };
+    const inspected = await executeDirectQuiz({ op: "inspect", url: target }, env, deps);
+    await executeDirectQuiz({ op: "recover", runDir: inspected.runDir }, env, deps);
+    const current = await executeDirectQuiz({ op: "read", runDir: inspected.runDir }, env, deps);
+    expect(
+      await executeDirectQuiz(
+        {
+          op: "fill",
+          runDir: inspected.runDir,
+          packetDigest: current.packetDigest,
+          answers: [answer],
+        },
+        env,
+        deps,
+      ),
+    ).toMatchObject({ ok: true, persisted: true });
+    expect(reads).toBe(4);
+    expect(operations).toMatchObject({ starts: 0, saves: 1 });
+    expect(await loadFirstQuizStartRedirect(config)).toBeNull();
+    available = false;
+    await expect(
+      executeDirectQuiz({ op: "read", runDir: inspected.runDir }, env, deps),
+    ).rejects.toThrow();
+    expect(operations).toMatchObject({ starts: 0, saves: 1 });
+  });
   it("keeps shared originals ahead of screenshots with Windows path separators", async () => {
     deps.extract = async () => {
       const captured = structuredClone(page());
@@ -322,18 +608,105 @@ describe("direct deterministic quiz owner tools", () => {
       return value;
     };
     const started = await start();
-    await expect(
-      executeDirectQuiz(
-        {
-          op: "fill",
-          runDir: started.runDir,
-          packetDigest: started.packetDigest,
-          answers: [answer],
-        },
-        env,
-        deps,
-      ),
-    ).rejects.toThrow("DOM answer verification");
+    const result = await executeDirectQuiz(
+      { op: "fill", runDir: started.runDir, packetDigest: started.packetDigest, answers: [answer] },
+      env,
+      deps,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: "dom_verification_failed",
+      safeNextClicked: false,
+      finalSubmitClicked: false,
+      error: "DOM answer verification failed; safe-next was not clicked.",
+      diagnostics: {
+        same_question_set: false,
+        questions: [
+          {
+            question_index: 1,
+            present: false,
+            identity_matches: false,
+            answers_verified: false,
+            mismatch_codes: ["question-missing-after-fill"],
+          },
+        ],
+      },
+    });
+    expect(operations).toMatchObject({ fills: 1, saves: 0 });
+  });
+
+  it("separates changed task fields from correctly filled responses without exposing their contents", async () => {
+    deps.extract = async () => {
+      const value = page();
+      if (operations.fills) value.questions[0]!.prompt = "secret-task-canary";
+      return value;
+    };
+    const started = await start();
+    const result = await executeDirectQuiz(
+      { op: "fill", runDir: started.runDir, packetDigest: started.packetDigest, answers: [answer] },
+      env,
+      deps,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: "dom_verification_failed",
+      safeNextClicked: false,
+      finalSubmitClicked: false,
+      diagnostics: {
+        same_question_set: false,
+        questions: [
+          {
+            question_index: 1,
+            present: true,
+            identity_matches: false,
+            changed_fields: ["prompt"],
+            answers_verified: true,
+            mismatch_codes: [],
+            control_indices: [],
+          },
+        ],
+        fill_results: [{ filled: true }],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-task-canary");
+    expect(operations).toMatchObject({ fills: 1, saves: 0 });
+  });
+
+  it("separates an unchanged task with mismatching responses and sanitizes arbitrary fill failure text", async () => {
+    deps.fill = async () => {
+      operations.fills++;
+      domValue = "secret-response-canary";
+      return { filled: false, reason: "secret-session-canary" };
+    };
+    const started = await start();
+    const result = await executeDirectQuiz(
+      { op: "fill", runDir: started.runDir, packetDigest: started.packetDigest, answers: [answer] },
+      env,
+      deps,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      status: "dom_verification_failed",
+      safeNextClicked: false,
+      finalSubmitClicked: false,
+      diagnostics: {
+        same_question_set: true,
+        questions: [
+          {
+            question_index: 1,
+            present: true,
+            identity_matches: true,
+            changed_fields: [],
+            answers_verified: false,
+            mismatch_codes: ["control-response-mismatch"],
+            control_indices: [0],
+          },
+        ],
+        fill_results: [{ filled: false, reason: "unrecognized-fill-reason" }],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-response-canary");
+    expect(JSON.stringify(result)).not.toContain("secret-session-canary");
     expect(operations).toMatchObject({ fills: 1, saves: 0 });
   });
 

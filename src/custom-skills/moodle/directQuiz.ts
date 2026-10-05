@@ -44,9 +44,13 @@ import {
   assertSameQuizAttempt,
   consumeFirstQuizStartRequest,
   reconcileFirstQuizAttempt,
+  proveFirstQuizAttemptIdentity,
+  loadFirstQuizStartRedirect,
+  recordFirstQuizStartRedirect,
   type QuizAttemptGuardConfig,
 } from "./interactive/quizAttemptGuard.js";
 import { createFirstQuizAttemptRequestGuard } from "./interactive/quizAttemptRequestGuard.js";
+import { readFirstQuizAttemptIdentity } from "./interactive/quizAttemptReadApi.js";
 import {
   canonicalDirectQuizPage,
   inspectDirectQuizInventory,
@@ -198,6 +202,7 @@ const State = z
   .strict();
 type QuizState = z.infer<typeof State>;
 export interface DirectQuizDependencies {
+  readIdentity?: typeof readFirstQuizAttemptIdentity;
   browser?: (config: MoodleRuntimeConfig) => AgentBrowserClient;
   extract?: typeof extractQuizPage;
   metadata?: typeof extractQuizMetadata;
@@ -275,6 +280,7 @@ export async function executeDirectQuiz(
         targetUrl: state.targetUrl,
         loadBinding: () => loadFirstQuizAttemptBinding(guard),
         debitStartBeforeForward: () => consumeFirstQuizStartRequest(guard),
+        recordStartRedirect: (proof) => recordFirstQuizStartRedirect(guard, proof),
       }),
     );
     allowed(policy, "open_quiz_page");
@@ -291,6 +297,79 @@ export async function executeDirectQuiz(
     await client.open(state.targetUrl);
     assertTarget(await client.getUrl(), state.targetUrl);
     state.metadata = await (deps.metadata ?? extractQuizMetadata)(client);
+    let binding = await loadFirstQuizAttemptBinding(guard);
+    // Native Moodle5 active cards deliberately omit attempt IDs. Query only the
+    // authenticated user's read API; never click Continue to discover identity.
+    let identityLookup: { source: string; status: string; reason?: string } | undefined;
+    const needsReadIdentity =
+      (!binding && ["inspect", "status", "recover"].includes(request.op)) ||
+      (Boolean(binding) && !(await loadFirstQuizStartRedirect(guard)));
+    if (
+      needsReadIdentity &&
+      state.metadata.hasActiveAttempt &&
+      state.metadata.attemptsUsed === 1 &&
+      !state.metadata.activeAttemptId &&
+      state.metadata.identityEvidence?.history.length === 1 &&
+      state.metadata.identityEvidence.history[0]?.ordinal === 1
+    ) {
+      try {
+        const courseId = await client.evalJson<number | null>(`(() => {
+          const ids = [globalThis.M?.cfg?.courseId,
+            ...[...document.body.classList].flatMap(value => /^course-(\\d+)$/.exec(value)?.[1] || [])]
+            .map(Number).filter(value => Number.isSafeInteger(value) && value > 0);
+          return ids.length && new Set(ids).size === 1 ? ids[0] : null;
+        })()`);
+        if (!Number.isSafeInteger(courseId) || !courseId || courseId < 1) {
+          identityLookup = {
+            source: "moodle-mobile-read-api",
+            status: "unavailable",
+            reason: "native-course-identity-unavailable",
+          };
+        } else if (!config.username || !config.password) {
+          identityLookup = {
+            source: "moodle-mobile-read-api",
+            status: "unavailable",
+            reason: "source-credentials-unavailable",
+          };
+        } else {
+          const proof = await (deps.readIdentity ?? readFirstQuizAttemptIdentity)({
+            targetUrl: state.targetUrl,
+            courseId,
+            username: config.username,
+            password: config.password,
+          });
+          if (proof.ok) {
+            state.metadata = {
+              ...state.metadata,
+              activeAttemptId: proof.identityEvidence.attemptId,
+              activeAttemptNumber: 1,
+            };
+            identityLookup = { source: "moodle-mobile-read-api", status: "verified" };
+            await writeOwnedFile(
+              context.workspace,
+              path.join(state.runDir, "first-attempt-read-identity.json"),
+              JSON.stringify({
+                targetUrl: state.targetUrl,
+                verifiedAt: new Date().toISOString(),
+                identityEvidence: proof.identityEvidence,
+              }),
+            );
+          } else {
+            identityLookup = {
+              source: "moodle-mobile-read-api",
+              status: "unavailable",
+              reason: proof.error,
+            };
+          }
+        }
+      } catch {
+        identityLookup = {
+          source: "moodle-mobile-read-api",
+          status: "unavailable",
+          reason: "identity-lookup-failed",
+        };
+      }
+    }
     const extract = async (client: AgentBrowserClient) =>
       canonicalDirectQuizPage(client, await (deps.extract ?? extractQuizPage)(client));
     if (request.op === "inspect") {
@@ -318,18 +397,24 @@ export async function executeDirectQuiz(
         untrusted: true,
         title: await client.getTitle(),
         metadata: state.metadata,
+        ...(identityLookup ? { identityLookup } : {}),
         instructions:
           "For a positively identified active first attempt, use recover, never start. Otherwise use start only with permitted first-attempt access. Delegate returned question packets to native subagents. Never submit the final attempt.",
       });
     }
-    let binding = await loadFirstQuizAttemptBinding(guard);
     if (request.op === "status") {
       await save(state);
       return out(state, true, {
         metadata: state.metadata,
         firstAttemptBound: !!binding,
+        ...(identityLookup ? { identityLookup } : {}),
         finalSubmitClicked: false,
       });
+    }
+    if (binding && state.metadata.hasActiveAttempt && state.metadata.attemptsUsed === 1) {
+      state.metadata = await proveFirstQuizAttemptIdentity(guard, state.metadata);
+      if (state.metadata.activeAttemptId !== binding.attemptId)
+        throw Error("The native quiz overview conflicts with the bound first attempt.");
     }
     if (request.op === "start") {
       const date = quizDateGate(config, state.metadata);
@@ -363,17 +448,18 @@ export async function executeDirectQuiz(
         // Reservation proves no previous attempt existed; the new ID is bound once.
         await client.open(state.targetUrl);
         assertTarget(await client.getUrl(), state.targetUrl);
-        const nativeProof = await (deps.metadata ?? extractQuizMetadata)(client);
-        if (
-          nativeProof.activeAttemptId !== attempt ||
-          nativeProof.activeAttemptNumber !== 1 ||
-          nativeProof.attemptsUsed !== 1 ||
-          !nativeProof.hasActiveAttempt
-        )
+        const nativeProof = await proveFirstQuizAttemptIdentity(
+          guard,
+          await (deps.metadata ?? extractQuizMetadata)(client),
+        ).catch(() => {
+          throw Error("The native quiz overview does not confirm this exact active first attempt.");
+        });
+        const receipt = await loadFirstQuizStartRedirect(guard);
+        if (nativeProof.activeAttemptId !== attempt || !receipt || receipt.attemptId !== attempt)
           throw Error("The native quiz overview does not confirm this exact active first attempt.");
         const newBinding = await bindFirstQuizAttempt(guard, {
           attemptId: attempt,
-          attemptNumber: nativeProof.activeAttemptNumber,
+          attemptNumber: 1,
         });
         assertSameQuizAttempt(newBinding, page.url);
         state.metadata = nativeProof;
@@ -387,6 +473,8 @@ export async function executeDirectQuiz(
       return await capture(state, client, deps, policy);
     }
     if (request.op === "recover" && !binding) {
+      if (state.metadata.hasActiveAttempt && state.metadata.attemptsUsed === 1)
+        state.metadata = await proveFirstQuizAttemptIdentity(guard, state.metadata);
       allowed(policy, "start_or_continue_attempt", { metadata: state.metadata });
       binding = await reconcileFirstQuizAttempt(guard, state.metadata);
       state.attemptUrl = new URL(
@@ -545,6 +633,7 @@ export async function executeDirectQuiz(
       return out(state, false, {
         status: "manual_action_required",
         blocked_questions: freshMedia.incomplete,
+        media_diagnostics: freshMedia.diagnostics,
         error: "Original question media is incomplete; no answers were changed or saved.",
         finalSubmitClicked: false,
       });
@@ -552,8 +641,20 @@ export async function executeDirectQuiz(
       !state.page ||
       state.packetDigest !== request.packetDigest ||
       digest(page, freshMedia.identities, contextDigest(state)) !== request.packetDigest
-    )
+    ) {
+      await writeOwnedFile(state.workspace, path.join(state.runDir, `stale-verification-${Date.now()}.json`), JSON.stringify({
+        request_matches_state: state.packetDigest === request.packetDigest,
+        diagnostics: state.page ? domVerificationDiagnostics(state.page, page, request.answers, []) : null,
+        questions: page.questions.map(question => ({
+          question_id: question.question_id,
+          before_controls: state.page?.questions.find(item => item.question_id === question.question_id)
+            ? questionIdentityFields(state.page.questions.find(item => item.question_id === question.question_id)!).controls : null,
+          after_controls: questionIdentityFields(question).controls,
+          media_matches: state.capturedPages[String(pageNumber(page.url))]?.questions.find(item => item.id === question.question_id)?.mediaIdentity === freshMedia.identities[question.question_id],
+        })),
+      }));
       throw Error("Question packet is stale. Read current questions before filling.");
+    }
     if (state.navigation === "unknown")
       return out(state, false, {
         status: "manual_action_required",
@@ -592,17 +693,33 @@ export async function executeDirectQuiz(
       fillResults.push(await (deps.fill ?? fillVisibleQuestion)(client, question, answer, policy));
     }
     const dom = await extract(client);
+    const diagnostics = domVerificationDiagnostics(page, dom, request.answers, fillResults);
     if (
-      !sameQuestionSet(page, dom) ||
-      dom.questions.some(
-        (question) =>
-          !verifyQuestionAnswers(
-            question,
-            request.answers.find((answer) => answer.question_id === question.question_id)!,
-          ).verified,
-      )
-    )
-      throw Error("DOM answer verification failed; safe-next was not clicked.");
+      !diagnostics.same_question_set ||
+      diagnostics.questions.some((question) => !question.answers_verified)
+    ) {
+      // Keep the already redacted, canonical formulation locally for diagnosis;
+      // omit raw controls, hidden transport fields and browser/session state.
+      const diagnosticEvidencePath = path.join(state.runDir, `dom-verification-${Date.now()}.json`);
+      await writeOwnedFile(state.workspace, diagnosticEvidencePath, JSON.stringify({
+        questions: page.questions.map(question => ({
+          question_index: question.question_index,
+          before_html: question.prompt_html,
+          after_html: dom.questions.find(item => item.question_id === question.question_id)?.prompt_html,
+          before_controls: questionIdentityFields(question).controls,
+          after_controls: dom.questions.find(item => item.question_id === question.question_id)
+            ? questionIdentityFields(dom.questions.find(item => item.question_id === question.question_id)!).controls : undefined,
+        })),
+      }));
+      return out(state, false, {
+        status: "dom_verification_failed",
+        error: "DOM answer verification failed; safe-next was not clicked.",
+        safeNextClicked: false,
+        finalSubmitClicked: false,
+        diagnostics,
+        diagnosticEvidencePath,
+      });
+    }
     const move = await (deps.next ?? clickSafeNextPage)(client);
     if (!move.clicked) throw Error("No safe save/next control; answers are not claimed persisted.");
     const savedUrl = await client.getUrl();
@@ -979,19 +1096,154 @@ function validateControls(controls: Array<Record<string, unknown>>, answer: Answ
   )
     throw Error("Answer must bind every exact current editable control once.");
 }
-function questionIdentity(question: QuizPageExtraction["questions"][number]) {
+function questionIdentityFields(question: QuizPageExtraction["questions"][number]) {
   const controls = question.controls.map(
-    ({ value, checked: _checked, raw_html: _html, options, ...control }) => ({
+    ({ value, checked: _checked, raw_html: _html, options, bounds, ...control }) => ({
       ...control,
+      // Explicit public drop geometry defines the task. Layout measurements
+      // can change during image loading or responsive rendering.
+      bounds: control.type === "dragdrop" && control.target_geometry ? undefined : bounds,
       value: ["radio", "checkbox"].includes(String(control.type)) ? value : undefined,
       options: Array.isArray(options)
-        ? options.map(({ selected: _selected, ...option }) => option)
+        ? options.map(({ selected: _selected, ...option }) => {
+            if (String(control.type) !== "dragdrop") return option;
+            // A draggable moves from its home to the selected target. Its
+            // current position is response state; target geometry stays bound.
+            const { bounds: _responsePosition, ...choice } = option;
+            return choice;
+          })
         : options,
     }),
   );
+  return { ...question, controls };
+}
+function questionIdentity(question: QuizPageExtraction["questions"][number]) {
   return createHash("sha256")
-    .update(JSON.stringify({ ...question, controls }))
+    .update(JSON.stringify(questionIdentityFields(question)))
     .digest("hex");
+}
+
+/** Values and HTML stay private: diagnostics describe which existing invariant failed. */
+function domVerificationDiagnostics(
+  before: QuizPageExtraction,
+  after: QuizPageExtraction,
+  answers: AnswerSpec[],
+  fillResults: Array<Record<string, unknown>>,
+) {
+  const knownFields = [
+    "question_id",
+    "question_index",
+    "question_type",
+    "prompt",
+    "prompt_latex",
+    "prompt_html",
+    "options",
+    "controls",
+    "visible_context",
+    "question_classes",
+    "interaction_hints",
+    "response_model",
+  ] as const;
+  const knownFillReasons = new Set([
+    "answer-already-matches",
+    "question-not-found",
+    "control-plan-incomplete",
+    "control-not-editable",
+    "select-option-not-found",
+    "text-answer-empty",
+    "unsupported-control-type",
+    "radio-selection-invalid",
+    "control-plan-invalid",
+    "filled-control-plan",
+    "filled-text",
+    "filled-choice",
+    "filled-select",
+    "no-compatible-control-or-option-match",
+    "question-has-no-response",
+    "question-adapter-required",
+    "changing-existing-answers-disabled",
+    "dragdrop-question-missing",
+    "dragdrop-incomplete-plan",
+    "dragdrop-unknown-choice",
+    "dragdrop-choice-reused",
+    "dragdrop-clear-not-confirmed",
+    "dragdrop-ui-did-not-settle",
+    "dragdrop-placement-not-confirmed",
+    "dragdrop-final-state-mismatch",
+    "filled-dragdrop-keyboard-plan",
+  ]);
+  return {
+    same_question_set: sameQuestionSet(before, after),
+    expected_question_count: before.questions.length,
+    observed_question_count: after.questions.length,
+    observed_ids_unique:
+      new Set(after.questions.map((question) => question.question_id)).size ===
+      after.questions.length,
+    questions: before.questions.map((question) => {
+      const fresh = after.questions.find((item) => item.question_id === question.question_id);
+      const identityMatches = !!fresh && questionIdentity(question) === questionIdentity(fresh);
+      const priorFields = questionIdentityFields(question);
+      const freshFields = fresh ? questionIdentityFields(fresh) : null;
+      const changedFields: string[] = freshFields
+        ? knownFields.filter(
+            (key) => JSON.stringify(priorFields[key]) !== JSON.stringify(freshFields[key]),
+          )
+        : [];
+      if (fresh && !identityMatches && !changedFields.length) changedFields.push("other-fields");
+      const answer = answers.find((item) => item.question_id === question.question_id);
+      const check =
+        fresh && answer
+          ? verifyQuestionAnswers(fresh, answer)
+          : {
+              verified: false,
+              mismatches: [fresh ? "answer-plan-missing" : "question-missing-after-fill"],
+            };
+      const codes = new Set<string>();
+      const controlIndices = new Set<number>();
+      for (const mismatch of check.mismatches) {
+        if (
+          [
+            "complete-control-plan-required",
+            "control-id-missing",
+            "answer-plan-missing",
+            "question-missing-after-fill",
+          ].includes(mismatch)
+        )
+          codes.add(mismatch);
+        else if (mismatch.startsWith("invalid-radio-selection:"))
+          codes.add("invalid-radio-selection");
+        else {
+          codes.add("control-response-mismatch");
+          const index =
+            fresh?.controls.findIndex(
+              (control) => String(control.control_id ?? control.id ?? "") === mismatch,
+            ) ?? -1;
+          if (index >= 0) controlIndices.add(index);
+        }
+      }
+      return {
+        question_index: question.question_index,
+        present: !!fresh,
+        identity_matches: identityMatches,
+        changed_fields: changedFields,
+        answers_verified: check.verified,
+        mismatch_codes: [...codes],
+        control_indices: [...controlIndices],
+      };
+    }),
+    fill_results: fillResults.map((result, index) => ({
+      question_index: before.questions[index]?.question_index,
+      filled: result.filled === true,
+      already_answered: result.already_answered === true,
+      changed: typeof result.changed === "boolean" ? result.changed : null,
+      reason:
+        typeof result.reason === "string"
+          ? knownFillReasons.has(result.reason)
+            ? result.reason
+            : "unrecognized-fill-reason"
+          : null,
+    })),
+  };
 }
 function sameQuestionSet(before: QuizPageExtraction, after: QuizPageExtraction) {
   return (
@@ -1013,7 +1265,8 @@ function evidenceIdentity(
   return createHash("sha256")
     .update(
       JSON.stringify({
-        images: (evidence?.images ?? []).map((image) => ({ url: image.url, sha256: image.sha256 })),
+        images: (evidence?.images ?? []).map((image) => ({ url: image.url, sha256: image.sha256 }))
+          .sort((a, b) => a.url.localeCompare(b.url) || a.sha256.localeCompare(b.sha256)),
         errors: evidence?.errors ?? ["question-media-backend-unavailable"],
       }),
     )
@@ -1026,14 +1279,25 @@ async function mediaIdentities(
 ) {
   const identities: Record<string, string> = {};
   const incomplete: string[] = [];
+  const diagnostics: Array<Record<string, unknown>> = [];
   for (const question of page.questions) {
-    const directory = path.join(state.runDir, "media-checks", randomUUID());
-    await checkPath(state.workspace, directory, true);
     let evidence;
-    try {
-      evidence = await client.captureQuestionEvidence?.(question.question_id, directory);
-    } catch {
-      evidence = { images: [], errors: ["question-media-capture-failed"] };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const directory = path.join(state.runDir, "media-checks", randomUUID());
+      await checkPath(state.workspace, directory, true);
+      try {
+        evidence = await client.captureQuestionEvidence?.(question.question_id, directory);
+      } catch {
+        evidence = { images: [], errors: ["question-media-capture-failed"] };
+      }
+      const transient = evidence?.errors.length && evidence.errors.every(code =>
+        ["question-render-readiness-timeout", "question-render-readiness-failed", "question-image-discovery-failed", "question-screenshot-failed", "question-render-restore-failed"].includes(code) ||
+        /^image-[0-9]+:(?:image-download-failed|image-http-(?:408|425|429|500|502|503|504))$/.test(code));
+      if (!transient) break;
+      await writeOwnedFile(state.workspace, path.join(directory, "capture-check.json"), JSON.stringify({
+        question_id: question.question_id, attempt: attempt + 1,
+        errors: evidence!.errors, retrying: attempt < 2,
+      }));
     }
     identities[question.question_id] = evidenceIdentity(evidence);
     if (
@@ -1041,9 +1305,25 @@ async function mediaIdentities(
       evidence.errors.length ||
       (evidence as { complete?: boolean }).complete === false
     )
+    {
       incomplete.push(question.question_id);
+      const staticCodes = new Set(["question-media-capture-failed", "question-render-readiness-timeout", "question-render-readiness-failed", "question-image-discovery-failed", "question-screenshot-failed", "question-render-restore-failed"]);
+      diagnostics.push({ question_id: question.question_id,
+        errors: evidence?.errors.map(code => staticCodes.has(code) ? code : "original-image-capture-failed") ?? ["question-media-backend-unavailable"],
+        complete: evidence?.complete === true,
+        expected_images: evidence?.expectedImageCount,
+        captured_images: evidence?.capturedImageCount,
+        readiness: evidence?.readinessDiagnostics ? {
+          incompleteImages: Number.isSafeInteger(evidence.readinessDiagnostics.incompleteImages) ? evidence.readinessDiagnostics.incompleteImages : undefined,
+          incompletePlaceholders: Number.isSafeInteger(evidence.readinessDiagnostics.incompletePlaceholders) ? evidence.readinessDiagnostics.incompletePlaceholders : undefined,
+          fontsLoading: evidence.readinessDiagnostics.fontsLoading === true,
+          mathJaxHub: evidence.readinessDiagnostics.mathJaxHub === true,
+          questionMath: evidence.readinessDiagnostics.questionMath === true,
+        } : undefined,
+      });
+    }
   }
-  return { identities, incomplete };
+  return { identities, incomplete, diagnostics };
 }
 function digest(page: QuizPageExtraction, media: Record<string, string>, sharedContext: string) {
   // A timer/status banner may change between reads. Bind the actual question and response controls, not unrelated live page chrome.
@@ -1056,7 +1336,14 @@ function digest(page: QuizPageExtraction, media: Record<string, string>, sharedC
     visible_context: question.visible_context,
     latex: question.prompt_latex,
     options: question.options,
-    controls: question.controls.map(({ raw_html: _rawHtml, ...control }) => control),
+    controls: questionIdentityFields(question).controls,
+    // Share task normalization with post-fill verification, while separately
+    // binding the current responses to prevent overwriting a changed answer.
+    responses: question.controls.map(({ value, checked, options }) => ({
+      value, checked,
+      selected: Array.isArray(options)
+        ? options.map(({ value, selected }) => ({ value, selected })) : undefined,
+    })),
     response_model: question.response_model,
   }));
   return createHash("sha256")

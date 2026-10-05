@@ -2258,3 +2258,45 @@ second start and no real debit reset. Full regression and real multi-page browse
 fixtures precede native desktop solver/answer acceptance on an isolated local source.
 Current campaign: complete-agent-owned-quiz. Actual Moodle continuation requires
 positive first-attempt identity, preserves the same owner/run, and never submits.
+
+## 2026-10-05: actual Moodle first-attempt recovery follow-up
+
+The owner reports that local fixture acceptance did not complete the real mini-test
+and requests the real issue and a working pipeline. Existing first-only execution
+authorization persists; no second attempt or final submission is authorized.
+Current authenticated read-only status confirms one used/one left and active first
+history card, but no ID. Original response/trace was not retained.
+
+Before edits: add a bounded, broker-internal official Moodle Mobile authentication
+and strictly read-only REST identity lookup. Tokens remain private in process;
+normal authentication may create a server-side token. Resolve the native course
+and exact course module, then require own unique non-preview in-progress ordinal1.
+Integrate only into status/recover, never new-start or save APIs. Disabled services
+produce a static actionable failure. Add RED/GREEN local HTTP security tests.
+
+Also reproduce real Moodle5 overview semantics: active card and POST Continue
+expose no ID. Record the original admitted start-response redirect before navigation
+and bind only against zero-used preflight, exact verified response and consistent
+first active overview. Never manufacture a receipt for the old run or reset its
+debit. Validate that response proof survives restart while new starts/finals remain
+blocked. After positive recovery identity, use the normal native grant and resume
+the same real first attempt, all questions, original media, parallel solvers and
+verified saves. Record any actual service/identity blocker clearly; fixture passes
+alone cannot complete the owner's real mini-test objective.
+
+
+2026-10-05 actual first-attempt recovery checkpoint: native inspection must run the authenticated read-only identity fallback before evaluating the approval policy. Real desktop recovery confirmed ten questions but collection failed on a sticky request denial. The original images were already downloaded; sanitized diagnostics positively identify GET javascript. Before the next source edit, plan a narrow configured-origin immutable Moodle JavaScript-loader admission for GET/HEAD only, with numeric revision, safe non-dot segments, .js suffix, no query/hash/body/userinfo; preserve attempt/save/final guards. Verify loader execution in a real local browser and deny mutation/cross-origin/ambiguous variants, then repeat actual desktop recovery of the same first attempt. Fixtures alone remain insufficient for acceptance.
+
+2026-10-05 all-question interaction checkpoint: the corrected real read-only collect has ten question packets. Nine have complete media; the final native ddimageortext question exposes visible drag choices and drop zones but no editable standard control. Plan a reusable exact-question physical drag adapter, exposing choice/drop identity to the native solver and preserving guarded same-first save/reload and final-submit denial. Never set hidden answers directly. Diagnose src-less drop-image placeholders before waiting for image readiness; original assets remain mandatory. Local DOM/HTTP physical drag and persisted reload tests plus actual all-ten desktop acceptance are required.
+
+2026-10-05 runtime verification checkpoint: existing drag/drop keyboard adapter was retained; bounded ready-control extraction and response-position identity normalization solved the control-surface gap. Image-only questions now skip unrelated global MathJax queues while real math/images/fonts still require readiness. Full root regression passed 1,689 tests (four skips), TypeScript passed. Fresh native owner0f1b captured all ten original-media packets and produced ten native answers, but both first fills failed opaque post-fill DOM verification, with no safe-next or save receipts. Stop owner before changes. Add sanitized split diagnostics (question identity fields versus per-control answer mismatches) and reproduce the actual runtime failure before changing normalization. An exact local Q1 Cloze snapshot fills correctly; fixtures cannot establish the actual cause or close acceptance. Samefirst2035873, no second start/final.
+
+2026-10-05 final drag/drop response checkpoint: actual six-control fill matched every answer but task identity changed from DOM clones, option order and padded placed-image geometry. Preserve public drop target geometry from the drop itself (measured or its explicit CSS box), sort unique public choices, reject inconsistent duplicates; never substitute placed-image dimensions. Canonical detached clone excludes only .dropzones/.draghomes response scaffolding, retaining task stem/background and separate original-media fingerprint; public target bounds/choice contents remain bound. Normalize drag-item hint counts by unique group/choice identities, not transient reusable clones. Add real public-widget local browser save/reload tests and source/geometry mutation counterexamples; actual nine already verified answers must remain saved. Fresh native same-first all-ten acceptance follows source freeze and focused regression.
+
+2026-10-05 native nine-save checkpoint: question 10 matched all six answers but measured control identity still changed. Bind complete explicit public inline target geometry; retain measured-bounds binding when that definition is incomplete. Whole completion also invalidated every receipt because lazy course-navigation drawer text changed in shared context. Exclude explicit navigation/drawer shell UI from the detached shared context while retaining real description and shared-stem content. Add layout versus genuine target mutation and navigation versus genuine shared-stem regressions, then repeat actual same-first all-question save/reload acceptance.
+
+2026-10-05 preservation verification checkpoint: native fresh reads reloaded all ten existing answers unchanged, but first fill failed an intermittent fresh media check; original exact code was discarded, so no specific readiness cause is claimed. Preserve static diagnostics with whitelisted counters/booleans. Before next native round, retry only controlled transient acquisition/render failures, at most three fresh captures, retaining a small owned summary for each. Permanent origin/redirect/size/mime/safety/authorization failures and changed media still block immediately; all three unsuccessful technical checks still block before response writes. No model stage or new quiz action is introduced. Add transient recovery, exhaustion, permanent-denial and diagnostic-redaction regressions.
+
+2026-10-05 packet contract consistency checkpoint: actual Q10 stale evidence confirms request digest matches stored state, normalized question/control identity unchanged, native answers match and original media identity unchanged. Packet digest still used a second raw-controls definition that bound moving option/target screen measurements. Unify packet controls with the existing immutable task canonicalization and separately bind live values, checked state and selected options to retain pre-fill response race protection. Add layout drift before fill acceptance and changed current-response rejection; genuine public target/choice/media changes remain stale. No template/answer or permission change.
+
+2026-10-05 source-level acceptance completed: fresh actual Electron Balanced owner41276119 / direct runa5a4aa29 preserved the independently reviewed existing first-attempt answers, produced ten fresh save/reload receipts, and passed whole-quiz completion (10 captured/10 verified, no unresolved items, no final submission). Parent completed and no owned question agents remain. All nine source fingerprints stayed fixed; complete root suite1,718 passed/four existing skips in178 files/94.29s and TypeScript passed. Original first ledger remains byte-identical; second attempt untouched. Campaign actual-first-attempt-recovery is completed. This validates preservation and completion of the recovered first attempt, not a new empty attempt, official grading or packaged release acceptance. The existing snapshot timing gap for concurrent edits during capture remains a separate follow-up; no new change-existing prohibition bypass was demonstrated.

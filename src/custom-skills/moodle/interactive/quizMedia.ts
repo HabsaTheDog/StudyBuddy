@@ -25,6 +25,7 @@ export interface QuizQuestionEvidence {
   complete?: boolean;
   expectedImageCount?: number;
   capturedImageCount?: number;
+  readinessDiagnostics?: { incompleteImages: number; incompletePlaceholders: number; fontsLoading: boolean; mathJaxHub: boolean; questionMath: boolean };
 }
 
 const IMAGE_BYTES = 16 * 1024 * 1024;
@@ -47,12 +48,18 @@ export async function captureQuizQuestionEvidence(
     originalLoading = await question.evaluate((element) => Array.from(element.querySelectorAll("img"), image => image.getAttribute("loading")), undefined, { timeout: 5_000 });
     await question.scrollIntoViewIfNeeded({ timeout: 5_000 });
     const ready = await question.evaluate(async (element) => {
-      const images = Array.from(element.querySelectorAll("img"));
+      const images = Array.from(element.querySelectorAll("img")).filter(image =>
+        // Empty native widget placeholders have no source or load/error event.
+        // Keep real sources, including pending responsive/lazy images.
+        Boolean(image.getAttribute("src")?.trim() || image.currentSrc || image.srcset ||
+          image.closest("picture")?.querySelector("source[srcset]")));
+
       // Trigger lazy images without changing their source or displayed size.
       for (const image of images) image.loading = "eager";
       const math = (window as unknown as {
         MathJax?: { startup?: { promise?: Promise<unknown> }; Hub?: { Queue: (cb: () => void) => void } };
       }).MathJax;
+      const questionHasMath = Boolean(element.querySelector('mjx-container, math, .MathJax, script[type^="math/tex"]') || /\\[([]/.test(element.textContent || ""));
       const pending: Promise<unknown>[] = [document.fonts.ready];
       for (const image of images) {
         if (!image.complete) pending.push(new Promise<void>((resolve) => {
@@ -60,8 +67,9 @@ export async function captureQuizQuestionEvidence(
           image.addEventListener("error", () => resolve(), { once: true });
         }));
       }
-      if (math?.startup?.promise) pending.push(math.startup.promise);
-      else if (math?.Hub) pending.push(new Promise<void>((resolve) => math.Hub!.Queue(resolve)));
+      // An image-only question must not wait on an unrelated global math queue.
+      if (questionHasMath && math?.startup?.promise) pending.push(math.startup.promise);
+      else if (questionHasMath && math?.Hub) pending.push(new Promise<void>((resolve) => math.Hub!.Queue(resolve)));
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         return await Promise.race([
@@ -70,7 +78,16 @@ export async function captureQuizQuestionEvidence(
         ]);
       } finally { if (timer) clearTimeout(timer); }
     }, undefined, { timeout: 5_000 });
-    if (!ready) evidence.errors.push("question-render-readiness-timeout");
+    if (!ready) {
+      evidence.errors.push("question-render-readiness-timeout");
+      evidence.readinessDiagnostics = await question.evaluate(element => ({
+        incompleteImages: Array.from(element.querySelectorAll("img")).filter(image => !image.complete).length,
+        incompletePlaceholders: Array.from(element.querySelectorAll<HTMLImageElement>("img.dragplaceholder")).filter(image => !image.complete).length,
+        fontsLoading: document.fonts.status === "loading",
+        mathJaxHub: Boolean((window as unknown as { MathJax?: { Hub?: unknown } }).MathJax?.Hub),
+        questionMath: Boolean(element.querySelector('mjx-container, math, .MathJax, script[type^="math/tex"]') || /\\[([]/.test(element.textContent || "")),
+      }), undefined, { timeout: 5_000 });
+    }
   } catch { evidence.errors.push("question-render-readiness-failed"); }
 
   // Download and screenshot independently: a failed image must not discard the question context.

@@ -14,6 +14,22 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+First-attempt recovery follow-up (2026-10-05): actual native Balanced owner
+`41276119…` / run `a5a4aa29…` is independently **accepted**. All ten preserved
+answers in the same existing first attempt were saved and freshly reloaded, with
+ten valid receipts, total/captured/verified 10, no unresolved questions and whole
+`complete:true`; no final submission or second start. This is preservation of
+previously reviewed answers, not a first solve from empty state or official grading.
+Five earlier native rounds remain rejected; root-controlled rescue is separate.
+The accepted round used normal approval, unchanged sources and no repair prompts,
+manual takeover or retries, about 9m24s by the human UI. Final source checks:
+**1,718 passed/four existing skips**, 178 files, 94.29s plus TypeScript. Freeze:
+`packet-identity-native-source-freeze.json`; all nine source and original-media
+hashes remain unchanged. Historical round metrics and the deferred preexisting
+concurrent-edit snapshot timing probe are retained in the
+[recovery report](quiz-first-attempt-recovery-2026-10-05.md). The scoped repair is committed locally;
+not pushed, merged, deployed, packaged or release-accepted.
+
 Current quiz-completeness follow-up (2026-10-05): reviewed local tools collect the
 whole known question inventory, preserve original images and shared descriptions,
 and require fresh save/reload receipts before reporting completion. Final frozen
@@ -23,11 +39,12 @@ format/lint and all 13 typechecks pass. First native Electron fixture run
 one start/three saves/zero final submissions, about 4m41s, with independent
 review **PASS 4/4**. The unchanged fresh repeat `b2ca8522…` also finished
 with five correct saved/reloaded answers in about 5m52s, independently verified
-with all five question-worker turns terminal. This is not real Moodle execution acceptance. The real quiz now
+with all five question-worker turns terminal. This is not real Moodle execution acceptance. At that earlier checkpoint, the real quiz
 shows one used/one left and an active first-history entry, but no proven attempt
 ID or binding. The immutable start debit remains; second start and final submission
 are forbidden. Earlier zero-used inspection claims below are historical snapshots,
-superseded by this read-only status. See [current repair report](quiz-completeness-repair-2026-10-05.md).
+superseded by that read-only status; the newer recovery section above now supplies
+the authenticated first identity. See [completeness repair report](quiz-completeness-repair-2026-10-05.md).
 No push, merge, deployment, packaging or release acceptance is implied.
 
 2026-10-04 native quiz routing repair: actual Electron run followed obsolete
@@ -100,6 +117,7 @@ claims. These repairs are local-only and await holistic packaged acceptance.
 
 | Change | Status | Focused evidence | Final-batch work still required |
 | --- | --- | --- | --- |
+| Recover the exact existing first quiz attempt and preserve approval ordering | Actual native preservation/save-reload acceptance PASS; source checks PASS; committed locally, not pushed/merged/deployed/packaged/release-accepted | Balanced owner41276119/run a5a4aa29 independently verifies all ten preserved answers with ten native fill/reload receipts and whole complete, no unresolved questions, final false; terminal/no owned children, about9m24s human UI. Prior root rescue and five rejected native rounds remain separate. Final root1,718/four existing skips,178 files94.29s/TypeScript; nine source hashes and original media unchanged. Durable first identity/native approval/read API, immutable controls and bounded transient-media retries retain all safety boundaries. See [recovery report](quiz-first-attempt-recovery-2026-10-05.md) | Accepted workload preserves earlier reviewed answers; no empty-first-solve, official-grade or comparative-performance claim. Preexisting concurrent-edit snapshot probe deferred outside nonconcurrent scope; no new permission bypass/browser write proved. Exact frozen Windows/Fedora package acceptance required |
 | Collect and verify the complete agent-owned quiz with original media | Reviewed UI `c73e34b6f` committed locally; root in this integration commit. Two unchanged native fixture runs independently PASS; not pushed, merged, deployed, packaged or release-accepted | Whole native inventory, description-only GETs, shared context and original images reach each native question packet. Required-media failures block fill; changed questions, option values or shared context invalidate packets and durable save/reload receipts. Moodle5 card metadata preserves known first ordinal without inventing an ID; no timer is distinguished from the closing deadline. Five direct browser and six media regressions,24 focused image/capture tests including Windows separators,87 UI tests/checks/all13 typechecks, independent source/counterexample review; final root1,625 passed/four existing skips,176 files69.34s. First native47503def fixture: complete five/five correct, one start/three saves/zero final, original image viewed and three overlapping native workers used for five questions, about4m41s. Unchanged fresh repeat b2ca8522: same5/5 correct saved/reloaded result,5 overlapping solvers all terminal, about5m52s. Evidence: complete-agent-owned-quiz campaign and [repair report](quiz-completeness-repair-2026-10-05.md) | Do not transfer the two verified synthetic passes to the real inaccessible first attempt. Exact original denied request remains unknown; immutable debit cannot be reset, no second start/final submission. Later frozen Windows/Fedora package acceptance remains required |
 | Preserve first-attempt identity across the actual start redirect | Reviewed local root fix; UI remains `dad2fba2f`; not pushed, merged, deployed, packaged or release-accepted | Real loopback browser reproduces a303 GET bypassing context.route and leaving provisional identity absent. The already admitted start POST is fetched once with redirects/retries disabled; its actual302/303 Location passes the existing guard before browser continuation. Same-first GET now succeeds before binding; unbound writes, second starts, unsafe redirects and final submission stay blocked.51 focused tests, root TypeScript/package checks, full1,604 tests/four existing skips, server Moodle typecheck and independent review pass. Same original fixture RED→GREEN, one POST/debit, zero unbound writes; native-quiz-start-redirect local campaign | Exact denied request in the stopped real run remains unknown; this local defect is not asserted to be its sole cause. Real first-start outcome unconfirmed, immutable debit retained, no restart or second attempt permitted. Fresh packaged acceptance remains required |
 | Deliver current native Codex instructions into model-visible history | Reviewed UI `dad2fba2f` and parent pointer committed locally; not pushed, merged, deployed, packaged or release-accepted | Actual Codex0.160 probes show collaboration metadata ignored and loaded resume retaining stale instructions. Typed same-ID thread/inject_items obeys first and updated later developer messages. Original eager lifecycle retained; current profile/mode/personality delivered, unchanged text skipped, changes/restart/compaction refreshed, injection errors stop generation, non-Study-Buddy routing preserved.61 focused tests plus43 adjacent checks, all13 typechecks, scoped format/lint, backend bundle and independent review pass. Local native-instruction-transport campaign completed with zero Moodle actions | Fresh Electron model-visible delivery and exact approval card pass in thread b63d7809-1f9d-4fde-8108-66d574acff2c. Quiz execution FAIL: start debit consumed, binding absent, same-ID recovery unconfirmed, no answers. Actual first-attempt outcome unknown; permanent no-restart constraint retained, no second/final. Local guard investigation is pending; frozen Windows/Fedora package acceptance remains required |

@@ -18,7 +18,53 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
-## Current quiz-completeness follow-up, 2026-10-05
+## Current first-attempt recovery follow-up, 2026-10-05
+
+Include [the first-attempt recovery report](quiz-first-attempt-recovery-2026-10-05.md)
+with the completeness changes below. Authenticated read-only Moodle evidence now
+identifies the existing non-preview, in-progress first attempt `2035873`;
+historical claims of missing identity below are superseded. New first starts
+persist their actual validated response identity and still require current native
+first-ordinal evidence. Legacy debits without a receipt retain fresh read API
+revalidation; never synthesize a receipt, release a debit, start a second attempt
+or submit finally. Inspection resolves identity before the existing approval
+decision, preserving the native grant and configured access mode.
+
+Actual native Balanced owner `41276119…` / run `a5a4aa29…` is now independently
+**accepted**: ten own fills saved/reloaded, ten valid receipts, final whole reload
+matches all preserved initial answers, total/captured/verified 10,
+`captureComplete:true`, `unresolved:[]`, `complete:true`, final submission false.
+The task completed at 12:55:15.616 UTC; app ready at 12:55:15.665 UTC, no owned
+children. Normal approval and unchanged source were used; no follow-up hints,
+repair prompts, manual takeover or retries. Human UI duration is about 9m24s.
+This workload preserves earlier independently reviewed answers, not a first solve
+from an empty attempt, official grading or a comparative performance benchmark.
+
+Keep all five rejected desktop rounds and their metrics intact, plus the separate
+root-controlled all-ten rescue. Do not retrospectively accept those failures.
+Latest rejected `3b315898…` failed incomplete fresh media before writes, then
+read-only reloaded all existing values; its discarded original error category
+remains unknown. Q5's qualified definition reading does not establish a hidden key.
+
+Final source gates: **1,718 tests/four existing skips**, 178 files, 94.29s and
+TypeScript pass; unchanged nine-file `packet-identity-native-source-freeze.json`.
+All ten original media URL/hash pairs and three ledger hashes match. MathJax,
+source/choice/image identity remains preserved; mutable presentation is normalized
+and current response state separately bound. Media retry remains max3 on an
+explicit transient whitelist, never policy/unsafe content. Logs:
+`packet-identity-complete-root.log`, `packet-identity-final-typecheck.log`.
+Acceptance evidence: `actual-native-all10-acceptance.json` and
+`independent-review/native-41276119/final-acceptance.json`, under the recovery
+campaign evidence root. The campaign is completed for this native workload.
+
+Deferred preexisting follow-up: an isolated external DOM edit during media await
+can escape the page snapshot. No new permission bypass or actual browser write
+was proved; it is outside this nonconcurrent acceptance. Reconcile local commit
+and final source hashes before release. The scoped repair is committed locally; nothing
+is pushed, merged, deployed, packaged or release-accepted. Exact frozen
+Windows/Fedora packaged acceptance remains required.
+
+## Earlier quiz-completeness follow-up, 2026-10-05
 
 Include the reviewed whole-quiz capture/media/metadata and broker/instruction
 changes described in [the repair report](quiz-completeness-repair-2026-10-05.md).
@@ -33,7 +79,7 @@ Independent first-run native review is **PASS 4/4**. The unchanged fresh repeat
 `b2ca8522…` independently passes with five correct saved/reloaded answers
 in about 5m52s and all five native solver turns terminal. No real Moodle answer acceptance is claimed.
 
-Actual read-only Moodle status supersedes the historical zero-used observations
+At that earlier checkpoint, read-only Moodle status superseded the historical zero-used observations
 below: two allowed / one used / one left, active attempt indicated, first ordinal confirmed only
 by the history card, no actual attempt ID/binding. There is no quiz timer; the
 closing deadline is Tuesday 6 October 2026, 23:59 Europe/Vienna. The exact request

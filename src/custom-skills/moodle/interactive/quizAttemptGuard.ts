@@ -29,6 +29,14 @@ export interface FirstQuizAttemptBinding {
   attemptNumber: 1;
   boundAt: string;
 }
+export interface FirstQuizStartRedirect {
+  version: 1;
+  targetUrl: string;
+  attemptId: string;
+  attemptUrl: string;
+  status: 302 | 303;
+  verifiedAt: string;
+}
 
 export function installQuizInspectionGuard(client: AgentBrowserClient, targetUrl: string): void {
   if (!client.setQuizRequestGuard)
@@ -138,7 +146,10 @@ export async function reserveFirstQuizAttempt(
     throw new Error("Positive first-attempt evidence is required before a new start.");
   }
   try {
-    await writeOnce(config, "reservation.json", { reservedAt: new Date().toISOString() });
+    await writeOnce(config, "reservation.json", {
+      reservedAt: new Date().toISOString(),
+      preflight: { attemptsUsed: 0, hasActiveAttempt: false },
+    });
   } catch (error) {
     if (alreadyExists(error))
       throw new Error("First quiz attempt is already reserved; never start a replacement attempt.");
@@ -157,6 +168,142 @@ export async function consumeFirstQuizStartRequest(config: QuizAttemptGuardConfi
       throw new Error("First quiz start request was already consumed; never retry a new start.");
     throw error;
   }
+}
+
+function verifiedRedirect(
+  config: QuizAttemptGuardConfig,
+  proof: { attemptUrl: string; startUrl: string; status: number },
+) {
+  const expected = new URL(target(config.targetUrl));
+  const start = new URL(proof.startUrl),
+    attempt = new URL(proof.attemptUrl);
+  const base = expected.pathname.replace(/view\.php$/, "");
+  const ids = attempt.searchParams.getAll("attempt");
+  if (
+    (proof.status !== 302 && proof.status !== 303) ||
+    start.origin !== expected.origin ||
+    start.pathname !== `${base}startattempt.php` ||
+    start.username ||
+    start.password ||
+    attempt.origin !== expected.origin ||
+    attempt.pathname !== `${base}attempt.php` ||
+    attempt.username ||
+    attempt.password ||
+    ids.length !== 1 ||
+    !/^\d+$/.test(ids[0]!) ||
+    [...attempt.searchParams].some(
+      ([key, value]) =>
+        !["attempt", "page", "cmid"].includes(key) ||
+        !/^\d+$/.test(value) ||
+        attempt.searchParams.getAll(key).length !== 1 ||
+        (key === "cmid" && value !== expected.searchParams.get("id")),
+    )
+  ) {
+    throw new Error("Invalid verified first-start redirect.");
+  }
+  attempt.hash = "";
+  return { attemptId: ids[0]!, attemptUrl: attempt.href, status: proof.status as 302 | 303 };
+}
+
+/** Called only by the guarded transport for its actual admitted start response. */
+export async function recordFirstQuizStartRedirect(
+  config: QuizAttemptGuardConfig,
+  proof: { attemptUrl: string; startUrl: string; status: 302 | 303 },
+): Promise<void> {
+  const reservation = await read(config, "reservation.json"),
+    debit = await read(config, "start-requested.json");
+  const preflight = reservation?.preflight as Record<string, unknown> | undefined;
+  if (
+    !reservation ||
+    !debit ||
+    reservation.recovered ||
+    debit.recovered ||
+    preflight?.attemptsUsed !== 0 ||
+    preflight.hasActiveAttempt !== false
+  ) {
+    throw new Error(
+      "Verified first-start receipt requires its own fresh reservation and consumed request.",
+    );
+  }
+  const identity = verifiedRedirect(config, proof);
+  try {
+    await writeOnce(config, "start-response.json", {
+      ...identity,
+      verifiedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (!alreadyExists(error)) throw error;
+  }
+  const stored = await loadFirstQuizStartRedirect(config);
+  if (
+    !stored ||
+    stored.attemptId !== identity.attemptId ||
+    stored.attemptUrl !== identity.attemptUrl ||
+    stored.status !== identity.status
+  ) {
+    throw new Error("A different first-start response is already recorded.");
+  }
+}
+export async function loadFirstQuizStartRedirect(
+  config: QuizAttemptGuardConfig,
+): Promise<FirstQuizStartRedirect | null> {
+  const value = await read(config, "start-response.json");
+  if (!value) return null;
+  const reservation = await read(config, "reservation.json"),
+    debit = await read(config, "start-requested.json");
+  const preflight = reservation?.preflight as Record<string, unknown> | undefined;
+  if (
+    !reservation ||
+    !debit ||
+    reservation.recovered ||
+    debit.recovered ||
+    preflight?.attemptsUsed !== 0 ||
+    preflight.hasActiveAttempt !== false
+  )
+    throw new Error("First-start receipt is missing its original acquisition proof.");
+  if (typeof value.attemptUrl !== "string" || typeof value.verifiedAt !== "string")
+    throw new Error("Invalid first-start response receipt.");
+  const identity = verifiedRedirect(config, {
+    attemptUrl: value.attemptUrl,
+    status: Number(value.status),
+    startUrl: new URL(target(config.targetUrl)).href.replace(/view\.php\?.*$/, "startattempt.php"),
+  });
+  if (identity.attemptId !== value.attemptId)
+    throw new Error("Invalid first-start response identity.");
+  return value as unknown as FirstQuizStartRedirect;
+}
+
+/** A response ID cannot prove ordinal by itself; require the current native history too. */
+export async function proveFirstQuizAttemptIdentity(
+  config: QuizAttemptGuardConfig,
+  metadata: QuizMetadata,
+): Promise<QuizMetadata> {
+  if (!metadata.hasActiveAttempt || metadata.attemptsUsed !== 1)
+    throw new Error("Recovery requires the active first attempt, never a new start.");
+  const receipt = await loadFirstQuizStartRedirect(config);
+  if (metadata.activeAttemptId && metadata.activeAttemptNumber === 1) {
+    if (receipt && receipt.attemptId !== metadata.activeAttemptId)
+      throw new Error("Native identity conflicts with the verified first-start response.");
+    return metadata;
+  }
+  const history = metadata.identityEvidence?.history;
+  if (
+    !receipt ||
+    (metadata.activeAttemptNumber != null && metadata.activeAttemptNumber !== 1) ||
+    (metadata.activeAttemptId != null && metadata.activeAttemptId !== receipt.attemptId) ||
+    !history ||
+    history.length !== 1 ||
+    history[0]!.ordinal !== 1 ||
+    history.some((record) => record.attemptId != null && record.attemptId !== receipt.attemptId) ||
+    (metadata.identityEvidence?.currentAttemptId != null &&
+      metadata.identityEvidence.currentAttemptId !== receipt.attemptId) ||
+    metadata.identityEvidence?.continuation.some((record) => record.attemptId !== receipt.attemptId)
+  ) {
+    throw new Error(
+      "Recovery requires positive native first-ordinal evidence and the original verified response identity.",
+    );
+  }
+  return { ...metadata, activeAttemptId: receipt.attemptId, activeAttemptNumber: 1 };
 }
 
 export async function loadFirstQuizAttemptBinding(
@@ -209,6 +356,7 @@ export async function reconcileFirstQuizAttempt(
   config: QuizAttemptGuardConfig,
   metadata: QuizMetadata,
 ): Promise<FirstQuizAttemptBinding> {
+  metadata = await proveFirstQuizAttemptIdentity(config, metadata);
   if (
     !metadata.hasActiveAttempt ||
     metadata.attemptsUsed !== 1 ||
@@ -276,6 +424,7 @@ function installGuard(
       targetUrl,
       loadBinding: () => loadFirstQuizAttemptBinding(guard),
       debitStartBeforeForward: () => consumeFirstQuizStartRequest(guard),
+      recordStartRedirect: (proof) => recordFirstQuizStartRedirect(guard, proof),
     }),
   );
   return guard;

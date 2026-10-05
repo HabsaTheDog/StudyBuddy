@@ -1,6 +1,6 @@
 import { NonRetryableCodexError } from "../../codexClient.js";
 import { resolveSemanticSearch } from "../../semanticSearch.js";
-import { DRAG_DROP_CONTROLS_JS, buildDragDropFillJs } from "../quizDragDrop.js";
+import { DRAG_DROP_CONTROLS_JS, DRAG_DROP_READY_JS, buildDragDropFillJs } from "../quizDragDrop.js";
 import { quizRequestTime, quizDateMatches, quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -105,7 +105,8 @@ export interface QuizReviewNodeDependencies {
 }
 
 const QUESTION_EXTRACTION_JS = String.raw`
-(() => {
+(async () => {
+  await (${DRAG_DROP_READY_JS})();
   const normalize = value => (value || "").replace(/\s+/g, " ").trim();
   const textOf = node => {
     if (!node) return "";

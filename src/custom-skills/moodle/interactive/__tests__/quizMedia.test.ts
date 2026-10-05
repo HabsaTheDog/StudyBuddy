@@ -47,6 +47,70 @@ function png(width: number, height: number): Buffer {
 }
 
 describe("quiz original image evidence (local browser diagnostic)", () => {
+  it.each([false, true])("waits for a stalled math queue only when the question contains math (%s)", async withMath => {
+    const original = png(90, 40);
+    const { client, origin, directory } = await fixture((request, response) => {
+      if (request.url === "/choice.png") { response.writeHead(200, { "content-type": "image/png" }); response.end(original); return; }
+      response.writeHead(200, { "content-type": "text/html" });
+      const task = withMath ? String.raw`\(x^2\)` : "Use the original diagram";
+      response.end(`<div id="question-1" class="que">${task}<img src="/choice.png"></div>`);
+    });
+    await client.open(origin);
+    await client.evalJson(`JSON.stringify((() => {window.MathJax={Hub:{Queue(){}}};return true;})())`);
+    const result = await client.captureQuestionEvidence!("question-1", directory);
+    expect(result.complete).toBe(!withMath);
+    expect(result.capturedImageCount).toBe(1);
+    if (withMath) {
+      expect(result.errors).toContain("question-render-readiness-timeout");
+      expect(result.readinessDiagnostics).toMatchObject({ incompleteImages: 0, fontsLoading: false, questionMath: true });
+    } else expect(result.errors).toEqual([]);
+  }, 30000);
+
+  it.each([String.raw`\(x + 1\)`, String.raw`\[x + 1\]`])("retains the readiness gate for raw TeX delimiters %s with a stalled global queue", async rawMath => {
+    const {client,origin,directory}=await fixture((_request,response)=> {
+      response.writeHead(200,{"content-type":"text/html"});
+      response.end('<div id="question-1">Only a raw text formula</div>');
+    });
+    await client.open(origin);
+    await client.evalJson(`JSON.stringify((() => {
+      document.getElementById('question-1').textContent=${JSON.stringify(rawMath)};
+      window.MathJax={Hub:{Queue(){}}};return true;
+    })())`);
+    const result=await client.captureQuestionEvidence!("question-1",directory);
+    expect(result.complete).toBe(false);
+    expect(result.errors).toContain("question-render-readiness-timeout");
+    expect(result.readinessDiagnostics).toMatchObject({questionMath:true,mathJaxHub:true});
+  });
+
+  it("ignores src-less native drop placeholders while retaining every actual source image", async () => {
+    const original = png(90, 40);
+    const { client, origin, directory } = await fixture((request, response) => {
+      if (request.url === "/choice.png") {
+        response.writeHead(200, { "content-type": "image/png" });
+        response.end(original);
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(
+        '<div id="question-1" class="que ddimageortext"><div class="dropzone"><img class="drop-placeholder"></div><img src="/choice.png"></div>',
+      );
+    });
+    await client.open(origin);
+    // A src-less image can remain incomplete forever and has no load/error event.
+    await client.evalJson(
+      `JSON.stringify((() => {Object.defineProperty(document.querySelector('.drop-placeholder'),'complete',{value:false});return true;})())`,
+    );
+    const result = await client.captureQuestionEvidence!("question-1", directory);
+    expect(result).toMatchObject({
+      complete: true,
+      expectedImageCount: 1,
+      capturedImageCount: 1,
+      errors: [],
+    });
+    expect(await readFile(result.images[0]!.path)).toEqual(original);
+  });
+
+
   it("downloads authenticated original PNG bytes at source resolution and captures the complete tall question", async () => {
     const original = png(1600, 1000);
     let authenticatedDownloads = 0;
