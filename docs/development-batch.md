@@ -104,6 +104,15 @@ single-debit/POST and zero attempt-read/final-submission assertions are retained
 Unmodified local baseline passes 59/59; final four-suite validation passes
 105/105 (8.44 seconds), with TypeScript and independent review clear.
 
+Windows CI scheduling: the next full run passes 1,806 tests with 20 skips but
+hits existing deadlines in three different disk/rendering fixtures. Ubuntu and
+the complete pinned UI checks pass. Windows now runs every source test with one
+Vitest worker to avoid competing Chromium, Typst and filesystem fixture work.
+Linux scheduling, test inclusion, assertions and deadlines are unchanged. The
+existing 30-minute job limit and fresh full Windows CI remain the validation gate.
+All 101 unchanged affected tests pass serially with exact CI Typst 0.15.0 in
+40.61 seconds; repository policies, five contracts and independent review pass.
+
 
 ## Current line
 

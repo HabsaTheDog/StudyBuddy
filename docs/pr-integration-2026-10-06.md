@@ -187,3 +187,26 @@ timed-out redirect takes 265 ms). Final browser/safety/client validation passes
 105/105 across four files in 8.44 seconds; that redirect takes 295 ms. TypeScript,
 repository policies, diff checks and independent review pass. These timings
 support intermittent CI lifecycle contention without identifying its exact stage.
+
+The full run on `ac5e468` passes Ubuntu, pinned UI, repository policy and all
+security checks. Windows passes 1,806 tests with 20 skips but reaches existing
+deadlines in a document link-sentinel fixture (five seconds), the first
+disk-backed quiz-risk fixture (five seconds), and the actual Typst graph retry
+fixture (30 seconds). Document cleanup also reports a nonempty vendored package
+directory after timeout, consistent with unfinished preparation; no operation
+stage trace proves the precise cause. Failures move between fixture suites
+without semantic assertion errors, supporting a resource-contention diagnosis.
+
+Only Windows source-test scheduling changes to `npm test -- --maxWorkers=1`.
+Every test and assertion still runs under its existing deadline, with the same
+30-minute CI job limit; Linux uses its existing `npm test`. Independent review
+confirms the scheduling change leaves product behavior and safety gates intact.
+Within-test parallel reservations and two-browser debit races still run their
+explicit concurrent operations; the cap only serializes separate test files.
+Fresh full Windows CI must establish the result and total runtime.
+
+The unchanged three affected suites pass 101/101 with one worker and exact CI
+Typst 0.15.0 in 40.61 seconds on the local Linux host. The sentinel, quiz-risk
+and graph retry fixtures take 17 ms, 101 ms and 2,631 ms respectively. These are
+diagnostic local timings, not Windows success evidence. Repository policies,
+five package/security contracts and independent review pass.
