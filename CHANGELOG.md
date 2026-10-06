@@ -6,6 +6,26 @@ for owner testing; the `1.x` line remains reserved for the first full release.
 
 ## Unreleased
 
+## 0.2.4-alpha — candidate
+
+- Added Codex, Gemini and Claude provider installation, connection management,
+  task profiles and provider-independent study workflows.
+- Improved source discovery, source-grounded obligations and study communication.
+- Moved native PDF requests to one document owner with deterministic templates,
+  source attribution, math compilation and physical review.
+- Added complete native quiz capture, original media preservation, first-attempt
+  recovery and saved-response verification; final submission remains blocked.
+- Added permission-bound email inventory/search/read and exact-message send
+  approvals; corrected latest-unread ordering and preserved read state.
+- Improved desktop source runtime, identity/ports, updater diagnostics, consent,
+  chat/sidebar/composer behavior and local browser pairing for external agents.
+- Updated production dependencies and repaired cross-platform Windows tests,
+  lock/alias handling, PDF tool discovery and packaged release provenance.
+
+This candidate includes the complete accumulated development batch. Historical
+`v0.2.3-alpha` remains untouched. Publication and website distribution are pending
+exact Windows/Fedora packaged acceptance; source checks alone are insufficient.
+
 ## 0.2.2-alpha — 2026-09-10
 
 This test alpha combines the previously unpublished 0.2.2 and 0.2.3 candidates.

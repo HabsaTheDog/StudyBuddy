@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -21,6 +21,7 @@ export function releaseMetadata(version) {
 
 export function validateDesktopReleaseContract({
   version,
+  packageVersion,
   publishDraft,
   signed,
   acknowledgeUnsignedWindows,
@@ -28,6 +29,9 @@ export function validateDesktopReleaseContract({
   posthogProjectToken,
 }) {
   const metadata = releaseMetadata(version);
+  if (packageVersion !== version) {
+    throw new Error("Release version must match the root package metadata before packaging.");
+  }
 
   if (signed) {
     throw new Error(
@@ -58,6 +62,7 @@ function booleanEnvironmentValue(name) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const metadata = validateDesktopReleaseContract({
     version: process.env.RELEASE_VERSION ?? "",
+    packageVersion: JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version,
     publishDraft: booleanEnvironmentValue("PUBLISH_DRAFT"),
     signed: booleanEnvironmentValue("SIGNED"),
     acknowledgeUnsignedWindows: booleanEnvironmentValue("ACKNOWLEDGE_UNSIGNED_WINDOWS"),

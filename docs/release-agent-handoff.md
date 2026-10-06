@@ -27,6 +27,34 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Current release intake, 2026-10-07
+
+Owner requests a new release and direct website availability. Prepare
+`0.2.4-alpha`, preserving the historical unpublished `v0.2.3-alpha` tag and all
+public releases. The isolated integration combines remote root `24f3c8c`/UI
+`0aae142c9` security and Windows fixes with local root `b53e2b6`/UI `c0bd23bf9`
+browser pairing. Read the complete [inventory](release-inventory-0.2.4-alpha.md)
+and [readiness contract](release-readiness.md) for scope, excluded dirty work,
+feature checks and exact-source/publication gates. Source/VM acceptance remains
+pending; no historical passing evidence certifies new bytes. Website provenance
+verification is being prepared in its owning repository; installer hosting stays
+on GitHub. Exact snapshot restoration approval is candidate-specific.
+
+## Current local browser pairing repair, 2026-10-06
+
+Include [the local pairing report](local-browser-pairing-2026-10-06.md), the root
+CLI helper and UI dependency `c0bd23bf9`. Pairing management no longer depends on
+network exposure; existing access-management scope gates and loopback policy
+remain enforced. Seven helper cases plus package guard, 23 auth unit cases,
+HTTP2 and browser4 pass; full check/typechecks and independent review pass.
+Live normal-UI exchange proved authenticated standard access without network
+exposure in a separate diagnostic browser. The original T3 preview disconnected;
+its browser session is unverified. Preserve this distinction from desktop or
+packaged acceptance. Global skill installation/archive is local-only outside Git;
+include the helper in future checkout/distribution workflows used by that skill.
+No push, merge, restart, release package or publication. Active backend already
+supports grants; corrected descriptor requires updated server startup.
+
 ## Current latest-unread mail reliability repair, 2026-10-06
 
 Include [the accepted reliability repair](email-latest-read-reliability-2026-10-06.md).

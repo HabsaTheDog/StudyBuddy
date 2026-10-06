@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 
 import { validateDesktopReleaseAssets } from "./check-desktop-release-assets.mjs";
+import { createDesktopReleasePromotion } from "./create-desktop-release-promotion.mjs";
 
 async function fixture(extra = []) {
   const directory = await mkdtemp(join(tmpdir(), "study-buddy-release-assets-"));
@@ -142,94 +143,159 @@ test("rejects an invalid artifact SBOM", async (t) => {
   );
 });
 
-test("accepts final evidence only when its manifest and checksums are internally consistent", async (t) => {
-  const value = await fixture();
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+async function finalFixture(t) {
+  const value = { ...await fixture(), channel: "alpha", final: true, promoted: false };
   t.after(() => rm(value.directory, { recursive: true, force: true }));
-  const sbom = JSON.stringify({ bomFormat: "CycloneDX", components: [{ name: "root" }] });
-  await writeFile(join(value.directory, "study-buddy-root.cdx.json"), sbom);
-  const releaseManifest = {
-    schemaVersion: 1,
-    product: "Study Buddy",
-    version: value.version,
-    rootCommit: "a".repeat(40),
-    uiCommit: "b".repeat(40),
-    supportedPlatforms: ["linux-x64", "windows-x64"],
-    signed: false,
+  await writeFile(join(value.directory, "study-buddy-root.cdx.json"),
+    JSON.stringify({ bomFormat: "CycloneDX", components: [{ name: "root" }] }));
+  const manifest = {
+    schemaVersion: 1, product: "Study Buddy", version: value.version,
+    rootCommit: "a".repeat(40), uiCommit: "b".repeat(40),
+    supportedPlatforms: ["linux-x64", "windows-x64"], signed: false,
   };
-  const releaseManifestPath = join(value.directory, "release-manifest.json");
-  await writeFile(releaseManifestPath, JSON.stringify(releaseManifest));
-  const releaseManifestSha256 = createHash("sha256")
-    .update(await readFile(releaseManifestPath))
-    .digest("hex");
-  await writeFile(
-    join(value.directory, "distribution-ready.json"),
-    JSON.stringify({
-      schemaVersion: 1,
-      product: "Study Buddy",
-      version: value.version,
-      channel: "alpha",
-      rootCommit: releaseManifest.rootCommit,
-      uiCommit: releaseManifest.uiCommit,
-      releaseManifestSha256,
-      downloads: {
-        windows: `Study-Buddy-${value.version}-x64.exe`,
-        linux: `Study-Buddy-${value.version}-x86_64.AppImage`,
-      },
-    }),
-  );
-  const names = (await readdir(value.directory)).sort();
+  const manifestPath = join(value.directory, "release-manifest.json");
+  await writeFile(manifestPath, JSON.stringify(manifest));
   const lines = [];
-  for (const name of names) {
-    const digest = createHash("sha256")
-      .update(await readFile(join(value.directory, name)))
-      .digest("hex");
-    lines.push(`${digest}  ${name}`);
+  for (const name of (await readdir(value.directory)).sort()) {
+    lines.push(`${sha256(await readFile(join(value.directory, name)))}  ${name}`);
   }
-  await writeFile(join(value.directory, "SHA256SUMS"), `${lines.join("\n")}\n`);
+  const sumsPath = join(value.directory, "SHA256SUMS");
+  await writeFile(sumsPath, `${lines.join("\n")}\n`);
+  const marker = {
+    schemaVersion: 1, product: "Study Buddy", version: value.version, channel: value.channel,
+    rootCommit: manifest.rootCommit, uiCommit: manifest.uiCommit,
+    releaseManifestSha256: sha256(await readFile(manifestPath)),
+    sha256SumsSha256: sha256(await readFile(sumsPath)),
+    downloads: {
+      windows: `Study-Buddy-${value.version}-x64.exe`,
+      linux: `Study-Buddy-${value.version}-x86_64.AppImage`,
+    },
+  };
+  return { ...value, marker };
+}
 
-  const result = await validateDesktopReleaseAssets({
-    directory: value.directory,
-    version: value.version,
-    channel: "alpha",
-    final: true,
-  });
-  assert.equal(result.assets.length, 11);
+async function promotionFixture(t) {
+  const value = await finalFixture(t);
+  const approvalDirectory = await mkdtemp(join(tmpdir(), "study-buddy-promotion-"));
+  t.after(() => rm(approvalDirectory, { recursive: true, force: true }));
+  const { downloads: _downloads, ...binding } = value.marker;
+  const approval = { ...binding, decision: "GO", ownerApproved: true };
+  const goRecord = join(approvalDirectory, "go.json");
+  await writeFile(goRecord, JSON.stringify(approval));
+  return { ...value, approval, goRecord, output: join(approvalDirectory, "distribution-ready.json") };
+}
 
-  const distributionPath = join(value.directory, "distribution-ready.json");
-  const distributionContents = await readFile(distributionPath, "utf8");
-  await writeFile(distributionPath, JSON.stringify({ version: value.version }));
-  await assert.rejects(
-    validateDesktopReleaseAssets({
-      directory: value.directory,
-      version: value.version,
-      channel: "alpha",
-      final: true,
-    }),
-    /Distribution-ready marker is invalid/,
-  );
-  await writeFile(distributionPath, distributionContents);
+async function bundleDigests(directory) {
+  return Promise.all((await readdir(directory)).sort().map(async name =>
+    [name, sha256(await readFile(join(directory, name)))]));
+}
 
-  // An owner-testing alpha must contain the same integrity evidence without
-  // accidentally carrying the website's stable-channel promotion signal.
-  const checksumPath = join(value.directory, "SHA256SUMS");
-  const promotedChecksums = await readFile(checksumPath, "utf8");
-  await rm(distributionPath);
-  await writeFile(checksumPath, promotedChecksums.split("\n").filter(line => !line.endsWith("  distribution-ready.json")).join("\n"));
-  const unpromoted = { directory: value.directory, version: value.version, channel: "alpha", final: true, promoted: false };
-  assert.equal((await validateDesktopReleaseAssets(unpromoted)).assets.length, 10);
-  await assert.rejects(validateDesktopReleaseAssets({ ...unpromoted, promoted: true }), /missing=\[distribution-ready.json\]/);
-  await writeFile(distributionPath, distributionContents);
-  await assert.rejects(validateDesktopReleaseAssets(unpromoted), /unexpected=\[distribution-ready.json\]/);
-  await writeFile(checksumPath, promotedChecksums);
+test("accepts immutable final evidence without promotion and fails closed when promotion is requested", async (t) => {
+  const value = await finalFixture(t);
+  assert.equal((await validateDesktopReleaseAssets(value)).assets.length, 10);
+  await assert.rejects(validateDesktopReleaseAssets({ ...value, promoted: true }), /missing=\[distribution-ready.json\]/);
+  await writeFile(join(value.directory, "distribution-ready.json"), JSON.stringify(value.marker));
+  assert.equal((await validateDesktopReleaseAssets({ ...value, promoted: true })).assets.length, 11);
+  await assert.rejects(validateDesktopReleaseAssets(value), /unexpected=\[distribution-ready.json\]/);
+});
 
+test("rejects promotion with missing or mismatched checksum, manifest, or commit binding", async (t) => {
+  const value = await finalFixture(t);
+  const markerPath = join(value.directory, "distribution-ready.json");
+  for (const key of ["sha256SumsSha256", "releaseManifestSha256", "rootCommit", "uiCommit"]) {
+    for (const replacement of [undefined, "0".repeat(key.endsWith("Sha256") ? 64 : 40)]) {
+      await writeFile(markerPath, JSON.stringify({ ...value.marker, [key]: replacement }));
+      await assert.rejects(validateDesktopReleaseAssets({ ...value, promoted: true }), /Distribution-ready marker is invalid/);
+    }
+  }
+});
+
+test("rejects checksum coverage that includes the later promotion marker", async (t) => {
+  const value = await finalFixture(t);
+  const markerPath = join(value.directory, "distribution-ready.json");
+  await writeFile(markerPath, JSON.stringify(value.marker));
+  const sumsPath = join(value.directory, "SHA256SUMS");
+  const sums = `${await readFile(sumsPath, "utf8")}${"0".repeat(64)}  distribution-ready.json\n`;
+  await writeFile(sumsPath, sums);
+  await writeFile(markerPath, JSON.stringify({ ...value.marker, sha256SumsSha256: sha256(Buffer.from(sums)) }));
+  await assert.rejects(validateDesktopReleaseAssets({ ...value, promoted: true }), /exact release asset set/);
+});
+
+test("rejects malformed, incomplete, and changed immutable checksums", async (t) => {
+  const value = await finalFixture(t);
+  const sumsPath = join(value.directory, "SHA256SUMS");
+  const original = await readFile(sumsPath, "utf8");
+  for (const [contents, error] of [
+    ["invalid\n", /malformed/],
+    [original + original.split("\n")[0] + "\n", /malformed/],
+    [original.split("\n").slice(1).join("\n"), /exact release asset set/],
+    [original.replace(/^[0-9a-f]{64}/, "0".repeat(64)), /SHA256 mismatch/],
+  ]) {
+    await writeFile(sumsPath, contents);
+    await assert.rejects(validateDesktopReleaseAssets(value), error);
+  }
+  await writeFile(sumsPath, original);
   await writeFile(join(value.directory, `Study-Buddy-${value.version}-x64.exe`), "tampered");
-  await assert.rejects(
-    validateDesktopReleaseAssets({
-      directory: value.directory,
-      version: value.version,
-      channel: "alpha",
-      final: true,
-    }),
-    /wrong artifact digest|SHA256 mismatch/,
-  );
+  await assert.rejects(validateDesktopReleaseAssets(value), /wrong artifact digest|SHA256 mismatch/);
+});
+
+test("rejects release assets supplied through mutable symbolic links", async (t) => {
+  const value = await finalFixture(t);
+  const artifact = join(value.directory, `Study-Buddy-${value.version}-x64.exe`);
+  await rm(artifact);
+  await symlink("release-manifest.json", artifact);
+  await assert.rejects(validateDesktopReleaseAssets(value), /Release asset is empty/);
+});
+
+test("creates deterministic promotion only from explicit exact-bundle GO without modifying accepted bytes", async (t) => {
+  const value = await promotionFixture(t);
+  const before = await bundleDigests(value.directory);
+  const result = await createDesktopReleasePromotion(value);
+  assert.deepEqual(result.marker, value.marker);
+  assert.deepEqual(JSON.parse(await readFile(value.output, "utf8")), value.marker);
+  assert.deepEqual(await bundleDigests(value.directory), before);
+  const secondOutput = `${value.output}.second`;
+  await createDesktopReleasePromotion({ ...value, output: secondOutput });
+  assert.deepEqual(await readFile(secondOutput), await readFile(value.output));
+  await assert.rejects(createDesktopReleasePromotion(value), /EEXIST/);
+  assert.deepEqual(await bundleDigests(value.directory), before);
+});
+
+test("promotion rejects absent owner approval, non-GO decisions, and mismatched bundle provenance", async (t) => {
+  const value = await promotionFixture(t);
+  for (const patch of [
+    { decision: "NO-GO" }, { decision: "BLOCKED" }, { ownerApproved: false }, { ownerApproved: undefined },
+    { rootCommit: "c".repeat(40) }, { uiCommit: "c".repeat(40) }, { version: "0.2.1-alpha" },
+    { channel: "latest" }, { sha256SumsSha256: "0".repeat(64) }, { releaseManifestSha256: "0".repeat(64) },
+  ]) {
+    await writeFile(value.goRecord, JSON.stringify({ ...value.approval, ...patch }));
+    await assert.rejects(createDesktopReleasePromotion(value), /explicit owner-approved GO record/);
+  }
+  assert.equal((await readdir(value.directory)).includes("distribution-ready.json"), false);
+  await assert.rejects(readFile(value.output), /ENOENT/);
+});
+
+test("promotion refuses output in the bundle, including a symlink directory alias", async (t) => {
+  const value = await promotionFixture(t);
+  await assert.rejects(createDesktopReleasePromotion({ ...value, output: join(value.directory, "distribution-ready.json") }), /outside the immutable/);
+  const alias = join(value.directory, "..", `${value.directory.split("/").at(-1)}-alias`);
+  await symlink(value.directory, alias);
+  t.after(() => rm(alias));
+  await assert.rejects(createDesktopReleasePromotion({ ...value, output: join(alias, "distribution-ready.json") }), /outside the immutable/);
+});
+
+test("promotion fails before output when accepted bundle bytes change", async (t) => {
+  const value = await promotionFixture(t);
+  await writeFile(join(value.directory, `Study-Buddy-${value.version}-x64.exe.blockmap`), "changed after acceptance");
+  await assert.rejects(createDesktopReleasePromotion(value), /SHA256 mismatch/);
+  await assert.rejects(readFile(value.output), /ENOENT/);
+});
+
+test("workflow assembles and stages drafts without any automatic promotion", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/alpha-release.yml", import.meta.url), "utf8");
+  assert.equal((workflow.match(/--final --unpromoted/g) ?? []).length, 2);
+  assert.match(workflow, /test ! -e distribution-ready\.json/);
+  assert.doesNotMatch(workflow, /create-desktop-release-promotion|distribution-ready.*writeFile|writeFile.*distribution-ready/);
 });

@@ -1,66 +1,63 @@
-# Published `v0.2.2-alpha` owner-testing release
+# 0.2.4-alpha release contract
 
-## Decision — 2026-09-10
+Decision: **BLOCKED — preparation in progress; no exact packaged candidate yet.**
 
-**Published for hands-on testing; not promoted to the stable website channel.**
-The owner explicitly requested focused automated checks and one installable
-Windows/Fedora alpha instead of exhaustive clean-VM acceptance.
+- Version/channel: `0.2.4-alpha`, GitHub prerelease; intended website stable
+  download promotion only after all exact-byte gates pass.
+- Scope: complete accumulated batch plus remote October 6 security/Windows
+  integration and local browser pairing; see [inventory](release-inventory-0.2.4-alpha.md).
+- Source: isolated `release/0.2.4-alpha`, integrating root remote `24f3c8c`
+  and local `b53e2b6`; reviewed merged UI `82ab434f1190f59c050bc7599cb1e227eb3073c9`.
+- Final build must use the reviewed protected `master` commit and reviewed UI pin.
+- Supported lanes: Windows 11 x64, Fedora x64. Windows intentionally unsigned;
+  warning evidence and disclosure required. macOS excluded.
+- User explicitly requested creation/publication and direct website availability.
+  Reviewable prepared source merges, build dispatch and website deployment are
+  in that scope. Exact candidate-specific disposable snapshot restoration
+  approval remains pending under the release lab skill.
+- Preserve all public versions and historical `v0.2.3-alpha` tag. Use a new tag.
+- Preserve canonical App/UI and Website worktrees and unreviewed legacy work.
 
-Release: https://github.com/HabsaTheDog/StudyBuddy/releases/tag/v0.2.2-alpha
+## Source validation
 
-- Root commit: `77b8730a4b1166fdccad3fa4942a11c2930f0445` (PR #49).
-- UI commit: `6b6d811264cd896fc2abac48810edf9abac81246` (desktop PR #21).
-- Build: https://github.com/HabsaTheDog/StudyBuddy/actions/runs/34491919586
-- Root CI: https://github.com/HabsaTheDog/StudyBuddy/actions/runs/34491183059
-- Windows: `Study-Buddy-0.2.2-alpha-x64.exe`, intentionally unsigned.
-- Fedora: `Study-Buddy-0.2.2-alpha-x86_64.AppImage`.
-- macOS remains unsupported.
+Root: 1,825 tests pass/four existing skips after two unchanged-file bounded
+retries of broad-run timeouts; TypeScript passes. Initial broad run retained:
+1,822 pass, three timeout failures, 158s. Quiz-media retry11/11 (23.65s),
+PDF publication retry21/21 (50.69s). Changed web-layout browser checks13/13.
+Workflow/security/pairing tools12/12; release contract/assets23/23.
+UI: 3,984 pass/five existing skips, all13 typechecks and full format/lint pass;
+changed pairing browser20/20. Root licenses/SBOM/public tree/links pass;
+root npm10 audit0 vulnerabilities (host npm12 audit has EALLOWSCRIPTS tooling
+error), UI audit no high/critical. GitHub open CodeQL/Dependabot/secret alerts0.
+Independent App/website review resolves all preparation findings.
+Website prepared separately at `404c8b8932023226d7aa10f59d872cfebfdf844f`:
+types/build/audit and focused tests pass; synthetic compiled-browser cases pass.
+Those local checks do not establish public download acceptance.
 
-## Completed
+## Gates
 
-- Combined both unpublished candidates, completed semantic-source work,
-  parallel quiz and desktop/runtime fixes, and local Moodle server fixes.
-- Fixed Windows path assertions and bounded cold-start integration test
-  timeouts without cleanup racing a child process.
-- Reproduced and fixed review findings for script-only source navigation,
-  generic prepare/complete intent routing and deadline/authorship confusion.
-- Local root: 1,161 tests pass, 4 optional tests skipped; TypeScript passes.
-- Local UI: 3,325 tests pass, 5 skipped; all 13 workspace typechecks and lint pass.
-- Required root/UI GitHub CI, Windows/Linux tests, CodeQL, secret scan,
-  repository policy and release dependency audits pass.
-- GitHub built both installers and assembled manifests, SBOMs and updater files.
-- All local checksums match. All ten GitHub asset hashes and sizes match local
-  bytes; anonymous release API and both public download URLs succeed (HTTP 200).
-- Static package inspection confirms the Windows x64 payload, Linux x86-64
-  identity, version and Study Buddy-specific GitHub updater configuration.
-- The replaced 0.2.2 draft and removed 0.2.3 draft have verified local backups.
-  Existing public releases are unchanged; the historical 0.2.3 tag is retained.
-- No `distribution-ready.json` was published; no website promotion/deployment.
-- Original dirty source checkouts and the personal installed app are preserved.
+Pending: protected-branch CI and security; exact merged
+source build; full artifact hashes/manifests; clean Windows/Fedora installed
+acceptance including broker/runtime probes, authenticated streamed file thread,
+source lifecycle, persistence, failure recovery, identity/coexistence, telemetry,
+unsigned warning, updater and cleanup; targeted native PDF/source regression;
+scoped changed web-layout regressions; owner testing; website integrity/UX tests
+and browser check; public installer download hash equality.
 
-## Exact installer hashes
+No passing prior source or archived VM result transfers to new artifact bytes.
+Dedicated subscription cache is healthy; both calibrated disposable lanes are
+powered off and available. Inventory is discovery, not VM acceptance.
 
-```text
-4bb664fd105f47dc67809bb2921a01b330f28552618d48365944f2b55aaa010e  Study-Buddy-0.2.2-alpha-x64.exe
-0dcc4fad61368c0dbf3f495faaedfcc0b60db33bf1d06a139cdabce61ce3bc66  Study-Buddy-0.2.2-alpha-x86_64.AppImage
-```
+## Publication ordering
 
-## Explicitly remaining
+Assemble unpromoted immutable GitHub bundle, accept exact bytes, publish complete
+prerelease, verify public hashes, create reviewed marker bound to manifest and
+SHA256SUMS digest, then expose/verify website buttons. Never publish an automatic
+pre-acceptance promotion marker. Marker and installer URLs must fail closed on
+missing or inconsistent provenance. Website installers remain hosted on GitHub.
 
-This is not a claim that all application defects are fixed. Owner testing,
-full clean Windows/Fedora VM acceptance, installed update-cycle testing and
-real-account Moodle-to-guide acceptance remain pending for these exact bytes.
-No new VM snapshot was reverted for this reduced-acceptance publication.
+## Evidence
 
-The local Moodle server passes 19 real checks and 16 tooling tests. Safe guest
-transport and automated credentials for the unchanged desktop package are still
-unfinished; see [Moodle lab](moodle-test-service.md). Keep normal HTTPS/private
-network protections intact. Script-only external navigation fails closed.
-
-No further version is published automatically. A public fix must increment the
-patch; never overwrite these published assets or retag this version.
-
-The detailed local receipt and superseded draft backups are under
-`study-buddy-data/releases/0.2.2-alpha-consolidated/`.
-Historical prior-candidate evidence remains in
-[the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
+Canonical preparation records: `study-buddy-data/releases/0.2.4-alpha-preparation/`.
+Historical 0.2.2 public testing record remains in Git history and the immutable
+release; archived candidate records retain all earlier failed/blocked evidence.

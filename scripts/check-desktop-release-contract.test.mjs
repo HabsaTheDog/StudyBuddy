@@ -8,6 +8,7 @@ import {
 
 const base = {
   version: "0.2.0-alpha",
+  packageVersion: "0.2.0-alpha",
   publishDraft: false,
   signed: false,
   acknowledgeUnsignedWindows: false,
@@ -70,4 +71,15 @@ test("rejects a mismatched tag and unavailable signing mode", () => {
     /refs\/tags\/v0.2.0-alpha/,
   );
   assert.throws(() => validateDesktopReleaseContract({ ...base, signed: true }), /disabled/);
+});
+
+
+test("rejects missing or mismatched package metadata for non-publishing builds", () => {
+  for (const packageVersion of [undefined, "0.2.3-alpha", "0.2.0-alpha.1"]) {
+    assert.throws(
+      () => validateDesktopReleaseContract({ ...base, packageVersion }),
+      /match the root package metadata/,
+    );
+  }
+  assert.deepEqual(validateDesktopReleaseContract(base), releaseMetadata(base.version));
 });

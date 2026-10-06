@@ -116,11 +116,41 @@ All 101 unchanged affected tests pass serially with exact CI Typst 0.15.0 in
 
 ## Current line
 
-- Version metadata: `0.2.3-alpha`
-- State: open development batch; not a frozen candidate
-- Version bump, tag, final package, VM release acceptance, and publication: deferred
+- Version metadata: `0.2.4-alpha`
+- State: release preparation in an isolated integration worktree; not yet accepted
+- Version advanced to preserve the historical `v0.2.3-alpha` tag. Final package,
+  exact Windows/Fedora acceptance, public tag and website promotion are pending.
+- Complete scope/dispositions: [0.2.4 release inventory](release-inventory-0.2.4-alpha.md);
+  [current release contract](release-readiness.md). Historical local-only states
+  below remain development evidence; consult the release receipt for later pushes.
+
+## Release infrastructure preparation, 2026-10-07
+
+Exact `0.2.4-alpha` promotion binds root/UI commits, manifest and SHA256SUMS
+digests without changing accepted bundle bytes. Drafts stay unpromoted. Website
+work is prepared separately in its owning repository: same-origin approval
+receipts avoid GitHub asset CORS limits while checking the public API's exact
+asset digests, identity and trusted download paths. This intake includes the
+existing website consent/privacy fix and semver-compatible audited dependency
+updates; overlapping demo redesign work is explicitly deferred. Source checks,
+receipt registration and deployment remain separately recorded in website
+`docs/releases/0.2.4-alpha.md`; no staged site is live by implication.
 
 ## Queued changes
+
+Local browser pairing for external agents (2026-10-06): authenticated owners
+can manage pairing on loopback without enabling network access. Desktop auth
+metadata advertises existing one-time pairing. Safe explicit-runtime CLI issues
+fresh standard grants to private files, protects independent T3 state/secret/output
+symlink targets, and is taught by the installed global `study-buddy-ui` skill.
+Eight root checks, 23 auth unit tests, two HTTP regressions, four browser
+regressions, full UI check and typechecks pass; independent review resolved both
+isolation findings. Actual normal-UI pairing succeeds in a separate diagnostic
+browser. The original T3 automation client disconnected; that view is unverified.
+See [the local pairing report](local-browser-pairing-2026-10-06.md). UI
+`c0bd23bf9`, root integration and global skill are local-only; no push, merge, backend restart, publication,
+packaged acceptance or study request. Existing runtime supports the helper now;
+corrected descriptor takes effect on updated startup.
 
 Latest-unread email reliability repair (2026-10-06): the approved targeted fix
 passes all three fresh unchanged native Balanced cases independently 4/4, including
