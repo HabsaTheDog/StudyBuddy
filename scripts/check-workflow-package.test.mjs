@@ -43,3 +43,19 @@ test('editor CI provisions the parent workflow CLI used by native broker integra
   assert.ok(editor.indexOf('working-directory: t3code-fork') > install,
     'the parent install must run at the workflow root, before changing to the editor');
 });
+
+test('release preflight installs the pinned editor before workflow parity and release checks', () => {
+  const workflow = readFileSync(new URL('.github/workflows/alpha-release.yml', root), 'utf8');
+  const preflight = workflow.slice(workflow.indexOf('  preflight:'), workflow.indexOf('  build:'));
+  const checks = preflight.indexOf('run: npm run check:release');
+  const install = preflight.indexOf('pnpm install --frozen-lockfile');
+  assert.ok(install >= 0 && checks > install,
+    'root release parity tests require the installed pinned editor packages');
+  assert.match(preflight.slice(0, install), /submodules: true/u);
+  const editorSetup = preflight.slice(preflight.lastIndexOf('      - name:', install), install);
+  assert.match(editorSetup, /working-directory: t3code-fork/u);
+  assert.match(editorSetup, /corepack prepare pnpm@10\.24\.0 --activate/u);
+  const audit = preflight.indexOf('pnpm study-buddy:audit', install);
+  assert.ok(audit >= install && audit < checks,
+    'the exact shipped graph must also be audited before release checks');
+});

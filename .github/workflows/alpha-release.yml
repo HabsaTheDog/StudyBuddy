@@ -67,7 +67,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y poppler-utils
           npx playwright install --with-deps chromium
-      - run: npm run check:release
       - name: Audit the exact shipped UI dependency graph
         working-directory: t3code-fork
         run: |
@@ -75,6 +74,8 @@ jobs:
           corepack prepare pnpm@10.24.0 --activate
           pnpm install --frozen-lockfile
           pnpm study-buddy:audit
+      # Workflow parity tests import packages from this pinned UI workspace.
+      - run: npm run check:release
 
   build:
     name: Build ${{ matrix.label }}

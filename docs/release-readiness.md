@@ -82,6 +82,17 @@ pass.
 
 ## Gates
 
+PR53 merged through protected `master` at
+`e449e78b91d5da9315fbf4379f2a739f30abe190`, with a tree identical to reviewed
+`39d513d`. All required CI passed: Windows1,810/20 skips, Ubuntu1,823/7 skips,
+and pinned UI checks/audit. Packaging run37548167424 failed before building any
+installer: root parity tests imported UI modules before the release preflight
+installed their workspace dependencies. Move the existing frozen UI install
+and audit before `check:release`, preserving every gate, and add a focused
+preflight ordering contract. This source follow-up needs protected CI/merge;
+the final candidate must be rebuilt from that new merged SHA. No packaged
+acceptance or publication has occurred.
+
 Pending: protected-branch CI and security; exact merged
 source build; full artifact hashes/manifests; clean Windows/Fedora installed
 acceptance including broker/runtime probes, authenticated streamed file thread,
