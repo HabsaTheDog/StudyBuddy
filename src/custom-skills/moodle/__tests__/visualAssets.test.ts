@@ -8,6 +8,7 @@ import { ResourceManifestSchema } from "../examNavigatorContracts.js";
 import {
   discoverVisualCandidates,
   hydrateExtractedVisualAssets,
+  resolveVisualExecutable,
   visualRequiredResourceIds,
 } from "../visualAssets.js";
 import { moodleExtractedData, moodleTestConfig } from "./support/moodleTestBlocks.js";
@@ -22,6 +23,17 @@ afterEach(async () => {
 });
 
 describe("visual asset discovery", () => {
+  it("finds Windows Poppler and ImageMagick executables through PATHEXT", async () => {
+    runDir = await mkdtemp(path.join(os.tmpdir(), "visual-tools-"));
+    const environment = { PATH: `"${runDir}"`, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+    for (const name of ["pdfinfo", "pdftotext", "pdftoppm", "pdfimages", "magick"]) {
+      const executable = path.join(runDir, `${name}.exe`);
+      await writeFile(executable, "test executable presence");
+      expect(await resolveVisualExecutable(name, environment, "win32")).toBe(executable);
+      expect(await resolveVisualExecutable(name, environment, "linux")).toBeNull();
+    }
+    expect(await resolveVisualExecutable("missing-tool", environment, "win32")).toBeNull();
+  });
   it("requires visual evidence for a selected PDF with only a partial text layer", () => {
     const manifest = ResourceManifestSchema.parse({
       schemaVersion: "1.0",

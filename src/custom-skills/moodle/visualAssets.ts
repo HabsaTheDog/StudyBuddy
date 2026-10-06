@@ -1002,17 +1002,32 @@ async function isPdfFile(filePath: string): Promise<boolean> {
   return Boolean(buffer && buffer.subarray(0, 5).toString("latin1") === "%PDF-");
 }
 
-async function findExecutable(name: string): Promise<string | null> {
-  for (const entry of (process.env.PATH || "").split(path.delimiter)) {
-    const candidate = path.join(entry, name);
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Continue.
+export async function resolveVisualExecutable(
+  name: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string | null> {
+  const extensions = platform === "win32"
+    ? (environment.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  for (const value of (environment.PATH || "").split(platform === "win32" ? ";" : path.delimiter)) {
+    const entry = value.trim().replace(/^"|"$/g, "");
+    if (!entry) continue;
+    for (const extension of extensions) {
+      const candidate = path.join(entry, name + extension.toLowerCase());
+      try {
+        await access(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
+        return candidate;
+      } catch {
+        // Continue.
+      }
     }
   }
   return null;
+}
+
+async function findExecutable(name: string): Promise<string | null> {
+  return resolveVisualExecutable(name);
 }
 
 function runCommand(

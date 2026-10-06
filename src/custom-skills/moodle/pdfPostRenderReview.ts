@@ -261,7 +261,7 @@ export async function reviewRenderedPdf(
       if (sheets.length === 0) {
         throw new Error("No contact sheet could be produced from the rendered PDF pages.");
       }
-      for (let index = 0; index < sheets.length; index += 2) {
+      for (let index = 0; index < sheets.length;) {
         const pair = sheets.slice(index, index + 2);
         const allowedPages = pair.flatMap((entry) => entry.pages);
         const response = await input.codex.run(
@@ -283,6 +283,10 @@ export async function reviewRenderedPdf(
           entry.code,
           entry.message,
         )));
+        if (index + pair.length >= sheets.length) break;
+        // Without montage, overlap adjacent physical pages so a divider at
+        // the image-batch boundary can still be checked against its content.
+        index += pair.every((entry) => entry.pages.length === 1) ? 1 : 2;
       }
       modelReviewedPages = [...new Set(modelReviewedPages)].sort((left, right) => left - right);
       modelReview = modelBlocking ? "failed" : "passed";
@@ -564,9 +568,9 @@ async function createContactSheets(
     const result = await safeProcess(run, "magick", args, signal, 2 * 1024 * 1024);
     if (result.code !== 0) {
       // Codex accepts at most two local images. If montage is unavailable,
-      // preserve honest coverage by reviewing at most the first two real pages
-      // of this batch instead of pretending a sheet exists.
-      for (const page of sheetPages.slice(0, 2)) {
+      // preserve all selected real pages. The caller batches these inputs
+      // into at most two images and keeps adjacent-page context across calls.
+      for (const page of sheetPages) {
         const rasterPath = rasterPaths[page - 1];
         if (rasterPath) sheets.push({ path: rasterPath, pages: [page] });
       }

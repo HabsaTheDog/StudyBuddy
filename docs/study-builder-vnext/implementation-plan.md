@@ -1,5 +1,16 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-06: cross-platform PDF evidence regression repairs
+
+PR #53 CI exposed missing PDF review coverage when ImageMagick is unavailable
+and extensionless-only visual-tool discovery on Windows. Preserve every selected
+physical PDF page in the fallback, review adjacent page pairs with at most two
+images per call, and resolve installed Windows tools through PATHEXT. Keep the
+original composition and divider-review assertions, verify the three-page fixture
+with CI Typst 0.15.0, and exercise both contact-sheet and missing-montage paths.
+Use a platform-native observation-image path in the Study Builder handoff test.
+No new worker, content policy, quiz permission, or release-acceptance claim.
+
 ## 2026-10-04: real-run native quiz routing repair
 
 Owner requests one real run and explicitly approves attachment to the actual
