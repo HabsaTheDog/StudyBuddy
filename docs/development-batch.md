@@ -41,6 +41,9 @@ junctions, non-directories and replacement during resolution. Canonical and
 configured paths share the same durable reservation and one-time start debit.
 Six applicable suites pass 165 tests; final helper/guard tests pass 23/23.
 First-attempt and final-submission permission boundaries remain enforced.
+Combined CI-repair validation with exact Typst 0.15.0: 181 files, 1,808 passed,
+four existing skips, zero failures in 190.85 seconds. Final contracts pass 4/4.
+Fresh GitHub platform and pinned-UI checks remain the merge gate.
 
 
 ## Current line

@@ -101,3 +101,8 @@ Root #52 merged as `22ee81460c77ba5aa9a41cda0d235220cc2f3aad`, and #41 merged as
 `23400c2efcdf02412b79b0695477372a94b79f25`, after their fresh required checks.
 Both updates are retained in the integration branch; remaining dependency PRs
 must receive current-base validation before merging.
+
+The final combined source run uses exact CI Typst 0.15.0 and passes all 181 test
+files: 1,808 passed, four existing skips, zero failures (190.85 seconds). The
+final package/security contracts pass 4/4. Fresh Ubuntu/Windows GitHub checks
+still gate integration; this local result is not packaged release acceptance.
