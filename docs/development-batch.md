@@ -68,6 +68,12 @@ TypeScript, repository policies, public UI pin and zero-vulnerability audit pass
 Independent manifest/lock/entrypoint review has no blocking concerns. #53 still
 requires fresh current-base CI before merge; #48 is superseded only after it lands.
 
+Windows catalogue checkout regression: committed root/editor catalogue content
+is identical, but root autocrlf and the editor LF attribute yield different
+working-tree newlines. Compare CRLF-normalized text while preserving every
+other byte. Five parity tests pass, including independent newline combinations
+and rejection of changed policies, whitespace and bare carriage returns.
+
 
 ## Current line
 

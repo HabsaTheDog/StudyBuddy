@@ -6,11 +6,34 @@ import { describe, expect, it } from "vitest";
 import { STUDY_BUDDY_MODEL_TASKS } from "../../shared/modelTaskCatalog.js";
 import { parseModelPolicyOverrides, resolveTaskModelPolicy } from "../modelPolicy.js";
 
+// The editor pins LF in .gitattributes; the workflow checkout can use CRLF.
+// Preserve every other source byte, including whitespace and trailing newlines.
+const normalizeCheckoutNewlines = (source: string) => source.replace(/\r\n/g, "\n");
+
 describe("model task integration", () => {
   it("keeps the packaged editor catalogue identical to the standalone workflow", async () => {
     const canonical = await readFile("src/custom-skills/shared/modelTaskCatalog.ts", "utf8");
     const desktop = await readFile("t3code-fork/packages/shared/src/studyBuddyModelTasks.ts", "utf8");
-    expect(desktop.slice(desktop.indexOf("\n") + 1)).toBe(canonical);
+    expect(normalizeCheckoutNewlines(desktop.slice(desktop.indexOf("\n") + 1))).toBe(normalizeCheckoutNewlines(canonical));
+  });
+
+  it("preserves exact catalogue content across independent LF and CRLF checkouts", async () => {
+    const canonical = normalizeCheckoutNewlines(await readFile("src/custom-skills/shared/modelTaskCatalog.ts", "utf8"));
+    const desktop = await readFile("t3code-fork/packages/shared/src/studyBuddyModelTasks.ts", "utf8");
+    const body = normalizeCheckoutNewlines(desktop.slice(desktop.indexOf("\n") + 1));
+    for (const workflowEnding of ["\n", "\r\n"]) {
+      for (const editorEnding of ["\n", "\r\n"]) {
+        expect(normalizeCheckoutNewlines(body.replace(/\n/g, editorEnding))).toBe(
+          normalizeCheckoutNewlines(canonical.replace(/\n/g, workflowEnding)),
+        );
+      }
+    }
+    // Newline equivalence must not mask a changed policy or other source bytes.
+    const changed = body.replace('source_search: "contentAnalyzer"', 'source_search: "qualityReviewer"');
+    expect(changed).not.toBe(body);
+    expect(normalizeCheckoutNewlines(changed)).not.toBe(canonical);
+    expect(normalizeCheckoutNewlines(body + " ")).not.toBe(canonical);
+    expect(normalizeCheckoutNewlines(body + "\r")).not.toBe(canonical);
   });
 
   it("shows exactly the built-in models used by the runtime, including retries", async () => {
