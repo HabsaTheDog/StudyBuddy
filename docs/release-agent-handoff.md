@@ -18,6 +18,26 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Current existing-mail capability audit, 2026-10-06
+
+Include [the capability audit](email-capabilities-audit-2026-10-06.md) and retain
+its failed cases. Ten actual native Electron Balanced chats: eight pass, one
+partial, one failed; 149 targeted deterministic existing email tests pass.
+The screenshot's chat-only drafts, exact native send approval/decline and exactly
+one owner-authorized self delivery plus separate INBOX receipt are verified.
+Latest-unread reliability remains open: the initial case has seven unassigned
+reading-disabled errors; exact repetition overfetches 38 concurrent body reads
+and the agent itself terminates 18 waiting clients, leaving no complete answer.
+No 180-second timeout or account mutex exists in the reviewed direct path.
+Missing dates/unstable header order and possible stale registry writes are
+documented; the registry incident cause and upstream latency are unproven.
+The follow-up `email-latest-read-reliability` goal is draft pending required
+explicit plan approval. Runtime was not changed in this audit; no new saved
+drafts or additional real mail were authorized. Do not hide these findings in a
+release readiness claim. All own chats/tools are terminal and own read wrapper
+processes absent; backend promise completion is not independently observable.
+Audit documentation is local-only, not pushed, merged, deployed or accepted.
+
 ## Current direct-email repair, 2026-10-06
 
 Include [the direct-mail acceptance report](direct-email-access-2026-10-06.md)

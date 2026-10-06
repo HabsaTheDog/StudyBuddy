@@ -14,6 +14,19 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Existing mail capability audit (2026-10-06): all three displayed permissions
+tested in ten fresh native Electron Balanced cases, plus 149 deterministic
+existing email tests. Chat drafting, contextual reply drafting, two native
+send declines and exactly one owner-authorized self delivery/INBOX receipt pass.
+Overall eight cases pass, one latest-unread case is partial (seven unexplained
+policy denials), and its exact-prompt repetition fails after unnecessary parallel
+body acquisition and 18 model-terminated reads. Do not claim consistent mail
+reliability from the earlier six passing overview cases. Runtime unchanged;
+see [the capability audit](email-capabilities-audit-2026-10-06.md).
+Targeted metadata/order and proven concurrency/registry fixes are pending in
+the draft `email-latest-read-reliability` plan, not implemented or accepted.
+No second real email, saved-draft feature, permission expansion or release.
+
 Direct agent-owned email context (2026-10-06): remove prompt keyword gates and
 implicit body prefetch; native inventory/list/search/read tools reuse existing
 server-owned login through the authenticated owner/workspace-bound broker.
