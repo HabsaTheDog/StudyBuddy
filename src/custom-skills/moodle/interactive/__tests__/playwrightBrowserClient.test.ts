@@ -23,6 +23,43 @@ afterEach(async () => {
 });
 
 describe("Playwright credential broker", () => {
+  it("waits for the destination DOM after navigation before capturing questions", async () => {
+    const server = createServer((request, response) => {
+      response.setHeader("content-type", "text/html");
+      if (request.url === "/slow") {
+        response.write('<!doctype html><html><head><title>Next question</title></head><body>');
+        setTimeout(() => response.end('<div class="que shortanswer" id="question-1"><div class="qtext">Answer 2</div><input id="answer" type="text"></div></body></html>'), 300);
+      } else response.end('<a href="/slow">Next page</a>');
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    closeServer = async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); };
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const client = createPlaywrightBrowserClient(runtimeConfig(origin));
+    try {
+      await client.open(`${origin}/start`);
+      await clickSafeNextPage(client);
+      expect((await extractQuizPage(client)).questions).toHaveLength(1);
+    } finally { await client.close(); }
+  });
+
+  it("never exposes Moodle question-flag controls as answer fields", async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "text/html");
+      response.end('<div class="que shortanswer" id="question-1"><div class="info"><div class="questionflag"><input type="checkbox" id="q1:1_:flaggedcheckbox"><label for="q1:1_:flaggedcheckbox">Flag question</label></div></div><div class="qtext">Answer 2</div><input id="answer" type="text"></div>');
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    closeServer = async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); };
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const client = createPlaywrightBrowserClient(runtimeConfig(origin));
+    try {
+      await client.open(`${origin}/quiz`);
+      const question = (await extractQuizPage(client)).questions[0]!;
+      expect(question.controls.map(control => control.control_id)).toEqual(["answer"]);
+      expect(await fillVisibleQuestion(client, question, { confidence: 1, citations: ["Visible question"], control_answers: [{ control_id: "answer", answer: "2", selected: false }] })).toMatchObject({ filled: true });
+      expect(await client.evalJson("document.getElementById('q1:1_:flaggedcheckbox').checked")).toBe(false);
+    } finally { await client.close(); }
+  });
+
   it("opens a usable document while a background request remains active", async () => {
     const server = createServer((request, response) => {
       if (request.url === "/background") {
@@ -463,9 +500,7 @@ describe("Playwright credential broker", () => {
     expect(serialized).not.toContain("••");
     expect(client.authenticationState).toBe("authenticated");
     await client.close();
-  // Includes Chromium startup, a deliberately held login response and three
-  // navigations. Keep this bounded without imposing a 5s cold Windows budget.
-  }, 15_000);
+  });
 });
 
 function runtimeConfig(origin: string): MoodleRuntimeConfig {

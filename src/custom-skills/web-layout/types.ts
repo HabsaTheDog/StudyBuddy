@@ -20,6 +20,7 @@ export type WebLayoutKind =
 export type WebLayoutSourceMode = "prompt" | "text-file" | "moodle-handoff";
 
 export interface WebLayoutInput {
+  architectureMode?: "fixed" | "hybrid";
   prompt: string;
   /** Exact, untranslated user request. Language is resolved from this boundary value. */
   originalUserPrompt?: string;
@@ -58,6 +59,7 @@ export interface WebLayoutResult {
 }
 
 export interface WebLayoutRuntimeConfig {
+  architectureMode?: "fixed" | "hybrid";
   prompt: string;
   originalUserPrompt: string;
   kind: WebLayoutKind;

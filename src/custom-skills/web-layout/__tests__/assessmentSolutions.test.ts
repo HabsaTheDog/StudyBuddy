@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import type { CodexClient } from "../codexClient.js";
 import {
   assessmentSolutionContractContext,
   assessmentSolutionSemanticCacheKey,
@@ -6,6 +10,7 @@ import {
   buildAssessmentSolutionPrompt,
   buildAssessmentSolutionReviewPrompt,
   normalizedCropToPixels,
+  resolveAssessmentSolutions,
 } from "../assessmentSolutions.js";
 import {
   hashRequestContract,
@@ -17,6 +22,51 @@ import { createWebLayoutRuntimeConfig } from "../config.js";
 import type { StudyGuideContent } from "../studyGuideContent.js";
 
 describe("assessment visual crops", () => {
+  it.each(["none", "malformed", "reject"])("starts independent operations on primary and recovers only the failed work (%s)", async (fault) => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "assessment-attempts-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(runDir);
+    try {
+      const fixture = solutionFixture("case-analysis", "self-assessed", "application");
+      fixture.model.questionBank.items = [1, 2].map((index) => ({
+        ...fixture.item, id: `question-${index}`,
+        legacyExerciseId: `assessment-source-task-${index}`,
+        exercise: { ...fixture.item.exercise, id: `assessment-source-task-${index}` },
+      }));
+      let injected = false;
+      const run = vi.fn<CodexClient["run"]>(async (prompt, options) => {
+        const legacyExerciseId = prompt.match(/"legacyExerciseId":"([^"]+)"/)![1];
+        if (options?.operation === "solution_verification" && !injected && fault !== "none") {
+          injected = true;
+          return fault === "malformed" ? "invalid JSON" : JSON.stringify({ items: [{ legacyExerciseId, approved: false, findings: ["Correct the specific unsupported comparison."] }] });
+        }
+        return JSON.stringify({ items: [options?.operation === "solution_generation" ? {
+          legacyExerciseId, completeness: "complete", summary: "Evidence-based comparison.",
+          steps: ["Identify the documented claim.", "Compare it with the supplied passage."],
+          finalAnswer: "The documented response follows from the passage.",
+          assumptions: [], evidenceBasis: ["Course reader"], missingEvidence: [],
+        } : { legacyExerciseId, approved: true, findings: [] }] });
+      });
+      const prompt = "Prepare comparison answers for the supplied tasks.";
+      const requestContract = minimalRequestContract(prompt, ["interactive-study-guide"]);
+      const result = await resolveAssessmentSolutions({
+        ...fixture, codex: { run },
+        config: createWebLayoutRuntimeConfig({ prompt, kind: "study-guide", language: "en", runDir }),
+        sourceText: "Course reader: authorized response evidence.", priorError: null,
+        originalUserPrompt: prompt, requestContract, requestContractHash: hashRequestContract(requestContract),
+      });
+      expect(result.items).toHaveLength(2);
+      expect(run.mock.calls.map(([, options]) => [options?.operation, options?.attempt]).sort()).toEqual([
+        ["solution_generation", 1], ["solution_generation", 1],
+        ...(fault === "reject" ? [["solution_generation", 2]] : []),
+        ["solution_verification", 1], ["solution_verification", 1],
+        ...(fault !== "none" ? [["solution_verification", 2]] : []),
+      ]);
+    } finally {
+      cwd.mockRestore();
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+
   it("isolates semantic solution caches by verified contract and exposes only owner-assigned requirements", () => {
     const prompt = "Create the requested assessment study guide.";
     const base = minimalRequestContract(prompt, ["interactive-study-guide"]);

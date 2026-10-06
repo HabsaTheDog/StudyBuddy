@@ -11,6 +11,7 @@ import {
   routeAfterSourceArchitect,
 } from "../sourceArchitect.js";
 import { stableResourceId } from "../resourceManifest.js";
+import { boundLearningArchitecture } from "../learningArchitecture.js";
 import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
 
 const directories: string[] = [];
@@ -22,7 +23,171 @@ afterEach(async () => {
 });
 
 describe("source architect", () => {
-  it("demotes administrative containers and adds newly selected subject modules", () => {
+  it("preserves assessed scope and exclusions without draining a later planner failure to sufficient", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-failure-scope-")); directories.push(runDir);
+    const lecture = "https://moodle.example/transport.pdf", excluded = "https://moodle.example/other.pdf", optional = "https://moodle.example/optional.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      entry(lecture, "Vector transport", true, 900), entry(excluded, "Other acquired subject", true, 900), entry(optional, "Optional", false, 100),
+    ] }));
+    const architecture = { schemaVersion: 1 as const, modules: [{ id: "transport", title: "Vector transport", priority: "essential" as const,
+      contentMode: "conceptual" as const, learningObjectives: ["Interpret the selected transform"], assessmentSignals: ["Named assessment"], resourceUrls: [lecture] }],
+      supportResources: [], excludedResourceUrls: [excluded] };
+    const pendingReads = [{ resourceId: "lecture", url: lecture, medium: "pdf_pages" as const, limitation: "Original page reading remains pending." }];
+    const state = moodleTestState({ source_architect_decision: { round: 2, status: "sufficient", requestedUrls: [lecture], remainingAvailable: 1,
+      coverageSummary: "A selected evidenced module; subject reading remains pending.", reasons: ["Confirmed assessment boundary"], learningArchitecture: architecture, pendingReads },
+      error_log: "Semantic quality review failed: cited source does not support one included claim.",
+      resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+        { ...resource("lecture", lecture, "Vector transport", "Selected unit", "/tmp/lecture.pdf", "primary_lecture"), extraction: { status: "unusable", method: "native_pdf_text", characterCount: 0, pageCount: 2, warnings: ["Read original pages"] } },
+        resource("other", excluded, "Other acquired subject", "Unrelated unit", "/tmp/other.pdf", "primary_lecture") ] } });
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }),
+      { run: vi.fn().mockRejectedValue(new Error("Producer capacity failed before a model call")) })(state);
+    expect(result.source_architect_decision).toMatchObject({ round: 3, status: "blocked", requestedUrls: [lecture], learningArchitecture: architecture, pendingReads });
+    expect(result.source_architect_decision?.coverageSummary).toContain(state.source_architect_decision.coverageSummary);
+    expect(result.source_architect_decision?.reasons).toContain("Confirmed assessment boundary");
+    expect(result.error_log).toContain("Producer capacity failed before a model call");
+    expect(routeAfterSourceArchitect({ ...state, ...result })).toBe("abort");
+  });
+
+  it("keeps bootstrap failure as exploratory acquisition without unconfirmed curriculum or a reusable readiness cache", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-bootstrap-exploration-")); directories.push(runDir);
+    const lecture = "https://moodle.example/lecture.pdf", available = "https://moodle.example/pending.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      entry(lecture, "Acquired portal heading", true, 900), entry(available, "Exploratory source", false, 600),
+    ] }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+      resource("lecture", lecture, "Acquired portal heading", "Organizational container", "/tmp/lecture.pdf", "primary_lecture") ] } });
+    const codex = { run: vi.fn().mockRejectedValue(new Error("Planner unavailable")) };
+    const config = moodleTestConfig({ runDir, runtimeCacheDir: path.join(runDir, "cache"), intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } });
+    const result = await createSourceArchitectNode(config, codex)(state);
+    expect(result.source_architect_decision).toMatchObject({ status: "request_more", requestedUrls: [available], learningArchitecture: { modules: [], supportResources: [], excludedResourceUrls: [] } });
+    expect(result.source_architect_decision?.coverageSummary).toContain("exploration");
+    await createSourceArchitectNode(config, codex)(state);
+    expect(codex.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes complete existing source-planning JSON without whitespace overhead", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "architect-compact-producer-")); directories.push(runDir);
+    const lecture = "https://moodle.example/lecture.pdf", available = "https://moodle.example/pending.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [entry(lecture, "Exact title", true, 900), entry(available, "Remaining", false, 600)] }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+      resource("lecture", lecture, "Exact title", "Exact section", "/tmp/lecture.pdf", "primary_lecture") ] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "exact-record", resourceId: "lecture", kind: "claim", locator: { page: 1 },
+        content: "Exact original claim with an ordered basis and boundary condition.", confidence: 1, pairId: null, sourceUrl: lecture, localPath: "/tmp/lecture.pdf" }] } });
+    let sentPrompt = "";
+    const codex = { run: vi.fn(async (prompt: string) => {
+      sentPrompt = prompt;
+      return JSON.stringify({ status: "sufficient", coverage_summary: "Known selected source", requested_urls: [], reasons: [], learning_architecture: {
+        schemaVersion: 1, modules: [{ id: "selected", title: "Exact title", priority: "essential", contentMode: "conceptual", learningObjectives: [], assessmentSignals: [], resourceUrls: [lecture] }], supportResources: [], excludedResourceUrls: [] } });
+    }) };
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }), codex)(state);
+    expect(result.error_log).toBeNull();
+    expect(codex.run).toHaveBeenCalledTimes(1);
+    for (const prefix of ["COURSE_SCOPE:", "DOCUMENT_BRIEFS:", "AVAILABLE_CATALOG ("]) {
+      const block = sentPrompt.slice(sentPrompt.indexOf(prefix)).split("\n\n")[0];
+      const value = block.slice(block.indexOf("\n") + 1);
+      expect(value).toBe(JSON.stringify(JSON.parse(value)));
+    }
+    expect(sentPrompt).toContain(state.evidence_package.records[0].content);
+    expect(sentPrompt).toContain(state.resource_manifest.resources[0].originUrl);
+  });
+
+  it.each([false, true])("assesses downloaded unread practice instead of declaring a drained architecture sufficient (assigned=%s)", async assigned => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "source-unread-reassessment-")); directories.push(runDir);
+    const lecture = "https://moodle.example/interpretation.pdf", practice = "https://moodle.example/practice.pdf", remaining = "https://moodle.example/optional.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({ schemaVersion: 1, entries: [
+      { ...entry(lecture, "Source interpretation", true, 900), role: "primary_lecture" },
+      { ...entry(practice, "Practice case", true, 600), role: "worked_example" }, entry(remaining, "Optional source", false, 100) ] }));
+    const architecture = { schemaVersion: 1 as const, modules: [{ id: "interpretation", title: "Source interpretation", priority: "essential" as const,
+      contentMode: "conceptual" as const, learningObjectives: ["Interpret claims and apply the method to a practice case."], assessmentSignals: [],
+      resourceUrls: assigned ? [lecture, practice] : [lecture] }], supportResources: [], excludedResourceUrls: [] };
+    const state = moodleTestState({ source_architect_decision: { round: 1, status: "request_more", requestedUrls: [practice],
+      coverageSummary: "Need to inspect practice", remainingAvailable: 1, reasons: [], learningArchitecture: architecture },
+      resource_manifest: { schemaVersion: "1.0", courseUrl: "https://moodle.example/course", generatedAt: "", resources: [
+        resource("lecture", lecture, "Source interpretation", "Unit", "/tmp/interpretation.pdf", "primary_lecture"),
+        { ...resource("practice", practice, "Practice case", "Unit", "/tmp/practice.pdf", "worked_example"),
+          extraction: { status: "unusable", method: "native_pdf_text", characterCount: 0, pageCount: 2, warnings: ["Scanned source; inspect rendered pages."] } } ] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "diagnostic", resourceId: "practice", kind: "claim",
+        locator: {}, content: "Acquisition completed; extraction contains no readable native text.", confidence: 1, pairId: null, sourceUrl: practice, localPath: "/tmp/practice.pdf" }] } });
+    const codex = { run: vi.fn(async (prompt: string) => {
+      expect(prompt).toContain('"characterCount":0');
+      expect(prompt).toContain("Scanned source; inspect rendered pages.");
+      return JSON.stringify({ status: "sufficient", coverage_summary: "Selected scanned practice requires visual reading in the analyzer; native text is not verified content.",
+        requested_urls: [], reasons: ["Read the assigned original pages; preserve a real unreadability gap if they cannot be read."],
+        learning_architecture: { ...architecture, modules: [{ ...architecture.modules[0], resourceUrls: [lecture, practice] }] } });
+    }) };
+    const result = await createSourceArchitectNode(moodleTestConfig({ runDir, runtimeCacheDir: runDir,
+      intentDecision: { ...moodleTestConfig().intentDecision!, needsCourseMaterial: true } }), codex)(state);
+    expect(codex.run).toHaveBeenCalledTimes(1);
+    expect(result.source_architect_decision?.learningArchitecture?.modules[0].resourceUrls).toContain(practice);
+    expect(result.source_architect_decision?.reasons.join(" ")).not.toContain("Reused the validated first-round");
+  });
+
+  it("treats an evidence-backed Moodle activity page as an acquired authorized brief", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-activity-brief-"));
+    directories.push(runDir);
+    const activityUrl = "https://moodle.example/mod/checkmark/view.php?id=2022003";
+    const activityId = stableResourceId(activityUrl);
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1,
+      entries: [{
+        ...entry(activityUrl, "Kreuzerlliste zu den Themen 1-3", false, 900),
+        role: "supplementary",
+        sectionTitle: "Vorbereitung",
+      }],
+    }));
+    const codex = { run: vi.fn() };
+    const page = {
+      ...resource(activityId, activityUrl, "Kreuzerlliste zu den Themen 1-3", "Vorbereitung", null, "supplementary"),
+      activityType: "checkmark",
+      status: "discovered" as const,
+    };
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course/view.php?id=30605",
+        generatedAt: new Date().toISOString(),
+        resources: [page],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "ev_tasks",
+          resourceId: activityId,
+          kind: "exercise",
+          locator: { section: "Kreuzerlliste" },
+          content: "T1/A3, T2/A7 und T3/A13",
+          confidence: 0.95,
+          pairId: null,
+          sourceUrl: activityUrl,
+          localPath: null,
+        }],
+        warnings: [],
+      },
+    });
+
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir,
+      runtimeCacheDir: path.join(runDir, "cache"),
+      prompt: "Erstelle ein PDF aus der Kreuzerlliste zu den Themen 1–3.",
+    }), codex)(state);
+
+    expect(codex.run).not.toHaveBeenCalled();
+    expect(result.source_architect_decision).toMatchObject({
+      status: "sufficient",
+      requestedUrls: [],
+    });
+    expect(result.source_architect_decision?.learningArchitecture?.modules
+      .flatMap((module) => module.resourceUrls)).toContain(activityUrl);
+    const persisted = JSON.parse(
+      await readFile(path.join(runDir, "document-briefs.json"), "utf8"),
+    );
+    expect(persisted.briefs).toEqual([
+      expect.objectContaining({ resourceId: activityId, resourceUrl: activityUrl }),
+    ]);
+  });
+
+  it("demotes administrative containers without treating selected acquisition probes as new subject modules", () => {
     const pointUrl = "https://moodle.example/point.pdf";
     const vectorUrl = "https://moodle.example/vector.pdf";
     const balanceUrl = "https://moodle.example/balance.pdf";
@@ -64,17 +229,50 @@ describe("source architect", () => {
     const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog);
     const titles = reconciled.modules.map((module) => module.title);
 
-    expect(titles).toEqual(expect.arrayContaining([
-      "Punktkinematik",
-      "Vektorkinematik",
-      "Schwerpunktsatz",
-    ]));
+    expect(titles).toEqual(["Punktkinematik"]);
     expect(titles).not.toContain("LV-Kommunikation");
     expect(reconciled.supportResources.flatMap((support) => support.resourceUrls))
       .toContain(overviewUrl);
   });
 
-  it("restores an unselected but explicitly classified primary course topic", () => {
+  it("keeps a selected overview as support instead of a standalone learning module", () => {
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const overviewUrl = "https://moodle.example/preparation-overview";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "topic",
+        title: "Thema 1",
+        priority: "essential" as const,
+        contentMode: "quantitative" as const,
+        learningObjectives: ["Solve the requested tasks."],
+        assessmentSignals: ["T1/A2"],
+        resourceUrls: [topicUrl],
+      }, {
+        id: "preparation",
+        title: "Vorbereitung",
+        priority: "important" as const,
+        contentMode: "conceptual" as const,
+        learningObjectives: ["Review the course overview."],
+        assessmentSignals: [],
+        resourceUrls: [overviewUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [],
+    };
+    const catalog = [
+      { ...entry(topicUrl, "Thema 1", true, 900), role: "primary_lecture" as const, topic: "Thema 1" },
+      { ...entry(overviewUrl, "Vorbereitung", true, 1000), role: "overview" as const, topic: null },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog, "de");
+
+    expect(reconciled.modules.map((module) => module.title)).toEqual(["Thema 1"]);
+    expect(reconciled.supportResources.flatMap((support) => support.resourceUrls))
+      .toContain(overviewUrl);
+  });
+
+  it("does not expand the evaluated scope merely because an unselected source is a primary course topic", () => {
     const pointUrl = "https://moodle.example/point.pdf";
     const massGeometryUrl = "https://moodle.example/mass-geometry.pdf";
     const architecture = {
@@ -104,10 +302,75 @@ describe("source architect", () => {
 
     expect(reconciled.modules.map((module) => module.title)).toEqual([
       "Punktkinematik",
-      "Massengeometrie",
     ]);
-    expect(reconciled.modules.flatMap((module) => module.resourceUrls)).toContain(massGeometryUrl);
-    expect(reconciled.modules[1].learningObjectives.join(" ")).not.toMatch(/\b(?:Explain|Apply)\b/);
+    expect(reconciled.modules.flatMap((module) => module.resourceUrls)).not.toContain(massGeometryUrl);
+  });
+
+  it("honors explicit exclusions over initial-probe selection and overlapping subject labels", () => {
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const excludedUrl = "https://moodle.example/later.pdf";
+    const excludedOverview = "https://moodle.example/full-course-overview";
+    const architecture = {
+      schemaVersion: 1 as const,
+      modules: [{
+        id: "topic", title: "Relative movement", priority: "essential" as const,
+        contentMode: "quantitative" as const, learningObjectives: ["Calculate relative velocity."],
+        assessmentSignals: [], resourceUrls: [topicUrl],
+      }],
+      supportResources: [],
+      excludedResourceUrls: [excludedUrl, excludedOverview],
+    };
+    const catalog = [
+      { ...entry(topicUrl, "Relative movement", true, 900), role: "primary_lecture" as const, topic: "Relative movement" },
+      { ...entry(`${excludedUrl}#page=3`, "Relative movement in a later unit", true, 1000), role: "primary_lecture" as const, topic: "Relative movement" },
+      { ...entry(excludedOverview, "Full course overview", true, 1000), role: "overview" as const, topic: null },
+    ];
+
+    const reconciled = reconcileLearningArchitectureWithCatalog(architecture, catalog);
+
+    expect(reconciled.modules).toEqual(architecture.modules);
+    expect(reconciled.supportResources).toEqual([]);
+    expect(reconciled.excludedResourceUrls).toEqual(architecture.excludedResourceUrls);
+  });
+
+  it("requests only evaluated first-assessment sources from a broader course catalog", async () => {
+    const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-assessment-scope-"));
+    directories.push(runDir);
+    const topicUrl = "https://moodle.example/topic.pdf";
+    const probeUrl = "https://moodle.example/probe.pdf";
+    const laterUrl = "https://moodle.example/later.pdf";
+    await writeFile(path.join(runDir, "resource-catalog.json"), JSON.stringify({
+      schemaVersion: 1, entries: [
+        { ...entry(topicUrl, "First assessment topic", false, 890), role: "primary_lecture", topic: "First assessment topic" },
+        { ...entry(probeUrl, "Earlier course topic", true, 900), role: "primary_lecture", topic: "Earlier course topic" },
+        { ...entry(laterUrl, "Later course topic", true, 900), role: "primary_lecture", topic: "Later course topic", reason: "Selected to complete the bounded initial course probe." },
+      ],
+    }));
+    const architecture = {
+      schemaVersion: 1, modules: [{
+        id: "first", title: "First assessment topic", priority: "essential", contentMode: "mixed",
+        learningObjectives: ["Explain the first assessment topic."], assessmentSignals: [], resourceUrls: [topicUrl],
+      }], supportResources: [], excludedResourceUrls: [probeUrl],
+    };
+    const codex = { run: vi.fn().mockResolvedValue(JSON.stringify({
+      status: "request_more", coverage_summary: "Only the first assessment topic is requested.",
+      requested_urls: [topicUrl], reasons: ["The probe is outside the confirmed assessment scope."],
+      learning_architecture: architecture,
+    })) };
+    const prompt = "Prepare a PDF for the first assessment only.";
+    const result = await createSourceArchitectNode(moodleTestConfig({
+      runDir, runtimeCacheDir: runDir, prompt, outputLanguage: "en",
+      intentDecision: classifyStudyBuddyIntent({
+        prompt, stage: "extract", diagnosticOnly: false, autoAnswer: false,
+        includeCis: false, hasCisUrls: false,
+      }),
+    }), codex)(moodleTestState());
+
+    expect(codex.run).toHaveBeenCalledOnce();
+    expect(result.error_log).toBeNull();
+    expect(result.source_architect_decision?.requestedUrls).toEqual([topicUrl]);
+    expect(result.source_architect_decision?.learningArchitecture?.modules.map((module) => module.id)).toEqual(["first"]);
+    expect(result.source_architect_decision?.learningArchitecture?.excludedResourceUrls).toEqual([probeUrl]);
   });
 
   it("orders modules by their primary lecture instead of a shared overview", () => {
@@ -150,7 +413,7 @@ describe("source architect", () => {
     ]);
   });
 
-  it("attaches one shared primary lecture to every matching submodule", () => {
+  it("preserves full-course modules with an explicitly shared primary lecture", () => {
     const overviewUrl = "https://moodle.example/overview.pdf";
     const pointUrl = "https://moodle.example/point.pdf";
     const massUrl = "https://moodle.example/mass.pdf";
@@ -163,7 +426,7 @@ describe("source architect", () => {
         contentMode: "mixed" as const,
         learningObjectives: ["Massenschwerpunkte berechnen."],
         assessmentSignals: [],
-        resourceUrls: [overviewUrl],
+        resourceUrls: [overviewUrl, massUrl],
       }, {
         id: "massentraegheit",
         title: "Massenträgheitsmomente aufbauen",
@@ -171,7 +434,7 @@ describe("source architect", () => {
         contentMode: "quantitative" as const,
         learningObjectives: ["Massenträgheitsmomente bestimmen."],
         assessmentSignals: [],
-        resourceUrls: [overviewUrl],
+        resourceUrls: [overviewUrl, massUrl],
       }, {
         id: "punktkinematik",
         title: "Punktkinematik",
@@ -407,7 +670,7 @@ describe("source architect", () => {
     );
   });
 
-  it("adds an omitted high-priority overview to the architecture and exact request set", async () => {
+  it("adds an omitted high-priority overview as support and to the exact request set", async () => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-architect-overview-gate-"));
     directories.push(runDir);
     const acquiredUrl = "https://moodle.example/calculus.pdf";
@@ -487,7 +750,9 @@ describe("source architect", () => {
       requestedUrls: [omittedUrl],
     });
     expect(result.source_architect_decision?.learningArchitecture?.modules
-      .map((module) => module.title)).toContain("Differential equations");
+      .map((module) => module.title)).not.toContain("Differential equations");
+    expect(result.source_architect_decision?.learningArchitecture?.supportResources
+      .flatMap((support) => support.resourceUrls)).toContain(omittedUrl);
   });
 
   it("does not add representative examples when the planning model omits them", async () => {
@@ -1063,7 +1328,7 @@ describe("source architect", () => {
       run: vi.fn().mockResolvedValue(JSON.stringify({
         status: "request_more",
         coverage_summary: "Chapter two is missing.",
-        requested_urls: [requestedUrl, "https://example.org/invented.pdf"],
+        requested_urls: [requestedUrl],
         reasons: ["The requested guide must cover chapter two."],
       })),
     };
@@ -1549,7 +1814,7 @@ describe("source architect", () => {
     ]));
   });
 
-  it("preserves a noncritical module-limit audit through the cached recovery path", async () => {
+  it("preserves a prior noncritical module-limit audit through failed reassessment without caching readiness", async () => {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-module-limit-cache-"));
     directories.push(rootDir);
     const firstRunDir = path.join(rootDir, "first");
@@ -1575,7 +1840,13 @@ describe("source architect", () => {
         entries,
       }))
     ));
+    const architecture = boundLearningArchitecture({ schemaVersion: 1, modules: acquired.map(({ number, url }) => ({
+      id: `supplement-${number}`, title: `Supplement ${number}`, priority: "supplementary" as const, contentMode: "conceptual" as const,
+      learningObjectives: ["Previously assessed optional content"], assessmentSignals: [], resourceUrls: [url],
+    })), supportResources: [], excludedResourceUrls: [] }, 24);
     const state = moodleTestState({
+      source_architect_decision: { round: 2, status: "sufficient", coverageSummary: "Prior explicitly partial assessment", requestedUrls: [],
+        remainingAvailable: 1, reasons: ["Prior assessed optional modules"], learningArchitecture: architecture },
       resource_manifest: {
         schemaVersion: "1.0",
         courseUrl: "https://moodle.example/course",
@@ -1608,19 +1879,17 @@ describe("source architect", () => {
     }), coldCodex)(state);
     expect(cold.source_architect_decision?.learningArchitecture?.moduleLimit)
       .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
-    expect(cold.source_architect_decision?.coverageSummary).toContain("Technical module limit 24");
+    expect(cold.source_architect_decision).toMatchObject({ status: "blocked", learningArchitecture: architecture });
 
-    const warmCodex = { run: vi.fn() };
+    const warmCodex = { run: vi.fn().mockRejectedValue(new Error("planner unavailable")) };
     const warm = await createSourceArchitectNode(moodleTestConfig({
       ...configBase,
       runDir: secondRunDir,
     }), warmCodex)(state);
 
-    expect(warmCodex.run).not.toHaveBeenCalled();
-    expect(warm.source_architect_decision?.reasons).toEqual(expect.arrayContaining([
-      "Reused the course-and-prompt keyed source architecture cache.",
-      expect.stringContaining("explicitly partial"),
-    ]));
+    expect(warmCodex.run).toHaveBeenCalledTimes(1);
+    expect(warm.source_architect_decision).toMatchObject({ status: "blocked", learningArchitecture: architecture });
+    expect(warm.source_architect_decision?.reasons).toContain("Prior assessed optional modules");
     expect(warm.source_architect_decision?.learningArchitecture?.moduleLimit)
       .toMatchObject({ maxModules: 24, originalModuleCount: 25 });
     await expect(readFile(

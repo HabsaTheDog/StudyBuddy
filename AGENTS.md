@@ -1,5 +1,9 @@
 # Study Buddy Agent Rules
 
+This is the active application component under the Study Buddy umbrella now
+used by T3 Code. The original repository is an untouched rollback/reference
+copy. Read `../AGENTS.md` and `../project.json` before changing this component.
+
 - Study Buddy is a universal study agent, not degree-, course-, subject-, or institution-specific. Build reusable modular behavior that adapts to the user's topic, study context, and configured sources; avoid hard-coded curricula, subject templates, or source assumptions.
 - Study Buddy must coexist with independently installed T3 Code. Never share or alter its identity, state, ports, protocols, launchers, artifacts, updater, migrations, or processes unless explicitly requested.
 - `t3code-fork/` belongs exclusively to Study Buddy. Treat `reference repo Study Buddy 1.0/` as read-only.
@@ -9,3 +13,15 @@
 - Before changing Study Builder, read its implementation charter and relevant product specification, then update its implementation plan.
 - Store workflow state under `study-buddy-data/`. Never place generated artifacts inside forks or reference repositories.
 - Use the applicable Study Buddy skill for workflow-specific acquisition, rendering, testing, and delivery procedures.
+
+## Batched Development and Release
+
+- A generic request to prepare the next release includes discovery of the entire accumulated batch; never require the owner to remember individual changes or prior chat threads. Start with `docs/release-agent-handoff.md` and `docs/development-batch.md`, then reconcile them against commits since the last public release, root/UI submodule pins, development/release branches, open PRs and local dirty work. Record every discovered change as included, deferred with a reason, or blocked; do not silently omit another branch or silently include uncommitted work.
+- The release agent owns regression triage and the final Windows/Fedora acceptance workflow. Ask the owner only for genuine owner-only actions such as authentication, required permissions or final publication approval, not to enumerate tests or fixes.
+- Development handoff must distinguish committed, pushed (verified remote SHA), merged, deployed and release-accepted states. Push the reviewed UI dependency before the parent pointer when push is authorized. Document local-only repositories and uncommitted work explicitly; never call local commits remotely available.
+
+- Accumulate compatible fixes and features on the current development version instead of starting or incrementing a release for every change. A batch of roughly 10–20 fixes is a planning heuristic, not a quota or permission to merge unverified work.
+- Give every change focused deterministic tests, a scoped commit, and an entry in the development batch backlog. These checks make a change safe to queue; they do not make the accumulated version release-ready.
+- Freeze the batch deliberately before release. At that point, run the applicable Study Buddy review and release skills, resolve the holistic review findings, and build one exact candidate from the reviewed commit.
+- Because clean packaged acceptance is expensive, reserve full Fedora and Windows VM testing for the exact frozen candidate rather than every small development commit. Any byte change after acceptance invalidates that evidence and requires a rebuilt candidate and fresh affected acceptance.
+- Do not tag, publish, promote, or call a build release-ready without explicit owner approval and the required final review, packaged checks, and clean Fedora/Windows VM acceptance. Never move or reuse a public tag for changed bytes.

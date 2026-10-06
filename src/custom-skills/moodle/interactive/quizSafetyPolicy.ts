@@ -22,6 +22,12 @@ export type QuizAvailabilityStatus =
 
 export type QuizEffectiveTimeSource = "quiz_time_limit" | "deadline" | "unlimited";
 
+export interface QuizIdentityEvidence {
+  currentAttemptId: string | null;
+  history: Array<{ ordinal: number; attemptId: string | null; source: "history-row" | "history-card" }>;
+  continuation: Array<{ attemptId: string; path: string; source: "continue-link" | "continue-form" }>;
+}
+
 export interface QuizMetadata {
   timeLimitMinutes: number | null;
   effectiveTimeLimitMinutes: number | null;
@@ -32,6 +38,9 @@ export interface QuizMetadata {
   attemptsLeft: number | null;
   attemptsUnlimited: boolean;
   hasActiveAttempt: boolean;
+  activeAttemptId?: string | null;
+  activeAttemptNumber?: number | null;
+  identityEvidence?: QuizIdentityEvidence;
   canStartNewAttempt: boolean;
   availabilityStatus: QuizAvailabilityStatus;
   opensAt: string | null;
@@ -90,6 +99,7 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
   const bodyText = normalize(document.body ? document.body.innerText || document.body.textContent : "");
   const controlDetails = [...document.querySelectorAll("button, a, input[type='submit'], input[type='button']")]
     .map(element => ({
+      element,
       text: normalize(element.innerText || element.value || element.getAttribute("aria-label") || element.textContent),
       href: element.getAttribute("href") || "",
       formAction: element.form?.action || element.closest("form")?.action || "",
@@ -97,33 +107,79 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
       disabled: Boolean(element.disabled) || element.getAttribute("aria-disabled") === "true"
     }))
     .filter(control => !control.disabled);
-  const hasContinueControl = controlDetails.some(control =>
-    /versuch fortsetzen|continue attempt|attempt in progress/i.test(control.text) ||
-    /\/mod\/quiz\/attempt\.php[^\s]*[?&]attempt=/i.test(control.href)
-  );
+  const pageUrl = new URL(location.href);
+  const quizPath = pageUrl.pathname.slice(0, pageUrl.pathname.lastIndexOf("/"));
+  const cmid = /\/view\.php$/.test(pageUrl.pathname) ? pageUrl.searchParams.get("id") : pageUrl.searchParams.get("cmid");
+  const attemptIdentity = (raw, form = null) => {
+    try {
+      const url = new URL(raw, location.href);
+      if (url.origin !== pageUrl.origin || url.username || url.password ||
+          !["attempt.php", "review.php", "summary.php"].some(file => url.pathname === quizPath + "/" + file)) return null;
+      const targetIds = url.searchParams.getAll("cmid");
+      if (cmid && targetIds.some(id => id !== cmid)) return null;
+      const ids = [...url.searchParams.getAll("attempt"), ...url.searchParams.getAll("attemptid")];
+      if (form) for (const field of form.querySelectorAll("input[type='hidden'][name='attempt'], input[type='hidden'][name='attemptid']")) ids.push(field.value);
+      if (!ids.length || ids.some(id => !/^\d+$/.test(id) || id !== ids[0])) return null;
+      return {attemptId: ids[0], pathname: url.pathname, path: url.pathname + "?attempt=" + ids[0]};
+    } catch { return null; }
+  };
+  const continuation = [];
+  const continuationElements = new Map();
+  for (const control of controlDetails) {
+    const identity = control.href ? attemptIdentity(control.href) : null;
+    if (identity && identity.pathname.endsWith("/attempt.php")) {
+      continuation.push({attemptId: identity.attemptId, path: identity.path, source: "continue-link"});
+      continuationElements.set(control.element, identity.attemptId);
+    }
+  }
+  for (const form of document.querySelectorAll("form")) {
+    if (!controlDetails.some(control => form.contains(control.element) && /versuch fortsetzen|continue attempt/i.test(control.text))) continue;
+    const identity = attemptIdentity(form.action, form);
+    if (identity && identity.pathname.endsWith("/attempt.php")) {
+      continuation.push({attemptId: identity.attemptId, path: identity.path, source: "continue-form"});
+      continuationElements.set(form, identity.attemptId);
+    }
+  }
+  const history = [];
+  const activeRecords = [];
+  const rows = [...document.querySelectorAll("table tbody tr, .quizattempt, .attempt-row")];
+  const cards = [...document.querySelectorAll(".card")].filter(card => card.querySelector("dl, table.quizreviewsummary") &&
+    !card.closest(".que, [id^='question-']"));
+  for (const record of [...rows, ...cards]) {
+    if (record.closest(".que, [id^='question-']") || record.closest("table.quizreviewsummary")) continue;
+    const card = cards.includes(record);
+    const text = normalize(record.innerText || record.textContent);
+    const headings = card ? [...record.querySelectorAll("h2,h3,h4,h5,h6,[role='heading'],caption")].map(h => normalize(h.textContent)) : [];
+    const headingNumbers = headings.map(t => /^(?:versuch|attempt|zusammenfassung von versuch|summary of attempt)\s+(\d+)$/i.exec(t)?.[1]).filter(Boolean);
+    const firstCell = normalize(record.querySelector("td")?.textContent);
+    const number = card ? Number(headingNumbers[0] || "") : Number(/(?:versuch|attempt)\s*(\d+)/i.exec(text)?.[1] || (/^\d+$/.test(firstCell) ? firstCell : ""));
+    if (!Number.isSafeInteger(number) || number <= 0 || card && headingNumbers.some(n => Number(n) !== number)) continue;
+    const identities = [...record.querySelectorAll("a[href]")].map(a => attemptIdentity(a.getAttribute("href"))).filter(Boolean);
+    const continuationIds = [...continuationElements].filter(([element]) => record.contains(element)).map(([, id]) => id);
+    const ids = [...new Set([...identities.map(i => i.attemptId), ...continuationIds])];
+    const attemptId = ids.length === 1 ? ids[0] : null;
+    history.push({ordinal: number, attemptId, source: card ? "history-card" : "history-row"});
+    const statusTerms = [...record.querySelectorAll("dt, table.quizreviewsummary th[scope='row']")].filter(dt => /^(?:status|state)$/i.test(normalize(dt.textContent)));
+    const inProgress = statusTerms.some(dt => /^(?:in bearbeitung|in progress)$/i.test(normalize(dt.nextElementSibling?.textContent)));
+    if (continuationIds.length || inProgress) activeRecords.push({ordinal: number, attemptId});
+  }
+  const current = /\/attempt\.php$/.test(pageUrl.pathname) ? attemptIdentity(pageUrl.href) : null;
+  const activeIds = [...new Set([...(current ? [current.attemptId] : []), ...continuation.map(c => c.attemptId)])];
+  const activeAttemptId = activeIds.length === 1 ? activeIds[0] : null;
+  const matchingRecords = activeAttemptId ? history.filter(record => record.attemptId === activeAttemptId) : [];
+  const ordinals = [...new Set(matchingRecords.map(record => record.ordinal))];
+  const activeAttemptNumber = ordinals.length === 1 ? ordinals[0] : null;
+  const hasContinueControl = Boolean(current && document.querySelector(".que, [id^='question-']")) ||
+    continuation.length > 0 || activeRecords.length > 0 || controlDetails.some(control => /versuch fortsetzen|continue attempt|attempt in progress/i.test(control.text));
   const hasStartControl = controlDetails.some(control =>
     /test versuchen|test wiederholen|versuch beginnen|versuch wiederholen|attempt quiz|start attempt|re-attempt quiz|attempt again|repeat attempt/i.test(control.text) ||
-    /\/mod\/quiz\/startattempt\.php/i.test(control.href + " " + control.formAction) ||
-    control.name.toLowerCase() === "startattempt"
-  );
-  const attemptKeys = new Set();
-  for (const match of bodyText.matchAll(/(?:^|\s)(?:versuch|attempt)\s+(\d+)(?=\s|$)/gi)) {
-    attemptKeys.add("number:" + match[1]);
-  }
-  for (const row of document.querySelectorAll("table tbody tr, .quizattempt, .attempt-row")) {
-    const rowText = normalize(row.innerText || row.textContent);
-    const reviewLink = row.querySelector("a[href*='/mod/quiz/review.php'][href*='attempt=']");
-    let attemptId = null;
-    if (reviewLink) {
-      try {
-        attemptId = new URL(reviewLink.href, location.href).searchParams.get("attempt");
-      } catch {}
-    }
-    const number = /(?:versuch|attempt)\s*(\d+)/i.exec(rowText)?.[1] || null;
-    if (attemptId || number) attemptKeys.add(attemptId ? "id:" + attemptId : "number:" + number);
-  }
-  const hasAttemptHistory = /(?:ihre versuche|your attempts|previous attempts)/i.test(bodyText) ||
-    Boolean(document.querySelector(".quizattempt, .attempt-row, a[href*='/mod/quiz/review.php'][href*='attempt=']"));
+    /\/mod\/quiz\/startattempt\.php/i.test(control.href + " " + control.formAction) || control.name.toLowerCase() === "startattempt");
+  const firstStartControl = controlDetails.some(control => /^(?:test versuchen|attempt quiz)$/i.test(control.text));
+  const repeatControl = controlDetails.some(control => /test wiederholen|versuch wiederholen|re-attempt quiz|attempt again|repeat attempt/i.test(control.text));
+  const noAttemptEvidence = !hasContinueControl && !repeatControl && history.length === 0 &&
+    (/(?:no attempts yet|no previous attempts|noch keine versuche|bisher keine versuche)/i.test(bodyText) || firstStartControl);
+  const attemptsUsed = history.length ? Math.max(...history.map(record => record.ordinal)) : (noAttemptEvidence ? 0 : null);
+  const identityEvidence = {currentAttemptId: current?.attemptId || null, history: history.slice(0,32), continuation: continuation.slice(0,32)};
   const dateValue = kind => {
     const label = kind === "open"
       ? /(?:^|\s)(?:geöffnet|geoeffnet|öffnet|oeffnet|opens?)(?=\s|:)/i
@@ -148,7 +204,11 @@ const QUIZ_METADATA_EXTRACTION_JS = String.raw`
   };
   return JSON.stringify({
     bodyText,
-    attemptRowCount: hasAttemptHistory ? attemptKeys.size : null,
+    attemptsUsed,
+    activeAttemptId,
+    activeAttemptNumber,
+    attemptRowCount: history.length || null,
+    identityEvidence,
     hasStartControl,
     hasContinueControl,
     opensAt: dateValue("open"),
@@ -239,12 +299,15 @@ export function normalizeQuizMetadata(
     timeLimitMinutes,
     effectiveTimeLimitMinutes: effectiveTime.minutes,
     effectiveTimeLimitSource: effectiveTime.source,
-    timeLimitUnlimited: effectiveTime.minutes === null,
+    timeLimitUnlimited: timeLimitMinutes === null,
     attemptsAllowed,
     attemptsUsed,
     attemptsLeft,
     attemptsUnlimited,
     hasActiveAttempt,
+    activeAttemptId: typeof value.activeAttemptId === "string" && /^\d+$/.test(value.activeAttemptId) ? value.activeAttemptId : null,
+    activeAttemptNumber: finiteOrNull(value.activeAttemptNumber),
+    ...(value.identityEvidence ? {identityEvidence: sanitizeQuizIdentityEvidence(value.identityEvidence)} : {}),
     canStartNewAttempt,
     availabilityStatus,
     opensAt,
@@ -255,6 +318,24 @@ export function normalizeQuizMetadata(
       !attemptsUnlimited &&
       (value.appearsLimitedAttempt === true || attemptsAllowed !== null || attemptsLeft !== null),
   };
+}
+
+/** Only known identity fields cross the model-visible metadata boundary. */
+function sanitizeQuizIdentityEvidence(value: QuizIdentityEvidence): QuizIdentityEvidence {
+  const id = (v: unknown) => typeof v === "string" && /^\d{1,20}$/.test(v) ? v : null;
+  const history = Array.isArray(value.history) ? value.history.slice(0, 32).flatMap(record => {
+    if (!record || !Number.isSafeInteger(record.ordinal) || record.ordinal < 1 ||
+        !["history-row", "history-card"].includes(record.source)) return [];
+    return [{ordinal: record.ordinal, attemptId: id(record.attemptId), source: record.source}];
+  }) : [];
+  const continuation = Array.isArray(value.continuation) ? value.continuation.slice(0, 32).flatMap(record => {
+    const attemptId = id(record?.attemptId);
+    if (!attemptId || !["continue-link", "continue-form"].includes(record.source) ||
+        typeof record.path !== "string" || !/^\/(?:[a-zA-Z0-9_-]+\/)*mod\/quiz\/attempt\.php\?attempt=\d{1,20}$/.test(record.path) ||
+        !record.path.endsWith("?attempt=" + attemptId)) return [];
+    return [{attemptId, path: record.path, source: record.source}];
+  }) : [];
+  return {currentAttemptId: id(value.currentAttemptId), history, continuation};
 }
 
 export function enforceQuizSafetyPolicy(
@@ -295,6 +376,10 @@ export function enforceQuizSafetyPolicy(
   }
 }
 
+export function requiresFirstQuizAttempt(policy: QuizSafetyPolicy | undefined, metadata: QuizMetadata | undefined): boolean {
+  return policy?.firstAttemptOnly === true || Boolean(metadata && metadata.attemptsAllowed !== null && metadata.attemptsAllowed >= 2);
+}
+
 export function questionHasExistingAnswer(question: QuizQuestion): boolean {
   return question.controls.some((control) => {
     const type = String(control.type ?? control.tag ?? "").toLowerCase();
@@ -333,10 +418,21 @@ function enforceAttemptPolicy(
       "allow_start_or_continue_attempt",
     );
   }
+  if (requiresFirstQuizAttempt(policy, metadata)) {
+    if (!metadata?.hasActiveAttempt && metadata?.attemptsUsed !== 0) {
+      return blocked(action, "first-attempt-only-history-not-zero", "first_quiz_attempt_only");
+    }
+    if (metadata?.hasActiveAttempt && (metadata.attemptsUsed !== 1 || metadata.activeAttemptNumber !== 1 || !metadata.activeAttemptId)) {
+      return blocked(action, "first-attempt-only-active-identity-unconfirmed", "first_quiz_attempt_only");
+    }
+  }
   if (
     metadata?.appearsTimed &&
     metadata.effectiveTimeLimitMinutes !== null &&
-    metadata.effectiveTimeLimitMinutes < policy.minimumTimeLimitMinutes
+    metadata.effectiveTimeLimitMinutes < policy.minimumTimeLimitMinutes &&
+    !(metadata.hasActiveAttempt && !policy.askBeforeStartingOrContinuingAttempts &&
+      !policy.askBeforeTimedQuizzes &&
+      (!metadata.appearsLimitedAttempt || !policy.askBeforeLimitedAttemptQuizzes))
   ) {
     return blocked(action, "timed-quiz-below-minimum-time-limit", "allow_lower_time_limit");
   }

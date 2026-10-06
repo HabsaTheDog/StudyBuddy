@@ -1,5 +1,403 @@
 # Adaptive Study Builder vNext — Implementation Plan
 
+## 2026-10-06: cross-platform PDF evidence regression repairs
+
+PR #53 CI exposed missing PDF review coverage when ImageMagick is unavailable
+and extensionless-only visual-tool discovery on Windows. Preserve every selected
+physical PDF page in the fallback, review adjacent page pairs with at most two
+images per call, and resolve installed Windows tools through PATHEXT. Keep the
+original composition and divider-review assertions, verify the three-page fixture
+with CI Typst 0.15.0, and exercise both contact-sheet and missing-montage paths.
+Use a platform-native observation-image path in the Study Builder handoff test.
+No new worker, content policy, quiz permission, or release-acceptance claim.
+
+## 2026-10-04: real-run native quiz routing repair
+
+Owner requests one real run and explicitly approves attachment to the actual
+Electron window. First desktop-dev Balanced run2822d931 receives the new Direct
+Quiz contract but follows the older shared skill's prompt --auto-answer route.
+Stopped before attempts: native generation ready, owned workers exited, zero
+ledger/direct-state/question evidence. Preserve all original run/rollout hashes.
+
+Before retry: reject app-broker legacy interactive quiz entry points and
+--auto-answer before credentials or worker spawn; provide actionable sources/quiz
+inspect instructions. Move direct quiz precedence into the native Core Rule and
+separate overview/preparation from actual quiz execution. Keep global skills and
+independently installed T3 untouched. Validate observed stale commands RED/GREEN,
+existing direct contracts and native instruction delivery; then fresh Quick Chat,
+same natural prompt, first only, same-ID recovery and never final submission.
+Repair contract: native-quiz-direct-routing; actual production run evidence remains
+in agent-owned-minitest/evidence/real-desktop-20261004. This uses the existing
+owner authorization for implementation, iterative repairs and the real run.
+
+## 2026-10-03: agent-owned mini-test operations with one-attempt protection
+
+Owner explicitly requests direct mini-test tools and native/subagent reasoning,
+with at most the first of two Moodle attempts and no second attempt even after
+failure. This authorizes implementation and local fixture tests, not consumption
+of a live test attempt for development. Existing final-submit prohibition stays.
+
+Expose deterministic inspect/start/read/fill/next/status/recovery operations to the
+native owner via the existing app-owned broker. Reuse extraction, question media,
+answer adapters, safe navigation and reload verification. The owner delegates
+question packets to subagents and supplies answers; tools do not start another
+model-backed planner/solver/reviewer pipeline. Preserve exact-target native quiz
+approval. Credentials, workspace and stable owner remain server-owned.
+
+For limited quizzes, new starts require positive first-attempt evidence. Atomically
+reserve the first start in a durable account+quiz ledger before mutation; bind the
+actual Moodle attempt ID afterwards. Recovery continues that ID only. Concurrent
+workers, new approval files, browser restarts, uncertain HTTP outcomes and expired
+or ended attempts cannot start a second attempt. Add request-level safeguards
+against second starts, cross-attempt requests and hidden final-submit form fields.
+Unknown start outcome fails closed with no automatic replacement attempt.
+
+Validate on local real-browser fixtures (including concurrency, failed start
+responses and disguised final POSTs), never on the user's limited Moodle attempts.
+Provide a same-attempt handoff for unsupported interactions, not a new attempt.
+Discovery/evidence and implementation checkpoints live under
+study-buddy-data/optimization-campaigns/agent-owned-minitest/. No release/push.
+
+Ownership: attempt ledger and legacy hooks to quiz_credentials; direct operations
+and fixtures to pdf_sources; HTTP/request boundary and independent adversarial
+review to independent_review; native instructions, broker/packaged routing and
+integration to root. This is a focused replacement of quiz orchestration, not a
+change to the earlier PDF workflow or quiz submission permissions.
+
+Scoped implementation is complete: shared native instructions use direct quiz JSON
+operations and native question subagents, with exact packet/control plans and
+save/reload verification. UI integration is locally committed as `cc8a01fa3`.
+No real Moodle attempt was opened. Actual local two-attempt Playwright evidence
+shows one start POST, one save POST, answers4/21 persisted, same-ID recovery,
+second-run refusal and zero final submits. Three original RED counterexamples are
+covered by real guarded-browser cases and the global ledger. Review also closed
+native ordinal spoofing, initial inspection autoPOST and authenticated media
+request bypasses; dead process locks support same-attempt recovery. This is local
+tooling validation, not native mathematical output or desktop/release acceptance.
+Final verification:1,596 root tests/four existing skips,75 UI routing/approval/packaged tests,root TypeScript,all13 UI typechecks and UI format/lint pass. Final regression evidence and verified source hashes are recorded in the scoped campaign.
+
+## 2026-10-03: durable native artifact delivery
+
+Owner reports native PDF attachment loss after temporary-file cleanup. The direct
+publisher and native developer instructions incorrectly inherited T3's `/tmp`
+attachment convention. T3 session delivery remains separate from Study Buddy.
+
+Scoped repair: retain canonical run files and publish verified, collision-protected
+PDF copies under the owning workspace's existing `study-buddy-deliverables/`
+directory. Quick Chat workspaces are already per-thread. The native final answer
+links the returned durable path and does not make a temporary final-link copy.
+Preserve current-input/source hashes, workspace/symlink guards, same owner,
+three unsuccessful validation retries and all quiz boundaries. Check actual PDF
+publication, collisions, symlink rejection and readability after temporary-file
+cleanup; validate native attachment handling without another model/source run.
+Recover the already accepted PDF from its canonical bytes without regeneration.
+No release, push, unrelated T3 state change or broad pipeline redesign.
+
+Storage regression checks passed:21 actual document tests,5 shared native
+instruction tests and24 existing Markdown/preview consumer tests, plus full UI
+format/lint and13 typechecks. Canonical38/39 PDFs recovered byte-for-byte into
+each Quick Chat's deliverables folder, with all original run hashes unchanged.
+No model rerun or historical message rewrite. Independent source/consumer review
+passed, including six actual durable-path cases and cross-thread rejection. UI
+instructions committed locally as `711938591`; publisher/tests and dependency pin
+belong to the scoped parent commit. No new live desktop or release acceptance.
+
+## 2026-10-02: single native owner for PDF documents
+
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
+
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
+
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+### Historical Native23 implementation checkpoint — superseded
+
+Native23 first direct-owner round: sources and initial worked numerical content
+were correct, but no PDF was published after three compiler failures (unpaired
+math delimiters, literal suffix rel, then LaTeX-style left/right). Keep this run
+rejected and its artifacts unchanged. Refine the same single-owner template:
+provide a compact executable Typst syntax example covering paired delimiters,
+quoted literal suffixes and lr grouping, plus the existing components. Compile
+that generic example deterministically in tests before the next exact-prompt
+native round. No new model stage, semantic regeneration, retry-cap increase or
+curriculum-specific workaround. The supplied template must be usable before the
+owner writes a source-grounded document.
+
+
+The owner explicitly requests a substantial simplification: give the existing
+native chat agent the original prompt and a template, and let it directly create
+the document. This supersedes the repair-chain direction below for the default
+PDF route. Earlier uncommitted claim-repair work is preserved byte-for-byte in
+campaign evidence/superseded-claim-repair and removed from the active diff.
+
+One native agent owns source selection, reasoning, document files, compiler
+repairs and delivery. Read-only broker tools expose courses, native pages,
+authenticated resource downloads, PDF text and composed original pages without
+SourceArchitect, Analyzer, Formatter or model Reviewer calls. Deterministic
+prepare/compile/publish operations provide the existing generic Typst components,
+a real compiler, concrete diagnostics/previews and an honest direct_document
+receipt. No artificial extraction/review success is written. Three unsuccessful
+compile validations end the document invocation. Credentials and source selection
+stay server-owned; quiz attempts and final submission remain unavailable.
+
+Ownership: source adapter and its tests to source agent; direct-document tooling
+and tests to document agent; wrapper/broker routing and developer instructions to
+root; independent implementation and native output review to review agent.
+Acceptance: exact original PDF prompt/profile in a fresh desktop-dev Quick Chat,
+correct scope and source-backed examples, successful canonical compile/publication,
+normal native PDF opening and independently checked physical pages. Preserve the
+already accepted math permission behavior. Timing/model-call counts are diagnostics,
+not substituted for output correctness. No release or push is authorized.
+
+
+## 2026-10-02: preserve reviewed content through PDF repair and rendering
+
+Owner explicitly resumes the original pipeline-repair objective after the
+separately delivered manual PDF. That artifact does not complete automatic
+desktop acceptance. Same approved original-prompt campaign and hard gates;
+no model/stage/cap/quiz-permission expansion and no course-specific fix. Existing
+LangGraph state/contracts remain intact; optional backward-compatible review
+claim references and a bounded local repair-response schema bind changes to
+actual existing content, without introducing a new model stage or call.
+
+Measured counterexample: Native22 has a correct initial original-source e_xi
+term; repairing a numerical Earth example rewrites unrelated mathematics to
+e_zeta. Model reviews miss the resulting physicalPDFpage12 contradiction.
+Renderer then regenerates the full document three times for presentation-only
+errors (615.840 seconds of formatter model work): LaTeX inline delimiters,
+then unquoted AC. It also strengthens a sufficient derivative condition into a
+false necessary one and creates orphaned continuation pages.
+
+Causal correction before code: preserve unaffected verified learning atoms
+through finding/owner/claim-local repair. The existing review identifies actual
+collection/claim references; the existing repair consumes the previous fragment
+and returns only bounded target changes, applied server-side. Unrelated claims
+remain exact; unknown references and ambiguous semantic changes fail closed.
+Retain exact original source/page/image
+anchors for changed claims. Source-only review cohorts use the selected original
+page and nearest available original context within the same two-image limit;
+incompatible source cohorts get separate existing packets, preflighted under
+unchanged45k/18packet ceilings. Existing auto rendering consumes the validated
+structured handoff deterministically rather than re-authoring mathematics for
+layout. Explicit llm_formatter remains an intentional override. Local bounded
+syntax/compile handling preserves semantic operands/units/claims, fails closed
+on unresolved meaning, and never silently falls back to whole-content mutation.
+
+Focused ownership: renderer/render strategy/formatter plus tests to renderer
+agent; analyzer review/repair/source-image selection plus tests to source agent;
+independent read-only review and root integration. Both use immutable actual22
+existing-node/real-Typst counterexamples plus generic cross-subject regressions.
+Before a fresh native original-prompt run, root verifies source fidelity,
+TypeScript, focused/full suites, scoped local commits and complete source freeze.
+Final acceptance still requires an actual native attachment, source-backed
+correct examples, normal PDF viewing and independently inspected physical pages.
+
+Renderer component freeze:88 focused tests/four files,TypeScript/diffcheck and
+independent six-source/test-hashreview pass. Unchanged Actual22 savedhandoff through
+existing Formatterconsumer validates in1701ms with0modelcalls; controlcompile596ms,
+26pages/all six selected Originalimages/two positive documentcontexts,262 historical
+canonical hashes unchanged. This is retention/compile evidence only; damaged old
+mathematical claims remain unchanged and require upstream correction. Source-bound
+repair and full native original-prompt acceptance are still in progress.
+
+## Operational source links — 2026-10-02
+
+The owner authorized fixing and repeating the two failed desktop requests.
+Campaign `latest-kinetik-pdf` preserves the failed first-test preparation run.
+Its resource manifest misclassified a `sebs:` Safe Exam Browser launcher as a
+quiz source, and the strict publication review correctly rejected it. Restrict
+snapshot and raw-text resource discovery to actual HTTP(S) references, including
+the acquisition-result merge. Keep page text about SEB requirements, actual quiz
+landing URLs, legitimate web resources, and all quiz permissions unchanged;
+never rewrite launch protocols or relax the link reviewer. Add deterministic
+manifest-to-review regressions, replay preserved evidence without modifying it,
+and let fresh desktop rounds establish answer quality and first-test scope.
+Development checks alone do not establish desktop or release acceptance.
+
+Preserved evidence also shows the source architect correctly excluding later
+topics for the first test, while deterministic catalogue reconciliation restores
+those exclusions and adds unselected primary topics. Make explicit exclusions
+authoritative during coverage repair and require actual selection/high priority
+before restoring a missing reference. A primary-topic classification alone does
+not establish request scope. Retain selected-source repair and shared-lecture
+grounding, invalidate polluted architecture caches, and regress both narrowly
+scoped requests and legitimate full-course coverage without subject rules.
+
+Fresh desktop `f2a2f502` disproves the selected/high-priority guard: default
+acquisition priorities still add later topics absent from the evaluated scope.
+Treat the semantic architecture's exact subject modules and source assignments
+as authoritative. Remove deterministic primary-module creation and lexical
+source attachment altogether; acquisition selection is not curriculum intent.
+Keep administrative-container demotion and excluded-aware overview support,
+and preserve explicitly planned full-course modules and shared sources. Test
+selected priority-900 probes as observed, rather than only unselected fixtures,
+and invalidate architecture caches again before a fresh desktop repetition.
+
+Desktop `873360e3` produces a scoped, mathematically correct PDF but invents
+unlabelled exercise points. The shared component reference advertises a points
+argument without provenance rules. Add one universal scoring/origin policy to
+the initial and repair author prompts and extraction reviewer: derived tasks
+receive no invented point allocations; official scoring requires exact cited
+evidence for that source task. Offer a clearly non-official percentage/checklist
+only when useful and label generated task origin locally. Present the exercise
+component without points by default. Verify those prompt boundaries without
+adding model calls, lexical output rules, or modifying generated artifacts,
+then repeat the original request in a fresh desktop thread.
+
+Desktop `fab7de42` exposes course identity drift: the existing literal matcher
+finds the single explicitly named course, but a legacy alias-only resolver must
+also report resolved before the direct path is used. Remove that extra condition
+so arbitrary unique literal course titles/codes/URLs retain their bounded
+canonical-title probe and cannot be displaced by related historical content.
+Keep multi-match ambiguity visible. Strengthen semantic shortlist/evidence
+instructions for user uncertainty/self-correction, explicit identity before
+topic similarity, and observed course-period/upcoming-assessment evidence using
+the immutable request time context. Do not invent semester calendars or encode
+subject/course IDs. Regress unrelated subject titles and ambiguous named pairs,
+then repeat the exact original desktop request.
+
+Independent review reproduced conflicting explicit code/title and negated-title
+regressions in that direct path. Reuse the existing generic local negation helper
+and explicit-code alias resolver: omit excluded literal mentions and defer a
+unique title when another explicitly requested code identifies a different
+enrolled course. Keep those conflicts in the semantic evidence path, prevent its
+literal shortcut from undoing the deferral, and reject an excluded course even
+if a model or cached search result selects it. Regress English/German unrelated
+subjects, explicit code/title conflict, and direct URLs. Preserve the original
+unique arbitrary-title path with one canonical probe and zero model calls.
+
+Desktop `eeed8286` exhausted strict review because a local source-boundary
+warning from the reference-system chapter was promoted to the global scopeNote,
+despite formulas and citations in later chapters. Repeated repairs targeted the
+acceleration chapter after a global `chapterTitle:null` finding was lexically
+localized, leaving the warning's actual cached producer unchanged. Preserve
+exact readable chapter provenance when merging warnings, prevent unrelated
+chapter-status contamination, and derive the global scopeNote from aggregate
+coverage instead of the first negative local string. Respect global reviewer
+ownership explicitly and invalidate all chapter handoffs for a document-level
+content repair; retain selective repair for exact chapter findings and the
+existing three-retry ceiling. Regress cached local/global repair behavior and
+replay the original failed handoffs without deleting content or relaxing review.
+Retain document-owned findings when a resumed mixed global/local repair narrows
+completed chapter findings; otherwise recovery silently loses the global defect.
+
+## Provider-independent execution — 2026-09-22
+
+Implement the owner's Codex, Claude and Gemini/Antigravity integration request
+under `../provider-support.md`. Carry the selected provider through every internal
+worker without changing evidence acquisition, question permissions, state fields,
+three-validation-retry ceiling or publication gates. Provider configuration is
+an execution concern; no subject-specific behavior is introduced. Validate prompt,
+schema, cancellation and provider routing at the transport boundary and exercise
+the actual desktop where authenticated accounts are available.
+
+## Completion through human review — 2026-09-15
+
+Owner explicitly requested finishing the remaining implementation before their
+human testing. Keep the existing source planner's validated acquisition loop;
+add a bounded author-or-delegate path over exact evidence chapters, with a fixed
+compatibility mode. Persist operation ownership and policy provenance, unify
+transport fallback and logical-call metrics, localize progression repair, and
+prepare a controlled offline comparison plus human test instructions. Preserve
+all charter correctness/permission/publication gates. Do not represent mocked
+measurements as live model performance or packaged desktop acceptance.
+
+Status: implementation complete for human review. Baseline is `ec337b9`; bounded
+authoring and checkpoint implementation is recorded in `79ff78e`, with follow-up
+recovery, accounting and compatibility fixes in the completion commit. Native
+provider accounting depends on local UI commit `e8782f83b`. Unrelated dirty UI
+work remains outside these commits. Development checks passed; live performance
+and exact packaged acceptance remain unestablished. See [human-review.md](./human-review.md).
+
+## Hybrid agent architecture — 2026-09-15
+
+Owner approved the architecture review and three-phase implementation proposal.
+Campaign: `study-buddy-data/optimization-campaigns/hybrid-agent-architecture/`.
+Preserve source integrity, independent item/solution review, quiz permissions,
+bounded validation retries, the current state contracts and publication gates.
+
+1. Repair execution semantics and remove confirmed waste: task-local attempts,
+   operation-aware preflight, consistent cancellation/admission, honest repair
+   metrics, final-repair validation, and deterministic standard-guide planning.
+   Establish focused deterministic regressions before each implementation.
+2. Introduce bounded hybrid evidence planning and authoring delegation behind
+   compatibility controls. Retain the catalogue as policy/telemetry vocabulary,
+   not a required sequence of separate model calls. Share validated content and
+   invalidate only affected items. Never select curricula from subject labels.
+3. Compare equivalent frozen evidence with the same model settings, quality
+   gates and injected failures; report coordinator and worker costs separately.
+   Only a deliberately frozen candidate proceeds to packaged Windows/Fedora
+   acceptance. No release publication is authorized by this implementation.
+
+Current status: all implementation phases are complete for human review. The
+existing validated source planner is retained; hybrid guide authoring plans and
+delegates within bounded evidence partitions. Shared operation checkpoints,
+policy-bound caches, localized recovery and cross-client fallback preserve the
+application's permissions, retry ceilings and publication gates. Whole-turn
+accounting and a guarded paired-comparison CLI are available; native coverage
+requires explicit complete thread snapshots. The offline comparison establishes
+call reduction on its fixture only, not live quality or speed improvement.
+
+Validation and remaining work are recorded in
+[`hybrid-architecture-development.md`](./hybrid-architecture-development.md).
+The unchanged Git baseline and failing-regression evidence are preserved in the
+campaign input directory. Deterministic tests are development evidence; historical
+run snapshots are not an equivalent-input performance baseline or desktop
+acceptance. The campaign remains open. The installed skill's `scripts/sbtest` is
+used because this checkout does not contain that convenience entry point.
+
+## Task-level model assignments — 2026-09-13
+
+Implement the approved profile architecture: keep role defaults, expose concrete
+workflow tasks with explicit primary/retry overrides and reset-to-inherit, and
+route search and repair through the same resolver. Preserve existing backend
+built-in model choices, access policies, validation gates and retry limits.
+The editor must display the effective policy, including inherited settings.
+Use a canonical task registry with a generated desktop copy and a parity test;
+the packaged workflow must remain independent of the source checkout.
+
+Validation: deterministic policy precedence, legacy-profile decoding, built-in
+UI/runtime parity, task-callsite coverage, custom handoff and interactive search
+routing, plus scoped editor browser diagnostics and root/fork typechecks.
+Persist task IDs and policy origins beside existing model-call metrics. This is
+a configuration feature, with no claimed quality or performance improvement and
+no live optimization campaign or release acceptance.
+
+Status: implemented and verified in the current development batch. The catalogue
+exposes 34 concrete operations plus three shared search/repair defaults. All
+1,117 root tests passed (4 skipped), including built-in/custom UI-to-runtime
+parity, production callsite coverage and mocked SDK boundaries for document,
+page and interactive quiz/search clients. Three profile-editor browser diagnostics
+passed, as did nine shared profile/schema tests, the server handoff/lifecycle
+checks, CLI metric aggregation, root typecheck, `vp check`, and fork typecheck.
+No live-model quality/performance claim or packaged desktop acceptance is made.
+See [`../model-task-profiles.md`](../model-task-profiles.md) for the configuration
+and measurement contract.
+
 ## Semantic source search — 2026-09-08
 
 User approved the concrete semantic fallback plan. Campaign:
@@ -1650,6 +2048,290 @@ Status: mobile/content defects fixed and live-verified on 2026-08-16; practice-d
 - R27 acceptance complete for the user-selected default current semester: real installed desktop14b572ea audits8current/38excluded and101/101 activities with exact8–9Sep2026 window, correctRW23:45/source-backed status andMAES3TBD; all101 facts reviewed.125.837sworker,6calls,0retries,55proofhits. Fresh Mathe5c14241d resolvesMAES3/16activities withTBD,67.747s,5calls,0retries. Full1079tests/4skips and types pass. Campaign evaluatoraccept and source/output/permission/regression/coverage gates passed. Exact imagebaa33ec8692f91918f1ce9be41e103f8f3fe2e26ef2091b8fa0fe3a9e6a9d2e9 installed and normal launcher verified,35runtime hashes+host archive verified. Explicit historical scope is integration-tested, but full46 historical desktop acceptance was not repeated onR27; earlier partial/interrupted rounds remain documented. Independent dev work was not interrupted.
 
 - R28 historical-scope regression: installed R27 explicit all-enrollment request was narrowed to allgemeine Infokurse, yielding6/46 courses. A quoted phrase alone proves presence, not a whole-request restriction. Before applying a nonempty course query, use one bounded independent source-search review of the original request to distinguish restriction from additive inclusion; reject ambiguous/unquoted reviews. Preserve explicit named subjects and specific historical terms, current-semester default and historical opt-in. Reproduce the faulty extraction in tests, replay the exact real wording and counterexamples, then rerun full desktop scope. The earlier current-semester acceptance remains separately recorded; do not call this historical baseline passed.
+
+## Provider profile refresh — 2026-10-01
+
+Owner-authorized scope: modernize built-in model assignments and move composer
+provider switching into the profile picker. Retain all graph, review, coverage,
+permission, publication, cancellation and three-retry contracts. Codex Fast uses
+Sol Light/Luna workers, Balanced uses Sol, and Quality reserves Astra for harder
+work. Standalone workflow defaults and desktop policies must agree. Keep existing
+timeouts; use available account catalogues and preserve saved custom assignments.
+Gemini offers Fast/Balanced Flash thinking policies, collapsing to one Balanced
+preset when its catalogue cannot distinguish them. Validate catalogue fallbacks,
+legacy ids, profile routing, composer locks, keyboard and responsive behavior,
+then record source checks and frontend visual evidence separately from packaged
+acceptance. Pricing informs the initial configuration; no measured end-to-end
+quality or speed improvement is claimed from this change alone.
+
+Round6 PDF integrity follow-up — 2026-10-02: distinguish necessary from sufficient conditions, preserve scalar/vector/matrix operator semantics, and check relevant counterexamples, zero/boundary cases and stated assumptions in the shared author/analyzer/reviewer contract. Typst `times` is a valid × glyph and must not itself trigger an operator false positive. Replace ambiguous approved-table placeholders with concrete row contracts matching the actual wrappers (key-value two cells, comparison three, schedule four). Validate generic table header/row arity before flattening in the existing Typst component, so malformed rows use the existing compiler/formatter repair rather than silently shifting cells. Add meaningful compiler and prompt regressions; no subject rules, generated-artifact patches, extra review stage or retry-boundary changes.
+
+Round6 review classification follow-up — 2026-10-02: attach an explicit defect kind to structured quality findings. Missing evidence-derived should recommendations remain advisory; concrete included-content mathematical, factual, citation and prohibition errors must not be downgraded by an optional requirement association. Preserve exact chapter/global ownership, existing repair targets, three-validation ceiling and backward-compatible legacy parsing; use no text-keyword guess. Reviewer/pending-repair tests and full source checks passed; native acceptance remains pending.
+
+Round7 source-fidelity follow-up — 2026-10-02: preserve explicit assessment announcements, dates and source labels as request-level evidence independently of chapter-local packet limitations. Distinguish lack of calendar data, uncertainty about exclusive/full syllabus coverage and positively documented Moodle facts; absence in one role must not negate another role’s actual evidence. Reconcile evaluated-contract assumptions and local source warnings against direct cited source statements, retaining genuine conflicts. Review the smallest source-packet/prompt change with exact source-title/announcement and empty-calendar regressions, no subject rules, new model stage or mandatory learning-module shape, then repeat the exact desktop request.
+
+Round8 task-consistency follow-up — 2026-10-02: strengthen the existing shared mathematical integrity policy, with a policy version bump, so generated tasks are feasible under their own stated assumptions and solutions preserve all givens. Hypothetical changed assumptions must be explicitly labeled and cannot answer the original stipulated task. A function's instantaneous value does not determine its derivative; distinguish a momentary value from an identity over an interval before dropping derivative terms. Add Red/Green prompt regressions across initial/repair PDF authors, whole/fragment analyzers and the existing reviewer. Preserve operator/source contracts, prompt budgets and strict review; no subject rules, model stage or generated-artifact edits.
+
+Round9 PDF-composition follow-up — 2026-10-02: publish PDF visuals only from fully rendered page compositions, preserving vector/text correction overlays rather than exposing underlying raster XObjects. Standalone images remain supported. Resolve legacy embedded-PDF references only to a matching source/page composite or visibly fail closed; never retain a raw fallback. Replace geometric edge crops with conservative whitespace trimming so lower-page corrections survive. Invalidate affected chapter/fragment visual caches with an explicit policy version. Add a real overlay-PDF Red/Green fixture, legacy hydration/fail-closed and standalone-image regressions, then replay the actual Q3 source without changing canonical files. No extra model/review stage, subject rule or generated-artifact patch.
+
+Round10 analyzer-producer budget follow-up — 2026-10-02: budget the complete whole/fragment analyzer prompt with the existing leaf boundary and exact output schema. Dense packs currently count compact evidence but serialize pretty evidence without checking the final envelope; whole analysis can also return an oversized fixed payload after reaching its evidence floor. On overflow first compact JSON losslessly, then remove repeated evidence metadata and shorten diagnostic-only metadata before any existing whole-analyzer evidence selection. All already assigned fragment records must remain complete or fail capacity; do not introduce fragment content selection. Preserve each evidence source URL and locator even if its manifest resource is omitted. Preserve the exact original request, semantic request contract and selected assessment document_context/provenance. Fail before a model call if protected payload alone cannot fit. Add initial/repair fragment and whole-payload Red/Green regressions and replay the actual Round10 failed packed source without canonical writes; no budget increase, new stage, subject rule or artifact patch.
+
+Round11 inline-notation follow-up — 2026-10-02: the validated handoff contains unparenthesized unary vector styling (`bold a`, `bold Omega`), which the deterministic fallback compiles as literal function names. Normalize only an unambiguous single Latin/Greek symbol to the existing Typst `bold(symbol)` call, preserving scripts, operators and quoted text. Reject unsupported bare expressions with an explicit notation diagnostic instead of inferring a formula. Keep changes inside the inline-math normalizer and its tests; reproduce the actual handoff, add Red/Green normalizer/prose regressions, compile a real PDF and inspect extracted text, then replay the unchanged canonical handoff. Do not alter analyzer/formatter/renderer orchestration, canonical artifacts, retry boundaries or publication gates.
+
+Round11 inline-notation evidence — 2026-10-02: both new regressions failed on the original normalizer and all 29 inline-math tests pass after the fix, including actual Typst compilation and PDF-text assertions. TypeScript and whitespace checks pass. A separate full deterministic render of the unchanged native Run11 study-model compiled in `/tmp/study-buddy-round11-notation-replay-yX4MtW`; extracted literal `bold` occurrences fell from 17 in the canonical PDF to zero in the replay, while the Coriolis formula text remained present. Only inline-math source/tests and this plan changed for this follow-up. Native first-try acceptance remains the parent campaign's separate gate; no canonical artifact patch, commit or push was made.
+
+Round11 notation boundary review — 2026-10-02: consolidate supported named Greek letters from the Typst symbol contract across unary styling, script preservation and identifier quoting, including xi/iota/upsilon and supported uppercase names. Prove the whole named-letter set with actual compilation and preserve ordinary `a bold decision` / `bold claims` prose. Keep unknown operands diagnosed rather than broadening normalization to arbitrary names or expressions.
+
+Round11 notation boundary evidence — 2026-10-02: the new full-letter regression first failed on `bold iota`; after consolidation all 30 inline-math tests pass. The actual compiler accepts all 24 lowercase/uppercase Greek alphabet names and supported digamma/Digamma (50 named letters), each with a named Greek subscript. Prose tests retain ordinary bold wording and distinguish lowercase xi/iota/upsilon and uppercase Xi/Gamma/Sigma vectors. TypeScript and whitespace checks pass; source remains uncommitted for independent integration review.
+
+Round11 quoted-string review — 2026-10-02: independent review found that the new bare-styling helper's quoted-segment regex treated escaped quotes as string terminators. Replace only that helper's segmentation with an escape-aware quoted-string scan. Add exact unchanged JSON-string regressions for escaped quoted `bold Omega` and unknown `bold prose`, even/odd backslash boundaries and subsequent valid/invalid unquoted operands; preserve all existing normalizer semantics and rerun the actual compiler regressions.
+
+Round11 quoted-string evidence — 2026-10-02: the escaped-quote regression reproduced literal mutation before the scanner fix; all 31 inline-math tests now pass, including the existing real compilation and PDF-text checks. Whitespace checks pass. The concurrent whole-repository typecheck temporarily reports only an unrelated invalid image-origin fixture in `qualityReviewerSourceImages.test.ts`; its owner and the independent reviewer were informed. No commit or push made.
+
+- 2026-10-02 Run11 fallback duplication repair: deterministic PDF projection repeats identical section objects for each module sharing a cited course/assessment source. Keep existing module order/source association, but assign each validated content object once to the first admitted module; unmatched content remains in the additional-material section. Add a shared-source regression before source changes, preserve formulas/examples/figures and canonical run artifacts, then run focused compilation and independent review. No semantic topic classifier or generated-artifact patch.
+
+Round11 assigned-source handoff follow-up — 2026-10-02: an explicitly planned single semantic module must use the same focused chapter/fragment analysis as a multi-module request, preserving assigned evidence, module ownership and scoped image attachments. The legacy whole-request image selector must exclude explicit source vetoes. Targeted acquisition is not content assessment: reuse the source architecture after draining only when every requested nonexcluded source is represented and its extraction is readable; otherwise invoke the already existing next architect assessment with native extraction status, character counts and warnings visible in briefs. Preserve the bounded acquisition/model stages, strict review, source exclusions and original artifacts. Add one-module dense/ownership and scanned/unassigned acquisition Red/Green tests, and replay actual Run11 source decisions and model input without canonical writes. No new subject rules, quotas or artifact patches.
+
+Round11 source identity and review follow-up — 2026-10-02: preserve plural example and multipart-task intent semantically in the existing request evaluator, without a count matcher or universal quota. Bind only source IDs already actually used by analyzer output to their exact native manifest title/URL/path; retain a legitimate model-selected page and leave unknown IDs to validation. Give the existing content-review call at most two already present, admissible, actually cited source compositions with explicit source/page/attachment-order labels, so transcription and basis/index distinctions can be checked against their source. Maintain exclusions, missing-image support, existing call and character budgets, and localized repair feedback; no extra review stage or source expansion.
+
+Round11 concrete integration boundaries: scope vetoes apply to merged direct/practice assignments and URL-only visual candidates as well as support resources. Namespaced chapter assets retain source/page priority for review through their actual visual provenance. Already semantically assigned native assessment/page records must remain document-context evidence even when assigned to a module rather than general_reference; retain the same 8000-character full-record cap and exclusions. Direct review attachments use supported existing PNG/JPEG files; unsupported or missing images remain a visible uninspected boundary.
+
+Round11 independent-review regression correction — 2026-10-02: directly assigned acquired native HTML lesson pages with their own readable evidence must enter the same focused module path without requiring a local file. Reuse the existing support admission boundary (own nonempty evidence, selection/status/exclusion vetoes) rather than returning an empty architecture for a valid page. Add the exact single-module API regression plus the deselected counterpart, run affected tests/typecheck and refresh the source freeze. No other scope expansion.
+
+Round11 source/review integration checkpoint — 2026-10-02: implementation frozen after independent review of direct-source, namespace/page, URL-only-veto and native-HTML boundaries. All 141 affected tests, typecheck and diffcheck pass; complete root suite passes 1407 tests with four existing skips in 167 files (42.92s). Read-only original Run11 producer replay preserves 41 exact assigned records, native quiz identity and original request/announcement within 52685/60000 characters, and attaches cited source pages9+2 to the existing reviewer. Five canonical hashes remain unchanged. Source validation does not establish native first-try or packaged acceptance; those remain pending.
+
+Round12 acquisition/read handoff correction — 2026-10-02: distinguish a new exact download from an already acquired source awaiting native/visual reading. Preserve the validated semantic architecture and exclusions when repeated acquired-reading URLs leave no available download, rather than replacing them with portal fallback modules. A server-owned pendingReads field may carry only actually available, assigned and admissible native content or nonempty local files into the existing visual planner/analyzer; acquisition readiness must not claim subject coverage. Native URL wrappers retain an explicit unresolved-target limitation. Unknown, deselected, missing or unassigned URLs stay blocked or genuine source requests, and already delegated sparse sources must not perpetually reopen planning. Add Red/Green against the actual raw Round12 response and negative boundary cases, exact canonical-hash read-only replay, focused/full budget/typecheck verification and independent review. No new model stage, generic sufficient override, source/artefact edits or subject rules. Request evaluator plural-policy cacheversion .2 is already correct.
+
+Round 12 acquisition/read handoff validation: preserve source-owned reading debt in existing whole/chapter/fragment prompts and cache fingerprints; debt-bearing architect decisions are not reused from disk without fresh acquisition planning. Bind native read targets to exact captured page-block URLs/content, not arbitrary diagnostic records. Add assigned image-only sources as zero-record reading slices and include only their admissible existing files in visual discovery; excluded/deselected/failed sources cannot consume the bounded source slots. Actual saved raw response replay preserves one module/four exclusions and nine pending reads, indexes and attaches all eight PDF read targets through existing composition/slice paths, retains the unresolved native wrapper limitation, and fits its first producer in 53,679/60,000 envelope characters. All 14 canonical/source hashes remain identical. Six original API failures were red before implementation; 16 new API/consumer/cache regressions now pass. Final affected tests and independent review follow before source freeze; no new model stage, synthetic evidence record, subject rule or budget increase.
+
+Round13 exploration-before-assignment correction — 2026-10-02: the actual first-round raw response requests eight valid new practice acquisitions plus an already captured native wrapper whose subject value is not yet assigned. Permit that known, admissible exploratory reading debt only alongside genuine available acquisition, preserve explicit empty planning modules until the existing post-acquisition semantic reassessment, and never create a curriculum assignment from requested_urls. Preserve exploratory ownership/linked-target gaps in existing planner/analyzer handoffs even when they remain outside learning modules. Unknown/excluded/missing targets and unsupported essential modules remain blocked; native evidence still requires exact captured-page provenance. Add Red/Green for the actual mixed first-round shape, the existing second-round reassessment, empty essential-module readiness and excluded/unknown countercases; replay original saved sources/raw response without writes, then focused budget/cache/typecheck and independent review before freeze. No extra calls/stages, source/PDF patch or budget increase.
+
+Round13 source checkpoint: six focused transition/veto regressions pass (three transition/readiness tests reproduced red against the previous source). The actual unchanged R1 answer now retains five planning modules including the unassigned practice intention, selects the same eight new exact acquisitions, and records the native wrapper only as scope_assessment. Read-only controlflow replay then uses actual existing acquired practice files/records and the explicitly labeled saved Round12 R2 answer to prove the existing semantic reassessment path, not a new model execution or claimed native Run13 continuation. R2 sees previous planning intentions and exploration debt; both sufficient and acquired-reading request_more transitions retain unverified limits without curriculum injection. All eight PDF targets are index/candidate/attachment-reachable; first actual producer preserves the original request and assessment announcement within 53,839/60,000 characters. All 18 original/source hashes are unchanged. 122 affected tests, typecheck and diffcheck pass; independent review and root full-suite/first-try repetition follow.
+
+Round14 interpretation-integrity correction — 2026-10-02: the final native 13-page PDF has correct arithmetic but seven incompatible names for an inward-directed term of an absolute motion decomposition, without an explained alternative convention. Strengthen only the shared mathematical-integrity contract: computed sign/vector direction, term name and interpretation must agree under the stated reference frame/sign convention; distinguish descriptions of motion from real and frame-dependent apparent forces, and explain differing source conventions explicitly. Reuse the existing initial/repair author, whole/fragment analyzer and content-review prompts; no subject formula rule, new stage or artifact edit. Increment the existing student-first policy version so chapter/fragment cache identity cannot reuse older semantic handoffs. Add Red/Green to the existing shared prompt regression and read-only actual final-handoff/author/reviewer producer-budget replay with unchanged canonical/source hashes; focused/typecheck and independent review before root full-suite/fresh native repetition.
+
+Round14 second confirmed integrity defect — 2026-10-02: an included derived task claims a unique function value from a specified derivative without the required initial/boundary condition. Extend the same shared contract generically: derivatives do not determine function values/integration constants without conditions, and a unique result requires givens that determine every sought quantity; otherwise show a parameter family or explicitly identify the missing condition. Keep this in the same existing five consumer prompts/versioned policy and replay the unchanged final handoff/real repair inputs within existing budgets. No acceleration/course matcher or artifact correction.
+
+Round14 integrity source checkpoint: both new contracts failed in seven existing consumer/central-policy tests before implementation and pass afterward. Shared policy is version1.7; existing chapter and fragment fingerprints already include that version, while author/reviewer producer prompts contain the changed shared contract and have no separate node-output cache. Source architect cache semantics are unaffected. All 53 affected tests, typecheck and diffcheck pass. Read-only replay of the unchanged actual final handoff and original formatter post-render-review repair inputs preserves original request/assessment announcement in all five consumers: initial author49,369/120,000, repair53,899/120,000, reviewer33,613/45,000, whole analyzer57,894/60,000 and actual first fragment50,986/60,000 complete envelope characters. All 22 canonical/source hashes remain unchanged. Independent review and root full-suite/new native acceptance follow; no semantic success claim for a prompt-only regression.
+
+Round14 full-suite prompt-budget regression correction — 2026-10-02: the existing selected-visual fragment fixture exceeds its unchanged 8000-character contract after the shared integrity additions (8654 characters). Losslessly condense only repetitive/wordy fragment-author instructions while preserving every evidence boundary, allowed ID/image/source veto, mathematical requirement, optional-component rule and local warning/repair scope. Keep the full source records/schema and shared math policy unchanged. Re-run that exact fixture plus all five real producer replays, integrity/source/repair tests and typecheck; no cap increase or record chopping.
+
+Round14 budget checkpoint: the unchanged selected-visual regression is red at8654 and green at7988/8000 after condensing only fragment instruction prose by666 characters. The shared mathematical/source policies, records, schema, IDs, source vetoes and repair requirements are unchanged. All98 affected analyzer, integrity, producer-budget and reading-handoff tests, typecheck and diffcheck pass. Replaying the same five actual producer inputs retains original request/assessment announcement and fits initial author49,369/120,000, repair53,899/120,000, reviewer33,613/45,000, whole analyzer57,894/60,000 and actual first fragment50,320/60,000 complete envelope characters; all22 canonical/source hashes remain unchanged. Independent semantic comparison,76 focused tests and the same real producer replay pass. Source is frozen for root full-suite verification and fresh native acceptance; no cap/test change, content clipping or further optimization.
+
+Round15 previously requested acquired exploration correction — 2026-10-02: the actual second semantic answer requests seven acquired practice PDFs for visual assessment but does not yet assign them to curriculum; their exact acquisition intent survives in the prior requestedUrls. Reuse that server-owned prior request only for a current explicit acquired-reading request, with unchanged file/native provenance and all exclusion/selection/status gates. Preserve scope_assessment as document-level uncertainty, never an automatic learning-module assignment. Make the acquired exploratory originals reachable in the existing first module fragment candidate/slice/image path, respecting existing selection/call/image ceilings and declaring unread material; prevent practice auto-assignment from converting exploration into curriculum. Add Red/Green for the actual R2 shape, unrequested/unknown/deselected/missing/excluded countercases and real native consumer reachability. Replay actual unchanged R2/previous decision and source files within current envelope budgets with canonical hashes unchanged. No new stage, invented module, budget increase, source/artefact patch or gate override.
+
+Round15 source checkpoint: the actual prior-acquisition transition reproduced the original admissible-reading rejection before the fix. Ten focused new transition/veto/ownership/final-packet/cache tests now pass; all138 affected tests, typecheck and diffcheck pass. Cache identities are architect .6-prior-acquisition-reading and analyzer .8-exploratory-source-slices. Native course architecture and exclusions remain byte-identical to the actual R2 answer; only current explicitly requested, previously acquired targets become document-level exploration. Sparse bundles respect the existing two-image limit, preserve distinct-source priority and cannot be repacked into image starvation. Read-only actual saved R2 plus saved prior R1 replay reaches five final analyzer client packets: one Q3 packet and four exploration packets with2+2+2+1 original sources. All seven acquired exploratory PDFs have original page1 attached; source-specific remaining pages2 or2–3 are preserved as exact unprovided boundaries in the handoff. Complete envelopes are36,460/30,800/30,786/30,835/28,560 under60,000. Original prompt/assessment announcement and every selected record's content/URL/locator remain exact; all19 canonical/source hashes are unchanged. Replay uses deterministic model-client test doubles to prove real consumer controlflow and payloads, and does not claim fresh semantic source reading. Source is frozen for independent/root verification and the next native original-prompt round.
+
+Round15 cache-boundary correction before freeze — 2026-10-02: exploratory sources intentionally remain outside curriculum focus.resourceIds but are now real analyzer inputs. Include their existing server-owned source checksum/status/path provenance in chapter and fragment fingerprints so changed original bytes cannot reuse earlier reading results; preserve cache hits for unchanged exploratory inputs. Add an actual createAnalyzerNode cache Red/Green that changes only the acquired exploratory PDF/checksum and keeps ID/URL/reading debt constant. No new cache architecture, module assignment or stage.
+
+Round15 final cache checkpoint: the unchanged-ID/URL/debt createAnalyzerNode repro is red when exploratory PDF content/checksum changes but caches still return without a call. Chapter and slice fingerprints now include those actual exploratory source inputs; changed content requires a fresh fragment call and unchanged originals continue to hit cache. All138 affected tests, typecheck and diffcheck pass, and the actual R2/R1 consumer replay again preserves the same five envelopes, all19 selected records exactly and all19 canonical/source hashes. Source is frozen again after this concrete independent cache finding, pending final independent/root gates.
+
+Round16 assigned-source empty-request reading handoff — 2026-10-02: the actual second semantic answer returns request_more with no URL list because nine exact already acquired visual-required PDFs are explicitly assigned in its learning architecture and no download is needed. Clarify that requested_urls includes acquired original-reading targets, not just downloads. For this exact empty-request/no-new-acquisition transition, derive reading debt only from current semantically assigned PDFs with existing partial/unusable extraction evidence and validate actual file/provenance/selection/status/exclusions through the existing acquired-read boundary. Unknown/unassigned/disallowed/missing targets and genuine evidence gaps remain blocked or real acquisition; planning readiness must not claim subject coverage. Add Red/Green and replay unchanged actual R2/R1 plus the existing Analyzer API, actual final page attachments, envelopes and canonical hashes. Investigate any actually reproduced assigned-image packing loss without changing caps or adding stages/modules.
+
+Round16 confirmed assigned-image consumer loss — 2026-10-02: the real assigned nine-PDF Analyzer API replay emits only two model packets; the first packs four sources into a two-image ceiling and six assigned originals receive no image at all. Reuse the existing original-reading bundle/pack/diversity boundaries for all server-validated pending PDF reads, while retaining separate scope_assessment ownership and the same record/slice/call/image/schema budgets. Compact only complete sparse reading slices and preserve existing multiple-slice evidence choices; exact source/page unprovided boundaries must reach the handoff. Add actual API Red/Green for assigned sources and source-checksum changes, then repeat unchanged actual R2/R1 packet/envelope/hash replay.
+
+Round16 consumer integration boundaries: activate the existing dense reading path for sparse assigned pending PDFs as well as exploratory ones. Persist actual supplied source/page provenance alongside validated fragment caches, outside the model/handoff schema; unchanged cached fragments retain their original page boundary when another source checksum invalidates the chapter. Add API regressions for assigned zero-record source bundles and checksum-only partial cache reuse, preserving source gates and existing image/call/envelope ceilings.
+
+Round16 final source checkpoint: assigned visual-required sources now cross the empty-request acquisition/read boundary without guessing unassigned sources or changing the validated architecture. The exact actual raw R2 and saved prior R1 replay is green with nine pending PDF reads and byte-identical module/support/exclusion decisions. The previously red assigned consumer emits five actual model-client packs (1+2+2+2+2 original-source images), all nine originals reach the client, and the source architect envelope is55,519/60,000. Analyzer envelopes35,119/31,051/29,252/29,356/29,272 remain below60,000. All23 selected evidence records retain exact content/URL/locator, original request/assessment announcement remains in every packet, and19 canonical/source hashes are unchanged. Sparse assigned-only and exploratory API tests both use the existing dense/bundled path; partial SHA-only cache invalidation causes exactly one new affected call while other fragment caches preserve their authentic supplied-page boundaries. Nine new transition/negative/assigned-consumer regressions and all147 affected tests, typecheck and diffcheck pass. Cache versions are source architect .7-assigned-original-reading and analyzer .9-assigned-original-reading. Reading-page cache metadata is server-owned and outside the unchanged model/handoff schema. Replay proves actual packet/controlflow reachability with test doubles, not fresh semantic reading or native acceptance. Source frozen for independent/root gates and fresh native repetition.
+
+Round17 orphaned-divider review checkpoint — 2026-10-02: the original 17-page PDF strands a small application divider on physical page12 while related exercises begin on page13; the existing visual model reviewed both pages but passed. Strengthen only the existing PDF render-review contract to distinguish an accidental heading/divider-only intermediate page from an intentional cover or designed section opener. Compare actual consecutive supplied pages, disregard recurring headers/footers as body, and send a blocking formatter repair to keep the divider with following content. Preserve legitimate whitespace and deliberate dividers; introduce no word-count/ink heuristic, stage, cap or template rewrite. Add focused real-PDF contract/repair and intentional-divider countercase regressions, replay the original PDF into a separate diagnostic directory and verify canonical PDF/Typst/review hashes remain unchanged before source freeze.
+
+Round17 orphaned-divider evidence: both new real-PDF API prompt/repair/countercase regressions fail before the change; all10 focused render-review and DiskWriter tests, TypeScript and whitespace checks pass after it. The actual saved quality_reviewer gpt-5.6-terra/medium role reviewed the unchanged original PDF in an isolated directory and now returns error/formatter for physical page12's application divider with related body on page13. All17 pages were reviewed; a separate page17 finding reports unreadably small source-list text and remains for the parent repair. All four original PDF/Typst/review/config SHA256 hashes are unchanged. Exact diagnostic image copies and evidence are persisted under latest-kinetik-pdf-contract/evidence/run17-divider-review. Source frozen without commit/push; independent/root checks and fresh native Run18 remain separate acceptance gates.
+
+Round17 concrete semantic-name review miss — 2026-10-02: the actual content-review payload contains the full absolute-decomposition formula and its incompatible physical label/context under policy1.7, yet the existing Terra/medium reviewer returns ok:true/findings[]. The cited formula collection supplies the equation without that added name; this is neither missing projection nor advisory downgrade. Strengthen only the existing review instructions: audit semantic term meaning separately from algebraic correctness, independently test a simple permitted sign/direction configuration under the stated frame/assumptions, and treat contradictory interpretations/names as blocking factual/mathematical defects regardless of should priority or presentation. Keep the original request, data, sources/images, schema, stage, model/profile and budgets unchanged. Add initial/repair prompt Red/Green, then run the same bad actual handoff through the existing Terra/medium content_review PureClient in an isolated diagnostic directory; preserve canonical hashes and prove the expected localized blocker before another native round. No course/omega/name matcher, new model stage or generated-artifact edit.
+
+Round17 semantic-review source freeze: two initial/repair regressions reproduce RED then GREEN;38 affected tests, typecheck and diffcheck pass. The generic case check applies only where quantitative/physical meaning implies sign/direction and the supplied assumptions permit a case; nonquantitative content gets no numeric/frame obligation. A real isolated existing content_review PureClient call with unchanged Run17 state/request/two original images and the existing Terra/medium policy now finds the exact bad interpretation as a localized blocking mathematical_error with content_analyzer repair. Final call took30.574s and42,202/45,000 total envelope characters. Removing the one new generic audit paragraph reproduces the actual old40,087-character producer body byte-for-byte;249 canonical file hashes remain unchanged. Initial narrower diagnostic also blocked the defect; only the final universality-qualified prompt is frozen. No content-review output cache exists; shared author/analyzer policy and cache versions are unchanged. Evidence: run17-semantic-review-diagnostic/replay.json within the durable campaign. Independent/root verification and fresh native output acceptance remain outstanding.
+
+Round18 complete-claim review projection — 2026-10-02: actual content_review receives only two administrative topics, first three formulas and two full examples from one semantic chapter containing18 sections/19 formulas/eight examples. Twenty-four-character ledger prefixes omit the invalid derivative inference, arithmetic result and physical label; source-axis formula survives, but its original definition page is unattached. Replace sampling only within the existing45k single-review producer with a faithful budget-aware projection, retaining all protected statements/assumptions/formulas/steps/results and provenance. Measure lossless JSON and redundant metadata first; never classify unreviewed mathematics as passing merely because the ledger counts it. Initial read-only measurement is67,665 full-envelope characters,66,428 after compact contract JSON,62,457 after exact repeated-value deduplication, and59,064 even with columnar metadata (before decoder instructions). Consequently pure serialization alone cannot satisfy45k; report this constraint before another representation/architecture decision. No new stage/call/schema/cap, content chopping or generated-artifact edit is authorized. Canonical Run18 inputs remain read-only. Target regressions must prove actual claim reachability, capacity behavior and exact request/source preservation, followed by an isolated unchanged bad-Handoff Terra/medium diagnostic; source freeze awaits a workable bounded representation.
+
+Round18 explicit bounded-review tradeoff: after the measured lossless limit, the parent authorizes at most six sequential content_review calls inside the existing reviewer node per review round, retaining the original45k per-call limit, Terra/medium profile, two source images per call and one increment toward the existing three-validation retry ceiling per round. Full atomic topic/formula/example/figure/checklist claims retain original owner/source/context; no partial formula, givens, steps or result. Preflight every packet before any call; a single unfit atom or more than six packets is an explicit capacity failure, never a sampled pass. Carry the unchanged global request/assessment evidence and coverage ledger, clearly distinguish whole-document coverage from packet content, and merge all localized findings against the original state. Select source compositions from the actual packet claims, including their existing page provenance, without subject/name matchers. Red/Green must cover late mathematical steps, all actual18/19/8 claims, complete aggregation, bounded images/envelopes and once-per-round retries. Document the real increased call/token cost; this is no longer a one-call review. No new LangGraph stage, model/schema change, budget increase, source/artifact mutation or commit/push.
+
+Round18 actual packet diagnostic deltas: the first six-packet Terra/medium replay detects the formerly hidden invalid local derivative inference and Earth-limit result, but incorrectly treats the final packet's empty local topic/formula arrays as global absence, and substitutes a different basis-operand identity in its Motor countercalculation. These are concrete diagnostic false alarms, not accepted source repairs. Preserve a complete global topic/formula count-and-ID ledger in every packet; explicitly distinguish local arrays from whole-document coverage. Require each countercalculation to retain exact ordered operands/indices and original basis/givens, distinguish source errors from transcription errors, and never borrow an identity for another operand pair. Keep full atoms and the six/45k/two-image limits; losslessly compact only redundant reviewer-owned prose/duplicate coverage metadata if needed. Re-run unchanged bad Motor/whole packets with the same model policy, original source compositions/request and immutable canonical hashes; report genuine hits, misses and false alarms separately. Original-only/null claims, quiz-only source refs and existing source identities must survive the source-map filter.
+
+Round18 local-condition integrity checkpoint — 2026-10-02: the final PDF removes derivative-dependent terms under a locally stated instantaneous zero condition, despite a correct general warning elsewhere. Extend only shared mathematical policy1.8: every zero/shortcut condition on a varying quantity states its point/instant versus interval extent at the occurrence; retain derivatives unless independently zero or proven zero by that interval identity. A global warning cannot repair a false local table/checklist/formula claim. Add Red/Green across initial/repair authoring, whole/fragment analysis and existing review. If the unchanged 8k fragment fixture fails, compact only its existing fixed instruction prose losslessly; preserve policies, records, schemas, tests and limits. Replay actual Run18 producer/repair envelopes with original canonical hashes unchanged; no topic matcher, new stage, artifact patch, commit or push.
+
+Round18 local-condition source checkpoint: all seven existing affected consumer tests first fail on the missing local-condition contract and pass after policy1.8;70 focused integrity/analyzer tests, TypeScript and whitespace checks pass. The unchanged 8k visual-fragment fixture fails at8325 after the full policy addition, then passes at7984 after341 characters of only fixed instruction prose are compacted. No policy, record, schema, ID, test or cap is clipped or changed. Read-only actual Run18 state/config/document producers preserve original request/assessment announcement and full policy: author77,264/120k, proposed final-defect repair author57,779/120k, whole analyzer58,128/60k, reviewer38,773/45k, repair reviewer39,441/45k, and actual first analyzer API client packet46,929/60k. Repair feedback is explicitly proposed from the verified final Run18 defect rather than represented as a historical model turn. All236 original canonical file hashes remain unchanged. Durable evidence under run18-local-condition-policy; source frozen without commit/push for independent/root and fresh native Run19 gates.
+
+Round18 complete-review consumer source freeze: the existing node now preflights up to six sequential complete-claim packets before any model call, preserves null/global ownership and original-only section/quiz source mappings, merges every validated finding without the per-response twelve-finding cap, and increments the existing retry ceiling once per round. Capacity and late-call failures cannot publish a partial pass. Actual unchanged Run18 reaches all18 topics/19 formulas/eight complete examples/eight figures (53 atoms) exactly once, including all original key concepts, formula contexts, late steps and results; source compositions include the defining Q3 pages9 and8. Final envelopes are44,326/40,532/44,122/44,075/44,283/38,555 of45,000, with at most two original images each; original request/assessment evidence and236 canonical hashes are unchanged. Fifty focused tests, including the unchanged official-scoring consumer requirement, typecheck and diffcheck pass; final root suite passes1,461 tests/four existing skips in169 files (41.46s). The six-call diagnostic increases cost and latency (initial full diagnostic186.389s), rather than preserving the previous one-call cost. Earlier real diagnostics genuinely detect the Earth-limit and local derivative errors but also expose the subsequently fixed global-coverage and different-operand false alarms; source-axis and arithmetic misses remain honest review limitations. Final scoring-faithful Packet6 Terra/medium replay (17.854s,38,555 characters) has no global topic/formula absence false alarm and blocks a real local warning/source contradiction. Final scoring-faithful Packet5 Terra/medium replay (32.763s,44,283 characters) correctly identifies the unchanged rounded sum -1.05-.599+.96=-.689 rather than -.688 as an original-source inconsistency, without the earlier invented -.525 countercalculation; it also blocks the local source-warning contradiction. Both focused replays are byte-identical to the final consumer and preserve all236 canonical hashes. Historical misses remain documented; this source checkpoint is not whole-document mathematical or desktop acceptance. Independent final sign-off and native Run19 remain separate gates. Evidence: run18-review-packets-consumer, run18-review-packets-diagnostic and run18-focused-packet-5/6-diagnostic within the durable campaign. No artifact/source edit, new LangGraph stage, model override or cap increase; source frozen without commit/push.
+
+Round19 complete-atom packing correction — 2026-10-02: native Run19 fails before any content-review call because greedy packing opens a seventh packet containing only seven complete unreferenced atoms (298 JSON characters). The fixed envelope is36,245 characters, including6,946 warning characters; no quiz claims or duplicate original-page aliases cause this failure. Read-only measurement proves all seven residual atoms fit an already prepared first packet at43,231/45,000, with the same original images and no claim removal. Before opening another packet, try the same full-atom preflight against an existing packet when the atom introduces no source/image binding. Keep the original source-cohort/image selection, order inside each claim field, global ownership/provenance, maxsix packets,45k envelope andtwo images; no checklist/title/subject matcher, clipping, duplicate-warning removal or new stage. Reproduce the actual failure and a generic hole-packing API counterexample RED, then prove actual Run19 node-client reachability for every atom exactly once and unchanged images/request/context/fields/hashes; replay Run18 as control. Capacity and protected-atom failures must remain fail-closed before calls. Parent authorizes only this measured generic backfill; no further pure-model optimization is needed before Native20.
+
+Round19 backfill source freeze: a generic complete-atom hole-packing regression reproduces maxsix failure RED and passes GREEN with source-less atoms preflighted into earlier available space. The14-line producer delta changes neither protected fields nor fixed contract/policies and preserves all original image choices. Actual saved Run19 reaches six real existing-node testdouble client calls with17 complete original sections/16 formulas/10 complete examples/three figures/all15 checklist strings exactly once; six of the previous seven tail atoms backfill the first packet and the final shorter atom fits the last packet. Envelopes43,202/43,553/44,354/42,449/43,913/44,488 stay within45k and the unchanged512-character producer margin, with exactly the same two original images per packet. All givens/steps/results/key concepts/formula contexts/warnings/request/assessment evidence/source identities remain exact, and105 canonical hashes are unchanged. Reviewer-only partition order can change; the original handoff/model and each atomic array field remain unmodified. Actual saved Run18 control retains all six prompt bodies byte-for-byte and236 unchanged hashes.51 affected tests, typecheck and diffcheck pass; independent54 focused tests and root1,462 passed/four existing skips in169 files (42.95s) pass. These consumer tests prove full input reachability, not a fresh model's semantic judgment; the existing genuine-capacity failures remain blocked before calls. Evidence: run19-review-capacity-triage, run19-review-backfill-consumer and run18-review-packets-backfill-control in the durable campaign. Source frozen without commit/push for independent final consumer proof and immediate native Run20.
+
+Round20 scoped complete-review metadata — 2026-10-02: three legitimate semantic chapters share original sources; the actual empty review envelope is61,048/45,000, including23,593 characters of globally repeated warnings. All140 complete content atoms are small (largest1,543 JSON characters) but together117,821 characters, so this is a fixed-projection failure, not an oversized calculation. Preserve warnings and any quiz questions as complete atomic review inputs with their original strings and explicit declared chapter/null ownership, plus global coverage bookkeeping. Preserve the exact original request, evaluated contract, request-level assessment evidence and policies in every packet. Scope the existing source index to the packet's actual cited IDs and genuine global document-context IDs, retaining all real alias/source/URL/page mappings. Measure same-original URL/page/image alias demands; collapse only proven identical image bindings. Preflight every full packet, preserve aggregation and once-per-round three-retry accounting, and fail closed on any unfit atom or terminal late call. First report actual packet sizes and minimum measured bound; parent explicitly permits a larger finite round bound up to16 if complete data cannot fit six after these lossless projections. Increased calls/cost must be documented;45k per call andtwo original images do not increase. RED→GREEN actual Run20 with129 canonical hashes unchanged and Run19/18 controls precedes source freeze, independent/root tests and native Run21. No subject matcher, content truncation, new output schema, model override, model stage or pure mathematical prompt optimization.
+
+Round20 bounded review runtime — include the actual fully preflighted complete-review packet count in existing adaptive runtime sizing. Project elapsed active time plus remaining packets using measured role/model/profile-matching review durations where available, retaining the existing finite24-minute large extraction tier/38-minute workflow ceiling and render reserve. Track explicit CLI/environment runtime provenance so automatic adaptation cannot relax owner limits. Update the projection after completed review packets without pausing productive work. Enforce existing explicit absolute workflow deadlines in the run guard and preserve the earlier owner deadline in wrapper recovery. Keep models, prompts, schemas, retries and stage topology unchanged; focused RED→GREEN plus actual saved-state budget control precedes freeze/native21. Runtime source ownership belongs to quiz_credentials; this reviewer package adds only start/progress hooks after complete packet preflight and each successful existing call.
+
+Round20 exact-source cohort control: initial scoped atomization fits14 packets, while1950 characters of authentic verified Run18 diagnostic repair feedback still exceed16 under chapter-alias cohorts. Measure cohorts keyed by the exact canonical original URL (unknown URLs retain separate IDs), while image capacity/backfill require the exact existing URL/page/file composition; every owner, source alias and complete claim remains individual. No additional round bound is authorized beyond16. For consumer reachability use isolated execution clones at retry_count0 initial and1 repair, explicitly distinguish historical diagnostic feedback from a real preceding Run20 review, and preserve all saved canonical bytes; initial/repair must use actual attempt1/2 respectively. Preserve raw original formulas when a legacy API handoff has no normalized counterpart, so the original cited-image consumer still gets its complete factual claim rather than an unrelated global-image fallback.
+
+Round20 measured round-bound decision — 2026-10-02: after exact canonical-original URL cohorts and composition-preserving alias backfill, the actual complete initial state requires14 packets; the explicitly historical repair-control with1950 characters of authentic prior feedback requires18. Root explicitly authorizes the smallest measured bound18 before this code change; retain the complete feedback in every repair envelope rather than introducing another projection. Up to54 sequential review calls are structurally possible across the unchanged three unsuccessful rounds, but the existing38-minute workflow deadline remains a hard limit, so all54 calls are not guaranteed executable. The45k per-call/two-image limits, complete individual claims/owners/source identities, original request/assessment evidence, preflight and fail-closed aggregation remain unchanged. Update the genuine19-packet capacity counterexample and replay isolated retry0/1 consumer controls plus Run18/19 controls with immutable canonical hashes before freeze.
+
+Round20 complete-review source freeze: the unchanged actual state reproduced a61011-character first-atom envelope failure before model calls. Complete warning/quiz atomization, packet-scoped cited plus authoritative document-context sources and exact original-URL/page/file cohorts now reach the existing node with every47 topics/51 formulas/26 complete examples/16 figures (140 atoms),57 original warnings and43 checklist strings intact/exactly once, including legal duplicate formula IDs with different owners. Explicit German Kapitel and English Chapter warning markers preserve exact ownership; exact native IDs/URLs retain warning provenance without multiplying unrelated aliases. Quiz-only and legacy raw-formula claims retain their proper original-image source/veto boundaries. The final existing-node initial control uses15 packets at attempt1; the explicitly historical1950-character repair-feedback control uses18 at attempt2, with the saved terminal retry_count3 unchanged on disk. This supersedes the earlier14-packet initial measurement. Largest envelopes44441 initial/44483 repair of45000, maximum two original compositions, full request/contract/assessment context and grading/math/source policies retained. Actual Run18/19 controls use four packets each and retain all complete fields with236/105 canonical hashes unchanged; both Actual20 controls preserve129 hashes. A genuine19-packet input and oversized atom still fail preflight before any call; partial errors and aggregate findings retain once-per-round retry semantics.53 focused tests, typecheck and diffcheck pass. Runtime start/progress hooks use the actual preflighted demand/attempt and the separate existing-tier runtime checkpoint; no semantic acceptance/modelcall is claimed by these testdouble consumers. Evidence: run20-scoped-review-consumer, run20-scoped-review-repair and run18/19-scoped-review-consumer. Source frozen without commit/push for independent/root full-suite gates and fresh native21.
+
+Round20 final integration checkpoint: independent combined source/consumer/runtime PASS, with126 focused reviewer-related checks and75 Analyzer/runtime checks (overlapping runtime cases). Root full suite1476 passed/four existing skips in169 files50.51s, typecheck/diffcheck and19 Node wrapper/package checks pass. The earlier integration failure is retained as evidence; its incomplete as-never Telemetrymock is replaced with the actual ExecutionTelemetry API without weakening checkpoint/no-modelcall/explicit10-minute assertions. Final15-packet runtime control selects existing large24/38 and measured progress24.621 minutes;18-packet repair35.229 minutes stays under36-minute extraction reserve ceiling. Actual auto/26-example formatter consumer succeeds with real Typst validation andzero modelcalls, so no renderer change is made. All13 final source/test hashes are frozen for a scoped local commit followed immediately by fresh native21; no push, packaging, publication or output acceptance yet.
+
+Round21 source-planner producer and failure scope — 2026-10-02: the native post-review R3 request contains60175 prompt/schema characters against60000; its generic exception path rebuilds six portal modules, loses the previous explicit exclusions, then a source-gap drain promotes that fallback to sufficient. Serialize only existing COURSE_SCOPE/DOCUMENT_BRIEFS/AVAILABLE_CATALOG JSON losslessly compact, preserving all semantic values and original request/feedback. On a later planning failure retain the existing valid semantic architecture, exclusions, pending reads and prior assessed context, fail closed instead of inventing curriculum or draining a planner failure to sufficient. Keep SourceReadingRequestError strict. A bootstrap failure may request known bounded exploratory acquisitions, but cannot assign unconfirmed portal topics or claim subject readiness. Red/Green for compact complete envelopes, prior-scope failure and bootstrap exploration; actual initial/R3/bounded JSON repair producer controls remain under60000 with original canonical hashes unchanged. No content clipping, role/cap/schema/stage/topic matcher or mathematical prompt optimization; parent owns lifecycle/native22.
+
+Round21 source-planner freeze: three new API regressions reproduce RED for later scope replacement/readiness drain, bootstrap curriculum/cache promotion and pretty JSON overhead, then pass GREEN. The existing native-planning failure now preserves the exact prior validated architecture, exclusions, objectives/signals, pending reading debt, coverage/reasons and requested URL intentions; status blocked/error prevents acquisition or readiness drain. A bootstrap model failure can request finite known exploration only, without unconfirmed modules, subject readiness or output-cache reuse. Cache namespace .8-planner-failure-scope invalidates earlier fallback-produced first-round curriculum decisions. The previous module-limit fallback-cache fixture now starts from already assessed valid limited architecture and proves its complete audit remains blocked/uncached through repeated planner errors; ordinary successful cache behavior remains tested.86 focused source architecture/reading/request-evaluator/producer tests, TypeScript and whitespace checks pass. Read-only saved-component reconstruction (no historical state.json exists after cancellation) reproduces the genuine native R3 event exactly60175/60000; lossless serialization preserves all three JSON semantic values and full original request/feedback, giving55399. Actual existing-node testdouble client receives55399 on R3,55728 on the existing bounded JSON repair and39750 on the explicitly reconstructed pre-targeted-download initial control. Controlled transport failure preserves prior scope/debt and remains blocked. All144 canonical hashes unchanged. Evidence round21-architect-producer-replay/replay.json; testdouble input reachability is not fresh semantic model/PDF acceptance. Source frozen without commit/push for independent/root full-suite gates and exact original-prompt Native22.
+
+Round21 final integration checkpoint: root1479 tests/four existing skips,169 files52.63s; typecheck/diffcheck and19 Node wrapper/package checks pass. Independent final source/test freeze PASS, same semanticJSON and byte-identical remaining prompt prose, genuineR3 envelope60175→55399 plusboundedrepair55728/initialAPI39750. All144 canonicalhashes and prior13 source/testfreezehashes unchanged. Source/checkpoint is ready for scoped local commit and exact-original Native22; Native21 remains rejected0/4/noPDF after proven scope drift and owned cancellation, not a native acceptance. No push/merge/package/deploy/publication/release acceptance.
+
+
+Native24 attribution refinement — 2026-10-02: the single native owner now publishes an eight-page PDF in 5m24s, with two local compile repairs. Readonly independent source review finds formula boxes cite a course objectives page that contains no formulas. Refine only universal owner guidance: read actual technical material before assigning technical-source attribution; explicitly mark supplemental standard knowledge otherwise. Add executable decimal-dot and source-note examples for the two observed compile errors. Preserve one native owner, readonly broker, exact original benchmark, all validation/permission limits and all Native24 files; no manual artifact repair or accepted score until independent output review.
+
+
+Native25 template API compatibility — 2026-10-02: actual source acquisition and exact formula attribution pass, but two delimiter repairs exhaust the third validation on the same trailing-body sb-source-note call seen in Native24. Make the shared source-note component accept both existing compact calls and the natural trailing content-block call; retain all body text in a breakable readable block. Update its API reference and add a real compiler/text-retention regression for both forms, including nested content. No automatic mathematical rewriting, model stage, cap increase or permissions change. Preserve Native25 artifacts immutable; fresh exact-original Native26 required.
+
+
+Native26 semantic consistency refinement — 2026-10-02: exact original desktop run publishes11pages in4m09s with zero failed validations and normal viewer/hash proof, but independent source/physical review rejects two actual definition notes: A is inconsistently both separated origin and coincident system point; a first derivative is called second derivative. Keep one native owner and refine its existing final self-check: compare every technical definition, legend and explanatory note against actually read supporting material, preserving symbol role/reference point/frame/basis and derivative order; review the visible operator annotations. Add correct generic Typst underbrace(body, label) syntax to the executable guide, instead of attaching a label as an outside subscript. No extra model/reviewer stage, subject-specific rule, math rewriting, gate weakening or permission/cap change. Preserve all Native26 canonicals and required fresh original Native27.
+
+
+Native27 ergonomic template refinement — 2026-10-02: actual original definitions/derivative notes are corrected, but three compiler validations end with no PDF: unpaired units math spans, single content instead of tuple in formula units, and unknown ddot. Keep source/permission/retry boundaries; extend shared template with a correct generic ddot accent alias and normalize single content/string formula legend/unit values into one-item arrays while preserving existing arrays. Real compile/text-retention regression verifies both scalar and array forms. Avoid the recurrent rejected delete+add-same-path patch by instructing normal existing-file updates or single writes. No artifact edits, automatic math rewriting, new model stages or cap change. Original27 preserved; fresh exact-original28 required.
+
+Native27 compatibility replay additionally exposes the next masked error: cdot in a scalar multiplication is unsupported. Include only a generic centered multiplication-dot alias, with real render/text verification, before the fresh candidate. Exact-lastdraft replay must compile with the new dependency without editing the original.
+
+
+Native28 part/whole and exercise-premise consistency — 2026-10-02: native publishes9pages5m37s retry1, sources/numerical work/layout correct, but final note identifies one rotational summand as the entire summed motion quantity; generated error-finding task calls a valid general identity false merely because its value is zero in the scenario. Refine only same-owner final text/source pass: map complete quantities versus contributing terms explicitly and validate generated question premises independently from the answer; zero evaluation does not invalidate a general formula. No new model/reviewer stage, topic matcher, cap/permission change, canonical patch or weakened rubric. Preserve Native28; fresh exact original29 required.
+
+
+Native29 final fraction syntax and observed source identity — 2026-10-02: native publishes9pages7m10s retry0, actual source/definitions/numerical work correct. Independent physical review rejects ungrouped compound derivative fractions (dif q / dif t renders d(q/d)t). Clarify only existing owner syntax guide/brief to use frac(full numerator, full denominator) for compound fractions, with real differential example and physical rendered review. Separately fix a measured deterministic source catalog bug: later discovered links must not overwrite metadata of an already natively read/downloaded record; explicit observed acquisition may still refresh it. Two independent scoped tests: actual fraction compilation/render and course-native-title then quiz-backlink preservation. No semantic rewrite/parser/model stage, new subject rule, cap/permission change or artifact repair. Preserve Native29; fresh exact original30 required.
+
+
+Native30 numeric verification and visible grouping — 2026-10-02: native publishes9pages with correct sources/roles but a generated arithmetic error (minus8squared times0.5 shown minus16 rather than minus32) and omitted visible grouping in nonassociative products. Clarify same owner: verify every generated numerical result using an actual small local Python/shell calculation and compare it with every printed step/result; fix mismatches before publish. This is an ordinary existing tool call, not a new model/worker/stage or validation gate. Correct executable guide: lr requires literal delimiters inside its body, e.g lr((x+y)); lr(x+y) does not insert parentheses. Real rendered guide review confirms visible parentheses and differential fractions. Preserve Native30 and existing three-failure/permission boundary; fresh exact original31 required.
+
+
+Native32 source terminology and math-note content refinement — 2026-10-02: confirmation run is rejected because an attributed definition renames a source reference-point role and a quoted math-bearing note prints raw markup. Refine only the same document owner: preserve source technical terms verbatim in attributed definitions and keep symbol-to-role/reference-point mapping unchanged when paraphrasing. All math-bearing component arguments, including notes, must be content blocks rather than quoted markup strings. Add one generic executable content-note example and real compiler/PDFtext plus physical rendering regression. No course-specific rule, parser, math rewriting, additional model/worker/stage, gate, validation-cap or permission change. Preserve every Native32 canonical file; a fresh exact-original native run remains required.
+
+
+Native34 concise task-focused document refinement — 2026-10-02: confirmation output has a correct core definition and sound calculations, but an unsolicited technical checklist rephrases the same symbol into a conflicting reference-point label. Source contamination search is negative; redundant rephrasing is the measured cause. Simplify the existing single-owner brief toward requested scope, explanations, worked examples, practice, solutions and source attribution. Avoid unsolicited redundant technical checklists, glossaries, definition recaps and study plans unless requested; define symbols once in the core equation legend and reuse source terminology without inventing ancillary role labels. Consolidate overlapping instructions while preserving source acquisition/attribution, mathematical/numerical/physical self-checks, technical-only validation, three-failure limit and quiz/credential permissions. Change only directDocument.ts and its existing tests after this checkpoint; preserve the correct executable syntax guide and all Native34 files. No hard page count, course-specific rule, extra model/worker/stage/gate or cap change. Previous Native31/33 passes remain evidence; a fresh exact-original confirmation is required.
+
+
+Native37 default PDF compatibility intake — 2026-10-02: the unchanged Quality/LOW native owner followed the loaded Study Buddy skill into the app-owned `doc` command, which still launched the legacy staged extraction/model/render chain and selected unrelated course content. The owner and verified workflow process group were stopped; this run is rejected and immutable. Enforce the explicitly requested single native document owner in code: normalize default `doc` to deterministic `document prepare` before profile/model dispatch, then return template/source-tool/compile/publish guidance to the same owner. Preserve exact original-user-prompt when supplied; accept only compatibility language/profile metadata without overriding the selected app profile, and reject unknown/path/environment/model arguments before acquisition or spawn. Retain verified workspace/stable owning-thread isolation, read-only source broker, current three-failure and quiz/credential boundaries. Non-PDF and quiz flows remain unchanged; explicit advanced extract/render remains distinct. No added author/reviewer worker, stage, model override or cap change. Scoped broker/packaged routing and real CLI preparation tests must show actual template preparation with zero legacy worker dispatch. Built-in Quality effort calibration is a separate later decision after a clean routing baseline; no profile changes in this intake.
+### 2026-10-04 direct quiz transport follow-up
+
+Fresh Electron retry reached the admission stop but HTTP replaced its safe routing
+guidance with a generic error. Add a static typed route-denial response while keeping
+arbitrary errors redacted. Include direct quiz JSON in the packaged client broker
+allowlist and usage. Verify transport locally before another fresh native chat; no
+real attempts for development, no second attempt, no final submission.
+
+Native UI follow-up: Codex0.160 enables the input feature but its new Default
+instructions restrict system permission escalation. Clarify the Study Buddy quiz
+card as an application domain decision, preserving filesystem/network protocol
+permissions. Require an actual tool error before reporting the card unavailable.
+Local instruction regressions precede a fresh native userrun; approval is never
+fabricated and the quiz-access setting remains unchanged.
+
+Instruction transport follow-up: native public TurnStart schema omits the locally
+added collaborationMode field. Actual model probes confirm that field is ignored,
+and successful thread/resume does not refresh instructions on a loaded thread.
+The supported thread/inject_items developer message is followed before both the
+first and later turns on the same ID. Deliver the fully assembled current
+instructions through that channel before generation; preserve the original eager
+thread lifecycle, profile, model, personality and mode. Avoid repeated unchanged
+instruction text within the live context, refreshing after changes or compaction.
+Abort generation on injection failure. Non-Study-Buddy routing stays unchanged.
+RPC-order regressions and the real protocol proof precede fresh native acceptance;
+these diagnostics used no Moodle attempts.
+
+Authorized native quiz run on the reviewed transport passes actual model-visible
+delivery and native card presentation. The one start request is debited but a
+subsequent request is blocked before attempt binding. Recovery cannot prove the
+first identity; stop this real run permanently under the owner's constraint.
+Preserve its ledger and artifacts. Investigate redirect-provenance/preflight
+edges only with local HTTP/browser fixtures; do not infer current zero attempts
+from stale pre-start state, issue another start, or weaken final/second guards.
+
+Local actual Playwright fixture confirms a redirect handoff defect: the server
+receives the303 attempt GET, but context.route sees only the original start POST.
+The provisional ID is never recorded and a later same-attempt GET is blocked.
+Repair only the guarded start transport: fetch its already admitted single POST
+without automatic redirects/retries, validate its actual redirect through the
+existing first-attempt guard, then fulfill the response to the browser. Keep
+unbound writes blocked, second starts/debits impossible and final/foreign requests
+blocked. Add real HTTP/browser counterexamples and review before commit. This
+local defect is not asserted to be the unrecorded real denied request; never
+retry the stopped real quiz after this source change.
+
+### 2026-10-05 complete agent-owned quiz reliability
+
+Owner explicitly reopens optimization: all questions, per-question native solvers,
+readable original images and reliable full saves. Keep one serial browser owner,
+deterministic tools and native question delegation. Capture an observed navigation
+inventory across all free-navigation pages before solving; preserve each question's
+original media, shared stem and packet identity. Persist save/reload receipts per
+page and require complete known question coverage before reporting completion.
+Unknown/sequential navigation and unreadable media disclose precise limitations;
+never advance an empty page to discover more questions. Strengthen generic active
+attempt evidence and sanitized diagnostics without manufacturing IDs or ordinal1.
+Fresh read-only Moodle metadata confirms one active attempt but lacks its ID; no
+second start and no real debit reset. Full regression and real multi-page browser
+fixtures precede native desktop solver/answer acceptance on an isolated local source.
+Current campaign: complete-agent-owned-quiz. Actual Moodle continuation requires
+positive first-attempt identity, preserves the same owner/run, and never submits.
+
+## 2026-10-05: actual Moodle first-attempt recovery follow-up
+
+The owner reports that local fixture acceptance did not complete the real mini-test
+and requests the real issue and a working pipeline. Existing first-only execution
+authorization persists; no second attempt or final submission is authorized.
+Current authenticated read-only status confirms one used/one left and active first
+history card, but no ID. Original response/trace was not retained.
+
+Before edits: add a bounded, broker-internal official Moodle Mobile authentication
+and strictly read-only REST identity lookup. Tokens remain private in process;
+normal authentication may create a server-side token. Resolve the native course
+and exact course module, then require own unique non-preview in-progress ordinal1.
+Integrate only into status/recover, never new-start or save APIs. Disabled services
+produce a static actionable failure. Add RED/GREEN local HTTP security tests.
+
+Also reproduce real Moodle5 overview semantics: active card and POST Continue
+expose no ID. Record the original admitted start-response redirect before navigation
+and bind only against zero-used preflight, exact verified response and consistent
+first active overview. Never manufacture a receipt for the old run or reset its
+debit. Validate that response proof survives restart while new starts/finals remain
+blocked. After positive recovery identity, use the normal native grant and resume
+the same real first attempt, all questions, original media, parallel solvers and
+verified saves. Record any actual service/identity blocker clearly; fixture passes
+alone cannot complete the owner's real mini-test objective.
+
+
+2026-10-05 actual first-attempt recovery checkpoint: native inspection must run the authenticated read-only identity fallback before evaluating the approval policy. Real desktop recovery confirmed ten questions but collection failed on a sticky request denial. The original images were already downloaded; sanitized diagnostics positively identify GET javascript. Before the next source edit, plan a narrow configured-origin immutable Moodle JavaScript-loader admission for GET/HEAD only, with numeric revision, safe non-dot segments, .js suffix, no query/hash/body/userinfo; preserve attempt/save/final guards. Verify loader execution in a real local browser and deny mutation/cross-origin/ambiguous variants, then repeat actual desktop recovery of the same first attempt. Fixtures alone remain insufficient for acceptance.
+
+2026-10-05 all-question interaction checkpoint: the corrected real read-only collect has ten question packets. Nine have complete media; the final native ddimageortext question exposes visible drag choices and drop zones but no editable standard control. Plan a reusable exact-question physical drag adapter, exposing choice/drop identity to the native solver and preserving guarded same-first save/reload and final-submit denial. Never set hidden answers directly. Diagnose src-less drop-image placeholders before waiting for image readiness; original assets remain mandatory. Local DOM/HTTP physical drag and persisted reload tests plus actual all-ten desktop acceptance are required.
+
+2026-10-05 runtime verification checkpoint: existing drag/drop keyboard adapter was retained; bounded ready-control extraction and response-position identity normalization solved the control-surface gap. Image-only questions now skip unrelated global MathJax queues while real math/images/fonts still require readiness. Full root regression passed 1,689 tests (four skips), TypeScript passed. Fresh native owner0f1b captured all ten original-media packets and produced ten native answers, but both first fills failed opaque post-fill DOM verification, with no safe-next or save receipts. Stop owner before changes. Add sanitized split diagnostics (question identity fields versus per-control answer mismatches) and reproduce the actual runtime failure before changing normalization. An exact local Q1 Cloze snapshot fills correctly; fixtures cannot establish the actual cause or close acceptance. Samefirst2035873, no second start/final.
+
+2026-10-05 final drag/drop response checkpoint: actual six-control fill matched every answer but task identity changed from DOM clones, option order and padded placed-image geometry. Preserve public drop target geometry from the drop itself (measured or its explicit CSS box), sort unique public choices, reject inconsistent duplicates; never substitute placed-image dimensions. Canonical detached clone excludes only .dropzones/.draghomes response scaffolding, retaining task stem/background and separate original-media fingerprint; public target bounds/choice contents remain bound. Normalize drag-item hint counts by unique group/choice identities, not transient reusable clones. Add real public-widget local browser save/reload tests and source/geometry mutation counterexamples; actual nine already verified answers must remain saved. Fresh native same-first all-ten acceptance follows source freeze and focused regression.
+
+2026-10-05 native nine-save checkpoint: question 10 matched all six answers but measured control identity still changed. Bind complete explicit public inline target geometry; retain measured-bounds binding when that definition is incomplete. Whole completion also invalidated every receipt because lazy course-navigation drawer text changed in shared context. Exclude explicit navigation/drawer shell UI from the detached shared context while retaining real description and shared-stem content. Add layout versus genuine target mutation and navigation versus genuine shared-stem regressions, then repeat actual same-first all-question save/reload acceptance.
+
+2026-10-05 preservation verification checkpoint: native fresh reads reloaded all ten existing answers unchanged, but first fill failed an intermittent fresh media check; original exact code was discarded, so no specific readiness cause is claimed. Preserve static diagnostics with whitelisted counters/booleans. Before next native round, retry only controlled transient acquisition/render failures, at most three fresh captures, retaining a small owned summary for each. Permanent origin/redirect/size/mime/safety/authorization failures and changed media still block immediately; all three unsuccessful technical checks still block before response writes. No model stage or new quiz action is introduced. Add transient recovery, exhaustion, permanent-denial and diagnostic-redaction regressions.
+
+2026-10-05 packet contract consistency checkpoint: actual Q10 stale evidence confirms request digest matches stored state, normalized question/control identity unchanged, native answers match and original media identity unchanged. Packet digest still used a second raw-controls definition that bound moving option/target screen measurements. Unify packet controls with the existing immutable task canonicalization and separately bind live values, checked state and selected options to retain pre-fill response race protection. Add layout drift before fill acceptance and changed current-response rejection; genuine public target/choice/media changes remain stale. No template/answer or permission change.
+
+2026-10-05 source-level acceptance completed: fresh actual Electron Balanced owner41276119 / direct runa5a4aa29 preserved the independently reviewed existing first-attempt answers, produced ten fresh save/reload receipts, and passed whole-quiz completion (10 captured/10 verified, no unresolved items, no final submission). Parent completed and no owned question agents remain. All nine source fingerprints stayed fixed; complete root suite1,718 passed/four existing skips in178 files/94.29s and TypeScript passed. Original first ledger remains byte-identical; second attempt untouched. Campaign actual-first-attempt-recovery is completed. This validates preservation and completion of the recovered first attempt, not a new empty attempt, official grading or packaged release acceptance. The existing snapshot timing gap for concurrent edits during capture remains a separate follow-up; no new change-existing prohibition bypass was demonstrated.
+
+
+### 2026-10-05 graded first-attempt answer audit
+
+User reports 9/10 after submitting the recovered first attempt. Audit all ten archived questions against original media and assigned definitions, then obtain available completed-review grading through existing read-only evidence adapters. Do not infer a specific wrong question from the aggregate score. No new attempt, response mutation or final submission. The measured contract gap is that an answer-changing assumption can remain in free rationale while high confidence permits filling; risk_flags cannot currently contain risks. In campaign graded-quiz-answer-audit, make reported unresolved risks representable and reject the entire page before any fill/save/navigation; clarify the existing packet/native brief to check exact quantifiers, domains and referenced definitions, and label saved-response checks as persistence only. Keep one native solving owner, no added model/review stage or curriculum matcher, current permissions and retries. Verify high-confidence and mixed-page risk cases, resolved path and complete regressions; document whether actual per-question grades are exposed and distinguish mathematical reassessment from the official marking key.
+
+2026-10-05 prompt diagnostic refinement: the actual App CLI/profile flags the original Q5 missing/answer-changing conditions, but rejects a fully conditioned positive control because the available cited definition describes a narrower family. Preserve that failed first replay. Clarify only the existing brief: explicit premises and a valid derivation can resolve the answer; an unavailable or narrower reference alone is not an answer-changing uncertainty. Re-run the unchanged Q5 and conditioned-control cases with regenerated production instructions, same App CLI/model policy. No additional production stage or Moodle action; deterministic risk contract unchanged.
+
+2026-10-05 bounded risk-contract acceptance: all ten archived answers independently reassessed and unchanged; official first-attempt feedback unavailable until 6 October 23:59. Q5.3 remains a candidate, not a proven official error. Four deterministic tool regressions RED→GREEN; root suite1733/four existing skips, final affected79 andUI13, root/13UI typechecks/fullUIcheck pass. Actual normal AppCLI0.160/Balanced quiz_answer6.1-sol/high initialfour calls preserve one conditioned-control false alarm; refined brief passes unchanged Q5/conditioned confirmation in two calls. Explicit-risk whole-page stop and persistence-only labels are independently reviewed. Source-only local development acceptance; no second attempt, Moodle write, final submission, deployment or packaged/release acceptance.
+
+
+### 2026-10-05 scored-answer correction and native grading metadata
+
+User confirms only Q5.3 changed True→False between reported9 and8.67. Withdraw the earlier Q5 culprit/literalFalse recommendation for this Moodle item; the controlled comparison supports True as its accepted answer. Current authenticated overview shows both attempts completed, best-attempt grading, no attempts left, review available6October23:59. No tool may change/start/submit anything. The original one-point loss is not proven; native Q2/4/6/7 multichoiceset is all-or-nothing (official MoodleDocs), and Q6 missing−∞ is a plausible full-point author-key conflict with explicit real domain, not a verified key. In bounded campaign quiz-grading-metadata, add only native-proven all-or-nothing metadata/conditional selected-and-excluded option check to existing question packets, leave all other grading methods/points/keys unknown, and correct the report/development handoff. No extra model stage, heuristic answer rewriting, institution/course matcher or answer authorization. Verify identical checkbox controls with known versus standard/unknown types; preserve old score evidence and actual first-attempt archives.
+
+Scoped checkpoint: native grading metadata implemented without changing selections or adding solver stages; 93 relevant regression tests across three files pass, root TypeScript and diff checks pass. Controlled Q5 score evidence is recorded, prior False recommendation withdrawn. Official attribution of the original full-point deduction remains pending visible Moodle feedback; no live quiz, desktop, or release acceptance is claimed.
+
+
+## Preserved 0.2.2 source reliability integration
+
+The following source-reliability checkpoints came from the published 0.2.2 line and remain part of the development integration.
 
 ## Source search and deadline reliability
 

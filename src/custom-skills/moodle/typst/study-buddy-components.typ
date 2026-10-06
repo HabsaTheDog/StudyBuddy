@@ -261,7 +261,10 @@
   body,
 )
 
-#let sb-sequence(value) = if type(value) == str { (value,) } else { value }
+#let sb-sequence(value) = if type(value) == str or type(value) == content { (value,) } else { value }
+
+#let ddot(body) = math.accent(body, math.dot.double)
+#let cdot = sym.dot
 
 #let sb-formula(
   name: "Formel",
@@ -387,7 +390,11 @@
   )).flatten(),
 )
 
-#let sb-source-note(source, coverage: none) = block(
+#let sb-source-note(source, coverage: none, ..args) = {
+  let trailing = args.pos()
+  assert(trailing.len() <= 1, message: "sb-source-note accepts at most one trailing content block.")
+  assert(args.named().len() == 0, message: "Unknown sb-source-note named argument.")
+  block(
   width: 100%,
   breakable: true,
   fill: sb-colors.white,
@@ -402,7 +409,12 @@
     #linebreak()
     #text(7.8pt, fill: sb-colors.muted)[*Quellenlage:* #coverage]
   ]
+  #if trailing.len() == 1 [
+    #v(4pt)
+    #text(9pt, fill: sb-colors.ink)[#trailing.first()]
+  ]
 ]
+}
 
 #let sb-figure(caption: none, label-text: none, body) = [
   #block(
@@ -432,6 +444,19 @@
   rows: (),
   compact: false,
 ) = {
+  let column-count = if type(columns) == int { columns } else { columns.len() }
+  assert(column-count > 0, message: "sb-table: declare at least one column.")
+  assert(
+    header.len() == 0 or header.len() == column-count,
+    message: "sb-table: header must have exactly " + str(column-count) + " cells or be empty.",
+  )
+  for (index, row) in rows.enumerate() {
+    assert(type(row) == array, message: "sb-table: each row must be an array of cells.")
+    assert(
+      row.len() == column-count,
+      message: "sb-table: row " + str(index + 1) + " must have exactly " + str(column-count) + " cells.",
+    )
+  }
   let padding = if compact { 3pt } else { 5pt }
   block(width: 100%, breakable: false)[
     #table(

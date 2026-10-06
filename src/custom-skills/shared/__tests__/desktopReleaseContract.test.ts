@@ -10,12 +10,13 @@ const releaseWorkflow = readFileSync(
   resolve(repositoryRoot, ".github/workflows/alpha-release.yml"),
   "utf8",
 );
+const packageVersion: string = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")).version;
 const reviewEnvironment = {
-  RELEASE_VERSION: "0.2.0-alpha",
+  RELEASE_VERSION: packageVersion,
   PUBLISH_DRAFT: "false",
   SIGNED: "false",
   ACKNOWLEDGE_UNSIGNED_WINDOWS: "false",
-  RELEASE_REF: "refs/heads/release/0.2.0-alpha",
+  RELEASE_REF: `refs/heads/release/${packageVersion}`,
   VITE_POSTHOG_PROJECT_TOKEN: "phc_public-project-token",
 };
 
@@ -28,7 +29,7 @@ function runContract(overrides: Partial<typeof reviewEnvironment> = {}) {
 }
 
 describe("desktop release contract", () => {
-  it("allows an unsigned review-only stable build without acknowledgement", () => {
+  it("allows an unsigned review-only build matching package metadata without acknowledgement", () => {
     expect(runContract().status).toBe(0);
   });
 
@@ -36,14 +37,14 @@ describe("desktop release contract", () => {
     expect(runContract({
       PUBLISH_DRAFT: "true",
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
-      RELEASE_REF: "refs/tags/v0.2.0-alpha",
+      RELEASE_REF: `refs/tags/v${packageVersion}`,
     }).status).toBe(0);
   });
 
   it("rejects unsigned draft publication without acknowledgement", () => {
     const result = runContract({
       PUBLISH_DRAFT: "true",
-      RELEASE_REF: "refs/tags/v0.2.0-alpha",
+      RELEASE_REF: `refs/tags/v${packageVersion}`,
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("requires explicit acknowledgement");
@@ -55,7 +56,7 @@ describe("desktop release contract", () => {
       ACKNOWLEDGE_UNSIGNED_WINDOWS: "true",
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("must run from refs/tags/v0.2.0-alpha");
+    expect(result.stderr).toContain(`must run from refs/tags/v${packageVersion}`);
   });
 
   it("keeps the unconfigured signed path fail-closed", () => {
@@ -64,9 +65,15 @@ describe("desktop release contract", () => {
     expect(result.stderr).toContain("Signed Windows builds remain disabled");
   });
 
-  it("supports stable, alpha, and beta versions but rejects unsupported channels", () => {
-    expect(runContract({ RELEASE_VERSION: "0.2.0-alpha" }).status).toBe(0);
-    expect(runContract({ RELEASE_VERSION: "0.3.0-beta" }).status).toBe(0);
+  it("rejects valid release versions that differ from package metadata", () => {
+    for (const version of ["0.2.0-alpha", "0.3.0-beta", "1.0.0"].filter(version => version !== packageVersion)) {
+      const result = runContract({ RELEASE_VERSION: version });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("must match the root package metadata");
+    }
+  });
+
+  it("rejects unsupported channels before packaging", () => {
     const result = runContract({ RELEASE_VERSION: "0.3.0-alpha.1" });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Expected stable, alpha, or beta SemVer");

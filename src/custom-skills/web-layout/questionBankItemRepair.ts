@@ -1,3 +1,5 @@
+import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
+import { reserveQuestionRepair } from "./questionRepairBudget.js";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -140,8 +142,12 @@ async function resolveCompleteRepairBatch(
   const resolved = new Map<string, QuestionBankItemRepair>();
   let pending = batch;
   for (let attempt = 1; attempt <= 3 && pending.length > 0; attempt += 1) {
+    const taskAttempt = Math.max(...await Promise.all(pending.map(({ item }) => reserveQuestionRepair({
+      runDir: input.config.runDir, resumeRunDir: input.config.resumeRunDir,
+      sourceText: input.sourceText, requestContract: input.requestContract, itemId: item.id,
+    }))));
     const response = await input.codex.run(buildRepairPrompt(input, pending), {
-      task: "content_repair", attempt, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
+      task: "content_repair", operation: "question_repair", attempt: taskAttempt, outputSchema: modelRepairBatchJsonSchema, timeoutMs: 120_000,
     });
     const candidate = modelRepairBatchSchema.parse(JSON.parse(stripJsonFence(response)));
     const expected = new Map(pending.map((target) => [itemKey(target.item), target]));
@@ -179,7 +185,8 @@ function repairCachePath(
   target: { item: QuestionBank["items"][number]; review: QuestionBankItemReviewRecord },
 ): string {
   const fingerprint = sha256(JSON.stringify({
-    version: "question-bank-item-repair-v1",
+    version: "question-bank-item-repair-v2-policy",
+    producerPolicy: operationPolicyFingerprint(input.config, "question_repair"),
     itemId: target.item.id,
     contentHash: target.item.contentHash,
     reviewRecordId: target.review.recordId,

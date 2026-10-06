@@ -96,10 +96,12 @@ it("keeps semantic selection and independent review for ambiguous numbered targe
   const p = await browser.newPage();
   await p.route('https://source.example/**', r => r.fulfill({ contentType: 'text/html', body: "<a href='/one'>8.4 - Worksheet ***</a><a href='/two'>8.4 - Review ***</a>" }));
   await p.goto('https://source.example/home');
-  const model = { run: vi.fn(async (prompt: string) => prompt.startsWith('Independently')
+  const model = { run: vi.fn(async (prompt: string, _options?: unknown) => prompt.startsWith('Independently')
     ? JSON.stringify({ matches: true, quote: '8.4 - Worksheet ***' })
     : JSON.stringify({ id: links(prompt)[0]!.id, kind: 'activity', reason: 'Source context identifies worksheet' })) };
   expect(await navigateExternalActivity(p, task, model, config)).toBe(true);
   expect(model.run).toHaveBeenCalledTimes(2);
+  expect(model.run.mock.calls[0]?.[1]).toMatchObject({ task: "source_search", operation: "source_selection" });
+  expect(model.run.mock.calls[1]?.[1]).toMatchObject({ task: "source_search", operation: "source_verification" });
   await p.close();
 });

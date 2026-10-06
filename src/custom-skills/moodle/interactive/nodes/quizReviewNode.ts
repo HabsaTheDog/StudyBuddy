@@ -1,5 +1,6 @@
+import { NonRetryableCodexError } from "../../codexClient.js";
 import { resolveSemanticSearch } from "../../semanticSearch.js";
-import { DRAG_DROP_CONTROLS_JS, buildDragDropFillJs } from "../quizDragDrop.js";
+import { DRAG_DROP_CONTROLS_JS, DRAG_DROP_READY_JS, buildDragDropFillJs } from "../quizDragDrop.js";
 import { quizRequestTime, quizDateMatches, quizDateGate } from "../quizTargetDate.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -22,6 +23,7 @@ import {
 } from "../quizSafetyPolicy.js";
 import type { JsonObject, LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { openFirstQuizAttempt, assertFirstQuizAttemptContext, installQuizInspectionGuard, releaseQuizInspectionForPractice } from "../quizAttemptGuard.js";
 import {
   buildPendingQuizPermissionRequest,
   persistPendingQuizPermission,
@@ -103,26 +105,45 @@ export interface QuizReviewNodeDependencies {
 }
 
 const QUESTION_EXTRACTION_JS = String.raw`
-(() => {
+(async () => {
+  await (${DRAG_DROP_READY_JS})();
   const normalize = value => (value || "").replace(/\s+/g, " ").trim();
-  const textOf = node => node ? (node.innerText || node.textContent || "") : "";
+  const textOf = node => {
+    if (!node) return "";
+    const copy = node.cloneNode(true);
+    for (const math of copy.querySelectorAll("mjx-container, math, .MathJax, .MathJax_Display")) {
+      if (!copy.contains(math)) continue;
+      const latex = math.querySelector("annotation[encoding='application/x-tex']")?.textContent;
+      const semantic = latex || math.getAttribute("aria-label") || math.getAttribute("alttext");
+      // Rendered MathJax and its assistive MathML represent the same equation.
+      if (semantic) math.replaceWith(copy.ownerDocument.createTextNode(" " + semantic + " "));
+      else math.querySelectorAll("mjx-assistive-mml, .MJX_Assistive_MathML").forEach(el => el.remove());
+    }
+    for (const script of copy.querySelectorAll("script[type^='math/tex']")) {
+      script.replaceWith(copy.ownerDocument.createTextNode(" " + script.textContent + " "));
+    }
+    copy.querySelectorAll("script, style, .MathJax_Preview").forEach(el => el.remove());
+    return copy.textContent || "";
+  };
   const htmlOf = node => node ? (node.innerHTML || "") : "";
   const mathText = node => {
     if (!node) return "";
     const bits = [];
     for (const math of node.querySelectorAll("mjx-container, math, .MathJax, .MathJax_Display, script[type^='math/tex']")) {
+      if (math.parentElement?.closest("mjx-container, math, .MathJax, .MathJax_Display")) continue;
       bits.push(
+        math.querySelector("annotation[encoding='application/x-tex']")?.textContent ||
         math.getAttribute("aria-label") ||
         math.getAttribute("data-semantic-speech") ||
         math.getAttribute("alttext") ||
-        math.textContent ||
+        textOf(math) ||
         ""
       );
     }
     for (const img of node.querySelectorAll("img[alt], img[title]")) {
       bits.push(img.getAttribute("alt") || img.getAttribute("title") || "");
     }
-    return normalize(bits.join(" "));
+    return normalize([...new Set(bits)].join(" "));
   };
   const optionLetter = text => {
     const match = normalize(text).match(/^([a-z])\s*[.)]/i);
@@ -135,6 +156,7 @@ const QUESTION_EXTRACTION_JS = String.raw`
     const numberMatch = visibleText.match(/(?:Frage|Question)\s+(\d+)/i);
     const questionNumber = numberMatch ? Number(numberMatch[1]) : index + 1;
     const controls = [...node.querySelectorAll("input, textarea, select")]
+      .filter(el => !el.closest(".questionflag"))
       .filter(el => !["hidden", "submit", "button"].includes((el.type || "").toLowerCase()))
       .map((el, controlIndex) => {
         const labels = [...(el.labels || [])].map(label => textOf(label).trim()).filter(Boolean);
@@ -153,6 +175,7 @@ const QUESTION_EXTRACTION_JS = String.raw`
           value: el.value || "",
           checked: Boolean(el.checked),
           disabled: Boolean(el.disabled),
+          readonly: Boolean(el.readOnly),
           option_text: optionText,
           letter: optionLetter(optionText),
           latex: optionMath,
@@ -297,9 +320,11 @@ export function createQuizReviewNode(
         return await stopForQuizPolicy(config, state, target, openDecision);
       }
 
+      installQuizInspectionGuard(client,target);
       await client.open(target);
       await client.wait(1_000);
       let metadata = await extractQuizMetadata(client);
+      releaseQuizInspectionForPractice(config,client,metadata);
       const dateGate = quizDateGate(config, metadata);
       if (dateGate) return await stopForQuizPolicy(config, state, target, dateGate, metadata);
       const readDecision = enforceQuizSafetyPolicy(config.quizSafetyPolicy, "read_questions");
@@ -354,10 +379,13 @@ export function createQuizReviewNode(
       }
       const startResult =
         wantsAttempt && beforeStart.questions.length === 0
-          ? await clickSafeStartOrContinue(client, { continueOnly: metadata.hasActiveAttempt })
+          ? await openFirstQuizAttempt({config,client,targetUrl:target,metadata,open:continueOnly => clickSafeStartOrContinue(client,{continueOnly})})
           : { clicked: false, reason: "not-requested-or-questions-visible" };
       if (startResult.clicked) {
         await client.wait(1_500);
+      }
+      if (wantsAttempt && (startResult.clicked || config.autoAnswer && config.quizSafetyPolicy?.allowFillingAnswers)) {
+        await assertFirstQuizAttemptContext(config,client,target,metadata);
       }
       const fillResults = config.autoAnswer
         ? await autoAnswerVisibleQuiz(config, client, dependencies.codex)
@@ -504,22 +532,51 @@ export function buildQuestionPacket(input: {
   question: QuizQuestion;
   pageNumber: number;
 }): Record<string, unknown> {
+  const allOrNothing = input.question.question_type === "multichoiceset";
   return {
     captured_at: new Date().toISOString(),
     page_number: input.pageNumber,
     title: input.page.title,
     url: input.page.url,
-    question: input.question,
-    page_body_excerpt: input.page.body_text.slice(0, 6000),
+    question: {
+      question_id: input.question.question_id,
+      question_index: input.question.question_index,
+      question_type: input.question.question_type,
+      grading_metadata: allOrNothing
+        ? {
+            scoring: "all_or_nothing",
+            selection_requirement: "exact_correct_set",
+            official_answer_key: "not_supplied",
+            source: "native_question_type",
+            reference_url:
+              "https://docs.moodle.org/503/en/All_or_nothing_multiple_choice_question_type",
+          }
+        : { scoring: "unknown", official_answer_key: "not_supplied" },
+      prompt: input.question.prompt,
+      prompt_latex: input.question.prompt_latex,
+      options: input.question.options,
+      controls: input.question.controls.map(({ raw_html: _html, ...control }) => control),
+      response_model: input.question.response_model,
+    },
     instructions: [
       "Return only the answer JSON matching the schema.",
       "Use citations from the visible Moodle question/options or known course source text in this packet.",
       "When controls expose control_id values, return one control_answers entry for every editable control.",
       "For text, number, and select controls, put the exact answer or exact visible select-option text in answer and set selected=false.",
       "For every radio or checkbox control, copy its control_id and option text into answer and set selected=true only for each correct option.",
+      ...(allOrNothing
+        ? [
+            "Native all-or-nothing grading: verify every selected and excluded option. Omitting any correct option or including any incorrect option yields zero credit; only the exact correct selection earns full credit.",
+          ]
+        : []),
       "For dragdrop controls, use the attached question image and the bounds relative to that image to identify each drop zone and draggable option. Place numbers do NOT imply visual order; identify each target by its bounds, including when a previous answer occupies it. Return the exact option value (not its label) as answer for each control_id, with selected=false. Never reuse a non-reusable option within its group.",
       "Never collapse a multi-field Cloze question into one answer and never collapse a multiple-response checkbox question into one option.",
-      "If unsure, set confidence below 0.65 or add a risk flag so the orchestrator leaves the answer unchanged.",
+      "Read the exact quantifiers, declared domain and existence conditions before choosing each answer. Do not silently add a condition that changes the answer.",
+      "For an asserted rule, test a counterexample and boundary case; for calculations, recompute the result and check signs and units against the original question.",
+      "Solve from the explicit premises first. If those premises and a valid derivation already determine the answer, an unavailable or narrower supporting reference alone is not a risk. Use the stated existence conditions rather than treating them as missing.",
+      "If the content of a referenced definition or course source could still change the answer, read that exact available source and cite the actual passage/page. A question-packet citation alone does not prove a referenced definition was read.",
+      "Return risk_flags explicitly. An unresolved ambiguity, missing prerequisite or conflicting source that changes the selected answer is a risk flag even at high confidence. A source-supported resolution should be explained in rationale; ordinary explanatory qualifications do not require a risk flag.",
+      "If insufficiently supported, lower confidence and leave the answer unchanged. Never guess to achieve complete coverage; persistence checks assess saved values, not mathematical correctness or official grading.",
     ],
   };
 }
@@ -535,47 +592,38 @@ export async function generateAnswerSpec(
     "Write learner-facing rationale and risk explanations in the packet's output_language.",
     "Do not invent unsupported answers. If insufficiently sourced, use confidence 0.",
     "",
-    JSON.stringify(packet, null, 2),
+    JSON.stringify(packet),
   ].join("\n");
-  let firstError: unknown;
-  for (const attempt of [1, 2]) {
-    try {
-      const raw = await codex.run(prompt, {
-        outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver",
-        attempt,
-        ...(Array.isArray(packet.image_paths) ? { imagePaths: packet.image_paths as string[] } : {}),
-      });
-      const answer = normalizeAnswerSpec(JSON.parse(stripJsonFence(raw)));
-      if (!Array.isArray(packet.image_paths) || packet.image_paths.length === 0) return answer;
-      // Visual option transcription and the mapping to response controls need a
-      // second check; a confident first answer is not independent verification.
-      const reviewed = await codex.run([
-        "Independently verify this image-based quiz answer before any response is entered.",
-        "Solve the original question from its image and packet. Explicitly check every claimed equality/calculation,",
-        "read every chosen option from the image, and verify its exact option value and target control bounds.",
-        "Do not assume the proposed answer, existing selections, or numeric place order are correct.",
-        "Return a complete corrected answer JSON with the same schema. If evidence is insufficient, use confidence 0.",
-        `Original packet: ${JSON.stringify(packet)}`,
-        `Proposed answer to check: ${JSON.stringify(answer)}`,
-      ].join("\n"), {
-        outputSchema: SUBAGENT_ANSWER_SCHEMA,
-        task: "quiz_solver",
-        attempt: 2,
-        imagePaths: packet.image_paths as string[],
-      });
-      return normalizeAnswerSpec(JSON.parse(stripJsonFence(reviewed)));
-    } catch (error) {
-      if (attempt === 1) {
-        firstError = error;
-        continue;
+  const images = Array.isArray(packet.image_paths) ? packet.image_paths as string[] : [];
+  const runOperation = async (operation: "quiz_answer" | "quiz_verification", taskPrompt: string) => {
+    for (const attempt of [1, 2]) {
+      try {
+        const response = await codex.run(taskPrompt, {
+          outputSchema: SUBAGENT_ANSWER_SCHEMA,
+          task: "quiz_solver", operation, attempt,
+          ...(images.length ? { imagePaths: images } : {}),
+        });
+        return normalizeAnswerSpec(JSON.parse(stripJsonFence(response)));
+      } catch (error) {
+        if (error instanceof NonRetryableCodexError || (error instanceof Error && error.name === "AbortError")) throw error;
+        if (attempt === 2) throw new Error(`${operation} failed with both its primary and retry policies.`, { cause: error });
       }
-      throw new Error("Quiz Solver failed with both its primary and retry policies.", {
-        cause: error,
-      });
     }
-  }
-  throw new Error("Quiz Solver failed without producing an answer.", { cause: firstError });
+    throw new Error(`${operation} failed without producing an answer.`);
+  };
+  const answer = await runOperation("quiz_answer", prompt);
+  if (!images.length) return answer;
+  // Verification has its own primary/retry policy. A failed verification must
+  // not regenerate an already valid answer or skip the configured primary.
+  return runOperation("quiz_verification", [
+    "Independently verify this image-based quiz answer before any response is entered.",
+    "Solve the original question from its image and packet. Explicitly check every claimed equality/calculation,",
+    "read every chosen option from the image, and verify its exact option value and target control bounds.",
+    "Do not assume the proposed answer, existing selections, or numeric place order are correct.",
+    "Return a complete corrected answer JSON with the same schema. If evidence is insufficient, use confidence 0.",
+    `Original packet: ${JSON.stringify(packet)}`,
+    `Proposed answer to check: ${JSON.stringify(answer)}`,
+  ].join("\n"));
 }
 
 function normalizeAnswerSpec(value: unknown): AnswerSpec {
@@ -624,8 +672,12 @@ export async function fillVisibleQuestion(
   answer: AnswerSpec,
   policy?: MoodleRuntimeConfig["quizSafetyPolicy"],
 ): Promise<Record<string, unknown>> {
+  const alreadyMatches = verifyQuestionAnswers(question, answer).verified;
   if (policy) {
-    const fillDecision = enforceQuizSafetyPolicy(policy, "fill_answers", { question, answer });
+    const fillDecision = enforceQuizSafetyPolicy(policy, "fill_answers", {
+      question: alreadyMatches ? undefined : question,
+      answer,
+    });
     if (fillDecision.status !== "allowed") {
       return {
         question_id: question.question_id,
@@ -665,6 +717,19 @@ export async function fillVisibleQuestion(
       answer,
     };
   }
+  // Do not attribute already matching server responses to this run, or trigger
+  // unnecessary change events (especially Moodle's drag/drop keyboard handler).
+  if (alreadyMatches) {
+    return {
+      question_id: question.question_id,
+      question_index: question.question_index,
+      filled: false,
+      already_answered: true,
+      changed: false,
+      reason: "answer-already-matches",
+      answer,
+    };
+  }
   const result = await client.evalJson<Record<string, unknown>>(
     question.response_model?.adapter === "drag-drop-image"
       ? buildDragDropFillJs(question, answer)
@@ -676,6 +741,47 @@ export async function fillVisibleQuestion(
     answer,
     ...result,
   };
+}
+
+/** Compare an answer plan with a fresh extraction after reopening its attempt page. */
+export function verifyQuestionAnswers(
+  question: QuizQuestion,
+  answer: AnswerSpec,
+): { verified: boolean; mismatches: string[] } {
+  const controls = question.controls.filter(control => !control.disabled && !control.readonly &&
+    !control.readOnly && !["hidden", "submit", "button"].includes(String(control.type ?? "").toLowerCase()));
+  const plan = answer.control_answers ?? [];
+  if (!controls.length || plan.length !== controls.length || new Set(plan.map(entry => entry.control_id)).size !== plan.length) {
+    return { verified: false, mismatches: ["complete-control-plan-required"] };
+  }
+  const normalize = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+  const mismatches: string[] = [];
+  const radioGroups = new Map<string, number>();
+  for (const control of controls.filter(control => control.type === "radio")) {
+    const id = String(control.control_id ?? control.id ?? "");
+    const group = String(control.name ?? question.question_id);
+    radioGroups.set(group, (radioGroups.get(group) ?? 0) + (plan.find(entry => entry.control_id === id)?.selected ? 1 : 0));
+  }
+  for (const [group, count] of radioGroups) if (count !== 1) mismatches.push(`invalid-radio-selection:${group}`);
+  for (const control of controls) {
+    const id = String(control.control_id ?? control.id ?? "");
+    const expected = plan.find(entry => entry.control_id === id);
+    if (!id || !expected) { mismatches.push(id || "control-id-missing"); continue; }
+    const type = String(control.type ?? control.tag ?? "").toLowerCase();
+    let matches = false;
+    if (["radio", "checkbox"].includes(type)) {
+      matches = (control.checked === true) === expected.selected;
+    } else if (type.startsWith("select") || control.tag === "select") {
+      const options = Array.isArray(control.options) ? control.options as Array<Record<string, unknown>> : [];
+      const option = options.find(option => normalize(option.value) === normalize(expected.answer) ||
+        normalize(option.text).toLowerCase() === normalize(expected.answer).toLowerCase());
+      matches = Boolean(option && !option.disabled && String(control.value ?? "") === String(option.value ?? ""));
+    } else if (["text", "number", "textarea", "dragdrop"].includes(type)) {
+      matches = String(control.value ?? "") === expected.answer;
+    }
+    if (!matches) mismatches.push(id);
+  }
+  return { verified: mismatches.length === 0, mismatches };
 }
 
 function validateAnswerSpec(answer: AnswerSpec, confidenceThreshold: number): string | null {
@@ -736,6 +842,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
   };
   if (controlPlan.length) {
     const editableControls = [...question.querySelectorAll("input, textarea, select")]
+      .filter(control => !control.closest(".questionflag"))
       .filter(control => !control.disabled && !control.readOnly && !["hidden", "submit", "button"].includes((control.type || "").toLowerCase()));
     const plannedIds = new Set(controlPlan.map(spec => String(spec.control_id || "")));
     const missingIds = editableControls
@@ -814,6 +921,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
     });
   }
   const textControls = [...question.querySelectorAll("input:not([type]), input[type='text'], input[type='number'], textarea")]
+    .filter(el => !el.closest(".questionflag"))
     .filter(el => !el.disabled && !el.readOnly && el.type !== "hidden");
   if (textControls.length) {
     const filledControls = [];
@@ -828,7 +936,7 @@ function buildFillQuestionJs(question: QuizQuestion, answer: AnswerSpec): string
     return JSON.stringify({ filled: true, reason: "filled-text", control: { count: filledControls.length, matched: filledControls } });
   }
 
-  const choiceControls = [...question.querySelectorAll("input[type='radio'], input[type='checkbox']")].filter(el => !el.disabled);
+  const choiceControls = [...question.querySelectorAll("input[type='radio'], input[type='checkbox']")].filter(el => !el.disabled && !el.closest(".questionflag"));
   const selectedControls = new Set();
   const matchedControls = [];
   for (const expectedSpec of values) {
@@ -976,6 +1084,9 @@ export function markPageFillPersistence(
   persisted: boolean,
 ): Array<Record<string, unknown>> {
   return results.map((result) => {
+    if (result.already_answered === true) {
+      return { ...result, filled: false, changed: false, persisted };
+    }
     if (result.filled !== true) return result;
     if (persisted) {
       return { ...result, dom_filled: true, persisted: true };
@@ -1180,7 +1291,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function clickSafeStartOrContinue(
   client: AgentBrowserClient,
   options: { continueOnly?: boolean } = {},
-): Promise<{ clicked: boolean; text?: string; ref?: string; reason?: string }> {
+): Promise<{ clicked: boolean; started?: boolean; text?: string; ref?: string; reason?: string }> {
   const snapshot = await client.snapshot({ interactive: true, compact: true });
   const startLine = snapshot.snapshot
     .split("\n")
@@ -1204,7 +1315,30 @@ export async function clickSafeStartOrContinue(
     return { clicked: false, reason: "blocked-final-submit-like-control", text: startLine.name };
   }
   await client.click(browserRefSelector(startLine.ref));
-  return { clicked: true, text: startLine.name, ref: startLine.ref };
+  await client.wait(250);
+  let page = await extractQuizPage(client);
+  if (page.questions.length) return { clicked: true, started: true, text: startLine.name, ref: startLine.ref };
+  // A timed quiz's first button opens a confirmation dialog. The caller has
+  // already checked its attempt policy; this is the second stage of that action.
+  if (!options.continueOnly && !/^(?:versuch beginnen|start attempt)$/i.test(startLine.name.trim())) {
+    const confirmation = await client.snapshot({ interactive: true, compact: true });
+    const entry = Object.entries(confirmation.refs).find(([, details]) =>
+      /^(?:button|link)$/i.test(details.role ?? "") &&
+      /^(?:versuch beginnen|start attempt)$/i.test((details.name ?? "").trim()) &&
+      !isFinalSubmitClickLabel(details.name ?? ""));
+    if (entry) {
+      await client.click(browserRefSelector(entry[0]));
+      await client.wait(250);
+      page = await extractQuizPage(client);
+    }
+  }
+  return {
+    clicked: true,
+    started: page.questions.length > 0,
+    text: startLine.name,
+    ref: startLine.ref,
+    ...(page.questions.length ? {} : { reason: "attempt-start-not-confirmed" }),
+  };
 }
 
 export async function openSafePreviousAttemptReview(
@@ -1291,7 +1425,7 @@ function scoreQuizCandidate(prompt: string, title: string, url: string, index: n
   return score;
 }
 
-function selectQuizCandidate(prompt: string, candidates: QuizCandidate[]): QuizCandidate | null {
+export function selectQuizCandidate(prompt: string, candidates: QuizCandidate[]): QuizCandidate | null {
   const intent = parseQuizTargetIntent(prompt);
   let matching = candidates.filter((candidate) => {
     const units = extractUnitNumbers(candidate.title);

@@ -455,3 +455,23 @@ it("budgets exhaustive acquisition independently of a short answer while preserv
   vi.stubEnv('MOODLE_MAX_RUNTIME_MS', '240000');
   expect(createRuntimeConfig(input).maxRuntimeMs).toBe(240000);
 });
+
+it("keeps source-evidence mode read-only even when the conversational prompt contains quiz action words", () => {
+  const config = createRuntimeConfig({
+    prompt: "Please check next week's mini-tests. Do not start or fill any quiz. Summarise self-study.",
+    moodleUrl: "https://moodle.example/my/", sourceEvidenceOnly: true,
+  });
+  expect(config.sourceEvidenceOnly).toBe(true);
+  expect(config.intentDecision).toMatchObject({ wantsQuickAnswer: true, wantsQuizAssistance: false, wantsPdf: false });
+  expect(config.quizPolicy).toMatchObject({ allowAttemptOpen: false, allowAnswerFill: false, allowSaveOrMovePage: false, allowFinalSubmit: false });
+  expect(() => createRuntimeConfig({ prompt: "Solve the quiz", moodleUrl: "https://moodle.example/my/", sourceEvidenceOnly: true, autoAnswer: true })).toThrow("never opens or changes");
+});
+
+it("records explicit runtime provenance even when it equals the adaptive default", () => {
+  const input = { prompt: "Create study notes", moodleUrl: "https://moodle.example/my/", stage: "extract" as const };
+  vi.stubEnv("MOODLE_MAX_RUNTIME_MS", ""); vi.stubEnv("MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS", ""); vi.stubEnv("MOODLE_EXTRACT_MAX_RUNTIME_MS", "");
+  expect(createRuntimeConfig(input).maxRuntimeSource).toBe("default");
+  expect(createRuntimeConfig({ ...input, maxRuntimeMs: 840000 })).toMatchObject({ maxRuntimeSource: "explicit", maxRuntimeLimitMs: 840000 });
+  vi.stubEnv("MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS", "840000");
+  expect(createRuntimeConfig(input)).toMatchObject({ maxRuntimeSource: "explicit", maxRuntimeLimitMs: 840000 });
+});

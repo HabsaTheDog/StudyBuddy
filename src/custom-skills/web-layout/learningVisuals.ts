@@ -1,3 +1,4 @@
+import { operationPolicyFingerprint } from "../shared/operationCheckpoint.js";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -259,7 +260,8 @@ export async function resolveLearningVisuals(input: {
   const batchPlans = await Promise.all(batches.map(async (batch, batchIndex) => {
     const batchMetadata = learningVisualReviewBatchMetadata(batchIndex);
     const fingerprint = learningVisualSemanticCacheKey(contract, {
-      version: "learning-visual-plan-v8-request-contract",
+      version: "learning-visual-plan-v9-policy",
+      producerPolicy: operationPolicyFingerprint(input.config, "visual_selection"),
       language: input.config.language,
       candidates: batch.map((candidate) => ({
         targetId: candidate.targetId,
@@ -290,7 +292,7 @@ export async function resolveLearningVisuals(input: {
     const response = await input.codex.run(
       buildPrompt(input.config.language, batch, contract),
       {
-        task: "content_analyzer",
+        task: "content_analyzer", operation: "visual_selection",
         // Batch ordinal describes independent parallel work. Attempt is local
         // to this exact batch and increases only if that batch is retried.
         attempt: batchMetadata.attempt,
@@ -401,7 +403,8 @@ async function refineCropsAgainstPreviews(input: {
   );
   const reviewedItems = (await Promise.all(batches.map(async (batch, batchIndex) => {
     const fingerprint = createHash("sha256").update(JSON.stringify({
-      version: "learning-visual-crop-refinement-v3-no-edge-fragments",
+      version: "learning-visual-crop-refinement-v4-policy",
+      producerPolicy: operationPolicyFingerprint(input.config, "visual_selection"),
       language: input.config.language,
       candidates: batch.map(({ candidate, current, previewHash }) => ({
         targetId: candidate.targetId,
@@ -432,7 +435,7 @@ async function refineCropsAgainstPreviews(input: {
       const response = await input.codex.run(
         buildCropRefinementPrompt(input.config.language, batch),
         {
-          task: "content_analyzer",
+          task: "content_analyzer", operation: "visual_selection",
           attempt: 1,
           outputSchema: planJsonSchema,
           timeoutMs: 150_000,

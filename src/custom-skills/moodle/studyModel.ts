@@ -71,7 +71,7 @@ export function buildStudyModel(
       topicIds,
       status: topicIds.length === 0
         ? "missing" as const
-        : hasExplicitChapterGap(chapter.subject, extracted.warnings)
+        : hasExplicitChapterGap(chapter.subject, extracted.warnings, chapter.title)
           ? "partial" as const
         : chapterResources.some((resource) => isResourceFailureStatus(resource.status))
           ? "partial" as const
@@ -206,7 +206,11 @@ export function buildStudyModel(
         ? english
           ? "The presented content is supported by the evaluated sources."
           : "Die dargestellten Inhalte sind durch die ausgewerteten Quellen belegt."
-        : extracted.warnings.find((warning) => /\b(?:fehlt|keine|nicht|missing|unavailable|no usable)\b/i.test(warning)) ?? coverage.detail,
+        : coverage.detail + (coverage.status === "complete"
+          ? english
+            ? " Individual chapter limitations remain; see the chapter-specific source notes."
+            : " Einzelne Kapitel haben Einschränkungen; siehe die Quellenhinweise mit Kapitelzuordnung."
+          : ""),
     courseChapters,
     topics,
     formulas,
@@ -369,7 +373,7 @@ function normalizeWorkedExample(
   return example;
 }
 
-function hasExplicitChapterGap(subject: string, warnings: string[]): boolean {
+function hasExplicitChapterGap(subject: string, warnings: string[], chapterTitle: string): boolean {
   const ignored = new Set([
     "thema", "themen", "topic", "topics", "kapitel", "chapter", "grundlag", "anwend", "lernblock",
   ]);
@@ -377,16 +381,18 @@ function hasExplicitChapterGap(subject: string, warnings: string[]): boolean {
     .split(" ")
     .map(stemSubjectToken)
     .filter((term) => term.length >= 4 && !ignored.has(term));
-  if (terms.length === 0) return false;
   return warnings.some((warning) => {
-    const normalized = normalizeSubject(warning);
+    const scoped = /^(?:Chapter|Kapitel) «([^»]+)»: ([\s\S]*)$/.exec(warning);
+    if (scoped && normalizeSubject(scoped[1]) !== normalizeSubject(chapterTitle)) return false;
+    const warningText = scoped?.[2] ?? warning;
+    const normalized = normalizeSubject(warningText);
     const describesGap =
-      /\b(?:fehlt|fehlend|missing|unavailable)\b/i.test(warning) ||
+      /\b(?:fehlt|fehlend|missing|unavailable)\b/i.test(warningText) ||
       /\b(?:keine?|no)\s+(?:nutzbare?|verwertbare?|usable)\b.{0,50}\b(?:evidenz|evidence|quelle|source|inhalt|content)\b/i
-        .test(warning) ||
+        .test(warningText) ||
       /\b(?:nicht|not)\b.{0,35}\b(?:abgedeckt|belegt|enthalten|verfügbar|covered|supported|included|available)\b/i
-        .test(warning);
-    return describesGap && terms.some((term) => normalized.includes(term));
+        .test(warningText);
+    return describesGap && (Boolean(scoped) || terms.some((term) => normalized.includes(term)));
   });
 }
 

@@ -1,10 +1,10 @@
+import { createWorkflowModelRuntime } from "../shared/workflowModelRuntime.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  Codex,
   type ModelReasoningEffort,
   type ThreadItem,
   type Usage,
@@ -13,10 +13,12 @@ import {
 import type { MoodleRuntimeConfig } from "./types.js";
 import {
   resolveTaskModelPolicy,
+  taskModelPolicySource,
+  type StudyBuddyModelOperation,
   type StudyBuddyModelTask,
 } from "./modelPolicy.js";
 import { invalidateCodexRuntimeCache } from "./codexRuntime.js";
-import { acquireModelCallAdmission } from "./modelCallScheduler.js";
+import { acquireModelCallControl } from "../shared/modelCallControl.js";
 import {
   buildCodexChildEnvironment,
   buildCodexShellEnvironmentConfig,
@@ -26,6 +28,7 @@ export interface CodexClient {
   run(prompt: string, options?: {
     outputSchema?: unknown;
     task?: StudyBuddyModelTask;
+    operation?: StudyBuddyModelOperation;
     attempt?: number;
     /** Preselected evidence images attached to the initial turn without a tool round. */
     localImages?: string[];
@@ -193,7 +196,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   const codexOptions = config.codexPath ? { codexPathOverride: config.codexPath } : {};
   const codexEnvironment = buildCodexChildEnvironment();
   const shellEnvironmentConfig = buildCodexShellEnvironmentConfig(codexEnvironment);
-  const codex = new Codex({
+  const codex = createWorkflowModelRuntime({
     ...codexOptions,
     env: codexEnvironment,
     config: shellEnvironmentConfig,
@@ -205,7 +208,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
     "study-buddy",
     "SKILL.md",
   );
-  const leafCodex = new Codex({
+  const leafCodex = createWorkflowModelRuntime({
     ...codexOptions,
     env: codexEnvironment,
     config: {
@@ -280,54 +283,49 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
         );
       }
       const policyInput = {
+        operation: options?.operation,
         profile: config.executionProfile,
         task,
         attempt,
         globalModel: config.codexModel,
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
+        compatibilityFallbacks: config.modelCompatibilityFallbacks,
       } as const;
       const selectedPolicy = resolveTaskModelPolicy(policyInput);
       const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
       const escalationPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 2 });
       const policies = uniqueModelPolicies([
         selectedPolicy,
-        selectedPolicy.model === primaryPolicy.model ? escalationPolicy : primaryPolicy,
+        selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? escalationPolicy : primaryPolicy,
       ]);
 
+      const logicalCallId = randomUUID();
       for (const [candidateIndex, policy] of policies.entries()) {
-        const admission = await (async () => {
-          const resumeRuntimeBudget = config.executionTelemetry?.pauseRuntimeBudget();
-          try {
-            return await acquireModelCallAdmission({
-              task,
-              model: policy.model,
-              signal: config.abortSignal,
-              onWait: async (position, activeSlots) => {
-                await config.diagnostics?.log(
-                  "info",
-                  "model",
-                  `${task} is queued for configured model admission.`,
-                  { task, model: policy.model, queuePosition: position, activeSlots },
-                );
-              },
-            });
-          } finally {
-            resumeRuntimeBudget?.();
-          }
-        })();
+        const selectionAttempt = candidateIndex === 0 ? attempt
+          : selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? 2 : 1;
+        const policySource = taskModelPolicySource({ ...policyInput, attempt: selectionAttempt });
+        const control = await acquireModelCallControl({
+          task, model: policy.model, timeoutMs: policy.timeoutMs, signal: config.abortSignal,
+          pauseRuntimeBudget: config.executionTelemetry ? () => config.executionTelemetry!.pauseRuntimeBudget() : undefined,
+          onWait: async (position, activeSlots) => {
+            await config.diagnostics?.log("info", "model", `${task} is queued for configured model admission.`,
+              { task, model: policy.model, queuePosition: position, activeSlots });
+          },
+        });
         const startedAt = new Date().toISOString();
         const startedMs = Date.now();
         const callId = `${task}-${attempt}-${randomUUID()}`;
-        const timeoutController = new AbortController();
-        const timeout = setTimeout(() => timeoutController.abort(), policy.timeoutMs);
-        const signal = combineSignals(config.abortSignal, timeoutController.signal);
+        const signal = control.signal;
+        let observedUsage: Usage | null = null;
+        let observedToolUsage = emptyToolUsage();
         try {
           const thread = (accessPolicy.leafWorker ? leafCodex : codex).startThread({
             workingDirectory: accessPolicy.isolatedWorkingDirectory
               ? leafWorkspace
               : config.runDir,
             skipGitRepoCheck: true,
+            studyBuddyInstanceId: policy.instanceId,
             model: policy.model,
             modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
             sandboxMode: accessPolicy.sandboxMode,
@@ -337,12 +335,16 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           });
           await config.diagnostics?.log("info", "model", `Starting ${task} model call.`, {
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             timeoutMs: policy.timeoutMs,
-            queueWaitMs: admission.queueWaitMs,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             promptCharacterBudget,
@@ -366,17 +368,27 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             signal,
           });
           const toolUsage = summarizeCodexToolUsage(turn.items);
+          observedUsage = turn.usage;
+          observedToolUsage = toolUsage;
+          signal.throwIfAborted();
+          if (accessPolicy.leafWorker && toolUsage.toolCalls > 0) {
+            throw new NonRetryableCodexError(`${task} leaf worker used ${toolUsage.toolCalls} prohibited tool(s).`, "invalid_request");
+          }
           await recordCall({
             config,
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
-            queuedAt: admission.queuedAt,
-            queueWaitMs: admission.queueWaitMs,
+            queuedAt: control.queuedAt,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             attachedImages: localImages.length,
@@ -385,37 +397,33 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
             status: "completed",
             usage: turn.usage,
           });
-          if (accessPolicy.leafWorker && toolUsage.toolCalls > 0) {
-            await config.diagnostics?.log(
-              "warn",
-              "model",
-              `${task} leaf worker used ${toolUsage.toolCalls} prohibited tool(s); the result is retained but flagged for prompt-policy regression.`,
-              { task, callId, ...toolUsage },
-            );
-          }
           return turn.finalResponse;
         } catch (error) {
-          const timeoutReached = timeoutController.signal.aborted && !config.abortSignal?.aborted;
+          const timeoutReached = control.timedOut();
           const status = timeoutReached ? "timeout" : config.abortSignal?.aborted ? "canceled" : "failed";
           const classification = status === "failed" ? classifyCodexError(error) : null;
           await recordCall({
             config,
             callId,
+            logicalCallId, transportAttempt: candidateIndex + 1,
             task,
             attempt,
+            operation: options?.operation ?? task,
+            policySource,
             model: policy.model,
+            providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
             reasoningEffort: policy.reasoningEffort,
             startedAt,
             startedMs,
-            queuedAt: admission.queuedAt,
-            queueWaitMs: admission.queueWaitMs,
+            queuedAt: control.queuedAt,
+            queueWaitMs: control.queueWaitMs,
             requestCharacters,
             schemaCharacters,
             attachedImages: localImages.length,
             leafWorker: accessPolicy.leafWorker,
-            toolUsage: emptyToolUsage(),
+            toolUsage: observedToolUsage,
             status,
-            usage: null,
+            usage: observedUsage,
             errorCategory: classification?.category ?? status,
           });
           const fallback = policies[candidateIndex + 1];
@@ -443,7 +451,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
               task,
               model: policy.model,
               timeoutMs: policy.timeoutMs,
-              queueWaitMs: admission.queueWaitMs,
+              queueWaitMs: control.queueWaitMs,
             });
             if (
               config.stage === "extract" &&
@@ -470,8 +478,7 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
           }
           throw error;
         } finally {
-          clearTimeout(timeout);
-          await admission.release();
+          await control.release();
         }
       }
 
@@ -480,16 +487,17 @@ export function createCodexClient(config: MoodleRuntimeConfig): CodexClient {
   };
 }
 
-function uniqueModelPolicies<T extends { model: string }>(policies: T[]): T[] {
+export function uniqueModelPolicies<T extends { model: string; instanceId?: string }>(policies: T[]): T[] {
   const seen = new Set<string>();
   return policies.filter((policy) => {
-    if (seen.has(policy.model)) return false;
-    seen.add(policy.model);
+    const key = JSON.stringify([policy.instanceId ?? null, policy.model]);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
 
-function shouldTryModelFallback(
+export function shouldTryModelFallback(
   status: "completed" | "failed" | "timeout" | "canceled",
   classification: CodexErrorClassification | null,
 ): boolean {
@@ -504,11 +512,16 @@ function shouldTryModelFallback(
 }
 
 async function recordCall(input: {
+  operation: string;
+  policySource: string;
   config: MoodleRuntimeConfig;
   callId: string;
+  logicalCallId: string;
+  transportAttempt: number;
   task: StudyBuddyModelTask;
   attempt: number;
   model: string;
+  providerInstanceId?: string;
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   startedAt: string;
   startedMs: number;
@@ -544,9 +557,15 @@ async function recordCall(input: {
     : 0;
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
+    logicalCallId: input.logicalCallId,
+    transportAttempt: input.transportAttempt,
+    usageAvailable: input.usage !== null,
     task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
     attempt: input.attempt,
     model: input.model,
+    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
     reasoningEffort: input.reasoningEffort,
     startedAt: input.startedAt,
     completedAt,
@@ -576,8 +595,11 @@ async function recordCall(input: {
     {
       callId: input.callId,
       task: input.task,
+      operation: input.operation,
+      policySource: input.policySource,
       attempt: input.attempt,
       model: input.model,
+      ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
       reasoningEffort: input.reasoningEffort,
       durationMs,
       queueWaitMs: input.queueWaitMs,
@@ -606,6 +628,8 @@ async function recordCall(input: {
       {
         callId: input.callId,
         task: input.task,
+        operation: input.operation,
+        policySource: input.policySource,
         inputAmplification,
         inputTokens: usage.input_tokens,
         estimatedPromptTokens,
@@ -623,10 +647,6 @@ function emptyToolUsage(): CodexToolUsage {
     mcpToolCalls: 0,
     webSearches: 0,
   };
-}
-
-function combineSignals(primary: AbortSignal | undefined, timeout: AbortSignal): AbortSignal {
-  return primary ? AbortSignal.any([primary, timeout]) : timeout;
 }
 
 /** Replace lone UTF-16 surrogates produced by some PDF text extractors. */

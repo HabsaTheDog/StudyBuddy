@@ -1,3 +1,6 @@
+import { authorOrDelegate, boundAuthoringBatches } from "../authoringDelegation.js";
+import { OperationBudgetError, operationPolicyFingerprint, semanticHash, reserveOperationAttempt } from "../../shared/operationCheckpoint.js";
+import { QuestionRepairBudgetError } from "../questionRepairBudget.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -55,7 +58,7 @@ export function createStudyGuideContentNode(config: WebLayoutRuntimeConfig, code
       return {
         error_log: message,
         retry_count: state.retry_count + 1,
-        content_retry_count: state.content_retry_count + 1,
+        content_retry_count: (error instanceof QuestionRepairBudgetError || error instanceof OperationBudgetError) ? 3 : state.content_retry_count + 1,
       };
     }
   };
@@ -69,7 +72,7 @@ async function persistAdaptiveStudyModel(
   requestContract: LangGraphWebLayoutState["request_contract"],
   priorError: string | null,
 ): Promise<Pick<LangGraphWebLayoutState, "course_blueprint" | "assessment_blueprint" | "question_bank">> {
-  for (let localRepairAttempt = 0; localRepairAttempt < MAX_ITEM_REPAIR_ROUNDS; localRepairAttempt += 1) {
+  for (let localRepairAttempt = 0; localRepairAttempt <= MAX_ITEM_REPAIR_ROUNDS; localRepairAttempt += 1) {
   const requestContractHash = hashRequestContract(requestContract);
   const structuralCourse = buildCourseBlueprint(content, sourceText, config.language);
   const assessmentPlan = await resolveAssessmentArchitecturePlan({
@@ -256,6 +259,9 @@ async function persistAdaptiveStudyModel(
   const repairBatch = dispositions.items
     .filter((item) => item.action === "repair");
   if (repairBatch.length > 0) {
+    if (localRepairAttempt === MAX_ITEM_REPAIR_ROUNDS) {
+      throw new QuestionRepairBudgetError(`Item-local question repair exhausted ${MAX_ITEM_REPAIR_ROUNDS} bounded semantic rounds without a publishable bank.`);
+    }
     await config.diagnostics?.log(
       "info",
       "planner",
@@ -333,7 +339,9 @@ async function buildChunkedModelContent(
   for (const plan of plans) {
     const chunkPath = path.join(config.runDir, `study-guide-content-chunk-${plan.index + 1}.json`);
     const sharedPath = sharedChunkCachePath(config, requirements, plan, state.request_contract);
-    const local = await readCachedChunk(chunkPath);
+    const identity = await readFile(`${chunkPath}.identity.json`, "utf8").then(text => JSON.parse(text)).catch(() => null);
+    const candidate = await readCachedChunk(chunkPath);
+    const local = identity?.fingerprint === path.basename(sharedPath) && candidate && identity.contentHash === semanticHash(candidate) ? candidate : null;
     const value = local ?? await readCachedChunk(sharedPath);
     const reboundRefs = value ? bindStudyGuideEvidenceRefs(value, state.source_text) : 0;
     const cachedQualityIssues = value
@@ -341,6 +349,7 @@ async function buildChunkedModelContent(
       : [];
     if (local && reboundRefs > 0 && cachedQualityIssues.length === 0) {
       await writeFile(chunkPath, `${JSON.stringify(local, null, 2)}\n`, "utf8");
+      await writeFile(`${chunkPath}.identity.json`, JSON.stringify({ fingerprint: path.basename(sharedPath), contentHash: semanticHash(local) }));
     }
     if (local && cachedQualityIssues.length === 0 && process.env.VITEST !== "true") {
       await persistSharedChunk(sharedPath, local);
@@ -357,10 +366,13 @@ async function buildChunkedModelContent(
   }
   const selectedPendingPlans = pendingPlans;
   const effectiveBatchSize = state.error_log ? 1 : batchSize;
-  const batches = Array.from(
+  const fixedBatches = Array.from(
     { length: Math.ceil(selectedPendingPlans.length / effectiveBatchSize) },
     (_, index) => selectedPendingPlans.slice(index * effectiveBatchSize, (index + 1) * effectiveBatchSize),
   );
+  const batches = config.architectureMode === "hybrid" && !state.error_log
+    ? boundAuthoringBatches(selectedPendingPlans, batch => buildStudyGuideBatchPrompt(config, state, requirements, batch, chunks.length))
+    : fixedBatches;
   const concurrency = Math.min(webContentConcurrency(), batches.length);
   await config.diagnostics?.log(
     "info",
@@ -382,15 +394,36 @@ async function buildChunkedModelContent(
     );
     let response: string;
     try {
-      response = await codex.run(
+      response = config.architectureMode === "hybrid" && batch.length > 1
+        ? JSON.stringify(await authorOrDelegate({
+          config, codex, chapters: batch, contractHash: hashRequestContract(state.request_contract),
+          buildPrompt: selected => buildStudyGuideBatchPrompt(config, state, requirements, selected, chunks.length),
+          validate: (value, selected) => {
+            const parsed = normalizeDerivedSourceTasks(studyGuideContentSchema.parse(normalizeModelContent(value)));
+            normalizeStudyGuideNavigationTitles(parsed);
+            bindStudyGuideEvidenceRefs(parsed, state.source_text);
+            normalizeSourceReferences(parsed);
+            const aligned = alignGeneratedBatchTopics(parsed.topics, selected.map(plan => plan.chunk.title));
+            if (!aligned || aligned.droppedTitles.length) throw new Error("Authoring must cover exactly the delegated chapters.");
+            parsed.topics = aligned.topics;
+            const issues = validateStudyGuideChapterQuality(parsed, requirements);
+            if (issues.length) throw new Error(issues.join("; "));
+            return parsed;
+          },
+        }))
+        : await codex.run(
         buildStudyGuideBatchPrompt(config, state, requirements, batch, chunks.length),
         {
           outputSchema: studyGuideContentJsonSchema,
           task: state.error_log ? "content_repair" : "content_analyzer",
+          operation: state.error_log ? "learning_content_repair" : "learning_content",
           // content_retry_count counts failed node passes. The first pass that
           // switches from analysis to the dedicated repair task is therefore
           // attempt 1 for that task, not its escalated attempt 2.
-          attempt: state.error_log ? Math.max(1, state.content_retry_count) : 1,
+          attempt: Math.max(1, Math.max(...await Promise.all(batch.map(plan => reserveOperationAttempt({
+            runDir: config.runDir, resumeRunDir: config.resumeRunDir, key: `learning-chapter:${plan.index}`,
+            binding: { contract: state.request_contract, evidence: plan.chunk, language: config.language }, signal: config.abortSignal,
+          })))) - (state.error_log ? 1 : 0)),
           timeoutMs: batch.length > 1 ? 180_000 : undefined,
         },
       );
@@ -456,6 +489,8 @@ async function buildChunkedModelContent(
           serialized,
           "utf8",
         ),
+        writeFile(path.join(config.runDir, `study-guide-content-chunk-${batch[batchIndex].index + 1}.json.identity.json`),
+          JSON.stringify({ fingerprint: path.basename(sharedPath), contentHash: semanticHash(chunk) }), "utf8"),
         ...(process.env.VITEST === "true"
           ? []
           : [persistSharedChunk(sharedPath, chunk)]),
@@ -638,7 +673,9 @@ function sharedChunkCachePath(
   requestContract: LangGraphWebLayoutState["request_contract"],
 ): string {
   const fingerprint = createHash("sha256").update(JSON.stringify({
-    version: "study-guide-content-v7-visual-practice-evidence",
+    version: "study-guide-content-v8-policy-bound",
+    policies: [operationPolicyFingerprint(config, "learning_content"), operationPolicyFingerprint(config, "learning_content_repair")],
+    architectureMode: config.architectureMode,
     language: config.language,
     courseCode: requirements.courseCode,
     title: plan.chunk.title,

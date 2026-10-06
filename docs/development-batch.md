@@ -1,0 +1,497 @@
+# Study Buddy Development Batch
+
+This is the waiting list for changes accumulating before the next release freeze. It records development work, not release acceptance.
+
+Release agents must start with [release-agent-handoff.md](release-agent-handoff.md)
+and reconcile this entire backlog with Git history, branches, PRs and dirty work.
+The owner does not need to enumerate changes or remember their regression tests.
+
+## PR merge repair, 2026-10-06
+
+Reconcile the published squash history with the provider development branch;
+retain newer native behavior and the published source/security fixes. Dependency
+PR checks require fresh patched lockfiles and current-base validation. See
+[the integration record](pr-integration-2026-10-06.md). This remains the existing
+0.2.3-alpha development batch, without release freeze or packaged acceptance.
+
+CI model-policy parity repair: Ubuntu and Windows verification now check out the
+pinned UI and install its locked dependencies before loading editor policies.
+Profile imports use file URLs for Windows drive paths. The workflow provisioning
+contract passes 2/2 and coordinated runtime/editor parity passes 4/4 locally;
+fresh platform CI remains required before merge.
+The pinned Vite+ setup keeps the explicit system Node 22.16 runtime for root
+checks (`node-manager: false`); the provisioning contract guards that choice.
+
+PDF review fallback and Windows tool discovery repair: retain every selected
+physical page when ImageMagick is absent, with overlapping two-image batches
+for adjacent-page divider checks. Discover Windows Poppler through PATHEXT.
+Exact CI Typst 0.15.0 reproduces three physical fixture pages; all 19 focused
+PDF/visual/image-evidence tests pass, including forced montage unavailability.
+Builder plan updated; platform CI and release acceptance remain distinct.
+
+Windows fixture portability: canonical temporary workspaces and native path
+separators match the application output. The selected-provider SDK test uses a
+real Node executable and controlled import fixture on both platforms, retaining
+argument, account isolation, secret filtering and event assertions. All 51
+focused tests pass; the final runtime fixture rerun passes 17/17.
+
+Windows quiz ledger repair: accept ordinary short-name/case aliases through
+canonical directory identity while explicitly rejecting ancestor links, Windows
+junctions, non-directories and replacement during resolution. Canonical and
+configured paths share the same durable reservation and one-time start debit.
+Six applicable suites pass 165 tests; final helper/guard tests pass 23/23.
+First-attempt and final-submission permission boundaries remain enforced.
+Combined CI-repair validation with exact Typst 0.15.0: 181 files, 1,808 passed,
+four existing skips, zero failures in 190.85 seconds. Final contracts pass 4/4.
+Fresh GitHub platform and pinned-UI checks remain the merge gate.
+
+Pinned-UI broker CI provisioning: install the parent workflow lock before
+editor broker integration tests invoke the real tsx CLI. Both editor and parent
+verification use the merged stable setup-vp action pin. The bidirectional
+provisioning and package contracts pass 3/3; new UI behavioral test repairs are
+tracked with the public parent pin after focused validation.
+UI test corrections: await actual voice provider dispatch before transcript
+assertions (89 reactor/title tests) and verify all seven same-grant quiz
+continuation operations plus expiry/final-submit safeguards (25 runtime tests).
+Real broker template preparation passes 64/64 with installed parent dependencies;
+format/lint and all 13 UI typechecks pass. Public reviewed UI commit
+`0aae142c9b3948735ba8dd7a40e37f9b2aa264de` replaces the parent integration pin.
+Production UI behavior is unchanged; fresh pinned-UI CI remains required.
+
+Final dependency integration: root #36, #41, #51 and #52 are merged after
+fresh required CI. The provider branch retains every SDK, production,
+development and workflow update against master `39bcc2baada893a65a692e2569657d1cc5d89e07`.
+Combined validation on those exact dependency versions passes all 181 files:
+1,808 tests passed, four existing skips, zero failures (228.53 seconds), plus
+five package/provisioning/security contracts and 64 real editor broker tests.
+TypeScript, repository policies, public UI pin and zero-vulnerability audit pass.
+Independent manifest/lock/entrypoint review has no blocking concerns. #53 still
+requires fresh current-base CI before merge; #48 is superseded only after it lands.
+
+Windows catalogue checkout regression: committed root/editor catalogue content
+is identical, but root autocrlf and the editor LF attribute yield different
+working-tree newlines. Compare CRLF-normalized text while preserving every
+other byte. Five parity tests pass, including independent newline combinations
+and rejection of changed policies, whitespace and bare carriage returns.
+
+Windows quiz operation lock repair: use consistent BigInt path metadata and
+the exact private PID/token generation to release an owned lock. The CI symptom
+matches [libuv's documented Windows volume-serial discrepancy](https://github.com/libuv/libuv/pull/4698)
+in the supported Node 22.16 runtime; raw runner stat values were not logged.
+Exclusive creation, live-process blocking, serialized stale recovery and
+replacement/link protections remain enforced. The simulated Windows regression
+fails with the old comparison and passes with the repair. All 202 affected
+quiz/browser/permission tests pass, followed by all 16 final portable lease
+regressions; TypeScript and independent review find no blocker.
+Fresh platform CI remains required before merge.
+
+Ubuntu lease fixture correction: the new replacement-inode regression must
+preallocate a distinct file before renaming it during the token read. Immediate
+unlink/recreation can reuse an inode and did not establish that test's premise.
+CI otherwise passed 1,821 tests with seven skips. All 16 final helper tests,
+200 repeated distinct-inode scenarios, TypeScript and independent review pass.
+Production lease behavior is
+unchanged; snapshots retain ordinary identity/generation checks without an
+atomic conditional-deletion guarantee against arbitrary filesystem mutation.
+
+Windows browser-guard test timing: the repaired source passes 1,808 tests with
+20 skips; one fresh-Chromium unsafe-redirect case exceeds Vitest's default
+five-second limit. Adjacent cases take up to 2.813 seconds and the same case
+passed in an earlier Windows run. The two real-browser groups receive a bounded
+20-second per-test allowance for browser startup, request checks and cleanup.
+HTTP admission unit tests keep their default budget. Redirect rejection,
+single-debit/POST and zero attempt-read/final-submission assertions are retained.
+Unmodified local baseline passes 59/59; final four-suite validation passes
+105/105 (8.44 seconds), with TypeScript and independent review clear.
+
+Windows CI scheduling: the next full run passes 1,806 tests with 20 skips but
+hits existing deadlines in three different disk/rendering fixtures. Ubuntu and
+the complete pinned UI checks pass. Windows now runs every source test with one
+Vitest worker to avoid competing Chromium, Typst and filesystem fixture work.
+Linux scheduling, test inclusion, assertions and deadlines are unchanged. The
+existing 30-minute job limit and fresh full Windows CI remain the validation gate.
+All 101 unchanged affected tests pass serially with exact CI Typst 0.15.0 in
+40.61 seconds; repository policies, five contracts and independent review pass.
+
+
+## Current line
+
+- Version metadata: `0.2.4-alpha`
+- State: release preparation in an isolated integration worktree; not yet accepted
+- Version advanced to preserve the historical `v0.2.3-alpha` tag. Final package,
+  exact Windows/Fedora acceptance, public tag and website promotion are pending.
+- Complete scope/dispositions: [0.2.4 release inventory](release-inventory-0.2.4-alpha.md);
+  [current release contract](release-readiness.md). Historical local-only states
+  below remain development evidence; consult the release receipt for later pushes.
+
+## Release infrastructure preparation, 2026-10-07
+
+Exact `0.2.4-alpha` promotion binds root/UI commits, manifest and SHA256SUMS
+digests without changing accepted bundle bytes. Drafts stay unpromoted. Website
+work is prepared separately in its owning repository: same-origin approval
+receipts avoid GitHub asset CORS limits while checking the public API's exact
+asset digests, identity and trusted download paths. This intake includes the
+existing website consent/privacy fix and semver-compatible audited dependency
+updates; overlapping demo redesign work is explicitly deferred. Source checks,
+receipt registration and deployment remain separately recorded in website
+`docs/releases/0.2.4-alpha.md`; no staged site is live by implication.
+
+Final release dependency follow-up: DOMPurify3.4.16, Hono4.13.7 and
+ip-address10.7.1 patch seven shipped medium/low alerts. Frozen install,
+zero-advisory production audit,95 focused tests, real dependency security probes,
+focused types and independent review pass. Build-only sprintf-js alert245 has
+no upstream fix and is explicitly deferred with final SBOM absence pending.
+The reviewed new UI pin and parent must be pushed in that order; fresh exact-head
+CI and rebuilt-artifact acceptance remain required.
+
+Release CI fixture repair (2026-10-07): Ubuntu check on `167dd70` found seven
+CLI contract tests still requesting historical `0.2.0-alpha` after the new
+mandatory package/version guard. CLI success/tag fixtures now derive the source
+package version; valid mismatched versions and unsupported channels fail closed.
+The runtime guard is unchanged. Nine actual CLI integration tests,23 existing
+contract/asset tests, TypeScript and independent review pass. Original CI failure
+logs remain retained; fresh exact-head CI is pending before packaging.
+
+## Queued changes
+
+Local browser pairing for external agents (2026-10-06): authenticated owners
+can manage pairing on loopback without enabling network access. Desktop auth
+metadata advertises existing one-time pairing. Safe explicit-runtime CLI issues
+fresh standard grants to private files, protects independent T3 state/secret/output
+symlink targets, and is taught by the installed global `study-buddy-ui` skill.
+Eight root checks, 23 auth unit tests, two HTTP regressions, four browser
+regressions, full UI check and typechecks pass; independent review resolved both
+isolation findings. Actual normal-UI pairing succeeds in a separate diagnostic
+browser. The original T3 automation client disconnected; that view is unverified.
+See [the local pairing report](local-browser-pairing-2026-10-06.md). UI
+`c0bd23bf9`, root integration and global skill are local-only; no push, merge, backend restart, publication,
+packaged acceptance or study request. Existing runtime supports the helper now;
+corrected descriptor takes effect on updated startup.
+
+Latest-unread email reliability repair (2026-10-06): the approved targeted fix
+passes all three fresh unchanged native Balanced cases independently 4/4, including
+the exact failed wording and an English contextual chat draft. Three body reads
+per case, nine explicit unread-state preservation proofs, no errors or further
+send. Provider-ordered UID pagination, honest localized date labels/order metadata
+and native bounded read guidance prevent the previous body-overfetch. Deterministic
+registry lost-update reproduction is fixed through shared in-process transactions
+and avoidance of unchanged snapshot writes. 208 focused tests, full check,
+13 typechecks, backend bundle and independent review pass. See
+[the accepted reliability report](email-latest-read-reliability-2026-10-06.md).
+UI `fcff044e1` committed locally; root pin/docs integrated locally. Not pushed,
+merged, packaged, published or release-accepted. Exactly one prior self-test
+delivery remains the only real mail; no permission expansion or saved drafts.
+
+Existing mail capability audit (2026-10-06): all three displayed permissions
+tested in ten fresh native Electron Balanced cases, plus 149 deterministic
+existing email tests. Chat drafting, contextual reply drafting, two native
+send declines and exactly one owner-authorized self delivery/INBOX receipt pass.
+Overall eight cases pass, one latest-unread case is partial (seven unexplained
+policy denials), and its exact-prompt repetition fails after unnecessary parallel
+body acquisition and 18 model-terminated reads. Do not claim consistent mail
+reliability from the earlier six passing overview cases. Runtime unchanged;
+see [the capability audit](email-capabilities-audit-2026-10-06.md).
+This initial finding is now followed by the accepted targeted reliability repair
+above; retain all original failed evidence rather than rewriting its outcomes.
+No second real email, saved-draft feature, permission expansion or release.
+
+Direct agent-owned email context (2026-10-06): remove prompt keyword gates and
+implicit body prefetch; native inventory/list/search/read tools reuse existing
+server-owned login through the authenticated owner/workspace-bound broker.
+Broad overviews choose pages and bodies without a guessed final-word search;
+bounded sanitized HTML preserves text-empty MIME evidence. Read state, source/
+folder permissions and exact-message send guards remain enforced. Six unchanged
+fresh Electron Balanced prompts pass: three open-obligation variants and search
+independently score 4/4, negation and draft invoke zero tools/approvals. 174 focused
+tests, full UI format/lint, 13 typechecks, backend build, HTTP6 and independent
+integration review pass. Scope and minor model-output limits retained in
+[mail-access report](direct-email-access-2026-10-06.md).
+UI dependency `a0918bed6e30dd512f5f66d40d5389b59581bce7` committed locally and pinned by this root
+integration; root fallback, targeted tests and handoff included. Not pushed,
+merged, installation-deployed, packaged, published or release-accepted.
+
+Scored-answer correction (2026-10-05): user confirms the sole Q5.3 True→False
+change reduced9 to8.67. Withdraw the earlier Q5 culprit/literalFalse advice for
+this assessed item; controlled user comparison supports True. Authenticated
+overview now shows both attempts finished, none left, best-attempt grading and
+review available6October23:59. Original full-point culprit remains unverified;
+Q6 exact real-domain wording versus offered−∞ is a concrete possible author-key
+conflict in native all-or-nothing multichoiceset. No new tool attempt/write.
+Add only native-proven grading metadata and selected/excluded option check to
+existing solver packets; never invent points/weights/keys from control counts.
+Correct the [audit](quiz-answer-risk-audit-2026-10-05.md); preserve earlier
+failed advice/evidence. Source-only local follow-up: 93 relevant tests across three files pass, root
+TypeScript and diff checks pass. No new model calls or Moodle writes; no release claim.
+
+Graded quiz answer-risk audit (2026-10-05): user reports 9/10 after submitting the
+recovered first attempt. All ten archived questions independently reassessed;
+existing response controls and 65 protected originals unchanged. At that historical checkpoint Q5.3 was a
+source/interpretation candidate, now superseded by the score correction above; authenticated Moodle overview exposes completed
+status but review only from 6 October 23:59, so the official lost-point item is
+not established. Existing native/packet briefs now require exact domain,
+quantifiers, existence conditions and source-based resolution of answer-changing
+uncertainty. Explicit risk_flags are representable and block the whole page
+before any fill/save, regardless of confidence; persistence output explicitly
+says mathematical correctness is not assessed. No extra model stage or Moodle
+write/start/submission. Four focused RED-to-GREEN tool regressions; 1,733 root
+tests pass/four existing skips, TypeScript and full UI format/lint plus all13
+UI typechecks pass. Six real App-CLI prompt calls preserve the first conditioned-control false alarm;
+a refined brief passes the same Q5/conditioned two-case confirmation. Local commit
+status and exact diagnostic limits are recorded in [answer audit](quiz-answer-risk-audit-2026-10-05.md).
+UI dependency `f19b91646de39944ee6461d354da97cc0b5245f5` is committed and pinned locally; the
+root scoped change queues the reviewed answer contract and audit. Source-only
+development batch; no push, merge, deployed installation, packaged acceptance
+or release approval.
+
+Source-grounded study communication (2026-10-05): native addressed drafts now
+research the configured course, recipient and session, retain explicit contact
+provenance ahead of long source text, and present a usable conditional draft
+with nonblocking clarification for genuine date ambiguity. Deterministic source
+inventory/calendar operations include current-day evidence without changing the
+original prompt; portal credentials are origin-bound. Provider-neutral account
+policy preserves mailbox scope; exact native send approvals bind payload,
+question and opaque selection tokens, cannot replay/renew/recover expired grants,
+and report success only after transport completion. Independent code/security
+reviews pass; three unchanged real Electron Balanced runs score 4/4 against the
+original 1/4 baseline (65–75 seconds), with no repair prompts or real mail sends.
+Integrated root suite: 1,729 passing/four existing skips across 179 files; root
+TypeScript, UI 284 focused regressions, all 13 typechecks and full format/lint pass.
+UI dependency ccd90d6fa is committed and integrated locally; root scoped commit
+queues the source tools and report. No push, deployment, packaged acceptance
+or release approval. See [communication context report](study-communication-context-2026-10-05.md).
+
+First-attempt recovery follow-up (2026-10-05): actual native Balanced owner
+`41276119…` / run `a5a4aa29…` is independently **accepted**. All ten preserved
+answers in the same existing first attempt were saved and freshly reloaded, with
+ten valid receipts, total/captured/verified 10, no unresolved questions and whole
+`complete:true`; no final submission or second start. This is preservation of
+previously reviewed answers, not a first solve from empty state or official grading.
+Five earlier native rounds remain rejected; root-controlled rescue is separate.
+The accepted round used normal approval, unchanged sources and no repair prompts,
+manual takeover or retries, about 9m24s by the human UI. Final source checks:
+**1,718 passed/four existing skips**, 178 files, 94.29s plus TypeScript. Freeze:
+`packet-identity-native-source-freeze.json`; all nine source and original-media
+hashes remain unchanged. Historical round metrics and the deferred preexisting
+concurrent-edit snapshot timing probe are retained in the
+[recovery report](quiz-first-attempt-recovery-2026-10-05.md). The scoped repair is committed locally;
+not pushed, merged, deployed, packaged or release-accepted.
+
+Current quiz-completeness follow-up (2026-10-05): reviewed local tools collect the
+whole known question inventory, preserve original images and shared descriptions,
+and require fresh save/reload receipts before reporting completion. Final frozen
+root suite: **1,625 passed / four existing skips**, 176 files; 87 focused UI tests,
+format/lint and all 13 typechecks pass. First native Electron fixture run
+`47503def…` has terminal **PASS**: five captured/five verified, all answers correct,
+one start/three saves/zero final submissions, about 4m41s, with independent
+review **PASS 4/4**. The unchanged fresh repeat `b2ca8522…` also finished
+with five correct saved/reloaded answers in about 5m52s, independently verified
+with all five question-worker turns terminal. This is not real Moodle execution acceptance. At that earlier checkpoint, the real quiz
+shows one used/one left and an active first-history entry, but no proven attempt
+ID or binding. The immutable start debit remains; second start and final submission
+are forbidden. Earlier zero-used inspection claims below are historical snapshots,
+superseded by that read-only status; the newer recovery section above now supplies
+the authenticated first identity. See [completeness repair report](quiz-completeness-repair-2026-10-05.md).
+No push, merge, deployment, packaging or release acceptance is implied.
+
+2026-10-04 native quiz routing repair: actual Electron run followed obsolete
+shared-skill commands despite receiving Direct Quiz instructions; stopped before
+an attempt. The broker now rejects explicit and implicit legacy auto-answer routes
+before credential resolution or worker spawn. Early instructions prioritize direct
+quiz JSON operations and native question delegation. Six routing regressions went
+RED to GREEN; 95 focused UI tests, 62 direct browser/first-attempt guards, all 13 UI
+typechecks, final server typecheck, scoped format/lint and independent review pass.
+Local command-contract campaign accepted; real Moodle execution remains a separate
+pending run. This repair does not authorize second attempts or final submission.
+Local-only source; no push, merge, deployment, packaging or release acceptance.
+
+Same-day transport follow-up: a fresh Electron chat stopped before an attempt
+because HTTP hid the routing denial. The static typed denial now survives HTTP
+without leaking unrelated errors; the client broker allowlist includes direct
+quiz JSON. The missing client route and error mapping have RED-to-GREEN regressions.
+116 focused tests,13 typechecks,scoped format/lint and backend rebuild pass.
+Real Moodle execution remains separately pending; no development attempt consumed.
+
+Native quiz-card follow-up: the actual enabled Codex0.160 runtime adds Default
+system-permission restrictions. App instructions now distinguish the domain quiz
+decision and require actual tool failure before an unavailable claim, preserving
+the CLI restrictions, native grant, access mode and first-attempt safeguards.
+35 prompt/runtime/policy tests,13 typechecks and scoped format/lint pass. The
+real quiz was inspected:2allowed/0used/open; native approval/start remains pending.
+
+
+Current repair status (2026-10-02): the default PDF route now keeps one native
+agent as document owner. `doc` is normalized to deterministic `document prepare`
+before worker-profile dispatch; direct source tools and compile/publish remain
+model-free. Unknown path, environment and model overrides are rejected; trusted
+workspace/stable-thread ownership and quiz permissions remain unchanged.
+
+Separate `single-owner-pdf-quality` lane is accepted and completed: Native38 and
+Native39 independently passed **4/4** on all eight physical pages, original sources,
+formulas, task givens and numerical results, plus actual local Python calculation
+and normal native attachment viewers. Both were fresh Electron Quick Chats with
+the exact original prompt, built-in Quality / Astra LOW and identical implementation
+pins root `7ae0ba2` / UI `9ad697d8`; no follow-up repair prompt or manually edited
+artifact. Native38 took **7m42s** with zero failed validations; unchanged Native39
+(`5447a17b-fe10-458f-a671-1623ad2c195b`) took **8m53s** with one compiler correction
+handled by the same owner. Canonical, delivery and viewer-stream SHA256 agree;
+both native turns completed with no remaining owned document processes.
+
+The original `single-owner-pdf` Custom Balanced / Terra-medium campaign remains
+unaccepted: Native32, Native34 and Native36 were rejected. Quality evidence must
+not be transferred to that original profile contract. Native37 was an interrupted
+wrong-default-`doc` routing diagnostic, not a semantic Quality-model assessment.
+
+Validation: 72 broker/client/packaged routing tests plus 4 developer-instruction
+tests, 17 real document tests, 21 source tests, latest root full suite 1,527 passed
+with four existing skips, full UI format/lint checks and all 13 typechecks passed.
+Implementation changes are committed locally; not pushed, merged, deployed,
+packaged, published or release-accepted. Exact frozen Windows/Fedora acceptance
+belongs to the later release workflow. The manual corrected PDF remains separate
+provenance, not native acceptance.
+
+**Historical Native22 checkpoint — superseded; not an active stop directive.**
+
+Historical original-run repair status at Native22 (2026-10-02): local source `253ee06` passes
+1,479 tests/four existing skips, TypeScript and19 wrapper/package checks. Earlier
+native PDF attempts remain rejected. The separately delivered15-page,
+agent-corrected PDF passes independent content/source/layout review4/4 but does
+not satisfy automatic desktop acceptance. Native22 completed technically but
+was independently rejected for a source-axis error on physicalPDFpage12. No further
+native round starts in this session; terminal evidence is recorded in the repair report.
+All earlier “fresh native” entries below are historical checkpoints, not success
+claims. These repairs are local-only and await holistic packaged acceptance.
+
+| Change | Status | Focused evidence | Final-batch work still required |
+| --- | --- | --- | --- |
+| Recover the exact existing first quiz attempt and preserve approval ordering | Actual native preservation/save-reload acceptance PASS; source checks PASS; committed locally, not pushed/merged/deployed/packaged/release-accepted | Balanced owner41276119/run a5a4aa29 independently verifies all ten preserved answers with ten native fill/reload receipts and whole complete, no unresolved questions, final false; terminal/no owned children, about9m24s human UI. Prior root rescue and five rejected native rounds remain separate. Final root1,718/four existing skips,178 files94.29s/TypeScript; nine source hashes and original media unchanged. Durable first identity/native approval/read API, immutable controls and bounded transient-media retries retain all safety boundaries. See [recovery report](quiz-first-attempt-recovery-2026-10-05.md) | Accepted workload preserves earlier reviewed answers; no empty-first-solve, official-grade or comparative-performance claim. Preexisting concurrent-edit snapshot probe deferred outside nonconcurrent scope; no new permission bypass/browser write proved. Exact frozen Windows/Fedora package acceptance required |
+| Collect and verify the complete agent-owned quiz with original media | Reviewed UI `c73e34b6f` committed locally; root in this integration commit. Two unchanged native fixture runs independently PASS; not pushed, merged, deployed, packaged or release-accepted | Whole native inventory, description-only GETs, shared context and original images reach each native question packet. Required-media failures block fill; changed questions, option values or shared context invalidate packets and durable save/reload receipts. Moodle5 card metadata preserves known first ordinal without inventing an ID; no timer is distinguished from the closing deadline. Five direct browser and six media regressions,24 focused image/capture tests including Windows separators,87 UI tests/checks/all13 typechecks, independent source/counterexample review; final root1,625 passed/four existing skips,176 files69.34s. First native47503def fixture: complete five/five correct, one start/three saves/zero final, original image viewed and three overlapping native workers used for five questions, about4m41s. Unchanged fresh repeat b2ca8522: same5/5 correct saved/reloaded result,5 overlapping solvers all terminal, about5m52s. Evidence: complete-agent-owned-quiz campaign and [repair report](quiz-completeness-repair-2026-10-05.md) | Do not transfer the two verified synthetic passes to the real inaccessible first attempt. Exact original denied request remains unknown; immutable debit cannot be reset, no second start/final submission. Later frozen Windows/Fedora package acceptance remains required |
+| Preserve first-attempt identity across the actual start redirect | Reviewed local root fix; UI remains `dad2fba2f`; not pushed, merged, deployed, packaged or release-accepted | Real loopback browser reproduces a303 GET bypassing context.route and leaving provisional identity absent. The already admitted start POST is fetched once with redirects/retries disabled; its actual302/303 Location passes the existing guard before browser continuation. Same-first GET now succeeds before binding; unbound writes, second starts, unsafe redirects and final submission stay blocked.51 focused tests, root TypeScript/package checks, full1,604 tests/four existing skips, server Moodle typecheck and independent review pass. Same original fixture RED→GREEN, one POST/debit, zero unbound writes; native-quiz-start-redirect local campaign | Exact denied request in the stopped real run remains unknown; this local defect is not asserted to be its sole cause. Real first-start outcome unconfirmed, immutable debit retained, no restart or second attempt permitted. Fresh packaged acceptance remains required |
+| Deliver current native Codex instructions into model-visible history | Reviewed UI `dad2fba2f` and parent pointer committed locally; not pushed, merged, deployed, packaged or release-accepted | Actual Codex0.160 probes show collaboration metadata ignored and loaded resume retaining stale instructions. Typed same-ID thread/inject_items obeys first and updated later developer messages. Original eager lifecycle retained; current profile/mode/personality delivered, unchanged text skipped, changes/restart/compaction refreshed, injection errors stop generation, non-Study-Buddy routing preserved.61 focused tests plus43 adjacent checks, all13 typechecks, scoped format/lint, backend bundle and independent review pass. Local native-instruction-transport campaign completed with zero Moodle actions | Fresh Electron model-visible delivery and exact approval card pass in thread b63d7809-1f9d-4fde-8108-66d574acff2c. Quiz execution FAIL: start debit consumed, binding absent, same-ID recovery unconfirmed, no answers. Actual first-attempt outcome unknown; permanent no-restart constraint retained, no second/final. Local guard investigation is pending; frozen Windows/Fedora package acceptance remains required |
+| Agent-owned mini-test tools with durable first-attempt protection | Scoped local implementation; UI dependency cc8a01fa3 and parent commit remain local-only; no live attempt, push, merge, deployment or release acceptance | Direct inspect/start/read/fill/next/recover/status tools use the native owner and native question subagents, with no tool-owned model chain. Account+quiz ledger permits one irreversible start request and binds the proven first Moodle ID; ambiguous starts and parallel workers cannot retry. Request guards block cross-attempt writes and hidden final submissions. Real loopback Playwright fixture verifies supplied answers after save/reload and same-ID recovery; independent counterexamples cover concurrency, unknown start response and hidden finish fields. Native grant/credentials/owner/source scopes remain broker-owned. Final frozen regression:1,596 root tests/four existing skips,75 UI tests,root TypeScript,all13 UI typechecks,format/lint and workflow-package contract pass; independent component source hashes verified. Evidence: agent-owned-minitest and agent-owned-minitest-tools campaigns | Actual limited Moodle attempt deliberately not used for development; native answer quality and desktop first-try behavior remain unmeasured. Future exact frozen Windows/Fedora package acceptance required |
+| Preserve native PDF attachments in their owning workspace | Reviewed local storage fix; UI dependency `711938591` committed locally; parent commit includes publisher and regressions; not pushed/merged/deployed/release-accepted | Direct publisher now returns a collision-protected, byte-verified file under the existing workspace study-buddy-deliverables directory, not system temp. Existing Canonical38/39 recovered without generation or original-run mutation.21 actual document tests (project + Quick Chat, temp cleanup, fresh CLI process, collisions and symlink/path boundaries),5 shared native-instruction tests,24 existing link/preview tests; UI format/lint and13 typechecks pass. Shared instructions cover Codex/Claude/Gemini and permit workspace-relative or angle-delimited absolute links with spaces | Existing historical temp links are not silently rewritten; recovered files are available in their workspace. This is a storage/consumer regression fix, not another native model reliability or packaged release acceptance round; frozen-candidate Windows/Fedora acceptance remains required |
+| One native agent directly authors and compiles PDFs | Root `7ae0ba2` and UI `9ad697d8` committed locally; Quality Native38+39 PASS4/4 and campaign completed; original Custom Balanced/Terra-medium campaign unaccepted; not pushed/merged/deployed/packaged/release-accepted | Native38/39: real direct document route, 8 pages each, retry0/1, 7m42s/8m53s; independent full source/mathematics/page review plus normal native viewer and canonical/delivery hashes. Code-enforced `doc`→`document prepare` before legacy worker dispatch, strict compatibility metadata, stable owner/workspace guards, read-only sources and same-owner file/compile/publish loop.72 broker/client/packaged tests +4 developer-instruction tests,17 real document tests,21 source tests; latest root1,527 passed/four existing skips; full UI format/lint/13 typechecks pass. Historical Native23 syntax failure and subsequent repairs remain preserved, not pending implementation | Keep Quality acceptance distinct from the rejected original Custom Balanced/Terra-medium contract; holistic frozen-candidate Windows/Fedora packaged release acceptance remains required |
+| Render verified PDF handoffs without generative re-authoring | Root `84a51f1` committed locally; reviewed local renderer source freeze; not pushed/merged/packaged/release-accepted | Actual22 existing Formatterconsumer + real Typst now1701ms/zero formatter modelcalls,596ms separate controlcompile versus615840ms historical formatter modelwork. All19sections/18formulas/8examples/19warnings/two positive documentcontexts and six original source images preserved;26pages.88focusedtests/fourfiles,TypeScript/diffcheck and independent six-hashreview pass;262 unchanged historical canonical hashes. Auto selects existing deterministic layout, explicit llm_formatter remains; no arbitrary titleoverride/topicwarningfilter/imageomission/generative or plaintext rescue. Unknownfunction gets realcompilererror. Evidence run22-renderer-preservation/source-freeze.json and candidate-frozen/replay.json | Source/claim-local repair integration and true fresh native original-prompt PDF acceptance remain required. Historical broken handoff retention is not mathematical/native success. Holistic frozen-batch packaged acceptance remains required |
+| Preserve assessed source scope on planner failure and compact complete planning JSON | Root `253ee06` committed locally; not pushed/merged/packaged/release-accepted | Native21 realR3 planning60175/60000 (+175) caused broad portal fallback and deleted exclusions. Three new API regressions RED→GREEN: lossless existing JSON serialization, prior architecture/URL/debt preservation with blocked/abort, bootstrap exploration without curriculum/readinesscache. Namespace .8 invalidates legacy fallback decisions; original SourceReadingRequestError remains strict.86 focused tests/typecheck/diffcheck pass. Saved-component reconstruction exactlymatches real60175 event; existing API R3/JSONrepair55399/55728 and clearly reconstructed initial39750/60k retain full request/feedback and semantic JSON values.144 canonical hashes unchanged; prior module-limit audit remains intact through failed reassessment. Evidence round21-architect-producer-replay | Independent final PASS; root1479 tests/four existing skips, typecheck and19 wrapper/package checks; exact original Native22 output acceptance; no semantic/PDF pass claimed by API testdoubles. Holistic exact packaged acceptance remains required |
+| Size complete content review from actual work while preserving explicit deadlines | Root `e8f5628` committed locally; not pushed/merged/packaged/release-accepted | Actual20 adaptive18-minute window omits complete review work. Actual preflighted packet demand selects smallest suitable existing tier; measured matching-role/model/effort durations update remaining active-work projection within existing38-minute workflow ceiling and two-minute render reserve. Explicit CLI/env limits and owner absolute deadlines cannot be relaxed, admission wait remains distinct from work, later Analyzerrepair retains selected large tier, and wrapper preserves the earlier owner/tier deadline on both outcomes. Repairstart before prior boundary now extends before first call. Final15/18 control: large24/38, measured24.621/35.229 minutes,129 original hashes unchanged.70 focused Runtime/Config/Graph checks,75 Analyzer/runtime integration checks,18 runtime+quiz Node wrapper checks, TypeScript/diff/Bash syntax pass. Root1476 passed/four existing skips,169 files50.51s plus19 wrapper/package checks. Independent combined PASS; no native mathematical acceptance claim | Fresh native21 PDF acceptance; holistic frozen-batch and exact packaged acceptance remain required |
+| Scope complete review metadata and preserve exact original-source cohorts | Root `e8f5628` committed locally; not pushed/merged/packaged/release-accepted | Actual20 first complete atom61011 characters RED; complete warning/quiz atoms, actual packet source maps and exact URL/page/file cohorts GREEN. Existing node reaches all140 learning atoms,57 full warnings/43 checklist strings exactly once with explicit English/German/null owners, legal cross-owner ID collisions, source provenance, request/assessment evidence and unchanged policies. Final initial15 packets/attempt1; historical complete1950-character feedback control18/attempt2, largest44483/45000/two images. Explicitly approved round bound18 permits at most54 calls across three unsuccessful rounds, without guaranteeing completion under existing38-minute workflow ceiling; per-call45k/2images stay hard.19-packet/oversized-atom and late-error failures remain fail-closed, retry once per round.53 focused tests/typecheck/diffcheck pass; actual Run18/19 four-packet controls retain every protected field.129/236/105 canonical hashes unchanged. Runtime hooks project actual packet demand using the separate existing-tier checkpoint; no new stage/model/schema/semantic acceptance claim. Evidence run20-scoped-review-consumer/repair and run18/19-scoped-review-consumer | Independent combined PASS; root1476 passed/four existing skips, typecheck and19 wrapper/package checks; fresh native21 acceptance; holistic exact packaged acceptance remains required |
+| Reuse existing review-packet space for complete atoms without new image bindings | Root `389167c` committed locally; not pushed, merged, packaged or release-accepted | Actual Native19 maxsix failure and generic hole-packing API regression RED→GREEN.14-line backfill keeps every protected field/policy/source/image choice and maxsix/45k/two images. Actual existing-node consumer sends17 sections/16 formulas/10 full examples/three figures/15 unchanged checklist atoms exactly once in six packets, largest44,488/45k;105 canonical hashes unchanged. Original Run18 retains all six producer bodies byte-for-byte and236 unchanged hashes.51 affected tests/typecheck/diffcheck; independent54 tests; root1,462 passed/four existing skips,169 files42.95s. No model stage/cap increase or fresh-model acceptance claim. Evidence: run19-review-capacity-triage, run19-review-backfill-consumer and run18-review-packets-backfill-control | Independent final consumer/hash verification and fresh native Run20; holistic frozen-batch and exact packaged acceptance remain required |
+| Review every included learning claim in bounded existing-node packets | Root `4a68458` committed locally; not pushed, merged, packaged or release-accepted | Sampling Red→Green: actual Run18's18 topics/19 formulas/eight complete examples/eight figures reach six preflighted packets exactly once with original key concepts, conditions, steps/results, null ownership and source maps. Largest actual envelope44,326/45,000; two original compositions per call, including defining Q3 pages9+8. Complete aggregation, once-per-round retries, capacity and late-error fail-closed tests;50 affected tests/typecheck/diffcheck pass. Root1,461 passed/four existing skips,169 files41.46s.236 canonical hashes unchanged. Real diagnostics detect previously omitted derivative/Earth errors; global-local coverage and different-operand false alarms are addressed. Initial six-call diagnostic186.389s; cost/call count increases from one to at most six. Final identical-model gates: Packet6 blocks a genuine source-warning contradiction without global absence false alarms; Packet5 correctly flags -.689 versus -.688 as the original rounded-sum inconsistency without inventing the earlier -.525 countercalculation (32.763s/44,283). Both preserve236 hashes. Evidence: run18-review-packets-consumer and focused-packet-5/6-diagnostic | Historical arithmetic and source-axis misses remain documented; focused corrected hits are not a complete mathematical-pass claim. Independent final gates and fresh native Run19; holistic frozen-batch and exact packaged acceptance remain required |
+| Keep zero/shortcut derivative conditions locally explicit | Root `28a6c9e` committed locally; not pushed, merged, packaged or release-accepted | Policy1.8 requires local point/instant-versus-interval extent and separate derivative proof; no subject matcher. Seven existing consumer contract regressions RED→GREEN;70 focused tests/typecheck/diffcheck pass. Unchanged 8k fixture8325→7984 after341-character fixed-prose compaction only. Actual saved Run18 states/configs plus proposed final-defect repair feedback yield six full producer envelopes within original limits; first Analyzer API client packet46,929/60k, original request/announcement retained,236 canonical hashes unchanged. Evidence: run18-local-condition-policy/replay.json | Independent final PASS (14 policy/budget tests, unchanged 8k/privacy regression, six real envelopes and236 unchanged hashes); final root integration and fresh native Run19; holistic packaged acceptance |
+| Independently audit physical/causal interpretation in the existing content review | Root `6d75190` committed locally; not pushed, merged, packaged or release-accepted | Run17 sent the full incorrect term label and absolute-frame formula, but Terra/medium passed. Existing review now checks a permitted sign/direction case separately from algebra/citation and treats concrete label/frame contradictions as blocking even for should requirements; nonquantitative content gains no numeric/frame requirements. Two initial/repair regressions Red/Green;38 affected tests, typecheck and diffcheck pass. Exact unchanged bad handoff with the same request and two original images now returns localized blocking mathematical_error/content_analyzer in an isolated actual Terra/medium call (30.574s;42,202/45,000 envelope). Old producer body is byte-identical except the generic audit; all249 canonical hashes unchanged. No reviewer-output cache exists, so no unrelated cache-version change | Root final full-suite:1,452 passed/four existing skips,169 files43.65s, typecheck/diffcheck; independent final PASS (46 focused tests and both real unchanged counterexample replays); fresh native exact-request output acceptance; holistic packaged batch acceptance remains required |
+| Catch accidental heading/divider-only PDF pages in the existing render review | Root `6d75190` committed locally; not pushed, merged, packaged or release-accepted | Two real-PDF API contract regressions reproduced red before the prompt fix; all10 focused render-review/DiskWriter tests and typecheck/diffcheck pass. Pure real configured Terra/medium review of unchanged Run17 PDF now blocks physical page12 as orphaned divider/formatter; all17 pages reviewed, intended covers/openers explicitly allowed, no ink/wordcount heuristic or new stage. Original PDF/Typst/review/config hashes unchanged; durable exact review images and redacted evidence under latest-kinetik-pdf-contract/evidence/run17-divider-review | Root final full-suite:1,452 passed/four existing skips,169 files43.65s, typecheck/diffcheck; independent final PASS (46 focused tests and both real unchanged counterexample replays); fresh native exact-request output acceptance; holistic packaged batch acceptance remains required |
+| Hand explicit assigned originals across empty-download planning responses | Root `7d3e2ef` committed locally; not pushed, merged, packaged or release-accepted | Actual Run16 request_more/emptyURLs now delegates only explicitly assigned, acquired partial/unusable PDFs through unchanged file/provenance/veto gates; URL contract clarifies reading targets versus downloads. The real assigned consumer red lost six originals; existing source-diverse two-image bundles now serve all nine originals in five bounded packets with exact unread-page boundaries. Nine new regressions/all147 affected tests/typecheck/diffcheck pass. Sparse assigned-only modules use the existing dense path; fragment caches preserve authentic page provenance through single-source SHA changes. Real R2/R1 replay keeps architecture byte-identical,55,519/60k architect and35,119/31,051/29,252/29,356/29,272 analyzer envelopes;23 exact records and19 unchanged canonical/source hashes. No new stage, schema, topic rule, artifact edit or cap increase | Independent final PASS plus root full-suite 1,448 passed/four existing skips,168 files45.23s, typecheck/diffcheck; fresh native first-try acceptance; holistic batch/packaged acceptance remain required |
+| Align mathematical interpretation with directions/frames and require conditions for unique results | Root `42f26a9` committed locally; not pushed, merged, packaged or release-accepted | Extend only shared mathematical policy1.7: signs/vector directions/names/interpretation agree under the declared frame/convention; motion descriptions differ from real/apparent forces, source conventions are explicit. Derivatives require initial/boundary conditions for values/constants; otherwise return a parameter family or missing condition. Both extensions reproduced seven red existing prompt tests. Root found the unchanged visual-fragment8k regression red at8654; lossless instruction-prose compaction makes it green at7988 without changing policies, records, schema, IDs, tests or caps. All98 affected tests/typecheck/diffcheck pass; independent76 tests and semantic comparison pass. Existing versioned chapter/fragment caches invalidate old handoffs. Actual unchanged Run14 handoff/repair-input replay keeps all five complete producer envelopes inside original limits (first fragment50,320/60,000), all22 canonical/source hashes unchanged; no new stage, course matcher, budget increase or artifact edit | Root full-suite verification and fresh native original-prompt quality acceptance; holistic batch/packaged acceptance remain required |
+| Preserve prior exact acquisition intent as bounded acquired exploration | Root `553fb16a` committed locally; not pushed, merged, packaged or release-accepted | Actual Run15 R2 rejection reproduced red. Only a current explicit reading request with prior exact acquisition intent and admissible original evidence becomes scope_assessment; unknown/unrequested/deselected/missing/excluded targets remain blocked. No automatic curriculum assignment. Ten new regressions and all138 affected tests/typecheck/diffcheck pass. Existing first-module fragments carry source-diverse two-image bundles without raising budgets. Read-only actual R2/R1 consumer replay delivers all seven original practice sources in five final model packets, keeps exact remaining-page boundaries, original prompt/announcement and selected record content/URL/locator;19 canonical/source hashes unchanged. Architect/analyzer cache versions invalidated; chapter/fragment source checksums also invalidate changed exploratory originals while unchanged inputs retain hits. No new model stage or artifact edit | Final root full-suite passes 1,439 tests/four existing skips in168 files (45.25s), typecheck and diffcheck pass; independent final PASS (137 focused tests plus real consumer/cache replay); fresh native first-try acceptance; holistic batch/packaged acceptance remain required |
+| Preserve acquired exploratory sources through existing acquisition and semantic reassessment | Root `d8abac0` committed locally; not pushed, merged, packaged or release-accepted | Six new transition/veto regressions; 122 affected tests, typecheck/diffcheck pass. Actual Run13 R1 retains five planning modules and eight valid downloads while the native wrapper remains unassigned scope_assessment. Existing post-acquisition reassessment sees preserved intentions; verified availability does not claim linked task coverage. Explicit essential empty modules block after acquisition drain, and unknown/excluded/diagnostic-only exploration stays rejected. Read-only controlflow replay uses clearly labeled saved Round12 R2 evidence, preserves original prompt/assessment announcement at 53,839/60,000 characters, reaches all eight PDF image packets and leaves 18 canonical/source hashes unchanged | Independent review, root regression suite and fresh native original-prompt acceptance; holistic batch/packaged acceptance remain required |
+| Separate acquired source reading debt from additional downloads without losing scoped evidence | Root `b850384` committed locally; not pushed, merged, packaged or release-accepted | Round-12 real raw-response replay retains one semantic module/four exclusions and nine pending reads; all eight acquired PDF targets are indexed and attachable through existing page compositions/chapter slices. Native targets require captured page URL/content provenance, unresolved wrapper targets remain unverified, invalid requests stay blocked with semantic scope preserved. Reading debt participates in chapter/fragment cache identity; debt-bearing architect disk decisions require fresh planning. Six API regressions were red before implementation; 16 new API/consumer/cache tests now pass and all 14 canonical/source hashes remain unchanged. First producer envelope 53,679/60,000; no extra model stage or budget increase | Independent/full source verification and fresh native original-prompt acceptance; holistic batch/packaged acceptance remain required |
+| Preserve assigned single-module evidence and compare source compositions in the existing content review | Root `bcfcf04` committed locally; not pushed, merged, packaged or release-accepted | Nine focused regressions failed before their source fixes, including the independently reproduced assigned HTML lesson API case. All 141 affected tests, including producer-envelope gates, and typecheck/diffcheck pass. Actual Run11 replay replaces 45 course-only records with an assigned fragment containing 41 exact Q3/quiz/course/practice records, preserves native test announcement/quiz URL in bounded document context, omits excluded images, and gives the existing reviewer source page9 plus another cited composition. Fragment envelope 52685/60000; review body29791/43651. Five canonical hashes unchanged. Independent integration review passed; complete root suite: 167 files, 1407 passed / four existing skips (42.92s), typecheck/diffcheck pass. Known IDs bind to native title/URL/path; plural/multipart intent, namespace page priority, source vetoes and PNG/JPEG-only image limits retained | Fresh unchanged desktop prompt and holistic frozen-batch Windows/Fedora packaged acceptance |
+| Normalize unambiguous bare vector styling without altering strings or unknown expressions | Root `9d54a61` committed locally; not pushed, merged, packaged or release-accepted | Actual Run11 handoff used bare bold symbols, rendering17 literal commands. Normalize only supported single Latin/Greek operands and retain scripts/operators; normal prose and escaped quoted strings remain intact, unknown math operands diagnose. All31 tests including50 named Greek-letter compile checks and PDFtext pass; actual unchanged-handoff replay17→0 literals; independent review passed after escaped-quote regression fix | Combined root typecheck, unchanged native prompt acceptance and holistic frozen-batch Windows/Fedora packaged acceptance |
+| Avoid duplicate PDF fallback content when learning modules share source citations | Root `378b102` committed locally; not pushed, merged, packaged or release-accepted | Actual Run11 repeats three framework sections through shared course citations. Keep existing module order and source association, project every validated section/formula/example/figure once, and preserve unmatched additional material. Regression fails before fix; all43 renderer/formatter tests and independent real-handoff replay pass; canonical artifacts unchanged | Fresh unchanged native prompt acceptance and holistic frozen-batch Windows/Fedora packaged acceptance |
+| Budget complete analyzer producer payloads including packed fragments and schemas | Root `10b2f7e` committed locally; not pushed, merged, packaged or release-accepted | Round10 dense fragment serialized pretty JSON after compact-size packing, exceeding the unchanged 60000-character hard envelope. Lossless JSON compaction retains all assigned fragment records, original request and assessment provenance; impossible payloads fail before the model call. Actual replay: 61796→56629 characters, 55 complete semantically identical records, canonical hashes unchanged. Five capacity regressions fail against the prior source; all 72 affected tests and six new budget tests pass, including retained URL/locator provenance and mixed oversized-task rejection. Independent review, typecheck and diffcheck pass; complete root suite: 166 files, 1387 passed / four existing skips (46.47s) | Unchanged native prompt acceptance and holistic frozen-batch Windows/Fedora packaged acceptance |
+| Preserve complete PDF page composition when selecting source visuals | Root `151c94b` committed locally; not pushed, merged, packaged or release-accepted | Publish fully rendered PDF compositions; exact source/page legacy hydration or visible fail-closed omission, raw-copy guard, conservative white-only trim and versioned chapter/fragment caches. Standalone images, including legacy-like names and missing page metadata, remain valid. Six meaningful overlay/legacy regressions fail against the prior source; all71 affected tests and typecheck pass. Complete root 1,381 tests pass / four existing skips; independent review passed. Without optional ImageMagick, four tests pass and three explicit trim tests skip. Read-only actual Round9 fig004→fig007/page9 replay passes all four modes, preserving corrections and five canonical SHA256 hashes | Unchanged native prompt acceptance and holistic frozen-batch Windows/Fedora packaged acceptance |
+| Preserve generated task assumptions and instantaneous-value/derivative distinctions | Root `ac6ed8b` committed locally; not pushed, merged, packaged or release-accepted | Round8 source facts, table shape and numerical calculations passed, but a derived solution changed stipulated assumptions and a checklist left the instantaneous-versus-identical-zero distinction ambiguous. Shared mathematical policy1.6 requires feasible tasks, unchanged givens, explicit hypothetical labels and valid derivative inference. Seven prompt regressions failed before the fix; all105 affected tests, typecheck and diffcheck pass, including initial/repair author, analyzer, existing reviewer and unchanged prompt-budget gates | Independent review and32 focused tests passed; fresh unchanged desktop prompt and holistic frozen-batch Windows/Fedora packaged acceptance remain |
+| Preserve selected assessment evidence within bounded request evaluation and stable caching | Root `3e5cb00` committed locally; not pushed, merged, packaged or release-accepted | Six evaluator tests and original Round7 read-only prompt replay pass: direct test title plus opening/closing records retained. Stable metadata/course/exclusion priority reserves at most48 records within existing180-record/character caps; cacheversion+priority IDs invalidate old disk caches, same-input cache uses one modelcall and reversed input order preserves prompt. Frozen checkpoint contracts retain existing semantics. Complete root 1,372 passed / four skipped and typecheck pass; independent review passed | Fresh exact-prompt source/output acceptance and later exact Windows/Fedora packaged acceptance |
+| Preserve request-level assessment source evidence across chapter, repair and PDF handoffs | Root `cacde07` committed locally; not pushed, merged, packaged or release-accepted | Round7 mathematical/table output passes, but global date denial contradicts an explicit preserved Moodle announcement. Add bounded server-owned document_context with exact source IDs/titles/URLs/record locators and excerpts, preserve selected HTML support without localPath, and separate calendar coverage from positive source facts. 69 affected and 76 independent tests passed; full root 1,372 passed / four skipped, typecheck and diffcheck passed. Read-only original Round7 replay preserves exact test date/topic/Block2, opening window and duration within 7,896/8,000 characters; canonical hash unchanged. Fresh exact-prompt desktop acceptance pending | Source/output acceptance; holistic frozen-batch review and exact Windows/Fedora packaged acceptance |
+| Preserve concrete content defects as blocking independently of optional requirement priority | Root `ce7cfae` committed locally; not pushed, merged, packaged or release-accepted | Structured defectKind separates requirement gaps and presentation from concrete mathematical/factual/citation/prohibition errors. Legacy parsing, exact chapter/global owners, existing repair targets and three-validation limit remain. Focused and independent reviewer/pending-repair tests passed; complete root 1,360 passed / four skipped, typecheck and diffcheck passed. Native exact-prompt PDF repetition pending | Final source-level output acceptance and later exact Windows/Fedora packaged acceptance |
+| Validate mathematical conditions and Typst table row shapes before publication | Root `2b651d9` committed locally; not pushed, merged, packaged or release-accepted | 13 reproduced Red/Green prompt/compiler regressions; 104 affected tests; complete root 1,360 passed / four skipped and typecheck passed. Necessary/sufficient conditions, counterexamples and valid Typst operator semantics share one policy. Generic tables reject incomplete headers/rows before flattening; schedule rows require four cells. Existing formatter repair and retry limits remain. Independent source review passed; fresh exact-prompt desktop acceptance pending | Final source-level PDF output acceptance and later exact Windows/Fedora packaged acceptance |
+| Preserve chapter-warning ownership and repair global semantic findings through cache, fragments and resume | Root `ed0eedb` committed locally; not pushed, merged, packaged or release-accepted | 92 affected tests / one existing browser-dependent skip; independent delta review 61 tests; final complete root 1,338 passed / four skipped, typecheck and diffcheck passed. Original failed handoff replay preserves all 13 formulas, eight examples, 18 sources and 11 warnings while removing the false global omission claim; canonical artifact hashes unchanged. Global findings now repair all relevant chapter caches, explicitly local findings stay selective, and the three-validation ceiling remains. New exact native PDF round pending; see [repair evidence](latest-run-repair-2026-10-02.md) | Final source-level PDF output acceptance; holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Keep PDF exercise scoring source-backed and identify generated practice locally | Root `bc89f8d` committed locally; not pushed, merged, packaged or release-accepted | Three initial/repair/reviewer prompt regressions failed before the fix and passed afterward; final root 1,334 passed / four skipped and typecheck passed; independent source review passed. Optional exercise points are omitted by default, only exact cited official task allocations are allowed, and derived practice uses a local origin label plus optional explicitly non-official self-rating. No extra model calls or generated-PDF patches. Final native artifact review is pending; see [repair evidence](latest-run-repair-2026-10-02.md) | Final source-level PDF scoring/content acceptance; holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Select uniquely named courses without legacy alias gating and preserve exclusions through semantic recovery | Root `9f2746c` committed locally; not pushed, merged, packaged or release-accepted | 63 resolver/targeting/search checks and independent review; final root 1,334 passed / four skipped and typecheck passed. Preserved real catalog replay and fresh Electron `eeed8286-66a3-472a-b199-231b10896fff` select the explicitly named course with one canonical probe and no selection model. Code/title conflicts and German/English exclusions cannot bypass semantic guards; default unrelated search callers and caches remain unchanged. See [repair evidence](latest-run-repair-2026-10-02.md) | Final source-level PDF output acceptance; holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Preserve citable source protocols and the evaluated assessment scope in preparation guides | Root `bd287e1` committed locally; not pushed, merged, packaged or release-accepted | 13 protocol regressions and explicit full-course/narrow-scope architecture checks; final root 1,334 passed / four skipped and typecheck passed. Reject operational SEB launchers from manifests while retaining source text; acquisition priorities no longer invent subject modules or attach unrelated primary resources. Original narrow-scope desktop PDF published but rejected for an independent scoring issue; final native PDF repetition is pending. See [repair evidence](latest-run-repair-2026-10-02.md) | Final source-level PDF content acceptance; holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Preserve app-broker credentials routing, owning-thread worker profiles and configured Codex runtime | Root `957bbd4` and UI `a8b31805e` committed locally; not pushed, merged, packaged or release-accepted | Policy 7 and broker 30 focused checks; wrapper 14 and worker runtime 17 checks; root complete suite 1,314 passed / four skipped; fork full format/lint and all 13 typechecks passed. Two fresh exact-prompt Balanced Electron chats `43701856-a768-47fb-8c3d-57aa7d8d3e85` and `6bcf1332-dd1c-4d0e-84cf-8e2a9980ff0c` resolve the correct upcoming mini-test and satisfy the permission-required contract without starting an attempt; actual worker CLI 0.160.0 and profile propagation verified. Source credentials remain broker-private. Evidence in `study-buddy-data/optimization-campaigns/latest-math-quiz-contract` | Quiz solving/filling after limited-attempt approval is not measured by these discovery rounds. Holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Shorten composer labels to profile name, Computer, Email and Quizzes; show selected permissions through icons | UI `eec115d93` and paper-plane follow-up `3521096d8` committed locally; parent in this commit. Not pushed, merged, packaged, deployed, published or release-accepted | 125 affected Chromium checks passed; follow-up 10 source-settings browser checks passed; full fork format/lint and all 13 typechecks passed. Browser-diagnostic desktop/narrow screenshots, all three quiz modes and email paper-plane badge inspected; custom names, saved quiz transitions, runtime descriptions and four email permission states verified. [Evidence](composer-permissions-2026-10-02.md) | Holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Make provider tabs compact and usable in existing conversations | UI `b4888d572` committed locally; parent in this commit. Active source UI; not pushed, merged, packaged, published or release-accepted | 129 picker/model-picker/chat-view browser checks; full format/lint and 13 typechecks passed. Actual isolated Electron verified both tabs, Gemini Balanced selection/reopening and a return to Codex; native screenshots retained. Locked chats allow browsing and explain why foreign profiles require a new chat. [Evidence](profile-picker-tabs-2026-10-02.md) | Holistic frozen-batch review and exact Windows/Fedora packaged acceptance remain required |
+| Move composer provider switching into profile-picker icon tabs and refresh price-informed built-ins | UI `08b819314` committed locally; root in this commit. Not pushed, merged, packaged, deployed or release-accepted | Complete frontend unit suite 1,198 passed; 140 affected composer/settings/QuickChat checks; shared profile 18 and provider-routing 6 passed; root 1,298 passed / four skipped; full `vp check` and all 13 typechecks passed; 64 Markdown link checks. Browser component screenshots cover Codex/Gemini tabs, persistent personal/mixed profiles and a scrolling 390px viewport. Codex uses current Luna/6.1 Sol/Astra tiers with catalogue compatibility; Gemini uses two latest-Flash thinking policies, collapsing to one when variants are unavailable; saved custom pins remain intact. [Pricing and evidence](provider-profile-refresh-2026-10-01.md) | No measured live study-task quality/runtime/quota benefit claimed. Holistic freeze review and exact Windows/Fedora packaged acceptance remain required |
+| Preserve intent-scoped weekly obligations and completed/upcoming mini-test sequences with a compact review index and native activity pages | Root in this commit; UI `eb3003b71` committed locally. Active and verified in desktop-dev; not pushed, merged, packaged, deployed to production or release-accepted | Root 1,298 passed / four skipped; coordinator 18 tests; complete fork format/lint and 13 typechecks passed. Two fresh exact-prompt weekly desktop chats `b5414400-263f-4bd7-a22e-d19f1ac3500b` and `f9bfb043-23ab-417f-9eaa-b3722a8b2da1` retained confirmed dated tasks and relative-deadline uncertainty; focused two-course chat `a5fe0618-fe66-4eb5-9b3c-1414843693c5` selected only requested courses and reconciled native grades/completion with upcoming dates. No follow-up repair prompts, retries or quiz mutations. Evidence in `study-buddy-data/optimization-campaigns/intent-driven-source-completeness` | Earlier claimed Rechnungswesen omission was unsupported and corrected; it is not an acceptance criterion. Frozen-batch holistic review and exact packaged Windows/Fedora acceptance remain required |
+| Provider-specific Fast/Balanced/Quality, per-connection defaults, one composer profile picker and mixed custom worker/fallback connections | Root `8d9f300` plus this follow-up and UI `2495c0de3` committed locally; not pushed, merged, deployed or release-accepted | Root 1,294 passed / four skipped; backend 1,687 passed / five skipped; complete frontend unit + Chromium browser suite 1,422 passed; shared 23; all 13 fork typechecks and full format/lint passed. Actual desktop: Gemini Balanced and both mixed directions delivered validated offline HTML, native answer checks/hints/solutions passed, sole Gemini hides connection selection, Unicode draft/profile survived reload. Early failures and bounded fallbacks retained in [provider-profiles.md](provider-profiles.md) | Claude has owner-approved deterministic coverage only. Codex Sol timed out at 240 seconds in the reverse mixed lane; Terra fallback passed. Native bridge token usage remains unknown. Holistic frozen-batch review and exact packaged Windows/Fedora acceptance remain required |
+| Recover first-try Moodle PDF delivery in Quick Chat: provider-catalog model selection, brokered source workflow, terminal wait, complete source/task coverage, and validated deterministic rendering for large exercise sets | UI `031504168` and root through `77db55d` committed locally; not pushed, merged, deployed, or release-accepted. The global Study Buddy skill delegation change is local-only outside this repository | The original two failures and a rejected intermediate PDF are preserved in `study-buddy-data/optimization-campaigns/pdf-first-try-reliability`; final fresh `desktop-dev` Quick Chat `08f95861-fcbd-4c25-986d-febd5c6562cc` passed all campaign gates with one message, correct Moodle course, 20 worked examples, a validated 36-page PDF attached after worker termination, zero model repairs/retries, 27 worker model calls, 282,376 fresh input tokens, and about 14m23s desktop duration. Canonical, published, and `/tmp` attachment hashes match. PDF technical checks passed; the optional visual-model reviewer was unavailable, with no blocking finding. Root `npm run verify`: 1,284 passed, 4 skipped; UI model-selection 3 and server handoff 18 focused tests passed | Holistic frozen-batch review and exact-candidate packaged Fedora/Windows acceptance; do not treat the source-tree desktop pass as release acceptance |
+| Preserve original requests and image evidence across provider workers; retain Codex Quick Chat workspace and cancel orphaned HTML runs | Verified locally: root `e57c512`, UI `36b46555f` and `a1435c669`; not pushed or merged | Root 1,254 passed, 4 skipped; backend 890 passed, 4 skipped; 43 affected projection/startup checks; lint and 13 typechecks passed; exact Unicode/voice/queued-message context and image forwarding regressions | Final Codex and Gemini desktop artifacts passed with exact requests and usable checkers; 104 instruction/adapter checks also passed. Claude has no live subscription. Final batch review and packaged release gates remain |
+| Use bounded HTML edits for every provider, preserve requested label language and forward CLI cancellation; recover Balanced builder failures with Terra | UI `63248c0b6` plus root workflow changes; local only | 31 focused repair/model/cancellation tests, 12 shared profile tests; complete root 1,246 passed, four skipped; root and 13 fork typechecks and lint passed. SIGTERM test verifies HTTP disconnect and run lease release | Fresh final Codex and image-grounded Gemini desktop lanes passed; previous failures retained. See final evidence in provider-support.md. Final review and packaged release gates still apply |
+| Recover interrupted provider turns, enable local worksheet form checks, preserve Codex worker account and isolate HTML builders | Local UI commits `86b160ffe`, `bef466f76`, `0c0ec97bc`; root worker isolation and evidence in this batch; not pushed, merged, deployed or release-accepted | Reactor 40; preview policy 3 plus Chromium 2; account policy 5; model/worker 11; full root 1,244 passed, 4 skipped; lint and 13 typechecks passed. Live Gemini worksheet and Codex/Gemini image checks passed | Codex Balanced HTML builder still times out; Fast diagnostic ongoing. Cancellation exposed detached native/background children requiring explicit cleanup. These are acceptance findings, not production-merge acceptance; see provider-support.md |
+| Preserve Gemini connections/profile choices after restart or model changes; shorten runtime temp paths; harden Claude worker errors | Local UI commit `44fedd992` and parent cancellation tests; not pushed, merged, deployed or release-accepted | Real Gemini chat and saved-login check passed; 94 focused native tests, 726 provider/backend regressions, 1,241 root tests, 1,188 web tests plus 3 new recovery tests; lint and all 13 typechecks passed; see `docs/provider-support.md` | Desktop login restored. Gemini pipeline, image and restart checks passed; Codex image passed, artifact and cancellation findings remain under investigation. No Claude subscription: deterministic coverage only, explicitly accepted by owner |
+| Simplify AI connections and remove duplicated provider/model rows | Local UI commit `20d96c744` and parent pointer; not pushed, merged, deployed or release-accepted | 10 focused settings/setup tests; full lint/format and all 13 typechecks passed; actual Electron verified three default providers, individual connection dialogs and Advanced expansion; 390px overflow checks and screenshots; see `docs/provider-support.md` | Authenticated Codex/Gemini pipeline acceptance passed; Claude deterministic-only coverage is owner-approved; holistic frozen-candidate Windows/Fedora acceptance remains required |
+| Add Codex, Claude and Gemini install/connect, optional setup, native model selection and provider-independent workers | Local UI commit `b4bef0b81` plus parent workflow changes and follow-ups above; Codex/Gemini native acceptance passed; Claude deterministic-only; not pushed, merged, deployed or release-accepted | Root 1,237 tests; complete UI 1,187 tests; native/backend 969 tests; all 13 typechecks and lint passed; actual Claude and Gemini installation plus skippable Electron onboarding checked; see `docs/provider-support.md` | Codex/Gemini are connected; fresh real pipeline/parallel-worker and artifact acceptance remains pending after reboot. Claude has no subscription and uses deterministic coverage per owner. Then holistic frozen-candidate Windows/Fedora acceptance; do not infer production readiness from fixtures |
+| Repair single-page quiz navigation, navigation readiness and question-flag contamination; expose actual unresolved-answer reasons | Local development repair; real Moodle pipeline and authorized desktop-dev First-Try passed; not pushed, merged or release-accepted | Same-page fixture 0/4 → 4/4 persisted; fresh Balanced desktop thread completed both unlimited, untimed ET2 self-checks in 5m03s: 13/13 + 6/6 reload-verified (1 new write, 18 existing), 8 + 6 concurrent solvers, no final submission; 40 focused tests and npm verify (1,228 passed, 4 skipped); see `docs/quiz-single-page-repair-2026-09-16.md` | Answer-risk classification varied across runs; persistence is not correctness proof. Non-fatal media warnings and token/duration optimization remain explicit; frozen-candidate Windows/Fedora acceptance remains required |
+| Simplify quiz execution into capture, parallel solving and verified filling; isolate multiple quizzes | Local root implementation `230e83b`, UI dependency `b2eecc505` and evidence follow-up; not pushed, merged, deployed or release-accepted | Matched old/new ten-page browser fixture improves capture from 2 to 10 pages and solver overlap from 1 to 8; original image fidelity, true reload verification and exact-grant isolation; final npm verify: 1,220 tests passed, 4 skipped; 9 CLI wrapper checks, 7 UI/packaged contract checks, full UI check and 13 typechecks passed; see `docs/quiz-minimal-parallel-2026-09-16.md` | Live quiz/model accuracy and native two-card approval acceptance remain unmeasured; sequential no-backtracking quizzes fail safely; holistic frozen-candidate Windows/Fedora packaged acceptance remains required |
+| Restore workflow package after desktop metadata replacement and repair relocated development launchers | Development desktop acceptance passed; local recovery commit; not pushed, merged or release-accepted | Regression reproduces missing workflow command; canonical manifest matches existing lockfile again; package entry/dependency contract included in npm verify; 1,150 workflow tests passed (4 skipped), fork format/lint and all 13 typechecks passed; copied pnpm shims regenerated offline | Fresh Balanced task and HTML threads passed; source facts verified, one bounded mobile repair, five offline feedback interactions and native attachment opening passed. Holistic frozen-candidate Windows/Fedora acceptance remains required; see `docs/migration-recovery-2026-09-15.md` |
+| Complete bounded hybrid authoring, durable recovery and honest whole-turn accounting | Development checks passed; root implementation `79ff78e` plus completion commit; local UI dependency `e8782f83b`; not pushed, merged, deployed or release-accepted | 1,150 workflow tests passed (4 skipped), 5 CLI tests, root typecheck, 26 provider adapter tests, full fork format/lint and all 13 workspace typechecks passed; canned fixed/hybrid comparison preserves identical validated content with 8 versus 5 calls; source/model-bound cache reuse, localized progression/solution recovery and bounded fallback covered | Owner human review of development app; equivalent-input live quality/performance comparison remains unmeasured; whole-turn accounting requires complete native snapshots; holistic freeze review and exact Windows/Fedora packaged acceptance remain required. See `docs/study-builder-vnext/human-review.md` |
+| Remove unused standard-guide AI layout planning and persist bounded item-repair recovery | Development checks passed; local guide-foundation commit; not pushed, merged, deployed or release-accepted | Standard renderer keeps content/blueprint, review and publication gates with no layout-model call; per-item repair reservations persist across resume and changed content hashes; third replacement receives final review; 1,134 workflow tests passed (4 skipped), 2 metrics CLI tests and root typecheck passed | Superseded by completion row above: existing source planner retained and bounded authoring delegation implemented; live controlled performance comparison and exact frozen-candidate packaged acceptance required; see `docs/study-builder-vnext/hybrid-architecture-development.md` |
+| Correct task execution, preflight and quiz/assessment attempt semantics | Development checks passed; local execution-foundation commit; not pushed, merged, deployed or release-accepted | Shared document/page/quiz admission and deadlines; tool-using leaf results rejected with observed usage; concrete-operation preflight and selective fallback preserve healthy assignments; independent assessment and quiz-verification calls use their own primary policies; repair/queue/reasoning metrics; scoped source ESM boundary; 1,134 workflow tests passed (4 skipped), 2 CLI tests and root typecheck passed | Cross-client fallback/telemetry and durable recovery completed in the row above; live controlled equivalent-input comparison, frozen-batch review and exact packaged Windows/Fedora acceptance remain pending |
+| Route content-free PostHog and Study Buddy alerts through existing Server Admin Alerts bot | Operational extension complete; owner confirmed Telegram test receipt; no client release bytes changed | 15 new deterministic monitor tests / 74 server-repository tests; live public/query checks, exact existing bot identity, notification handoff and first hardened service run passed; separate 15-minute timer, cooldown and monitoring recovery | Routine monitoring only; no pending recipient setup and no packaged-release acceptance implied; portable summary in `docs/release-agent-handoff.md` |
+| Harden PostHog error visibility, consent boundaries and delivery across desktop, provider setup/updates and website | Focused checks passed; queued; broader browser findings remain open | Content-free native/renderer/provider health events, schema 8 platform metadata, stable UUIDs, partial-batch retry, bounded transport, no post-revocation resurrection, independent Study Buddy heatmap identity, website SDK opt-out; 102 focused web telemetry tests, 168 native/shared/server tests, 11 website tests and 7 operator-CLI tests passed; focused provider-update browser test passed; seven live health-dashboard queries validated and read back; full fork format/lint and all 13 typechecks passed | Triage the broad browser run's 20 failures/1 unhandled error against the release diff and resolve applicable defects; holistic frozen-batch review and exact Windows/Fedora consent/offline/update/T3-coexistence acceptance are release-agent responsibilities; shared admin alarm channel and owner-confirmed delivery are complete; see `docs/posthog-tracking-audit-2026-09-14.md` |
+| Isolate Study Buddy from T3 Code's desktop port namespace | Verified and queued | Packaged Study Buddy now starts scanning at its dedicated `13773` range, ignores inherited `T3CODE_PORT`, and only accepts `STUDY_BUDDY_DESKTOP_PORT`; 24 focused desktop tests passed together with the backend identity guard; full fork format/lint and all 13 workspace typechecks passed | Exact-candidate Windows acceptance with T3 Code already running on `3773`, plus verification that both apps retain independent state and renderers |
+| Surface the sanitized reason from failed Codex setup processes | Verified and queued | A failed standalone Codex installer now reports its first sanitized stderr diagnostic instead of only exit code 1; setup, sanitizer, policy, maintenance, and desktop regressions contributed to 61 passing focused tests (1 skipped); full fork format/lint and all 13 workspace typechecks passed | Reproduce the reported Windows installer failure from a clean exact candidate and validate install, update, version detection, restart, and sign-in; the screenshot alone does not contain the discarded 0.2.2 installer diagnostic |
+| Reject foreign T3 Code renderers during packaged desktop startup | Verified and queued | Exact reported `0.0.41-nightly.20260909.1439` mismatch is rejected; 9 backend-manager tests cover matching readiness, HTTP/transport retries, lifecycle, and restart behavior; full fork format/lint check and all 13 workspace typechecks passed | Holistic frozen-batch review, exact-candidate packaging, and clean simultaneous T3 Code/Study Buddy Windows acceptance |
+| Preserve actionable Windows updater failures in desktop logs and user-visible toasts | Verified and queued | 31 focused updater/UI tests passed; full fork format/lint check and all 13 workspace typechecks passed; detailed Electron causes retain HTTP/filesystem/checksum context while signed URL query values are removed | Holistic frozen-batch review, exact-candidate packaging, and clean Windows/Fedora updater acceptance |
+| Keep Quick Chats and projects independently reachable with a persistent resizable sidebar split | Verified and queued | Quick Chats load in pages of 10 inside their own scroll pane; 3 focused browser tests cover pane bounds, persisted keyboard resizing, reset, and pointer dragging; all 1,164 web unit tests, full `vp check`, and all 13 typecheck packages passed | Holistic frozen-batch review and final packaged Fedora/Windows acceptance; the focused browser component test does not cover native desktop gates |
+| Task-level model assignments with role inheritance, explicit search/repair policies and per-task metrics | Verified and queued | 1,117 root tests passed (4 skipped); 3 editor browser diagnostics; 9 shared profile/schema tests; server handoff/lifecycle tests; CLI metrics test; root/fork typechecks and `vp check` passed | Holistic frozen-batch review and final packaged desktop acceptance; no automatic difficulty routing or measured model-quality improvement claimed |
+| Reliably name voice-first threads from the full transcript | Verified and queued; desktop-dev voice acceptance passed | All 38 reactor tests and 14 contract settings tests passed; a real 4.324-second Parakeet voice-only turn created thread `d8ad4b9d-656d-4c96-95c1-6c7133adc3e9` with title `Explain Flywheel Purpose`, completed the main response, and kept the transcript out of the projected user message; full `vp check` and all 13 workspace typechecks passed | Source-level desktop acceptance is complete; holistic frozen-batch review and exact-candidate packaged Fedora/Windows acceptance remain required |
+| Preserve composer spacing when switching between Quick Chats and projects | Verified and queued | 7 focused browser-diagnostic UI tests passed, including round-trip position checks for new/existing Quick Chats at desktop/mobile widths; reproduced the previous 40/44 px jump; scoped `vp check` and full `vp run typecheck` passed | Full `vp check` reported formatting issues in 4 unrelated concurrently edited files; holistic frozen-batch review and final release acceptance remain required |
+| Hide the checkout and branch toolbar in Quick Chats while preserving it in project chats | Verified and queued | 7 focused browser-diagnostic UI tests passed (new/existing Quick Chats and project chats at desktop/mobile widths); 4 Quick Chat regressions failed before the fix; `vp check` and `vp run typecheck` passed | Holistic frozen-batch review and final release acceptance; browser diagnostics do not cover native desktop gates |
+| Prevent the packaged workflow-only `npm` shim from intercepting Codex provider updates | Verified and queued | Exact-commit packaged UI updated an isolated Codex fixture from `0.153.0` to `0.154.0`; provider, Windows/Linux resolution, packaged-runtime, typecheck, and artifact-contract tests passed | Holistic review, final exact-candidate packaging, and clean Fedora/Windows VM acceptance after the batch is frozen |
+| Agent-composed weekly answers from native source handoffs; preserve conflicting quiz dates/status and whole-turn duration | Verified and queued; local desktop weekly-answer acceptance passed | Native handoff/classification tests; complete root suite; frontend lifecycle and server projection regressions; native conflict excerpts and learner-facing progress guidance | Holistic frozen-batch review and required final release acceptance |
+| Preserve separately quoted course metadata fields during semantic source validation | Verified and queued; 35 focused tests, typecheck and local desktop run passed | Desktop run exposed valid fields rejected solely for non-adjacent ordering; separate native excerpts retain provenance | Frozen-batch review and final release acceptance |
+
+
+
+
+
+
+## Freeze policy
+
+Drag/drop release CI fixture repair (2026-10-07): `b514412` resolves the graph
+timeout and serializes Windows files. Its sole remaining Windows failure is the
+reusable conflicting-clone test exceeding default five seconds; the production
+readiness loop deliberately spends four seconds rejecting all three ambiguous
+clone variants and the never-initialized widget. Use a scoped ten-second test
+budget for those four negative cases, preserving the production bound. Strengthen
+clone assertions to require no controls, refused fill, unchanged answers and no
+final submission. Ubuntu and all other required checks passed on `b514412`;
+Windows recorded 1,809 pass/20 existing skips in 458.45s. Retain failed evidence
+and require fresh exact-head CI; no product behavior or permission change.
+Local drag/drop17/17 (19.70s), root TypeScript and independent review pass.
+
+Windows release CI repair (2026-10-07): `9adc95f` passed Ubuntu and all other
+required checks; Windows passed 1,809 tests/20 existing skips but its real graph
+render fixture exceeded 30 seconds. Logs show file concurrency despite the
+shell worker flag. Enforce serial Windows files in Vitest configuration and use
+the same `npm test` command on both platforms. Preserve the real render/retry
+assertions, add a PDF signature assertion, and bound this fixture with a
+55-second cancellation deadline inside its 60-second test budget. Graph33/33
+(9.77s), TypeScript and five workflow/security checks pass locally. No product
+runtime, retry-limit or acceptance-policy change. Failed evidence is retained;
+fresh exact-head Windows CI and packaged acceptance remain pending.
+
+Continue adding compatible, individually tested changes and scoped commits to this line. Roughly 10–20 fixes is a useful batching target, not a hard requirement. When the owner freezes the batch, use the applicable Study Buddy review and release skills, resolve the combined findings, build exact immutable candidate bytes, and test those bytes on clean Fedora and Windows VMs before requesting publication approval.
+
+If candidate bytes change, previous packaged acceptance no longer applies. Public tags are immutable and must never be moved or reused.
+
+
+Native24 source attribution refinement (2026-10-02): exact original desktop prompt published eight physical pages in 5m24s, two local compiler repairs; native terminal, current-hash receipt, /tmp delivery and normal internal viewer SHA/page-count proof passed. Independent source review rejects two formula provenance labels: Q1 is a course objectives/announcement page, not a technical formula source. Native24 remains unaccepted and immutable. Universal owner guidance now requires actually read technical material for formula citations or explicit supplemental standard-knowledge attribution; executable decimal-dot and source-note syntax examples are the only template extension. Fresh exact-original Native25 is required. Current source/commits remain local only, not pushed, merged, deployed or release-accepted.
+
+
+Native25 template compatibility checkpoint (2026-10-02): fresh exact-original desktop run ended after 6m55s with no PDF and three failed validations. Original lecture acquisition and exact formula attribution independently passed; final source-note call used a trailing content block unsupported by the shared template. The scoped next fix extends this existing component to accept both compact and body forms while preserving content, verified by real compile/text-retention regression. Native25 remains rejected and immutable; no mathematical rewrite, validation-cap increase, additional model stage or permission change. Fresh Native26 is required.
+
+
+Native26 semantic consistency refinement — 2026-10-02: exact original desktop run publishes11pages in4m09s with zero failed validations and normal viewer/hash proof, but independent source/physical review rejects two actual definition notes: A is inconsistently both separated origin and coincident system point; a first derivative is called second derivative. Keep one native owner and refine its existing final self-check: compare every technical definition, legend and explanatory note against actually read supporting material, preserving symbol role/reference point/frame/basis and derivative order; review the visible operator annotations. Add correct generic Typst underbrace(body, label) syntax to the executable guide, instead of attaching a label as an outside subscript. No extra model/reviewer stage, subject-specific rule, math rewriting, gate weakening or permission/cap change. Preserve all Native26 canonicals and required fresh original Native27.
+
+
+Native27 ergonomic template refinement — 2026-10-02: actual original definitions/derivative notes are corrected, but three compiler validations end with no PDF: unpaired units math spans, single content instead of tuple in formula units, and unknown ddot. Keep source/permission/retry boundaries; extend shared template with a correct generic ddot accent alias and normalize single content/string formula legend/unit values into one-item arrays while preserving existing arrays. Real compile/text-retention regression verifies both scalar and array forms. Avoid the recurrent rejected delete+add-same-path patch by instructing normal existing-file updates or single writes. No artifact edits, automatic math rewriting, new model stages or cap change. Original27 preserved; fresh exact-original28 required.
+
+
+Native28 part/whole and exercise-premise consistency — 2026-10-02: native publishes9pages5m37s retry1, sources/numerical work/layout correct, but final note identifies one rotational summand as the entire summed motion quantity; generated error-finding task calls a valid general identity false merely because its value is zero in the scenario. Refine only same-owner final text/source pass: map complete quantities versus contributing terms explicitly and validate generated question premises independently from the answer; zero evaluation does not invalidate a general formula. No new model/reviewer stage, topic matcher, cap/permission change, canonical patch or weakened rubric. Preserve Native28; fresh exact original29 required.
+
+
+Native29 final fraction syntax and observed source identity — 2026-10-02: native publishes9pages7m10s retry0, actual source/definitions/numerical work correct. Independent physical review rejects ungrouped compound derivative fractions (dif q / dif t renders d(q/d)t). Clarify only existing owner syntax guide/brief to use frac(full numerator, full denominator) for compound fractions, with real differential example and physical rendered review. Separately fix a measured deterministic source catalog bug: later discovered links must not overwrite metadata of an already natively read/downloaded record; explicit observed acquisition may still refresh it. Two independent scoped tests: actual fraction compilation/render and course-native-title then quiz-backlink preservation. No semantic rewrite/parser/model stage, new subject rule, cap/permission change or artifact repair. Preserve Native29; fresh exact original30 required.
+
+
+Native30 numeric verification and visible grouping — 2026-10-02: native publishes9pages with correct sources/roles but a generated arithmetic error (minus8squared times0.5 shown minus16 rather than minus32) and omitted visible grouping in nonassociative products. Clarify same owner: verify every generated numerical result using an actual small local Python/shell calculation and compare it with every printed step/result; fix mismatches before publish. This is an ordinary existing tool call, not a new model/worker/stage or validation gate. Correct executable guide: lr requires literal delimiters inside its body, e.g lr((x+y)); lr(x+y) does not insert parentheses. Real rendered guide review confirms visible parentheses and differential fractions. Preserve Native30 and existing three-failure/permission boundary; fresh exact original31 required.
+
+
+Native32 source terminology and math-note content refinement — 2026-10-02: confirmation run is rejected because an attributed definition renames a source reference-point role and a quoted math-bearing note prints raw markup. Refine only the same document owner: preserve source technical terms verbatim in attributed definitions and keep symbol-to-role/reference-point mapping unchanged when paraphrasing. All math-bearing component arguments, including notes, must be content blocks rather than quoted markup strings. Add one generic executable content-note example and real compiler/PDFtext plus physical rendering regression. No course-specific rule, parser, math rewriting, additional model/worker/stage, gate, validation-cap or permission change. Preserve every Native32 canonical file; a fresh exact-original native run remains required.
+
+
+Native34 concise task-focused document refinement — 2026-10-02: confirmation output has a correct core definition and sound calculations, but an unsolicited technical checklist rephrases the same symbol into a conflicting reference-point label. Source contamination search is negative; redundant rephrasing is the measured cause. Simplify the existing single-owner brief toward requested scope, explanations, worked examples, practice, solutions and source attribution. Avoid unsolicited redundant technical checklists, glossaries, definition recaps and study plans unless requested; define symbols once in the core equation legend and reuse source terminology without inventing ancillary role labels. Consolidate overlapping instructions while preserving source acquisition/attribution, mathematical/numerical/physical self-checks, technical-only validation, three-failure limit and quiz/credential permissions. Change only directDocument.ts and its existing tests after this checkpoint; preserve the correct executable syntax guide and all Native34 files. No hard page count, course-specific rule, extra model/worker/stage/gate or cap change. Previous Native31/33 passes remain evidence; a fresh exact-original confirmation is required.
+
+
+Native37 default PDF compatibility intake — 2026-10-02: the unchanged Quality/LOW native owner followed the loaded Study Buddy skill into the app-owned `doc` command, which still launched the legacy staged extraction/model/render chain and selected unrelated course content. The owner and verified workflow process group were stopped; this run is rejected and immutable. Enforce the explicitly requested single native document owner in code: normalize default `doc` to deterministic `document prepare` before profile/model dispatch, then return template/source-tool/compile/publish guidance to the same owner. Preserve exact original-user-prompt when supplied; accept only compatibility language/profile metadata without overriding the selected app profile, and reject unknown/path/environment/model arguments before acquisition or spawn. Retain verified workspace/stable owning-thread isolation, read-only source broker, current three-failure and quiz/credential boundaries. Non-PDF and quiz flows remain unchanged; explicit advanced extract/render remains distinct. No added author/reviewer worker, stage, model override or cap change. Scoped broker/packaged routing and real CLI preparation tests must show actual template preparation with zero legacy worker dispatch. Built-in Quality effort calibration is a separate later decision after a clean routing baseline; no profile changes in this intake.

@@ -17,6 +17,8 @@ import {
   sanitizeModelVisibleUrl,
 } from "./browserSecurity.js";
 import type { MoodleRuntimeConfig } from "./types.js";
+import { captureQuizQuestionEvidence, type QuizQuestionEvidence } from "./quizMedia.js";
+import { assertNoFinalQuizSubmission, QuizRequestBlockedError, type QuizRequestGuard, type QuizHttpRequest } from "./quizAttemptRequestGuard.js";
 
 const EMPTY_RESULT: AgentBrowserCommandResult = { stdout: "", stderr: "" };
 
@@ -30,6 +32,40 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
   #browser: Browser | null = null;
   #context: BrowserContext | null = null;
   #page: Page | null = null;
+  #quizRequestGuard: QuizRequestGuard | undefined;
+  #quizRequestError: QuizRequestBlockedError | null = null;
+  readonly #pendingQuizGuards = new Set<Promise<void>>();
+
+  setQuizRequestGuard(guard: QuizRequestGuard): void {
+    this.#quizRequestGuard = guard;
+  }
+
+  async #admitQuizRequest(input: QuizHttpRequest): Promise<void> {
+    try {
+      assertNoFinalQuizSubmission(input);
+      await this.#quizRequestGuard?.(input);
+    } catch {
+      this.#quizRequestError ??= new QuizRequestBlockedError(input);
+      throw this.#quizRequestError;
+    }
+  }
+
+  async #settleQuizGuards(): Promise<void> {
+    while (this.#pendingQuizGuards.size) await Promise.all([...this.#pendingQuizGuards]);
+    if (this.#quizRequestError) throw this.#quizRequestError;
+  }
+
+  async #guarded<T>(operation: () => Promise<T>): Promise<T> {
+    await this.#settleQuizGuards();
+    try {
+      const result = await operation();
+      await this.#settleQuizGuards();
+      return result;
+    } catch (error) {
+      await this.#settleQuizGuards();
+      throw error;
+    }
+  }
 
   constructor(config: MoodleRuntimeConfig) {
     this.#config = config;
@@ -55,7 +91,7 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     const page = await this.#getPage();
     this.#authenticationGate.lock();
     try {
-      await ensureLoggedIn(page, config);
+      await this.#guarded(() => ensureLoggedIn(page, config));
       this.#authenticationGate.authenticate();
     } catch (error) {
       this.#authenticationGate.fail();
@@ -76,6 +112,12 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     await question.screenshot({ path: targetPath, animations: "disabled" });
   }
 
+  async captureQuestionEvidence(questionId: string, directory: string): Promise<QuizQuestionEvidence> {
+    this.#authenticationGate.assertReadable("question evidence");
+    const page = await this.#getPage();
+    return this.#guarded(() => captureQuizQuestionEvidence(page, questionId, directory, this.#sensitiveValues(), input => this.#admitQuizRequest(input)));
+  }
+
   async doctor(): Promise<AgentBrowserCommandResult> {
     await this.#getPage();
     return EMPTY_RESULT;
@@ -86,7 +128,7 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     const page = await this.#getPage();
     // Moodle pages can keep analytics, media or polling requests alive after the
     // document is usable. Those requests must not turn navigation into a failure.
-    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    const response = await this.#guarded(() => page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 }));
     if (response && !response.ok())
       throw new Error(`Browser navigation failed with HTTP ${response.status()}.`);
     this.#assertAllowedUrl(page.url());
@@ -212,7 +254,8 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
 
   async evalJson<T = unknown>(script: string): Promise<T> {
     this.#authenticationGate.assertReadable("DOM evaluation");
-    const value = await (await this.#getPage()).evaluate(script);
+    const page = await this.#getPage();
+    const value = await this.#guarded(() => page.evaluate(script));
     const serialized = typeof value === "string" ? value : JSON.stringify(value);
     if (typeof serialized !== "string") {
       throw new Error("Browser DOM evaluation did not return JSON.");
@@ -228,17 +271,24 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
     if (this.#sensitiveValues().some((secret) => secret && value.includes(secret))) {
       throw new Error("Credential filling must use the locked secureLogin transaction.");
     }
-    await (await this.#getPage()).locator(this.#selector(selector)).first().fill(value);
+    const page = await this.#getPage();
+    await this.#guarded(() => page.locator(this.#selector(selector)).first().fill(value));
     return EMPTY_RESULT;
   }
 
   async click(selector: string): Promise<AgentBrowserCommandResult> {
-    await (await this.#getPage()).locator(this.#selector(selector)).first().click();
+    const page = await this.#getPage();
+    await this.#guarded(async () => {
+      await page.locator(this.#selector(selector)).first().click();
+      // Capture only after the destination DOM, without waiting for background polling.
+      await page.waitForLoadState("domcontentloaded", { timeout: 45_000 });
+    });
     return EMPTY_RESULT;
   }
 
   async press(key: string): Promise<AgentBrowserCommandResult> {
-    await (await this.#getPage()).keyboard.press(key);
+    const page = await this.#getPage();
+    await this.#guarded(() => page.keyboard.press(key));
     return EMPTY_RESULT;
   }
 
@@ -278,14 +328,59 @@ class PlaywrightBrowserClient implements AgentBrowserClient {
   }
 
   async #getPage(): Promise<Page> {
+    await this.#settleQuizGuards();
     if (this.#page) return this.#page;
     this.#browser = await chromium.launch({
       headless: this.#config.headless,
       ...browserExecutableLaunchOptions(),
     });
     this.#context = await this.#browser.newContext(
-      this.#config.storageState ? { storageState: this.#config.storageState } : undefined,
+      { serviceWorkers: "block", ...(this.#config.storageState ? { storageState: this.#config.storageState } : {}) },
     );
+    await this.#context.route("**/*", async route => {
+      const request = route.request();
+      const prior = request.redirectedFrom();
+      const input = { url: request.url(), method: request.method(), postData: request.postData(),
+        ...(prior ? { redirectedFrom: { url: prior.url(), method: prior.method() } } : {}) };
+      const admission = (async () => {
+        try {
+          await this.#admitQuizRequest(input);
+          if (this.#quizRequestGuard && request.method().toUpperCase() === "POST" &&
+              /\/mod\/quiz\/startattempt\.php$/i.test(new URL(request.url()).pathname)) {
+            // Playwright routing only sees the first request in a redirect chain.
+            // Fetch this already-admitted start exactly once and validate its real
+            // redirect before exposing it to the browser or replaying any POST.
+            const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
+            try {
+              const status = response.status();
+              if (status >= 300 && status < 400) {
+                if (status !== 302 && status !== 303) throw new QuizRequestBlockedError();
+                const location = response.headers()["location"];
+                if (!location) throw new QuizRequestBlockedError();
+                const start = new URL(request.url());
+                const target = new URL(location, start);
+                if (target.origin !== start.origin || target.username || target.password ||
+                    target.pathname !== start.pathname.replace(/startattempt\.php$/i, "attempt.php")) {
+                  throw new QuizRequestBlockedError();
+                }
+                await this.#admitQuizRequest({ url: target.toString(), method: "GET", postData: null,
+                  redirectedFrom: { url: request.url(), method: request.method(), status } });
+              }
+              await route.fulfill({ response });
+            } finally { await response.dispose(); }
+          } else {
+            await route.continue();
+          }
+        } catch {
+          // Never expose URLs, sesskeys, request bodies or callback errors. A
+          // denied autosave remains a sticky failure, not a successful write.
+          this.#quizRequestError ??= new QuizRequestBlockedError(input);
+          await route.abort("blockedbyclient").catch(() => undefined);
+        }
+      })();
+      this.#pendingQuizGuards.add(admission);
+      try { await admission; } finally { this.#pendingQuizGuards.delete(admission); }
+    });
     this.#page = await this.#context.newPage();
     return this.#page;
   }

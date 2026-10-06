@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import type { MoodleRuntimeConfig } from "../types.js";
+import { createPlaywrightBrowserClient } from "../playwrightBrowserClient.js";
 import {
   enforceQuizSafetyPolicy,
+  extractQuizMetadata,
   normalizeQuizMetadata,
   type QuizMetadata,
 } from "../quizSafetyPolicy.js";
@@ -107,7 +112,7 @@ describe("quizSafetyPolicy", () => {
       timeLimitMinutes: null,
       effectiveTimeLimitMinutes: 30,
       effectiveTimeLimitSource: "deadline",
-      timeLimitUnlimited: false,
+      timeLimitUnlimited: true,
       appearsTimed: true,
     });
   });
@@ -213,6 +218,18 @@ describe("quizSafetyPolicy", () => {
     expect(decision.reason).toBe("timed-quiz-below-minimum-time-limit");
   });
 
+  it("continues an already approved active attempt near its deadline", () => {
+    const approved = policy({ allowStartingOrContinuingAttempts: true, askBeforeStartingOrContinuingAttempts: false,
+      askBeforeTimedQuizzes: false, askBeforeLimitedAttemptQuizzes: false });
+    const active = metadata({ hasActiveAttempt: true, availabilityStatus: "open", timeLimitMinutes: 5, appearsTimed: true });
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: active }).status).toBe("allowed");
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: { ...active, hasActiveAttempt: false } }))
+      .toMatchObject({ status: "blocked", reason: "timed-quiz-below-minimum-time-limit" });
+    expect(enforceQuizSafetyPolicy({ ...approved, askBeforeTimedQuizzes: true }, "start_or_continue_attempt", { metadata: active }).status).not.toBe("allowed");
+    expect(enforceQuizSafetyPolicy(approved, "start_or_continue_attempt", { metadata: { ...active, availabilityStatus: "closed" } }))
+      .toMatchObject({ status: "blocked", reason: "quiz-closed" });
+  });
+
   it("applies the minimum-time policy to the shorter deadline window", () => {
     const result = normalizeQuizMetadata(
       {
@@ -249,7 +266,7 @@ describe("quizSafetyPolicy", () => {
     );
 
     expect(decision.status).toBe("blocked");
-    expect(decision.reason).toBe("limited-attempt-quiz-below-minimum-attempts-left");
+    expect(decision.reason).toBe("first-attempt-only-history-not-zero");
   });
 
   it("requires permission for an ordinary untimed attempt in ask-before mode", () => {
@@ -267,12 +284,27 @@ describe("quizSafetyPolicy", () => {
   });
 
   it("allows continuing an open attempt without requiring unused new attempts", () => {
-    const current = metadata({ hasActiveAttempt: true, attemptsAllowed: 2, attemptsUsed: 2,
-      attemptsLeft: 0, appearsLimitedAttempt: true, availabilityStatus: "open" });
+    const current = metadata({ hasActiveAttempt: true, attemptsAllowed: 2, attemptsUsed: 1,
+      attemptsLeft: 1, activeAttemptId:"321", activeAttemptNumber:1, appearsLimitedAttempt: true, availabilityStatus: "open" });
     const allowed = policy({ allowStartingOrContinuingAttempts: true, askBeforeLimitedAttemptQuizzes: false });
     expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: current }).status).toBe("allowed");
     expect(enforceQuizSafetyPolicy({ ...allowed, askBeforeStartingOrContinuingAttempts: true }, "start_or_continue_attempt", { metadata: current }).status).toBe("permission_required");
     expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: { ...current, hasActiveAttempt: false } }).status).toBe("blocked");
+    expect(enforceQuizSafetyPolicy(allowed, "start_or_continue_attempt", { metadata: { ...current, attemptsUsed:2, activeAttemptNumber:2 } }).status).toBe("blocked");
+  });
+
+  it("requires known zero history for limited first starts, even if a caller disables first-only", () => {
+    const allowed = policy({allowStartingOrContinuingAttempts:true,firstAttemptOnly:false});
+    const fresh = metadata({attemptsAllowed:2,attemptsUsed:0,attemptsLeft:2});
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:fresh}).status).toBe("allowed");
+    for (const attemptsUsed of [null,1,2]) expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:{...fresh,attemptsUsed}}).status).toBe("blocked");
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:{...fresh,attemptsUsed:1,attemptsUnlimited:true}}).status).toBe("blocked");
+  });
+  it("keeps unlimited legacy practice unless first-only is explicitly required", () => {
+    const allowed = policy({allowStartingOrContinuingAttempts:true});
+    const practice = metadata({attemptsUsed:3,attemptsUnlimited:true});
+    expect(enforceQuizSafetyPolicy(allowed,"start_or_continue_attempt",{metadata:practice}).status).toBe("allowed");
+    expect(enforceQuizSafetyPolicy({...allowed,firstAttemptOnly:true},"start_or_continue_attempt",{metadata:practice}).status).toBe("blocked");
   });
 
   it("prevents filling when filling is disabled", () => {
@@ -406,3 +438,110 @@ function answer(confidence: number) {
     risk_flags: [],
   };
 }
+
+
+async function metadataFromNativeHtml(html: (base: string) => string) {
+  let base = "";
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.end(html(base));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const client = createPlaywrightBrowserClient({baseUrl: base, headless: true} as MoodleRuntimeConfig);
+  try {
+    await client.open(`${base}/mod/quiz/view.php?id=7`);
+    return await extractQuizMetadata(client);
+  } finally {
+    await client.close();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+}
+const nativeAttemptCard = (ordinal: number, continuation = "", status = "In Bearbeitung") =>
+  `<section class="card"><h3>Versuch ${ordinal}</h3><h4>Zusammenfassung von Versuch ${ordinal}</h4>
+  <dl><dt>Status</dt><dd>${status}</dd><dt>Begonnen</dt><dd>4. Oktober 2026</dd></dl>${continuation}</section>`;
+
+describe("native quiz identity evidence", () => {
+  it("counts a modern card once and leaves its identity unconfirmed without a real attempt ID", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche
+      ${nativeAttemptCard(1)}<form action="startattempt.php" method="post"><input type="hidden" name="cmid" value="7">
+      <button>Versuch fortsetzen</button></form>`);
+    expect(result).toMatchObject({attemptsUsed: 1, attemptsLeft: 1, hasActiveAttempt: true,
+      activeAttemptId: null, activeAttemptNumber: null,
+      identityEvidence: {history: [{ordinal: 1, attemptId: null, source: "history-card"}]}});
+    expect(enforceQuizSafetyPolicy(policy({allowStartingOrContinuingAttempts: true}),
+      "start_or_continue_attempt", {metadata: result})).toMatchObject({status: "blocked", reason: "first-attempt-only-active-identity-unconfirmed"});
+  });
+  it("reads the public Moodle 5 card/table template without interpreting grade cells as attempt ordinals", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 <h3>Ihre Versuche</h3>
+      <ul class="list-unstyled row"><li><div class="card h-100"><div class="card-header"><h4 class="card-title">Versuch 1</h4></div>
+      <table class="generaltable generalbox quizreviewsummary"><caption class="visually-hidden">Zusammenfassung von Versuch 1</caption><tbody>
+      <tr><th scope="row">Status</th><td>In Bearbeitung</td></tr><tr><th scope="row">Begonnen</th><td>Sonntag, 4. Oktober 2026</td></tr>
+      <tr><th scope="row">Bewertung</th><td>100</td></tr></tbody></table><div class="card-body"></div></div></li></ul>
+      <form action="startattempt.php" method="post"><input type="hidden" name="cmid" value="7"><button>Versuch fortsetzen</button></form>`);
+    expect(result).toMatchObject({attemptsUsed: 1, attemptsLeft: 1, hasActiveAttempt: true,
+      activeAttemptId: null, activeAttemptNumber: null,
+      identityEvidence: {history: [{ordinal: 1, attemptId: null, source: "history-card"}]}});
+    expect(result.identityEvidence?.history).toHaveLength(1);
+    expect(enforceQuizSafetyPolicy(policy({allowStartingOrContinuingAttempts: true}),
+      "start_or_continue_attempt", {metadata: result}).status).toBe("blocked");
+  });
+  it("binds ordinal evidence in a Moodle 5 table card only to its real matching attempt link", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 <div class="card"><h4 class="card-title">Attempt 2</h4>
+      <table class="quizreviewsummary"><caption>Summary of attempt 2</caption><tbody><tr><th scope="row">State</th><td>In progress</td></tr></tbody></table>
+      <div class="card-body"><a href="attempt.php?attempt=322&cmid=7">Continue attempt</a></div></div>`);
+    expect(result).toMatchObject({attemptsUsed: 2, activeAttemptId: "322", activeAttemptNumber: 2,
+      identityEvidence: {history: [{ordinal: 2, attemptId: "322", source: "history-card"}]}});
+    expect(enforceQuizSafetyPolicy(policy({allowStartingOrContinuingAttempts: true}),
+      "start_or_continue_attempt", {metadata: result}).status).toBe("blocked");
+  });
+  it("associates a relative continuation link with its actual native first card, without disclosing tokens", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche ${nativeAttemptCard(1,
+      '<a href="attempt.php?attempt=321&cmid=7&sesskey=fixture-secret">Versuch fortsetzen</a>')}`);
+    expect(result).toMatchObject({attemptsUsed: 1, activeAttemptId: "321", activeAttemptNumber: 1,
+      identityEvidence: {continuation: [{attemptId: "321", path: "/mod/quiz/attempt.php?attempt=321", source: "continue-link"}]}});
+    expect(JSON.stringify(result.identityEvidence)).not.toContain("fixture-secret");
+  });
+  it("reads exact continuation form identity fields but does not expose unrelated form inputs", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche ${nativeAttemptCard(1,
+      '<form action="./attempt.php"><input type="hidden" name="attempt" value="321"><input type="hidden" name="sesskey" value="fixture-secret"><input name="password" value="fixture-password"><button>Versuch fortsetzen</button></form>')}`);
+    expect(result).toMatchObject({activeAttemptId: "321", activeAttemptNumber: 1,
+      identityEvidence: {continuation: [{attemptId: "321", source: "continue-form"}]}});
+    expect(JSON.stringify(result.identityEvidence)).not.toMatch(/sesskey|password|fixture-secret|fixture-password/);
+  });
+  it("never assigns ordinal one to a second card or to conflicting active continuation IDs", async () => {
+    const second = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche
+      ${nativeAttemptCard(1, '<a href="review.php?attempt=321">Review</a>', "Beendet")}
+      ${nativeAttemptCard(2, '<a href="attempt.php?attempt=322">Versuch fortsetzen</a>')}`);
+    expect(second).toMatchObject({attemptsUsed: 2, activeAttemptId: "322", activeAttemptNumber: 2});
+    expect(enforceQuizSafetyPolicy(policy({allowStartingOrContinuingAttempts: true}),
+      "start_or_continue_attempt", {metadata: second}).status).toBe("blocked");
+    const conflicting = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche
+      ${nativeAttemptCard(1, '<a href="attempt.php?attempt=321">Versuch fortsetzen</a>')}
+      ${nativeAttemptCard(2, '<a href="attempt.php?attempt=322">Versuch fortsetzen</a>')}`);
+    expect(conflicting).toMatchObject({attemptsUsed: 2, activeAttemptId: null, activeAttemptNumber: null});
+  });
+  it("bounds and whitelists diagnostic evidence instead of reflecting raw metadata", () => {
+    const identityEvidence = {
+      currentAttemptId: "321",
+      history: Array.from({length: 80}, (_, index) => ({ordinal: index + 1, attemptId: "321", source: "history-card" as const, password: "fixture-secret"})),
+      continuation: [
+        {attemptId: "321", path: "/mod/quiz/attempt.php?attempt=321", source: "continue-link" as const, sesskey: "fixture-secret"},
+        {attemptId: "321", path: "/mod/quiz/attempt.php?attempt=321&sesskey=fixture-secret", source: "continue-form" as const},
+      ],
+      cookies: "fixture-secret",
+    };
+    const result = normalizeQuizMetadata({identityEvidence});
+    expect(result.identityEvidence?.history).toHaveLength(32);
+    expect(result.identityEvidence?.continuation).toEqual([{attemptId: "321", path: "/mod/quiz/attempt.php?attempt=321", source: "continue-link"}]);
+    expect(JSON.stringify(result.identityEvidence)).not.toMatch(/fixture-secret|password|cookies|sesskey/);
+    expect(result.activeAttemptId).toBeNull(); // Diagnostic evidence never manufactures normalized proof fields.
+  });
+  it("rejects foreign continuation URLs, conflicting query IDs and arbitrary identity attributes", async () => {
+    const result = await metadataFromNativeHtml(() => `Erlaubte Versuche: 2 Ihre Versuche ${nativeAttemptCard(1,
+      '<a href="https://foreign.example/mod/quiz/attempt.php?attempt=321">Versuch fortsetzen</a><a href="attempt.php?attempt=321&cmid=8">Versuch fortsetzen</a><a href="attempt.php?attempt=321&attempt=322">Versuch fortsetzen</a><div data-attempt-id="321" data-attempt-number="1"></div>')}`);
+    expect(result).toMatchObject({activeAttemptId: null, activeAttemptNumber: null,
+      identityEvidence: {continuation: []}});
+  });
+});

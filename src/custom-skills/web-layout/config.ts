@@ -19,6 +19,11 @@ export const DEFAULT_WEBP_QUALITY = 84;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CANONICAL_STUDY_BUDDY_LOGO_PATH = path.resolve(MODULE_DIR, "../../../CI/logo.png");
 
+export function sourceEvidenceImages(config: Pick<WebLayoutRuntimeConfig, "assetFiles">): string[] {
+  return config.assetFiles.filter((file) => path.resolve(file) !== CANONICAL_STUDY_BUDDY_LOGO_PATH
+    && /\.(png|jpe?g|webp)$/i.test(file));
+}
+
 export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRuntimeConfig {
   if (!input.prompt.trim()) {
     throw new Error("prompt is required.");
@@ -61,6 +66,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
   }
 
   return {
+    architectureMode: parseArchitectureMode(input.architectureMode ?? process.env.STUDY_BUDDY_ARCHITECTURE),
     prompt: input.prompt,
     originalUserPrompt,
     kind: parseKind(input.kind ?? "auto"),
@@ -108,6 +114,7 @@ export function createWebLayoutRuntimeConfig(input: WebLayoutInput): WebLayoutRu
 
 export function sanitizeWebLayoutConfig(config: WebLayoutRuntimeConfig) {
   return {
+    architectureMode: config.architectureMode,
     prompt: config.prompt,
     originalUserPrompt: config.originalUserPrompt,
     kind: config.kind,
@@ -223,4 +230,10 @@ export function safeSlug(value: string): string {
     .replace(/[^a-z0-9äöüß_-]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80) || "web-layout";
+}
+
+export function parseArchitectureMode(value: string | undefined): "fixed" | "hybrid" {
+  if (value === undefined || value === "hybrid") return "hybrid";
+  if (value === "fixed") return "fixed";
+  throw new Error("architectureMode must be fixed or hybrid.");
 }

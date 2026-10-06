@@ -12,6 +12,16 @@
 
 ## Phase 1 — contracts and immediate hardening
 
+- [x] Repair intent-scoped conversational source completeness (campaign
+  `intent-driven-source-completeness`): general user-intent-first coordinator
+  guidance, native course/source identity and compact audit navigation, focused
+  handoff regressions and paginated native activity reads. Two fresh exact-prompt
+  desktop-dev weekly runs and a focused two-course upcoming/completed-test run
+  pass. The user request selects scope, source order and depth; no mandatory
+  all-course crawling or answer template. Root verification: 1,298 passed,
+  four skipped; coordinator 18 tests, fork lint and 13 typechecks passed.
+  Development acceptance only; installed/release acceptance remains separate.
+
 - [x] Add versioned source, connection, auth-status, capability, policy, health,
   normalized-record, and operation-effect contracts.
 - [x] Add deterministic capability-based source selection.
@@ -64,6 +74,26 @@
 
 ## Phase 5 — email read and draft
 
+- [x] Latest-unread reliability follow-up (`email-latest-read-reliability`,
+  explicitly approved 2026-10-06): preserve SOGo UID-selected arrival order and
+  pagination, expose truthful order/date-label metadata, fail closed on unproven
+  UID pages, use exact times from only the requested bodies. Reproduce/fix stale
+  in-process registry updates while keeping network work outside transactions.
+  Three fresh unchanged native Balanced cases independently 4/4 with three reads
+  each; nine seen proofs, no errors or further send. 208 focused checks,
+  full check/13 typechecks/backend bundle and independent review pass. See
+  [accepted follow-up](../email-latest-read-reliability-2026-10-06.md).
+- [x] Direct agent-owned email context (`direct-agent-email-access`, approved
+  2026-10-06): expose the existing authenticated broker's inventory/list/search/read
+  operations through the native desktop tool client. Replace prompt regex gates
+  and automatic body prefetch with account policy only; the native agent chooses
+  retrieval and reports evidence and coverage. Preserve read state, source/folder
+  scope, credential isolation and exact-message send approval. Source regressions
+  and multiple fresh Balanced desktop prompts are required before closing this
+  development repair: six final fresh desktop prompts pass, four grounded cases
+  independently score 4/4 and two no-read cases pass; 174 focused tests, full UI
+  checks/typechecks and HTTP6 pass. See [acceptance report](../direct-email-access-2026-10-06.md).
+  Packaged release acceptance remains separate.
 - [ ] Add provider-neutral thread/message/attachment records.
 - [ ] Prefer provider/API or mail-protocol adapters; use bounded webmail as a
   fallback.

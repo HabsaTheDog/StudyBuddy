@@ -11,8 +11,14 @@ export interface ModelTokenUsage {
 }
 
 export interface ModelCallMetric extends ModelTokenUsage {
+  providerInstanceId?: string;
   id: string;
+  logicalCallId?: string;
+  transportAttempt?: number;
+  usageAvailable?: boolean;
   task: StudyBuddyModelTask;
+  operation?: string;
+  policySource?: string;
   attempt: number;
   model: string;
   reasoningEffort: StudyBuddyReasoningEffort;
@@ -58,9 +64,13 @@ export interface ExecutionMetricsSnapshot {
   totals: ModelTokenUsage & {
     freshInputTokens: number;
     modelCalls: number;
+    logicalModelCalls: number;
+    transportRetries: number;
+    unknownUsageCalls: number;
     modelDurationMs: number;
     modelQueueWaitMs: number;
     retries: number;
+    repairCalls: number;
     toolCalls: number;
     leafToolPolicyViolations: number;
   };
@@ -115,9 +125,11 @@ export class ExecutionTelemetry {
         reasoningOutputTokens: 0,
         freshInputTokens: 0,
         modelCalls: 0,
+        logicalModelCalls: 0, transportRetries: 0, unknownUsageCalls: 0,
         modelDurationMs: 0,
         modelQueueWaitMs: 0,
         retries: 0,
+        repairCalls: 0,
         toolCalls: 0,
         leafToolPolicyViolations: 0,
       },
@@ -195,9 +207,13 @@ export class ExecutionTelemetry {
       this.snapshot.totals.freshInputTokens += metric.freshInputTokens ??
         Math.max(0, metric.inputTokens - metric.cachedInputTokens);
       this.snapshot.totals.modelCalls += 1;
+      this.snapshot.totals.logicalModelCalls = new Set(this.snapshot.modelCalls.map(call => call.logicalCallId ?? call.id)).size;
+      this.snapshot.totals.transportRetries += Number((metric.transportAttempt ?? 1) > 1);
+      this.snapshot.totals.unknownUsageCalls += Number(metric.usageAvailable !== true);
       this.snapshot.totals.modelDurationMs += metric.durationMs;
       this.snapshot.totals.modelQueueWaitMs += metric.queueWaitMs ?? 0;
       if (metric.attempt > 1) this.snapshot.totals.retries += 1;
+      if (metric.task.endsWith("_repair") || metric.operation?.endsWith("_repair")) this.snapshot.totals.repairCalls += 1;
       this.snapshot.totals.toolCalls += metric.toolCalls ?? 0;
       if (metric.leafWorker && (metric.toolCalls ?? 0) > 0) {
         this.snapshot.totals.leafToolPolicyViolations += 1;

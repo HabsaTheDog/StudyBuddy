@@ -11,7 +11,7 @@ import { readObligationCoverage } from "../obligationCoverage.js";
 
 export interface QuickAnswerArtifact {
   schemaVersion: 1;
-  kind: "quick_answer" | "schedule_answer";
+  kind: "quick_answer" | "schedule_answer" | "source_evidence";
   prompt: string;
   answer: string;
   status: "answered" | "not_found" | "partial";
@@ -31,23 +31,29 @@ export function createAnswerWriterNode(config: MoodleRuntimeConfig) {
   return async function answerWriterNode(
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
-    const inventory = config.intentDecision?.obligationDiscovery?.requested
+    const inventory = (config.sourceEvidenceOnly || config.intentDecision?.obligationDiscovery?.requested)
       ? await readObligationInventory(config.runDir) : null;
-    if (inventory?.answer) {
+    if (inventory && config.sourceEvidenceOnly) {
+      const extracted = state.extracted_data as Record<string, unknown>;
+      if (typeof extracted.answer !== "string" || !extracted.answer.trim() || state.error_log) {
+        throw new Error("Native source handoff is missing or failed; the audit template is not a substitute.");
+      }
+      const missing = [...new Set([...inventory.gaps, ...(Array.isArray(extracted.answer_missing)
+        ? extracted.answer_missing.filter((item): item is string => typeof item === "string") : [])])];
       const artifact: QuickAnswerArtifact = {
-        schemaVersion: 1, kind: "quick_answer", prompt: config.originalUserPrompt,
-        answer: inventory.answer, status: inventory.complete ? "answered" : "partial",
-        confidence: inventory.complete ? "high" : "low",
+        schemaVersion: 1, kind: "source_evidence", prompt: config.originalUserPrompt,
+        answer: extracted.answer, status: inventory.complete && !missing.length ? "answered" : "partial",
+        confidence: inventory.complete && !missing.length ? "high" : "low",
         sources: inventory.courses.filter(c => c.status === "audited").map(c => ({ kind: "moodle_page" as const, title: c.title, url: c.url }))
-          .concat(inventory.facts.filter(f => f.disposition === "due").map(f => ({ kind: "moodle_page" as const, title: f.label, url: f.url }))),
-        missing: inventory.gaps, generatedAt: new Date().toISOString(),
+          .concat(inventory.facts.map(f => ({ kind: "moodle_page" as const, title: f.label, url: f.url }))),
+        missing, generatedAt: new Date().toISOString(),
       };
       await mkdir(config.runDir, { recursive: true });
       await Promise.all([
-        writeFile(answerPath(config), inventory.answer + "\n"),
+        writeFile(answerPath(config), extracted.answer + "\n"),
         writeFile(answerJsonPath(config), JSON.stringify(artifact, null, 2) + "\n"),
       ]);
-      return { final_document: inventory.answer, error_log: null };
+      return { final_document: extracted.answer, error_log: null };
     }
     const coverage = config.diagnostics?.getCoverage();
     const obligationDiscovery = config.intentDecision?.obligationDiscovery?.requested === true;

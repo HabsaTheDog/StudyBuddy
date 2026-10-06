@@ -261,13 +261,13 @@ export async function reviewRenderedPdf(
       if (sheets.length === 0) {
         throw new Error("No contact sheet could be produced from the rendered PDF pages.");
       }
-      for (let index = 0; index < sheets.length; index += 2) {
+      for (let index = 0; index < sheets.length;) {
         const pair = sheets.slice(index, index + 2);
         const allowedPages = pair.flatMap((entry) => entry.pages);
         const response = await input.codex.run(
           buildModelReviewPrompt(allowedPages),
           {
-            task: "quality_reviewer",
+            task: "quality_reviewer", operation: "pdf_review",
             attempt: 1,
             outputSchema: modelVisualReviewSchema,
             localImages: pair.map((entry) => entry.path),
@@ -283,6 +283,10 @@ export async function reviewRenderedPdf(
           entry.code,
           entry.message,
         )));
+        if (index + pair.length >= sheets.length) break;
+        // Without montage, overlap adjacent physical pages so a divider at
+        // the image-batch boundary can still be checked against its content.
+        index += pair.every((entry) => entry.pages.length === 1) ? 1 : 2;
       }
       modelReviewedPages = [...new Set(modelReviewedPages)].sort((left, right) => left - right);
       modelReview = modelBlocking ? "failed" : "passed";
@@ -564,9 +568,9 @@ async function createContactSheets(
     const result = await safeProcess(run, "magick", args, signal, 2 * 1024 * 1024);
     if (result.code !== 0) {
       // Codex accepts at most two local images. If montage is unavailable,
-      // preserve honest coverage by reviewing at most the first two real pages
-      // of this batch instead of pretending a sheet exists.
-      for (const page of sheetPages.slice(0, 2)) {
+      // preserve all selected real pages. The caller batches these inputs
+      // into at most two images and keeps adjacent-page context across calls.
+      for (const page of sheetPages) {
         const rasterPath = rasterPaths[page - 1];
         if (rasterPath) sheets.push({ path: rasterPath, pages: [page] });
       }
@@ -583,8 +587,10 @@ function buildModelReviewPrompt(pages: number[]): string {
     `Visible page labels in this batch: ${pages.join(", ")}.`,
     "This is a subject-agnostic render gate. Do not evaluate factual content, course coverage, examples, question counts, pedagogy, writing style, or whether optional sections exist.",
     "Report only concrete visible production defects: clipped/cut-off content, overlapping text or blocks, broken glyphs/formulas, visibly printed source markup such as $bold(...)$ or #sb-..., unreadably small body text, distorted/cropped images, blank or corrupt pages, or gross layout breakage.",
-    "Use the visible page label for every finding. A deliberate full-bleed background, page break, or ordinary whitespace is not a defect.",
-    "Set severity=error only when the delivered page is materially unreadable or broken; use warning for a localized concern that remains usable.",
+    "Check for an unintentional heading/divider-only intermediate page: disregard recurring headers and footers, then compare the related body content on the next page only where consecutive physical page labels are supplied. A small stranded heading or divider followed by its content on the next page is a blocking pagination defect even when its text remains readable. Keep the heading/divider with its following content through formatter repair; do not change the learning content.",
+    "An intentional cover or clearly designed standalone section opener is allowed. Do not infer deliberate intent merely from a lone small divider or the existence of a page break. Ordinary whitespace and short content are not sufficient evidence of a defect; if the adjacent page or intent is genuinely unclear, use warning rather than inventing a blocking finding.",
+    "Use the visible physical page label for every finding, not a printed footer page number. A deliberate full-bleed background or an intentional page break is not a defect.",
+    "Set severity=error for a concrete accidental heading/divider-only intermediate page or when the delivered page is materially unreadable or broken; use warning for a localized concern that remains usable.",
     "Every repairTarget must be formatter. Return JSON only.",
   ].join("\n");
 }

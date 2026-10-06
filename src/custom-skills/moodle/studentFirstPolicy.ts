@@ -5,7 +5,36 @@ import type {
   LinkPolicy,
 } from "./examNavigatorContracts.js";
 
-export const STUDENT_FIRST_POLICY_VERSION = "1.3";
+export const STUDENT_FIRST_POLICY_VERSION = "1.8";
+
+export const SOURCE_FIDELITY_POLICY = [
+  "Cite direct selected-assessment statements for dates, topics and format. Portal announcements/titles with an actual URL and record locator are evidence; arbitrary filenames are not.",
+  "Separate confirmed attributes from uncertainty about exclusive or complete assessment coverage; describe the exact remaining gap or conflict.",
+  "For conflicting course-group labels and a specific assessment announcement, preserve the conflict and use the announcement for its stated attributes. Never merge their scopes silently.",
+  "The absence of a calendar entry cannot negate a documented Moodle date or announcement. A missing source role describes only that role's coverage.",
+  "Reconcile chapter-local warnings and contract interpretations against document_context before global claims. A local packet gap cannot deny available document evidence. Cite directly confirmed attributes even if the contract calls an interpretation probable; retain only the actual uncertainty.",
+  "Respect each subtask's own instructions, assumptions and givens; reuse previous numerical results only when these permit it.",
+].join(" ");
+
+export const MATHEMATICAL_INTEGRITY_POLICY = [
+  "Where formulas have a physical interpretation, reconcile computed signs, vector directions, term names and meaning under the stated reference frame and sign convention. Distinguish descriptions of motion from real forces and frame-dependent apparent forces. State and reconcile differing source conventions; do not silently reuse a label with an incompatible formula or direction.",
+  "Every generated task must be feasible under its stated assumptions. Solve with unchanged givens; label hypothetical changes explicitly, never as solutions within those givens.",
+  "A derivative does not determine a function value or integration constants without initial or boundary conditions. Before claiming a unique result, verify that the givens determine every requested quantity; otherwise show the parameterized family or name the missing condition.",
+  "An instantaneous function value does not determine its derivative. Distinguish a value at one instant from an identity over an interval before removing derivative terms.",
+  "Each zero/shortcut condition on a varying quantity must state at its occurrence whether it holds at one point/instant or throughout an interval. Retain derivative terms unless that derivative is separately zero or proven zero by the stated interval identity. A global warning cannot repair a false local table/checklist/formula claim.",
+  "Check mathematical claims in prose and checklists as well as displayed calculations. Distinguish necessary conditions from sufficient conditions; do not reverse an implication or assert an equivalence without justification.",
+  "Test relevant counterexamples and zero, boundary, parallel, orthogonal and singular cases before claiming an expression is always nonzero or a condition guarantees a result. For example, nonzero parallel vectors can have a zero cross product.",
+  "Preserve scalar, vector and matrix types, operator meaning, derivative order and units; state the assumptions and domain restrictions required by each formula and inference. Conditions on operands alone do not establish a nonzero operator result.",
+  "Typst math `times` renders × and can correctly denote a vector cross product. Check the intended operator against the operands and source convention. Do not reject an operator solely because of its Typst token or replace a valid cross product with scalar or dot multiplication.",
+].join(" ");
+
+export const ASSESSMENT_SCORING_POLICY = [
+  "Never invent point allocations, weights, pass thresholds, or official grading for generated or derived exercises and simulations.",
+  "The absence of documented scoring means no point badges or totals, even if a made-up score would be labelled non-official.",
+  "Use the optional points argument only when the exact official allocation for the reproduced source task is explicitly documented and cited; a source-backed formula alone is not scoring evidence.",
+  "A clear local label must identify Study Buddy-derived/generated tasks and distinguish them from official source tasks.",
+  "Where useful, offer an explicitly non-official percentage self-rating or met/not-met checklist instead.",
+].join(" ");
 
 export const STUDENT_FIRST_POLICY = [
   "Optimize verified learning value per minute.",
@@ -17,6 +46,8 @@ export const STUDENT_FIRST_POLICY = [
   "Select learning blocks and their placement from the evaluated request contract and course evidence; do not impose a universal practice, example, or checklist shape.",
   "Related course topics may share a chapter, but official topic labels, subtopics, and practice routes must remain visibly traceable.",
   "Practice items require a concrete learning goal and source evidence.",
+  MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
 ].join(" ");
 
 export interface ArtifactIntent {

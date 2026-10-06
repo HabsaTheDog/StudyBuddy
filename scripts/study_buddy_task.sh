@@ -2,6 +2,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+CURRENT_WRAPPER="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
+# Desktop credentials are owned by the workflow broker, never this shell.
+# Honor the app wrapper even when an agent invokes this repository fallback.
+if [[ "${STUDY_BUDDY_BROKER_EXECUTION:-}" != "1" && -n "${STUDY_BUDDY_TASK_WRAPPER:-}" ]]; then
+  APP_WRAPPER="$STUDY_BUDDY_TASK_WRAPPER"
+  if [[ ! -x "$APP_WRAPPER" ]]; then
+    echo "Study Buddy's configured app wrapper is unavailable. Restart the app and retry." >&2
+    exit 1
+  fi
+  RESOLVED_APP_WRAPPER="$(cd -- "$(dirname -- "$APP_WRAPPER")" && pwd -P)/$(basename -- "$APP_WRAPPER")"
+  if [[ "$RESOLVED_APP_WRAPPER" != "$CURRENT_WRAPPER" && ! "$APP_WRAPPER" -ef "$CURRENT_WRAPPER" ]]; then
+    exec "$APP_WRAPPER" "$@"
+  fi
+fi
 REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 STUDY_BUDDY_ROOT="${STUDY_BUDDY_ROOT:-${STUDY_BUDDY_WORKFLOW_ROOT:-$REPOSITORY_ROOT}}"
 export STUDY_BUDDY_ROOT
@@ -55,6 +69,7 @@ ARTIFACT_LOCK_TOKEN=""
 usage() {
   cat >&2 <<'USAGE'
 Usage:
+  study_buddy_task.sh source-evidence "<prompt>" [extra args]
   study_buddy_task.sh prompt "<natural language prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
   study_buddy_task.sh combined "<natural language prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
   study_buddy_task.sh doc "<prompt>" [--original-user-prompt "<exact user prompt>"] [--language de|en] [extra args]
@@ -583,6 +598,18 @@ workflow_budget_ms_for_run() {
   ' "$run_dir/adaptive-budget.json"
 }
 
+workflow_deadline_ms_for_run() {
+  local run_dir="$1"
+  local started_ms="$2"
+  local budget_ms
+  budget_ms="$(workflow_budget_ms_for_run "$run_dir")"
+  node -e '
+    const calculated = Number(process.argv[1]) + Number(process.argv[2]);
+    const owner = Number(process.argv[3]);
+    process.stdout.write(String(Number.isFinite(owner) && owner > 0 ? Math.min(owner, calculated) : calculated));
+  ' "$started_ms" "$budget_ms" "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}"
+}
+
 run_staged_document() {
   local prompt_text="$1"
   shift
@@ -627,9 +654,8 @@ run_staged_document() {
   local current_extraction_dir="$extraction_dir"
   if ! run_agent_in_dir "$prompt_text" "$extraction_dir" --stage extract "${source_args[@]}" "${workflow_args[@]}"; then
     local extraction_recovered="false"
-    local workflow_budget_ms
-    workflow_budget_ms="$(workflow_budget_ms_for_run "$extraction_dir")"
-    local workflow_deadline_ms=$((workflow_started_ms + workflow_budget_ms))
+    local workflow_deadline_ms
+    workflow_deadline_ms="$(workflow_deadline_ms_for_run "$extraction_dir" "$workflow_started_ms")"
     export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$workflow_deadline_ms"
 
     local recovery_attempt
@@ -684,11 +710,7 @@ run_staged_document() {
   fi
 
   echo "Extraction handoff ready: $successful_extraction_dir/extracted-data.json"
-  if [[ -z "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
-    local workflow_budget_ms
-    workflow_budget_ms="$(workflow_budget_ms_for_run "$successful_extraction_dir")"
-    export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$((workflow_started_ms + workflow_budget_ms))"
-  fi
+  export STUDY_BUDDY_WORKFLOW_DEADLINE_MS="$(workflow_deadline_ms_for_run "$successful_extraction_dir" "$workflow_started_ms")"
   if [[ -n "${STUDY_BUDDY_WORKFLOW_DEADLINE_MS:-}" ]]; then
     local render_remaining_ms=$((STUDY_BUDDY_WORKFLOW_DEADLINE_MS - $(date +%s%3N)))
     if (( render_remaining_ms <= 60000 )); then
@@ -1152,11 +1174,20 @@ if (hasWorkflowSummary) {
     ? ["assignment-report.md", "assignment-report.json"]
     : ["quiz-review.typ", "quiz-review.json"];
   if (interaction.workflowStatus === "permission_required") {
-    expectedArtifacts.push(
-      contract === "interactive_assignment"
-        ? "assignment-permission-request.json"
-        : "quiz-permission-request.json",
-    );
+    const permissionPaths = contract === "interactive_assignment"
+      ? ["assignment-permission-request.json"]
+      : interaction.permissionRequestPaths ?? ["quiz-permission-request.json"];
+    const permissionName = contract === "interactive_assignment"
+      ? "assignment-permission-request.json" : "quiz-permission-request.json";
+    if (!Array.isArray(permissionPaths) || permissionPaths.length === 0 ||
+        new Set(permissionPaths).size !== permissionPaths.length || permissionPaths.some(name =>
+          typeof name !== "string" || path.isAbsolute(name) || path.win32.isAbsolute(name) ||
+          path.normalize(name) !== name || name.split(/[\\/]/).some(part => !part || part === "." || part === "..") ||
+          path.basename(name) !== permissionName || !isContainedRegularControl(name))) {
+      contradiction = "Interaction permission paths must name distinct contained permission request files";
+    } else {
+      expectedArtifacts.push(...permissionPaths);
+    }
   }
   if (interaction.schemaVersion !== 1) {
     contradiction = `Unsupported interaction result schema (${interaction.schemaVersion || "unknown"})`;
@@ -1454,6 +1485,17 @@ action="$1"
 shift
 
 case "$action" in
+  email)
+    echo "Email tools require the authenticated Study Buddy desktop service." >&2
+    exit 1
+    ;;
+  sources|document)
+    if [[ "${STUDY_BUDDY_BROKER_EXECUTION:-}" != "1" ]]; then
+      echo "Direct Study Buddy tools require the app-owned workflow broker." >&2
+      exit 1
+    fi
+    exec node "$STUDY_BUDDY_ROOT/t3code-fork/scripts/study-buddy-packaged-task.mjs" "$action" "$@"
+    ;;
   root)
     printf '%s\n' "$STUDY_BUDDY_ROOT"
     ;;
@@ -1465,6 +1507,11 @@ case "$action" in
     ;;
   output-root)
     printf '%s\n' "$STUDY_BUDDY_OUTPUT_ROOT"
+    ;;
+  source-evidence)
+    [[ $# -ge 1 ]] || { usage; exit 2; }
+    require_nonempty_prompt "$1"
+    run_agent "$1" --source-evidence-only "${@:2}"
     ;;
   prompt)
     [[ $# -ge 1 ]] || { usage; exit 2; }
@@ -1562,7 +1609,26 @@ case "$action" in
     ;;
   quiz-url)
     [[ $# -ge 1 ]] || { usage; exit 2; }
+    for quiz_arg in "$@"; do
+      if [[ "$quiz_arg" == "--help" || "$quiz_arg" == "-h" || "$quiz_arg" == "help" ]]; then
+        usage
+        exit 0
+      fi
+    done
     url="$1"
+    if ! node --input-type=module - "$url" <<'NODE'
+try {
+  const url = new URL(process.argv[2]);
+  const key = /\/mod\/quiz\/view\.php$/.test(url.pathname) ? "id"
+    : /\/mod\/quiz\/attempt\.php$/.test(url.pathname) ? "attempt" : null;
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password ||
+      !key || !/^[1-9]\d*$/.test(url.searchParams.get(key) || "")) process.exit(2);
+} catch { process.exit(2); }
+NODE
+    then
+      echo "quiz-url requires a Moodle quiz view.php?id=… or attempt.php?attempt=… URL." >&2
+      exit 2
+    fi
     shift
     run_agent "bearbeite das Moodle Quiz $url" --max-pages 24 --auto-answer --no-cis "$@"
     ;;

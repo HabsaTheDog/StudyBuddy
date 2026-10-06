@@ -1,3 +1,14 @@
+// Named Greek letters from Typst's sym module, shared by styling, scripts and
+// identifier quoting: https://typst.app/docs/reference/symbols/sym/
+const supportedGreekSymbols: Record<string, string> = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ",
+  iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", omicron: "ο", pi: "π",
+  rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω", digamma: "ϝ",
+  Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ", Epsilon: "Ε", Zeta: "Ζ", Eta: "Η", Theta: "Θ",
+  Iota: "Ι", Kappa: "Κ", Lambda: "Λ", Mu: "Μ", Nu: "Ν", Xi: "Ξ", Omicron: "Ο", Pi: "Π",
+  Rho: "Ρ", Sigma: "Σ", Tau: "Τ", Upsilon: "Υ", Phi: "Φ", Chi: "Χ", Psi: "Ψ", Omega: "Ω", Digamma: "Ϝ",
+};
+
 export function renderTypstInlineText(
   value: string,
   formatMath: (value: string) => string,
@@ -15,8 +26,12 @@ export function renderTypstInlineText(
 }
 
 export function cleanVisibleMathText(value: string): string {
-  return value
+  return normalizeBareBoldStyling(normalizeVisibleLatex(unwrapVisibleMathCalls(value)), false)
     .replace(/`/g, "")
+    // Paired math delimiters are consumed by splitInlineMarkup. A remaining
+    // dollar sign in a prose fragment is an orphaned delimiter, not Typst
+    // math; keep ordinary prices such as "$5" readable.
+    .replace(/\$(?!\d+(?:[.,]\d+)?(?=[\s.,;:!?)]|$))/g, "")
     .replace(/\b(?:->|→)\(([^()]+)\)/g, (_, value: string) => `bold(${value.trim()})`)
     .replace(/\bdot\s*\.\s*dot\s*\(([^()]+)\)/g, "$1\u0308")
     .replace(
@@ -107,8 +122,52 @@ export function cleanVisibleMathText(value: string): string {
     );
 }
 
+function unwrapVisibleMathCalls(value: string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const index = value.indexOf("math(", cursor);
+    if (index < 0) return result + value.slice(cursor);
+    if (index > 0 && /[A-Za-z]/.test(value[index - 1] ?? "")) {
+      result += value.slice(cursor, index + 5);
+      cursor = index + 5;
+      continue;
+    }
+    const open = index + 4;
+    const close = matchingMathParen(value, open);
+    if (close < 0) return result + value.slice(cursor);
+    result += value.slice(cursor, index) + value.slice(open + 1, close);
+    cursor = close + 1;
+  }
+  return result;
+}
+
+function normalizeVisibleLatex(value: string): string {
+  // Analyzer prose sometimes contains LaTeX inline delimiters rather than
+  // Typst math. Render a readable Unicode fallback instead of printing raw
+  // source syntax (or passing arbitrary LaTeX to the Typst math parser).
+  let rendered = value.replace(/\\\(|\\\)/g, "");
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const next = rendered.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+    if (next === rendered) break;
+    rendered = next;
+  }
+  return rendered
+    .replace(/\\(?:left|right)\b/g, "")
+    .replace(/\\tilde\s+([A-Za-z])/g, "$1\u0303")
+    .replace(/\\sum\b/g, "∑")
+    .replace(/\\infty\b/g, "∞")
+    .replace(/\\sqrt\b/g, "√")
+    .replace(/\\(?:leq|le)\b/g, "≤")
+    .replace(/\\(?:geq|ge)\b/g, "≥")
+    .replace(/\\([A-Za-z]+)/g, "$1")
+    .replace(/_\{([^{}]+)\}/g, "_$1")
+    .replace(/\^\{([^{}]+)\}/g, "^($1)");
+}
+
 function normalizeVisibleMathToken(value: string): string {
-  return cleanVisibleMathText(value.trim())
+  return cleanVisibleMathText(value.trim()
+    .replace(/\b[A-Za-z]+\b/g, (token) => supportedGreekSymbols[token] ?? token))
     .replace(/^#text\("([^"]+)"\)$/g, "$1")
     .trim();
 }
@@ -120,6 +179,12 @@ function toUnicodeBold(value: string): string {
     if (code >= 0x41 && code <= 0x5a) return String.fromCodePoint(0x1d400 + (code - 0x41));
     if (code >= 0x61 && code <= 0x7a) return String.fromCodePoint(0x1d41a + (code - 0x61));
     if (code >= 0x30 && code <= 0x39) return String.fromCodePoint(0x1d7ce + (code - 0x30));
+    if (character === "Ϝ") return "𝟊";
+    if (character === "ϝ") return "𝟋";
+    const uppercaseGreek = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡϴΣΤΥΦΧΨΩ".indexOf(character);
+    if (uppercaseGreek >= 0) return String.fromCodePoint(0x1d6a8 + uppercaseGreek);
+    const lowercaseGreek = "αβγδεζηθικλμνξοπρςστυφχψω".indexOf(character);
+    if (lowercaseGreek >= 0) return String.fromCodePoint(0x1d6c2 + lowercaseGreek);
     return character;
   }).join("");
 }
@@ -141,13 +206,11 @@ function toUnicodeSuperscript(value: string): string {
 }
 
 export function normalizeInlineMathSource(value: string): string {
-  const typstGreekIdentifiers = new Set([
-    "alpha", "beta", "chi", "delta", "epsilon", "eta", "gamma", "kappa", "lambda", "mu", "nu",
-    "omega", "phi", "pi", "psi", "rho", "sigma", "tau", "theta", "zeta",
-    "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
-  ]);
-  const normalized = value
+  const normalized = normalizeBareBoldStyling(value, true)
     .trim()
+    .replace(/\bangle\.l\s+([^\n]*?)\s+rangle\b/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
+    .replace(/\\langle\s*([^\n]*?)\s*\\rangle/g, (_, inner: string) => `(⟨${inner.trim()}⟩)`)
+    .replace(/<([^<>]+)>/g, (_, inner: string) => `(⟨${inner}⟩)`)
     .replace(/"varphi"/g, "phi")
     .replace(/_varphi\b/g, "_phi")
     .replace(/\bvarphi\b/g, "phi")
@@ -168,11 +231,14 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\(?:qquad|quad)\b/g, " quad ")
     .replace(/\\(?:Rightarrow|Longrightarrow)\b/g, " => ")
     .replace(/\\(?:rightarrow|to)\b/g, " -> ")
+    .replace(/\\mathbb\s*\{\s*R\s*\}/g, "RR")
+    .replace(/\\setminus\b/g, " without ")
     .replace(/\\forall\b/g, " forall ")
     .replace(/\\in\b/g, " in ")
     .replace(/\\pm\b/g, " plus.minus ")
     .replace(/\\cdots\b/g, " dots ")
-    .replace(/\\(?=\s*\{)/g, " without ")
+    .replace(/\\(?=\s*\{)/g, "")
+    .replace(/\\(?=\s*\})/g, "")
     .replace(/\^\{([^{}]+)\}/g, "^($1)")
     .replace(/\\([A-Za-z]+)/g, "$1")
     .replace(/(?<!")\b([A-Z]\d{1,2}\s*\/\s*[a-z]\d{1,2})\b(?!")/g, (_, fit: string) =>
@@ -189,12 +255,17 @@ export function normalizeInlineMathSource(value: string): string {
     .replace(/\\gamma\b/g, "gamma")
     .replace(/\\nu\b/g, "nu")
     .replace(/\\Delta\b/g, "Delta")
+    .replace(/\bint(?=_|\b)/g, "integral")
+    .replace(/(?<![A-Za-z])j([xytT])\b/g, "j $1")
+    // Typst reads `xy` as one (undefined) identifier, whereas textbook
+    // notation commonly uses it for the product of coordinate variables.
+    .replace(/(?<![A-Za-z])([xyz])([xyz])\b/g, "$1 $2")
     .replace(/(?<![A-Za-z])([gmkc])(?=([atvxy])(?:_|\b))/g, "$1 ")
     .replace(/_\{([A-Za-z][A-Za-z0-9 ,.-]*)\}/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9 ,.-]*)\)/g, (_, label: string) => `_"${label.trim()}"`)
     .replace(/_\(([A-Za-z][A-Za-z0-9]*\([^)]+\))\)/g, (_, label: string) => `_"${label}"`)
     .replace(/_([A-Za-z][A-Za-z0-9]{1,})\b/g, (_, label: string) =>
-      typstGreekIdentifiers.has(label) ? `_${label}` : `_"${label}"`
+      Object.hasOwn(supportedGreekSymbols, label) ? `_${label}` : `_"${label}"`
     );
   return normalizeUnaryVectorStyling(normalizeCurriedBinaryMathFunction(normalized, "frac"))
     .split(/("[^"]*")/)
@@ -206,6 +277,44 @@ export function normalizeInlineMathSource(value: string): string {
           .replace(/\b([A-Za-z])(\d+)\b/g, "$1_$2")
     )
     .join("");
+}
+
+function normalizeBareBoldStyling(value: string, strict: boolean): string {
+  // Bare unary styling has a unique operand only for a single symbol. Keep
+  // scripts outside the call; never infer a grouped expression or word label.
+  return transformOutsideMathStrings(value, (part) => {
+    return part.replace(/(?<![\p{L}\p{N}_\\])bold\b(?!\s*\()(\s+[\p{L}\p{N}]+)?/gu, (match, tail: string | undefined) => {
+      const operand = tail?.trim();
+      const isSymbol = operand && (/^[A-Za-z]$/.test(operand) ||
+        Object.hasOwn(supportedGreekSymbols, operand) || /^\p{Script=Greek}$/u.test(operand));
+      if (!isSymbol) {
+        if (strict) throw new Error(`Unsupported bare bold operand ${JSON.stringify(operand ?? "missing")}; use explicit bold(...) notation.`);
+        return match;
+      }
+      return `bold(${operand})`;
+    });
+  });
+}
+
+function transformOutsideMathStrings(value: string, transform: (part: string) => string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const open = value.indexOf('"', cursor);
+    if (open < 0) return result + transform(value.slice(cursor));
+    result += transform(value.slice(cursor, open));
+    let close = open + 1;
+    while (close < value.length) {
+      if (value[close] === "\\") close += 2;
+      else if (value[close] === '"') break;
+      else close += 1;
+    }
+    // Leave an unterminated string untouched for the compiler to diagnose.
+    if (close >= value.length) return result + value.slice(open);
+    result += value.slice(open, close + 1);
+    cursor = close + 1;
+  }
+  return result;
 }
 
 function normalizeUnaryVectorStyling(value: string): string {
@@ -285,11 +394,10 @@ function matchingMathParen(value: string, openIndex: number): number {
 
 export function quoteBareMathText(value: string): string {
   const mathKeywords = new Set([
-    "accent", "alpha", "and", "approx", "arrow", "beta", "bold", "chi", "compose", "cos", "delta", "dif", "div", "dot",
-    "dots", "double", "epsilon", "eta", "exp", "frac", "gamma", "kappa", "lambda", "lim",
-    "infinity", "integral", "ln", "log", "max", "min", "mu", "NN", "nu", "omega", "or", "phi", "pi", "psi", "quad", "RR",
-    "forall", "in", "minus", "plus", "rho", "sigma", "sin", "sqrt", "sum", "tan", "tau", "theta", "times", "vec", "without", "zeta",
-    "Delta", "Gamma", "Lambda", "Omega", "Phi", "Psi", "Sigma", "Theta",
+    ...Object.keys(supportedGreekSymbols),
+    "accent", "and", "approx", "arrow", "bold", "compose", "cos", "dif", "div", "dot",
+    "dots", "double", "exp", "frac", "lim", "infinity", "integral", "ln", "log", "max", "min", "NN", "or", "quad", "RR",
+    "forall", "in", "minus", "plus", "sin", "sqrt", "sum", "tan", "times", "vec", "without",
   ]);
   return value
     .replace(
@@ -312,22 +420,41 @@ export function quoteBareMathText(value: string): string {
 type InlinePart = { kind: "text" | "math"; value: string };
 
 function splitInlineMarkup(value: string): InlinePart[] {
+  value = rewriteHashMathCalls(value);
   const parts: InlinePart[] = [];
-  const pattern = /(\$[^$\n]+\$|`[^`\n]+`)/g;
+  const pattern = /(\$[^$\n]+\$|`[^`\n]+`|#(?!math\()[^#\n]+#)/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
+    // A missing closing delimiter must not consume the next price or formula
+    // in a later sentence as its partner.
+    if (match[0].startsWith("$") && /[.!?]\s+[A-ZÄÖÜ]/.test(match[0])) continue;
     if (index > cursor) parts.push({ kind: "text", value: value.slice(cursor, index) });
     const marked = match[0];
     const inner = marked.slice(1, -1);
     parts.push({
-      kind: marked.startsWith("$") || looksLikeMath(inner) ? "math" : "text",
+      kind: marked.startsWith("$") || marked.startsWith("#") || looksLikeMath(inner) ? "math" : "text",
       value: inner,
     });
     cursor = index + marked.length;
   }
   if (cursor < value.length) parts.push({ kind: "text", value: value.slice(cursor) });
   return parts.length > 0 ? parts : [{ kind: "text", value }];
+}
+
+function rewriteHashMathCalls(value: string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const index = value.indexOf("#math(", cursor);
+    if (index < 0) return result + value.slice(cursor);
+    const open = index + 5;
+    const close = matchingMathParen(value, open);
+    if (close < 0) return result + value.slice(cursor);
+    result += value.slice(cursor, index) + `$${value.slice(open + 1, close)}$`;
+    cursor = close + 1;
+  }
+  return result;
 }
 
 function looksLikeMath(value: string): boolean {

@@ -8,6 +8,7 @@ import {
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
+import { SOURCE_FIDELITY_POLICY } from "../studentFirstPolicy.js";
 import { validateExtractedData, validateTypst } from "../validation.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateStudyBuddyDocumentStructure } from "../typstDocumentRules.js";
@@ -15,7 +16,7 @@ import { studyBuddyTemplatePromptReference } from "../typstTemplate.js";
 import { decideRenderStrategy } from "../renderStrategy.js";
 import { writeRunProgress } from "../runProgress.js";
 import { throwIfAborted } from "../runtimeAbort.js";
-import { normalizeInlineMathSource } from "../typstInlineMath.js";
+import { cleanVisibleMathText, normalizeInlineMathSource } from "../typstInlineMath.js";
 
 const FORMATTER_PROMPT_RESERVE = 1_024;
 
@@ -29,38 +30,34 @@ export class FormatterPromptCapacityError extends Error {
 export function createFormatterNode(config: MoodleRuntimeConfig, codex: CodexClient) {
   return async function formatterNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
-      const decision = config.renderStrategyDecision ?? decideRenderStrategy(config);
+      const decision = decideRenderStrategy(config);
       config.renderStrategyDecision = decision;
       await config.diagnostics?.log("info", "formatter", `Render strategy: ${decision.strategy}. ${decision.reason}`);
       await writeRunProgress(config, { phase: "writing_document" });
-      if (!state.error_log && decision.strategy === "deterministic") {
-        const document = renderDeterministicStudyDocument(
+      if (decision.strategy === "deterministic") {
+        // Content and post-render rejections cannot be cleared by laying out
+        // the same handoff again. Preserve their existing retry boundary.
+        if (state.error_log && !/^(?:Typst validation failed:|Study Buddy document rules failed:)/.test(state.error_log)) {
+          return { error_log: state.error_log, retry_count: state.retry_count + 1 };
+        }
+        const generated = renderDeterministicStudyDocument(
           validateExtractedData(state.extracted_data),
           config.diagnostics?.getCoverage() ?? emptyCoverage(),
           { prompt: config.prompt, profile: config.artifactIntent.profile },
         );
-        const validation = await validateGeneratedDocument(document, config);
+        const validation = await validateDeterministicDocument(generated, config);
         if (!validation.ok) {
-          await config.diagnostics?.log(
-            "warn",
-            "formatter",
-            "Deterministic renderer output was not suitable; switching to LLM formatter.",
-          );
-          config.renderStrategyDecision = {
-            strategy: "llm_formatter",
-            reason: `Deterministic renderer validation failed: ${validation.error}`,
-          };
-        } else {
-          await persistFormatterAttempt(config.runDir, state.retry_count + 1, document, null);
-          return {
-            final_document: document,
-            error_log: null,
-          };
+          const error = `Typst validation failed:\n${validation.error}`;
+          await persistFormatterAttempt(config.runDir, state.retry_count + 1, generated, error);
+          return { final_document: generated, error_log: error, retry_count: state.retry_count + 1 };
         }
+        await persistFormatterAttempt(config.runDir, state.retry_count + 1, validation.document, null);
+        return { final_document: validation.document, error_log: null };
       }
       await config.diagnostics?.log("info", "formatter", "Generating Typst document...");
       const typst = await codex.run(buildFormatterPrompt(config, state), {
         task: state.error_log ? "artifact_repair" : "artifact_builder",
+        operation: state.error_log ? "document_repair" : "document_build",
         attempt: state.retry_count + 1,
       });
       const document = normalizeGeneratedTypstComponents(
@@ -152,6 +149,47 @@ async function validateGeneratedDocument(
   return validation.ok ? { ok: true } : validation;
 }
 
+async function validateDeterministicDocument(
+  generated: string,
+  config: MoodleRuntimeConfig,
+): Promise<{ ok: true; document: string } | { ok: false; error: string }> {
+  const document = normalizeGeneratedTypstComponents(normalizeGeneratedTypstMath(generated));
+  const validation = await validateGeneratedDocument(document, config);
+  // Unknown mathematical syntax remains a diagnostic. Neither a model nor a
+  // plain-text downgrade may turn an unresolved expression into a passed PDF.
+  return validation.ok ? { ok: true, document } : validation;
+}
+
+export function replaceFailingInlineMathWithReadableText(
+  document: string,
+  compilerError: string,
+): string | null {
+  const location = /document\.typ:(\d+):(\d+)/.exec(compilerError);
+  if (!location) return null;
+  const lineIndex = Number(location[1]) - 1;
+  const column = Number(location[2]);
+  const lines = document.split("\n");
+  const line = lines[lineIndex];
+  if (!line) return null;
+  const marked = [...line.matchAll(/\$[^$\n]+\$/g)].find((match) => {
+    const start = match.index ?? -1;
+    return start <= column && column < start + match[0].length;
+  });
+  if (!marked || marked.index === undefined) return null;
+  const original = marked[0];
+  const visible = cleanVisibleMathText(original.slice(1, -1))
+    // A long unbreakable expression inside #text can still cross the page
+    // edge. Zero-width breaks preserve the displayed formula while allowing
+    // Typst to wrap at operators and delimiters.
+    .replace(/([=+*/,:;()])/g, "$1\u200B")
+    .trim();
+  if (!visible) return null;
+  lines[lineIndex] = line.slice(0, marked.index) +
+    `#text(${JSON.stringify(visible)})` +
+    line.slice(marked.index + original.length);
+  return lines.join("\n");
+}
+
 function requiresPreview(document: string): boolean {
   return /#image\s*\(|#sb-figure\s*\(|#sb-flowchart|#sb-block-diagram|#cetz|#canvas/i.test(document);
 }
@@ -204,6 +242,7 @@ export function buildFormatterPrompt(config: MoodleRuntimeConfig, state: LangGra
 function buildInitialFormatterPrompt(config: MoodleRuntimeConfig, state: LangGraphAgentState): string {
   return [
     "Generate a complete, source-grounded Typst learning document appropriate to the course discipline.",
+    SOURCE_FIDELITY_POLICY,
     "Return only Typst source. Do not include Markdown fences or explanation.",
     studyBuddyTemplatePromptReference(config.outputLanguage),
     `Artifact language: ${config.outputLanguage === "en" ? "English" : "German"}. Do not let the source language override it.`,
@@ -234,6 +273,7 @@ function buildRepairPrompt(
 ): string {
   return [
     "Repair the supplied complete Typst document. Return the complete corrected Typst source only.",
+    SOURCE_FIDELITY_POLICY,
     "Treat the existing document as the authoritative draft. Make the smallest local edits that resolve every supplied compiler or review diagnostic.",
     "After fixing each diagnostic, scan the complete existing source for other occurrences of the same concrete syntax class and normalize those consistently in the same response. For example, one bare decimal-comma diagnostic requires checking every bare decimal-comma numeric literal inside Typst math. Do not use this scan to rewrite unrelated content.",
     "If diagnostics report raw-typesetting-markup, convert every math-bearing component argument from a quoted markup string to Typst content, for example result: [$ x = 2 \"m\" $] and variables: ([$bold(r)$: Ortsvektor],). Preserve the mathematical meaning and all surrounding content.",
@@ -244,6 +284,7 @@ function buildRepairPrompt(
     studyBuddyTemplatePromptReference(config.outputLanguage),
     `Exact original user request (repair boundary only):\n${config.originalUserPrompt}`,
     `Verified request contract (repair boundary only):\n${JSON.stringify(state.request_contract)}`,
+    `Request-level document source evidence (preserve confirmed facts and provenance):\n${JSON.stringify(!Array.isArray(state.extracted_data) && "document_context" in state.extracted_data ? state.extracted_data.document_context : [])}`,
     `Diagnostics to repair:\n${state.error_log}`,
     `Existing complete Typst source:\n${priorDocument}`,
   ].join("\n\n");

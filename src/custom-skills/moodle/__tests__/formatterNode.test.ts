@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexClient } from "../codexClient.js";
-import { resolveModelPromptBodyCharacterBudget } from "../codexClient.js";
+import { ModelCallTimeoutError, resolveModelPromptBodyCharacterBudget } from "../codexClient.js";
 import { validateTypst } from "../validation.js";
 import {
   buildFormatterPrompt,
@@ -8,6 +8,7 @@ import {
   FormatterPromptCapacityError,
   normalizeGeneratedTypstComponents,
   normalizeGeneratedTypstMath,
+  replaceFailingInlineMathWithReadableText,
 } from "../nodes/formatterNode.js";
 import {
   moodleExtractedData,
@@ -26,9 +27,27 @@ vi.mock("../validation.js", async (importOriginal) => {
 
 const validateTypstMock = vi.mocked(validateTypst);
 
+function formatterTestConfig(overrides: Parameters<typeof moodleTestConfig>[0] = {}) {
+  return moodleTestConfig({ renderStrategy: "llm_formatter", ...overrides });
+}
+
+
+
 describe("formatterNode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("downgrades only the compiler-identified inline math span", () => {
+    const document = 'before\n#text("Text ")$ e^(3jx) $#text(" und ")$ x=2 $\nafter';
+    const repaired = replaceFailingInlineMathWithReadableText(
+      document,
+      "error: unknown variable: jx\n  ┌─ /tmp/document.typ:2:23",
+    );
+    expect(repaired).toContain('#text("e^(');
+    expect(repaired).toContain("\u200B");
+    expect(repaired).toContain('$ x=2 $');
+    expect(replaceFailingInlineMathWithReadableText(document, "error without source location")).toBeNull();
   });
 
   it("strips Typst fences, validates, and clears repair errors", async () => {
@@ -41,7 +60,7 @@ describe("formatterNode", () => {
       },
     };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(
+    const result = await createFormatterNode(formatterTestConfig(), codex)(
       moodleTestState({
       extracted_data: { document_title: "DYN2" },
       error_log: null,
@@ -80,6 +99,66 @@ describe("formatterNode", () => {
     });
   });
 
+  it("delivers a validated deterministic document when the auto formatter times out", async () => {
+    validateTypstMock.mockResolvedValueOnce({ ok: true });
+    const codex: CodexClient = {
+      async run() {
+        throw new ModelCallTimeoutError({
+          task: "artifact_builder", model: "slow-model", timeoutMs: 240_000, queueWaitMs: 0,
+        });
+      },
+    };
+    const result = await createFormatterNode(formatterTestConfig({ renderStrategy: "auto" }), codex)(
+      moodleTestState({ extracted_data: moodleExtractedData(), error_log: null, retry_count: 0 }),
+    );
+
+    expect(result.error_log).toBeNull();
+    expect(result.final_document).toContain("#sb-document(");
+    expect(validateTypstMock).toHaveBeenCalledOnce();
+  });
+
+  it("renders a large worked-example set deterministically in auto mode without a model call", async () => {
+    validateTypstMock.mockResolvedValueOnce({ ok: true });
+    const codex: CodexClient = {
+      async run() { throw new Error("LLM formatter must not be called for this large document"); },
+    };
+    const examples = Array.from({ length: 12 }, (_, index) => ({
+      origin: "source" as const,
+      learning_goal: `Aufgabe ${index + 1}`,
+      prompt: `Löse Aufgabe ${index + 1}.`,
+      steps: ["Gegebenes einsetzen.", "Ergebnis prüfen."],
+      result: "Ergebnis geprüft.",
+      source_ids: [],
+    }));
+    const config = formatterTestConfig({ renderStrategy: "auto" });
+    const result = await createFormatterNode(config, codex)(moodleTestState({
+      extracted_data: moodleExtractedData({ worked_examples: examples }),
+      error_log: null,
+      retry_count: 0,
+    }));
+
+    expect(result.error_log).toBeNull();
+    expect(result.final_document).toContain("#sb-document(");
+    expect(config.renderStrategyDecision?.strategy).toBe("deterministic");
+    expect(validateTypstMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not override an explicitly requested LLM formatter after a timeout", async () => {
+    const codex: CodexClient = {
+      async run() {
+        throw new ModelCallTimeoutError({
+          task: "artifact_builder", model: "slow-model", timeoutMs: 240_000, queueWaitMs: 0,
+        });
+      },
+    };
+    const result = await createFormatterNode(formatterTestConfig({ renderStrategy: "llm_formatter" }), codex)(
+      moodleTestState({ extracted_data: moodleExtractedData(), error_log: null, retry_count: 0 }),
+    );
+
+    expect(result.error_log).toContain("model call timed out");
+    expect(validateTypstMock).not.toHaveBeenCalled();
+  });
+
   it("canonicalizes analyzer math shorthand before validating the complete document", async () => {
     const authored = studyBuddyTypstDocument(
       '= Schwingung\n$ m ddot(x) + c dot(x) + k x = F_0 sin(Omega t) $\n#text("Preis $5")',
@@ -88,7 +167,7 @@ describe("formatterNode", () => {
     validateTypstMock.mockResolvedValueOnce({ ok: true });
     const codex: CodexClient = { async run() { return authored; } };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(moodleTestState());
+    const result = await createFormatterNode(formatterTestConfig(), codex)(moodleTestState());
 
     expect(validateTypstMock).toHaveBeenCalledWith(expected, expect.any(Array), { assetBaseDir: "/tmp" });
     expect(result.final_document).toBe(expected);
@@ -122,7 +201,7 @@ describe("formatterNode", () => {
       },
     };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(
+    const result = await createFormatterNode(formatterTestConfig(), codex)(
       moodleTestState({
         extracted_data: moodleExtractedData({
           sections: [{
@@ -161,7 +240,7 @@ describe("formatterNode", () => {
     state.review_report = { ...state.review_report, ok: true };
     state.study_model = { ...state.study_model, publicationStatus: "partial" };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(state);
+    const result = await createFormatterNode(formatterTestConfig(), codex)(state);
 
     expect(receivedPrompt).toContain("Correct the dimensionally invalid formula");
     expect(result).toEqual({
@@ -182,7 +261,7 @@ describe("formatterNode", () => {
       },
     };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(moodleTestState({
+    const result = await createFormatterNode(formatterTestConfig(), codex)(moodleTestState({
       final_document: prior,
       error_log: "Typst validation failed: unknown variable ddot at line 12",
       extracted_data: moodleExtractedData({
@@ -210,7 +289,7 @@ describe("formatterNode", () => {
       },
     };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(
+    const result = await createFormatterNode(formatterTestConfig(), codex)(
       moodleTestState({
       retry_count: 1,
       }),
@@ -228,7 +307,7 @@ describe("formatterNode", () => {
       },
     };
 
-    const result = await createFormatterNode(moodleTestConfig(), codex)(
+    const result = await createFormatterNode(formatterTestConfig(), codex)(
       moodleTestState(),
     );
 
@@ -252,7 +331,7 @@ describe("formatterNode", () => {
       path: `/redundant/${"nested-path/".repeat(120)}source-${index}.pdf`,
       page: index + 1,
     }));
-    const prompt = buildFormatterPrompt(moodleTestConfig(), moodleTestState({
+    const prompt = buildFormatterPrompt(formatterTestConfig(), moodleTestState({
       extracted_data: moodleExtractedData({ sections, sources }),
     }));
     expect(prompt.length).toBeLessThan(resolveModelPromptBodyCharacterBudget("artifact_builder"));
@@ -263,7 +342,7 @@ describe("formatterNode", () => {
 
   it("fails an indivisible oversized formatter payload before invoking the model", async () => {
     const codex: CodexClient = { run: vi.fn() };
-    const config = moodleTestConfig({ prompt: "x".repeat(125_000), originalUserPrompt: "x".repeat(125_000) });
+    const config = formatterTestConfig({ prompt: "x".repeat(125_000), originalUserPrompt: "x".repeat(125_000) });
     await expect(createFormatterNode(config, codex)(moodleTestState()))
       .rejects.toBeInstanceOf(FormatterPromptCapacityError);
     expect(codex.run).not.toHaveBeenCalled();
@@ -272,14 +351,14 @@ describe("formatterNode", () => {
   it("does not spend semantic retries on a hard Codex request boundary", async () => {
     const boundary = new Error("artifact_builder request exceeds its hard 120000-character budget");
     const codex: CodexClient = { run: vi.fn().mockRejectedValue(boundary) };
-    await expect(createFormatterNode(moodleTestConfig(), codex)(moodleTestState())).rejects.toBe(boundary);
+    await expect(createFormatterNode(formatterTestConfig(), codex)(moodleTestState())).rejects.toBe(boundary);
     expect(codex.run).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry an exhausted account usage limit", async () => {
     const exhausted = new Error("You've hit your usage limit. Purchase more credits.");
     const codex: CodexClient = { run: vi.fn().mockRejectedValue(exhausted) };
-    await expect(createFormatterNode(moodleTestConfig(), codex)(moodleTestState())).rejects.toBe(exhausted);
+    await expect(createFormatterNode(formatterTestConfig(), codex)(moodleTestState())).rejects.toBe(exhausted);
     expect(codex.run).toHaveBeenCalledTimes(1);
   });
 
@@ -287,7 +366,36 @@ describe("formatterNode", () => {
     const controller = new AbortController();
     const reason = new Error("render capacity exhausted");
     const codex: CodexClient = { async run() { controller.abort(reason); throw new Error("inner cancellation"); } };
-    await expect(createFormatterNode(moodleTestConfig({ abortSignal: controller.signal }), codex)(moodleTestState()))
+    await expect(createFormatterNode(formatterTestConfig({ abortSignal: controller.signal }), codex)(moodleTestState()))
       .rejects.toBe(reason);
+  });
+});
+
+
+describe("auto reviewed-content rendering", () => {
+  it("renders a small reviewed handoff without a formatter model or semantic mutation", async () => {
+    validateTypstMock.mockResolvedValue({ ok: true });
+    const codex: CodexClient = { run: vi.fn() };
+    const data = moodleExtractedData({ sections: [{ heading: "Interpretation", summary: "The interval condition is sufficient, not necessary.", key_concepts: [], source_ids: [] }] });
+    const before = JSON.stringify(data);
+    const result = await createFormatterNode(moodleTestConfig({ renderStrategy: "auto" }), codex)(moodleTestState({ extracted_data: data }));
+    expect(result.error_log).toBeNull();
+    expect(result.final_document).toContain("The interval condition is sufficient, not necessary.");
+    expect(codex.run).not.toHaveBeenCalled();
+    expect(JSON.stringify(data)).toBe(before);
+  });
+  it("fails closed on unresolved math instead of degrading it or using generative fallback", async () => {
+    validateTypstMock.mockResolvedValue({ ok: false, error: 'error: unknown variable: missing\n  ┌─ /tmp/document.typ:1:1' });
+    const codex: CodexClient = { run: vi.fn() };
+    const result = await createFormatterNode(moodleTestConfig({ renderStrategy: "auto" }), codex)(moodleTestState({ extracted_data: moodleExtractedData() }));
+    expect(result.error_log).toContain("unknown variable");
+    expect(codex.run).not.toHaveBeenCalled();
+  });
+  it("does not erase a reviewed semantic rejection while laying out the same handoff", async () => {
+    const codex: CodexClient = { run: vi.fn() };
+    const state = moodleTestState({ extracted_data: moodleExtractedData(), error_log: "Semantic quality review failed: preserve the unresolved factual defect", retry_count: 1 });
+    const result = await createFormatterNode(moodleTestConfig({ renderStrategy: "auto" }), codex)(state);
+    expect(result.error_log).toContain("unresolved factual defect");
+    expect(codex.run).not.toHaveBeenCalled();
   });
 });

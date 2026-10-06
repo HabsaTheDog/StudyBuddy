@@ -1,81 +1,109 @@
-# Consolidated `v0.2.2-alpha` test release
+# 0.2.4-alpha release contract
 
-## Contract — 2026-09-10
+Decision: **BLOCKED — preparation in progress; no exact packaged candidate yet.**
 
-The owner requested **one installable Windows/Fedora test alpha**, including
-the other agent's completed work and this thread's fixes. Both previous
-`v0.2.2-alpha` and `v0.2.3-alpha` releases are unpublished drafts; consolidate
-them into `v0.2.2-alpha` without altering any public release.
+- Version/channel: `0.2.4-alpha`, GitHub prerelease; intended website stable
+  download promotion only after all exact-byte gates pass.
+- Scope: complete accumulated batch plus remote October 6 security/Windows
+  integration and local browser pairing; see [inventory](release-inventory-0.2.4-alpha.md).
+- Source: isolated `release/0.2.4-alpha`, integrating root remote `24f3c8c`
+  and local `b53e2b6`; reviewed merged UI `8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1`.
+- Final build must use the reviewed protected `master` commit and reviewed UI pin.
+- Supported lanes: Windows 11 x64, Fedora x64. Windows intentionally unsigned;
+  warning evidence and disclosure required. macOS excluded.
+- User explicitly requested creation/publication and direct website availability.
+  Reviewable prepared source merges, build dispatch and website deployment are
+  in that scope. Exact candidate-specific disposable snapshot restoration
+  approval remains pending under the release lab skill.
+- Preserve all public versions and historical `v0.2.3-alpha` tag. Use a new tag.
+- Preserve canonical App/UI and Website worktrees and unreviewed legacy work.
 
-The latest owner instruction explicitly reduces acceptance for this publication:
-run relevant deterministic checks, CI/security and exact-artifact integrity,
-then publish for hands-on testing. Do not claim full clean-VM, real-account
-Moodle-to-guide, or production readiness. **No stable website promotion.**
-The owner has authorized the GitHub publication; no new VM reset is authorized.
+## Source validation
 
-## Included source
+Root: 1,825 tests pass/four existing skips after two unchanged-file bounded
+retries of broad-run timeouts; TypeScript passes. Initial broad run retained:
+1,822 pass, three timeout failures, 158s. Quiz-media retry11/11 (23.65s),
+PDF publication retry21/21 (50.69s). Changed web-layout browser checks13/13.
+Workflow/security/pairing tools12/12; release contract/assets23/23.
+UI: 3,984 pass/five existing skips, all13 typechecks and full format/lint pass;
+changed pairing browser20/20. Root licenses/SBOM/public tree/links pass;
+root npm10 audit0 vulnerabilities (host npm12 audit has EALLOWSCRIPTS tooling
+error), UI audit no high/critical. GitHub open CodeQL/Dependabot/secret alerts0.
+Independent App/website review resolves all preparation findings.
+Website prepared separately at `404c8b8932023226d7aa10f59d872cfebfdf844f`:
+types/build/audit and focused tests pass; synthetic compiled-browser cases pass.
+Those local checks do not establish public download acceptance.
 
-Desktop PR #21 is merged after all required GitHub checks passed:
-`6b6d811264cd896fc2abac48810edf9abac81246`.
-The owner refreshed GitHub authorization and the release branch push succeeded.
-Root CI/merge and the exact packaging run are the next gates. No new release
-or stable website promotion has occurred.
+## New dependency advisory reconciliation
 
-Work happens in isolated `release/consolidated-0.2.2-alpha` worktrees. Original
-dirty checkouts remain untouched.
+The final UI pin additionally updates DOMPurify3.4.16, Hono4.13.7 and
+ip-address10.7.1. All seven feasible shipped alerts are patched; frozen install,
+production audit0 advisories/474 dependencies, workspace security gate,
+95 focused tests, seven real-package security assertions, web/server/script
+TypeScript and independent lock/advisory review pass. The earlier3984-test UI
+result belongs to its parent pin; mandatory exact-head CI must validate this
+final dependency graph before packaging.
 
-- Root: combine `bcd1aba` parallel quiz work, `e2285fa` completed semantic
-  source reliability and dependency work, and the local Moodle server fixes.
-- UI: combine `382f4f1b3` completed workflow/reconnection/dependency work
-  with the owner's finished desktop/runtime changes (checkpoint `adc3fd0c4`).
-- Preserve source-origin validation, credential redaction, native quiz approval
-  and the prohibition on final quiz submission.
-- Fix Windows cache-test assertions to use platform-native paths and apply
-  POSIX permission assertions only where those bits represent permissions.
+UI alert245 (`sprintf-js`1.1.3) has no upstream fix and is explicitly deferred:
+only the Electron-builder build graph uses it, production dependencies omit it.
+Verify absence from the final artifact SBOM and staged production package; do
+not dismiss the GitHub default-branch alert or imply it is patched.
 
-## Current evidence
+## CI fixture correction
 
-- [x] Root TypeScript and 1,161 tests pass; 4 optional tests skipped.
-- [x] PR review regressions reproduced before fixes: script-only navigation,
-  generic prepare/complete routing, and authorship misread as a deadline.
-  Direct verified navigation avoids anchor click handlers; corrected intent/date
-  boundaries retain obligation and inclusive-deadline positive controls.
-- [x] UI formatting/lint and all 13 workspace typechecks pass.
-- [x] UI release dependency audit has no high/critical findings.
-- [x] Root dependency audit has no findings; links, public-tree and license checks pass.
-- [x] Release contract/asset tests pass, including unpromoted-alpha integrity.
-- [x] Real local Moodle server: 19 checks and 16 tooling tests pass; see
-  [Moodle lab](moodle-test-service.md).
-- [x] UI tests: 3,325 pass; 5 skipped.
-- [x] Desktop PR #21: required CI, tests, CodeQL and Gitleaks pass; merged.
-- [ ] Complete root remote CI/security checks.
-- [ ] Merge root/UI source and record exact default-branch commits.
-- [ ] Build the exact Windows NSIS and Linux AppImage bundle in GitHub Actions.
-- [ ] Verify manifest, hashes, updater payloads, signing disclosure and package contents.
-- [ ] Replace the unpublished draft deliberately; retain old provenance.
-- [ ] Publish one GitHub prerelease, verify public downloads and retire redundant draft.
+Ubuntu CI on `167dd70` failed seven release-contract integration tests because
+they requested historical0.2.0-alpha, which the new source/package version guard
+correctly rejects. Test fixtures now derive current package version and verify
+valid mismatches explicitly; guard behavior remains unchanged. CLI9/9, existing
+contract/assets23/23, root TypeScript and independent review pass. The failed
+run is retained; fresh exact-head CI remains required.
 
-## Explicit limitations
+Windows CI on `9adc95f` passed 1,809 tests with 20 existing platform skips but
+timed out the real graph render fixture at 30 seconds. Its log shows concurrent
+test files despite the intended shell-forwarded worker limit; Ubuntu and every
+other required check passed. Windows file serialization is now enforced in
+Vitest configuration. That fixture retains its retry assertions and real
+renderer, additionally verifies the PDF signature, and has a 55-second abort
+deadline inside a 60-second test budget. Graph33/33 (9.77s), root TypeScript and
+five workflow/security tool checks pass locally. Runtime behavior and validation
+retry limits are unchanged. Retain the failed run and require fresh Windows CI.
 
-Windows is intentionally unsigned. macOS is unsupported. No claim is made that
-all application defects are fixed. Owner testing, full clean Windows/Fedora VM
-acceptance, updater installation and real-account Moodle-to-guide acceptance
-remain pending for these new bytes.
+On `b514412`, Windows serialization and all graph tests passed; Ubuntu and other
+required checks passed again. The sole Windows failure was the conflicting
+reusable drag/drop clone fixture exceeding the default five-second timeout
+(1,809 pass/20 existing skips, 458.45s). Production intentionally spends up to
+four seconds checking incomplete or ambiguous widgets; sibling rejection cases
+took about 4.24s including Chromium overhead. Only those four negative cases now
+have a ten-second test budget. Production readiness and safety stay unchanged;
+conflicting-clone tests additionally verify no controls, refusal to fill,
+unchanged hidden responses and no final submission. Fresh exact-head CI remains
+required. Local drag/drop17/17 (19.70s), root TypeScript and independent review
+pass.
 
-The local Moodle **server** is verified and stopped when unused. Safe guest
-transport and automated credential entry for the unchanged desktop package are
-not finished; do not weaken normal HTTPS/private-network protections to claim
-a test pass. This is tracked separately from the test-alpha publication.
+## Gates
 
-Publication must omit `distribution-ready.json`; the website's previously
-approved download remains unchanged. Build automation must not create a
-stable-channel approval simply because compilation passed.
+Pending: protected-branch CI and security; exact merged
+source build; full artifact hashes/manifests; clean Windows/Fedora installed
+acceptance including broker/runtime probes, authenticated streamed file thread,
+source lifecycle, persistence, failure recovery, identity/coexistence, telemetry,
+unsigned warning, updater and cleanup; targeted native PDF/source regression;
+scoped changed web-layout regressions; owner testing; website integrity/UX tests
+and browser check; public installer download hash equality.
 
-The root ruleset's obsolete required macOS check was removed to match the
-Windows/Linux source matrix; all security checks, review/merge restrictions
-and bypass settings are unchanged. Prior ruleset JSON is retained in ignored
-local release evidence. The matching workflow change is included in this branch.
+No passing prior source or archived VM result transfers to new artifact bytes.
+Dedicated subscription cache is healthy; both calibrated disposable lanes are
+powered off and available. Inventory is discovery, not VM acceptance.
 
-Historical candidate evidence remains in
-[the archived candidate record](releases/v0.2.3-alpha-candidate-history.md).
-Old hashes/passes do not certify this rebuilt version.
+## Publication ordering
+
+Assemble unpromoted immutable GitHub bundle, accept exact bytes, publish complete
+prerelease, verify public hashes, create reviewed marker bound to manifest and
+SHA256SUMS digest, then expose/verify website buttons. Never publish an automatic
+pre-acceptance promotion marker. Marker and installer URLs must fail closed on
+missing or inconsistent provenance. Website installers remain hosted on GitHub.
+
+## Evidence
+
+Canonical preparation records: `study-buddy-data/releases/0.2.4-alpha-preparation/`.
+Historical 0.2.2 public testing record remains in Git history and the immutable
+release; archived candidate records retain all earlier failed/blocked evidence.

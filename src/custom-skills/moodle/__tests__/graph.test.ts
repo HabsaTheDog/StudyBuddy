@@ -16,6 +16,7 @@ import {
   routeAfterExtractionQualityReview,
   routeAfterPdfPostRenderReview,
   runMoodleGraph,
+  runtimeGuardTimeoutReason,
 } from "../graph.js";
 import { initialSourceCoverage, RunDiagnostics } from "../runDiagnostics.js";
 import { initialAgentState } from "../state.js";
@@ -106,6 +107,25 @@ describe("moodle graph retry routing", () => {
       minimalRequestContract("make compact notes", ["pdf"]),
       "extraction",
     )).rejects.toThrow("integrity pair is incomplete");
+  });
+
+  it("preflights concrete overrides and inherited search models for evidence extraction", () => {
+    const models = resolvePreflightModels(moodleTestConfig({
+      stage: "extract", evidenceHandoffOnly: true,
+      modelPolicyOverrides: {
+        source_search: { model: "search-primary", escalationModel: "search-fallback" },
+        request_evaluation: { model: "request-primary", escalationModel: "request-fallback" },
+        content_extraction: { model: "unused-teaching-model" },
+        html_planning: { model: "unused-page-model" },
+        assessment_planning: { model: "unused-assessment-model" },
+      },
+    }));
+    expect(models).toEqual(expect.arrayContaining([
+      "search-primary", "search-fallback", "request-primary", "request-fallback",
+    ]));
+    expect(models).not.toContain("unused-teaching-model");
+    expect(models).not.toContain("unused-page-model");
+    expect(models).not.toContain("unused-assessment-model");
   });
 
   it("preflights the PDF visual reviewer for render-only runs", () => {
@@ -390,39 +410,53 @@ describe("moodle graph retry routing", () => {
   it("retries invalid analyzer JSON and then writes Typst", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
     const outputPath = path.join(runDir, "document.typ");
-    const codex = sequenceCodex([
-      JSON.stringify(evaluatedRequestContract("make notes", ["pdf"])),
-      "not json",
-      JSON.stringify(moodleExtractedData()),
-      studyBuddyTypstDocument(),
-      JSON.stringify({ ok: true, summary: "Reviewed", findings: [] }),
-    ]);
+    const abortController = new AbortController();
+    // Stop compiler/reviewer children before Vitest can abandon this real render.
+    const abortTimer = setTimeout(() => abortController.abort(
+      new Error("Graph render fixture exceeded its 55-second process deadline."),
+    ), 55_000);
+    try {
+      const codex = sequenceCodex([
+        JSON.stringify(evaluatedRequestContract("make notes", ["pdf"])),
+        "not json",
+        JSON.stringify(moodleExtractedData()),
+        studyBuddyTypstDocument(),
+        JSON.stringify({ ok: true, summary: "Reviewed", findings: [] }),
+      ]);
 
-    const graph = buildMoodleGraph(
-      moodleTestConfig({
-        outputPath,
-        runDir,
-        runtimeCacheDir: path.join(runDir, "runtime-cache"),
-        prompt: "make notes",
-      }),
-      {
-        codex,
-        scraperNode: async () => ({
-          moodle_raw_text: "local fixture text",
-          error_log: null,
+      const graph = buildMoodleGraph(
+        moodleTestConfig({
+          outputPath,
+          runDir,
+          runtimeCacheDir: path.join(runDir, "runtime-cache"),
+          abortSignal: abortController.signal,
+          prompt: "make notes",
+          renderStrategy: "llm_formatter", // This fixture exercises the optional formatter worker sequence.
         }),
-        cisScraperNode: async (state) => ({
-          moodle_raw_text: state.moodle_raw_text,
-          error_log: null,
-        }),
-      },
-    );
+        {
+          codex,
+          scraperNode: async () => ({
+            moodle_raw_text: "local fixture text",
+            error_log: null,
+          }),
+          cisScraperNode: async (state) => ({
+            moodle_raw_text: state.moodle_raw_text,
+            error_log: null,
+          }),
+        },
+      );
 
-    const result = await graph.invoke({ ...initialAgentState, moodle_raw_text: "local fixture text" });
-    expect(result.error_log).toBeNull();
-    expect(result.retry_count).toBe(1);
-    await expect(readFile(outputPath, "utf8")).resolves.toContain("DYN2");
-  }, 30_000);
+      const result = await graph.invoke({ ...initialAgentState, moodle_raw_text: "local fixture text" });
+      expect(result.error_log).toBeNull();
+      expect(result.retry_count).toBe(1);
+      await expect(readFile(outputPath, "utf8")).resolves.toContain("DYN2");
+      const pdf = await readFile(path.join(runDir, "document.pdf"));
+      expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    } finally {
+      clearTimeout(abortTimer);
+      abortController.abort();
+    }
+  }, 60_000);
 
   it("aborts before the analyzer when required Moodle authentication failed", async () => {
     runDir = await mkdtemp(path.join(os.tmpdir(), "moodle-run-"));
@@ -1310,4 +1344,15 @@ describe("moodle graph retry routing", () => {
     expect(scraperCalls).toBe(0);
     expect(result.sourceCoverage.moodle.status).toBe("not_requested");
   });
+});
+
+it("enforces workflow deadline even during paused model admission", () => {
+  const config = moodleTestConfig({ maxRuntimeMs: 60000, workflowDeadlineMs: 2000 });
+  config.executionTelemetry = { runtimeBudgetPaused: true } as NonNullable<typeof config.executionTelemetry>;
+  expect(runtimeGuardTimeoutReason(config, 1000, 1999)).toBeNull();
+  expect(runtimeGuardTimeoutReason(config, 1000, 2000)).toContain("absolute runtime deadline");
+});
+it("uses earlier explicit workflow owner deadline for render too", () => {
+  const config = moodleTestConfig({ stage: "render", maxRuntimeMs: 60000, workflowDeadlineMs: 3000, workflowDeadlineLimitMs: 2000 });
+  expect(runtimeGuardTimeoutReason(config, 1000, 2000)).toContain("absolute runtime deadline");
 });

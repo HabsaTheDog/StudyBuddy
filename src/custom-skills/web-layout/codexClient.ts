@@ -1,16 +1,21 @@
+import { createWorkflowModelRuntime } from "../shared/workflowModelRuntime.js";
+import { randomUUID } from "node:crypto";
+import { acquireModelCallControl } from "../shared/modelCallControl.js";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Codex } from "@openai/codex-sdk";
 import type { ModelReasoningEffort, Usage, UserInput } from "@openai/codex-sdk";
 import { minimalValidStudyBuddyHtml } from "./htmlShell.js";
 import type { WebLayoutRuntimeConfig } from "./types.js";
 import {
   resolveTaskModelPolicy,
+  taskModelPolicySource,
+  type StudyBuddyModelOperation,
   type StudyBuddyModelTask,
 } from "../shared/modelPolicy.js";
 import {
+  classifyCodexError, shouldTryModelFallback, uniqueModelPolicies, NonRetryableCodexError,
   resolveCodexTaskAccessPolicy,
   resolveModelPromptCharacterBudget,
   summarizeCodexToolUsage,
@@ -33,6 +38,7 @@ export interface CodexClient {
     prompt: string,
     options: {
       task: StudyBuddyModelTask;
+      operation?: StudyBuddyModelOperation;
       attempt?: number;
       outputSchema?: unknown;
       timeoutMs?: number;
@@ -46,7 +52,7 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
     return createTestCodexClient(config);
   }
   const codexEnvironment = buildCodexChildEnvironment();
-  const codex = new Codex({
+  const codex = createWorkflowModelRuntime({
     env: codexEnvironment,
     config: buildCodexShellEnvironmentConfig(codexEnvironment),
   });
@@ -56,15 +62,23 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
     async run(prompt, options) {
       const task = options.task;
       const attempt = Math.max(1, options.attempt ?? 1);
-      const policy = resolveTaskModelPolicy({
+      const policyInput = {
+        operation: options.operation,
         profile: config.executionProfile,
         task,
         attempt,
         globalModel: config.codexModel,
         globalReasoningEffort: config.codexReasoningEffort,
         overrides: config.modelPolicyOverrides,
-      });
-      const accessPolicy = resolveCodexTaskAccessPolicy(task);
+      };
+      const selectedPolicy = resolveTaskModelPolicy(policyInput);
+      const primaryPolicy = resolveTaskModelPolicy({ ...policyInput, attempt: 1 });
+      const alternateAttempt = selectedPolicy.model === primaryPolicy.model && selectedPolicy.instanceId === primaryPolicy.instanceId ? 2 : 1;
+      const policies = uniqueModelPolicies([selectedPolicy, resolveTaskModelPolicy({ ...policyInput, attempt: alternateAttempt })]);
+      const logicalCallId = randomUUID();
+      // This client returns text; the graph owns file writes, tools and delegation.
+      // Even HTML builders must not rediscover skills or recursively launch workflows.
+      const accessPolicy = resolveCodexTaskAccessPolicy("artifact_planner");
       const sanitizedPrompt = accessPolicy.leafWorker
         ? `${LEAF_WORKER_BOUNDARY}\n\n${prompt}`
         : prompt;
@@ -86,35 +100,41 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         ? path.join(leafWorkspaceRoot, task)
         : config.runDir;
       await mkdir(workingDirectory, { recursive: true });
-      const thread = codex.startThread({
-        workingDirectory,
-        skipGitRepoCheck: true,
-        model: policy.model,
-        modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
-        sandboxMode: accessPolicy.sandboxMode,
-        approvalPolicy: accessPolicy.approvalPolicy,
-        networkAccessEnabled: accessPolicy.networkAccessEnabled,
-        webSearchMode: accessPolicy.webSearchMode,
+      for (const [candidateIndex, policy] of policies.entries()) {
+      const policySource = taskModelPolicySource({ ...policyInput, attempt: candidateIndex === 0 ? attempt : alternateAttempt });
+      const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
+      const control = await acquireModelCallControl({
+        task, model: policy.model, timeoutMs, signal: config.abortSignal,
+        pauseRuntimeBudget: config.executionTelemetry ? () => config.executionTelemetry!.pauseRuntimeBudget() : undefined,
       });
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
-      const callId = `${task}-${attempt}-${startedMs}`;
-      const timeoutController = new AbortController();
-      const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
-      const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
-      const signal = combineSignals(config.abortSignal, timeoutController.signal);
-      await config.diagnostics?.log("info", "planner", `Starting ${task} model call.`, {
-        task,
-        attempt,
-        model: policy.model,
-        reasoningEffort: policy.reasoningEffort,
-        requestCharacters,
-        schemaCharacters,
-        leafWorker: accessPolicy.leafWorker,
-      });
+      const callId = `${task}-${attempt}-${randomUUID()}`;
+      const signal = control.signal;
       let observedToolUsage = emptyToolUsage();
       let observedUsage: Usage | null = null;
       try {
+        await config.diagnostics?.log("info", "planner", `Starting ${task} model call.`, {
+          task,
+          attempt,
+          model: policy.model,
+          providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
+          reasoningEffort: policy.reasoningEffort,
+          requestCharacters,
+          schemaCharacters,
+          leafWorker: accessPolicy.leafWorker,
+        });
+        const thread = codex.startThread({
+          workingDirectory,
+          skipGitRepoCheck: true,
+          studyBuddyInstanceId: policy.instanceId,
+          model: policy.model,
+          modelReasoningEffort: policy.reasoningEffort as ModelReasoningEffort,
+          sandboxMode: accessPolicy.sandboxMode,
+          approvalPolicy: accessPolicy.approvalPolicy,
+          networkAccessEnabled: accessPolicy.networkAccessEnabled,
+          webSearchMode: accessPolicy.webSearchMode,
+        });
         const input: string | UserInput[] = localImages.length > 0
           ? [
               { type: "text", text: sanitizedPrompt },
@@ -130,18 +150,25 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         });
         observedToolUsage = summarizeCodexToolUsage(turn.items);
         observedUsage = turn.usage;
+        signal.throwIfAborted();
         if (accessPolicy.leafWorker && observedToolUsage.toolCalls > 0) {
-          throw new Error(`${task} leaf worker used ${observedToolUsage.toolCalls} prohibited tool(s).`);
+          throw new NonRetryableCodexError(`${task} leaf worker used ${observedToolUsage.toolCalls} prohibited tool(s).`, "invalid_request");
         }
         await recordCall({
           config,
           callId,
+          logicalCallId, transportAttempt: candidateIndex + 1,
           task,
           attempt,
+          operation: options.operation ?? task,
+          policySource,
           model: policy.model,
+          providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
           startedMs,
+          queuedAt: control.queuedAt,
+          queueWaitMs: control.queueWaitMs,
           requestCharacters,
           schemaCharacters,
           leafWorker: accessPolicy.leafWorker,
@@ -151,16 +178,22 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         });
         return turn.finalResponse;
       } catch (error) {
-        const timedOut = timeoutController.signal.aborted && !config.abortSignal?.aborted;
+        const timedOut = control.timedOut();
         await recordCall({
           config,
           callId,
+          logicalCallId, transportAttempt: candidateIndex + 1,
           task,
           attempt,
+          operation: options.operation ?? task,
+          policySource,
           model: policy.model,
+          providerInstanceId: policy.instanceId ?? process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE,
           reasoningEffort: policy.reasoningEffort,
           startedAt,
           startedMs,
+          queuedAt: control.queuedAt,
+          queueWaitMs: control.queueWaitMs,
           requestCharacters,
           schemaCharacters,
           leafWorker: accessPolicy.leafWorker,
@@ -171,10 +204,17 @@ export function createCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
         if (timedOut) {
           throw new Error(`${task} model call timed out after ${timeoutMs}ms.`);
         }
+        const classification = classifyCodexError(error);
+        if (!config.abortSignal?.aborted && policies[candidateIndex + 1] && shouldTryModelFallback("failed", classification)) continue;
+        if (!classification.retryable && !(error instanceof NonRetryableCodexError)) {
+          throw new NonRetryableCodexError(error instanceof Error ? error.message : String(error), classification.category);
+        }
         throw error;
       } finally {
-        clearTimeout(timeout);
+        await control.release();
       }
+      }
+      throw new Error("Model candidates exhausted.");
     },
   };
 }
@@ -280,14 +320,21 @@ function createTestCodexClient(config: WebLayoutRuntimeConfig): CodexClient {
 }
 
 async function recordCall(input: {
+  operation: string;
+  policySource: string;
   config: WebLayoutRuntimeConfig;
   callId: string;
+  logicalCallId: string;
+  transportAttempt: number;
   task: StudyBuddyModelTask;
   attempt: number;
   model: string;
+  providerInstanceId?: string;
   reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh";
   startedAt: string;
   startedMs: number;
+  queuedAt: string;
+  queueWaitMs: number;
   requestCharacters: number;
   schemaCharacters: number;
   leafWorker: boolean;
@@ -308,13 +355,19 @@ async function recordCall(input: {
   const freshInputTokens = Math.max(0, usage.input_tokens - usage.cached_input_tokens);
   await input.config.executionTelemetry?.recordModelCall({
     id: input.callId,
+    logicalCallId: input.logicalCallId, transportAttempt: input.transportAttempt, usageAvailable: input.usage !== null,
     task: input.task,
+    operation: input.operation,
+    policySource: input.policySource,
     attempt: input.attempt,
     model: input.model,
+    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
     reasoningEffort: input.reasoningEffort,
     startedAt: input.startedAt,
     completedAt: new Date().toISOString(),
     durationMs: Math.max(0, Date.now() - input.startedMs),
+    queuedAt: input.queuedAt,
+    queueWaitMs: input.queueWaitMs,
     requestCharacters: input.requestCharacters,
     schemaCharacters: input.schemaCharacters,
     leafWorker: input.leafWorker,
@@ -339,19 +392,4 @@ function emptyToolUsage(): CodexToolUsage {
     mcpToolCalls: 0,
     webSearches: 0,
   };
-}
-
-function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
-  const active = signals.filter((signal): signal is AbortSignal => Boolean(signal));
-  if (active.length === 0) return new AbortController().signal;
-  if (active.length === 1) return active[0];
-  const controller = new AbortController();
-  for (const signal of active) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
-  }
-  return controller.signal;
 }

@@ -65,6 +65,7 @@ function createRunFixture(input: {
     );
   }
   for (const [name, value] of Object.entries(input.artifacts ?? {})) {
+    mkdirSync(dirname(join(runDir, name)), { recursive: true });
     writeFileSync(join(runDir, name), value);
   }
   return runDir;
@@ -258,6 +259,26 @@ describe("canonical Study Buddy workflow wrapper", () => {
       });
       expect(run(["wait", permission, "1"]).status).toBe(0);
     },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "accepts batch quiz permission files and rejects unsafe permission paths",
+    () => {
+      const permissionPaths = ["quizzes/quiz-1/quiz-permission-request.json", "quizzes/quiz-2/quiz-permission-request.json"];
+      const base = { schemaVersion: 1, ok: true, workflowStatus: "permission_required", kind: "quiz",
+        permissionRequestPaths: permissionPaths, requiredArtifacts: ["quiz-review.typ", "quiz-review.json", ...permissionPaths] };
+      const runDir = createRunFixture({ name: "native-quiz-batch", status: "success", interactionResult: base,
+        artifacts: { "quiz-review.typ": "review", "quiz-review.json": "{}", ...Object.fromEntries(permissionPaths.map(name => [name, "{}"])) } });
+      expect(run(["wait", runDir, "1"]).status).toBe(0);
+      for (const invalid of [[], ["../quiz-permission-request.json"], ["quizzes/../quiz-permission-request.json"],
+        ["/tmp/quiz-permission-request.json"], ["quizzes/quiz-1/other.json"], [permissionPaths[0], permissionPaths[0]],
+        ["quizzes/missing/quiz-permission-request.json"]]) {
+        writeFileSync(join(runDir, "interaction-result.json"), JSON.stringify({ ...base, permissionRequestPaths: invalid,
+          requiredArtifacts: ["quiz-review.typ", "quiz-review.json", ...invalid] }));
+        expect(run(["wait", runDir, "1"]).status).not.toBe(0);
+      }
+    },
+    15_000,
   );
 
   it.skipIf(process.platform === "win32")(

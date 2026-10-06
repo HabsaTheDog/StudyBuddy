@@ -96,11 +96,15 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   let quizPolicy = createQuizPolicy({ requestedAutoAnswer: input.autoAnswer });
   const stage = input.stage ?? "all";
   const evidenceHandoffOnly = input.evidenceHandoffOnly ?? false;
+  const sourceEvidenceOnly = input.sourceEvidenceOnly ?? false;
+  if (sourceEvidenceOnly && (input.autoAnswer || isDirectQuizAttempt)) {
+    throw new Error("Source evidence mode never opens or changes quiz attempts.");
+  }
   const quizSafetyPolicy = createQuizSafetyPolicy(
     input.quizSafetyPolicy,
     process.env,
   );
-  const intentDecision = classifyStudyBuddyIntent({
+  let intentDecision = classifyStudyBuddyIntent({
     prompt: requestContextPrompt,
     stage,
     diagnosticOnly: input.diagnosticOnly ?? false,
@@ -109,7 +113,16 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     hasCisUrls: cisUrls.length > 0,
     hasCalendarUrl: Boolean(input.calendarUrl?.trim() || process.env.CIS_CALENDAR_URL?.trim()),
   });
-  if (intentDecision.wantsQuizDiscovery || evidenceHandoffOnly) {
+  if (sourceEvidenceOnly) {
+    intentDecision = { ...intentDecision, intent: "quick_answer", wantsPdf: false, wantsTypstDocument: false,
+      wantsQuickAnswer: true, wantsQuizAssistance: false, wantsQuizDiscovery: true,
+      needsMoodle: true, needsCourseMaterial: true, needsDownloadedFiles: false,
+      obligationDiscovery: { ...intentDecision.obligationDiscovery, requested: true,
+        temporal: intentDecision.obligationDiscovery?.temporal ?? false, exhaustive: true, deep: true,
+        calendarFirst: intentDecision.needsCalendar, scope: intentDecision.obligationDiscovery?.scope ?? "all_relevant" },
+      reason: "Read-only source evidence for agent-composed conversational answers." };
+  }
+  if (intentDecision.wantsQuizDiscovery || evidenceHandoffOnly || sourceEvidenceOnly) {
     quizPolicy = {
       ...quizPolicy,
       requestedAutoAnswer: false,
@@ -145,6 +158,16 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   const codexReasoningEffort =
     input.codexReasoningEffort ?? parseReasoningEffort(process.env.STUDY_BUDDY_CODEX_REASONING_EFFORT);
   const taskBudget = resolveTaskBudget(intentDecision);
+  const maxRuntimeMs = input.maxRuntimeMs ?? parseMaxRuntimeMs(
+    stage, intentDecision.wantsQuickAnswer, executionProfile, codexModel,
+    codexReasoningEffort, input.modelPolicyOverrides, intentDecision.obligationDiscovery?.exhaustive ?? false,
+  );
+  const runtimeOverride = runtimeOverrideValue(stage, intentDecision.wantsQuickAnswer);
+  const explicitRuntime = input.maxRuntimeMs !== undefined ||
+    (Number.isInteger(Number(runtimeOverride)) && Number(runtimeOverride) > 0);
+  const deadline = Number(process.env.STUDY_BUDDY_WORKFLOW_DEADLINE_MS);
+  const workflowDeadlineLimitMs = Number.isFinite(deadline) && deadline > 0 ? deadline : undefined;
+
 
   return {
     prompt: input.prompt,
@@ -190,15 +213,11 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     autoAnswer: quizPolicy.requestedAutoAnswer,
     quizPolicy,
     quizSafetyPolicy,
-    maxRuntimeMs: input.maxRuntimeMs ?? parseMaxRuntimeMs(
-      stage,
-      intentDecision.wantsQuickAnswer,
-      executionProfile,
-      codexModel,
-      codexReasoningEffort,
-      input.modelPolicyOverrides,
-      intentDecision.obligationDiscovery?.exhaustive ?? false,
-    ),
+    maxRuntimeMs,
+    maxRuntimeSource: explicitRuntime ? "explicit" : "default",
+    maxRuntimeLimitMs: explicitRuntime ? maxRuntimeMs : undefined,
+    workflowDeadlineMs: workflowDeadlineLimitMs,
+    workflowDeadlineLimitMs,
     idleTimeoutMs: input.idleTimeoutMs ?? parseIdleTimeoutMs(stage, intentDecision.wantsQuickAnswer),
     stage,
     sourceRunDir: input.sourceRunDir
@@ -208,6 +227,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       ? resolveStudyBuddyWorkspacePath(input.resumeExtractionRunDir, workspaceRoot)
       : undefined,
     evidenceHandoffOnly,
+    sourceEvidenceOnly,
     includeCis,
     sourceMode: parseSourceMode(input.sourceMode || (/\b(?:ausschließlich|ausschliesslich|nur|only)\s+moodle\b|\b(?:nicht den|ohne)\s+kalender\b/i.test(requestContextPrompt) ? "moodle" : process.env.STUDY_BUDDY_SOURCE_MODE)),
     downloadConcurrency: clampConcurrency(
@@ -272,10 +292,15 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     headless: config.headless,
     browserBackend: config.browserBackend,
     diagnosticOnly: config.diagnosticOnly,
+    sourceEvidenceOnly: config.sourceEvidenceOnly,
     autoAnswer: config.autoAnswer,
     quizPolicy: config.quizPolicy,
     quizSafetyPolicy: config.quizSafetyPolicy,
     maxRuntimeMs: config.maxRuntimeMs,
+    maxRuntimeSource: config.maxRuntimeSource,
+    maxRuntimeLimitMs: config.maxRuntimeLimitMs,
+    workflowDeadlineMs: config.workflowDeadlineMs,
+    workflowDeadlineLimitMs: config.workflowDeadlineLimitMs,
     idleTimeoutMs: config.idleTimeoutMs,
     stage: config.stage,
     sourceRunDir: config.sourceRunDir,
@@ -305,6 +330,7 @@ export function sanitizeConfig(config: MoodleRuntimeConfig) {
     codexModelExplicit: config.codexModelExplicit,
     executionProfile: config.executionProfile,
     modelPolicyOverrides: config.modelPolicyOverrides,
+    modelCompatibilityFallbacks: config.modelCompatibilityFallbacks,
   };
 }
 
@@ -407,6 +433,13 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function runtimeOverrideValue(stage: MoodleRuntimeConfig["stage"], wantsQuickAnswer: boolean): string | undefined {
+  return (stage === "extract"
+    ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
+    : stage === "render" ? process.env.MOODLE_RENDER_MAX_RUNTIME_MS
+    : !wantsQuickAnswer ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS : undefined) || process.env.MOODLE_MAX_RUNTIME_MS;
+}
+
 function parseMaxRuntimeMs(
   stage: MoodleRuntimeConfig["stage"],
   wantsQuickAnswer: boolean,
@@ -416,13 +449,7 @@ function parseMaxRuntimeMs(
   overrides: MoodleRuntimeConfig["modelPolicyOverrides"],
   exhaustiveInventory = false,
 ): number {
-  const stageOverride = stage === "extract"
-    ? process.env.MOODLE_TEXT_EXTRACT_MAX_RUNTIME_MS || process.env.MOODLE_EXTRACT_MAX_RUNTIME_MS
-    : stage === "render"
-      ? process.env.MOODLE_RENDER_MAX_RUNTIME_MS
-      : !wantsQuickAnswer
-        ? process.env.MOODLE_ARTIFACT_MAX_RUNTIME_MS
-        : undefined;
+  const stageOverride = runtimeOverrideValue(stage, wantsQuickAnswer);
   const fallback = stage === "extract"
     ? DEFAULT_EXTRACTION_MAX_RUNTIME_MS
     : stage === "render"
@@ -437,7 +464,7 @@ function parseMaxRuntimeMs(
         // The existing idle watchdog and explicit user limits still apply.
         ? exhaustiveInventory ? 90 * 60_000 : DEFAULT_QUICK_MAX_RUNTIME_MS
         : DEFAULT_ARTIFACT_MAX_RUNTIME_MS;
-  return parsePositiveInteger(stageOverride || process.env.MOODLE_MAX_RUNTIME_MS, fallback);
+  return parsePositiveInteger(stageOverride, fallback);
 }
 
 function resolveDefaultRenderMaxRuntimeMs(

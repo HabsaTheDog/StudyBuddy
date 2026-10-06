@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { resolveTaskModelPolicy } from "./modelPolicy.js";
 import type { LangGraphAgentState } from "./state.js";
 import type { MoodleRuntimeConfig } from "./types.js";
 
@@ -23,6 +24,7 @@ export interface AdaptiveRuntimeBudget {
 interface ActiveAdaptiveBudget {
   budget: AdaptiveRuntimeBudget;
   analyzerStartedMs: number;
+  analyzerPausedMs: number;
   compact: boolean;
   extended: boolean;
   completedModules: number;
@@ -93,7 +95,7 @@ export async function applyAdaptiveExtractionBudget(
   const joinedEvidence = state.evidence_package.records.map((record) => record.content).join("\n");
   const formulaSignalCount = joinedEvidence.match(/[=∑∫√]|\\(?:frac|sum|int|sqrt|text|quad)\b/g)?.length ?? 0;
   const visualCandidateCount = await readVisualCandidateCount(config.runDir);
-  const budget = estimateAdaptiveRuntimeBudget({
+  let budget = estimateAdaptiveRuntimeBudget({
     moduleCount,
     evidenceRecordCount: state.evidence_package.records.length,
     evidenceCharacters,
@@ -101,6 +103,11 @@ export async function applyAdaptiveExtractionBudget(
     formulaSignalCount,
   });
 
+  const previous = ACTIVE_BUDGETS.get(config);
+  if (previous && previous.budget.totalWorkflowBudgetMs > budget.totalWorkflowBudgetMs) {
+    budget = { ...budget, tier: previous.budget.tier, runRuntimeMs: previous.budget.runRuntimeMs,
+      totalWorkflowBudgetMs: previous.budget.totalWorkflowBudgetMs, reason: previous.budget.reason };
+  }
   const workflowDeadline = Number(process.env.STUDY_BUDDY_WORKFLOW_DEADLINE_MS);
   const workflowRemainingMs = Number.isFinite(workflowDeadline)
     ? Math.max(0, workflowDeadline - Date.now() - budget.renderReserveMs)
@@ -111,12 +118,15 @@ export async function applyAdaptiveExtractionBudget(
   );
   // Preserve explicit short diagnostic/test budgets. The ordinary 14-minute
   // extraction default is the signal that adaptive sizing owns the deadline.
-  if (config.maxRuntimeMs === DEFAULT_EXTRACTION_RUNTIME_MS || config.maxRuntimeMs > selectedRunRuntimeMs) {
+  if (!previous && ((config.maxRuntimeSource !== "explicit" && config.maxRuntimeMs === DEFAULT_EXTRACTION_RUNTIME_MS) || config.maxRuntimeMs > selectedRunRuntimeMs)) {
     config.maxRuntimeMs = selectedRunRuntimeMs;
   }
+  setAdaptiveWorkflowDeadline(config, budget);
+  if (previous) config.maxRuntimeMs = Math.min(Math.max(previous.budget.runRuntimeMs, config.maxRuntimeMs), runtimeCeiling(config, budget));
   ACTIVE_BUDGETS.set(config, {
     budget,
     analyzerStartedMs: Date.now(),
+    analyzerPausedMs: config.executionTelemetry?.getRuntimeBudgetPausedMs() ?? 0,
     compact: false,
     extended: false,
     completedModules: 0,
@@ -154,8 +164,9 @@ export async function updateAdaptiveRuntimeProgress(
   if (!active || completedModules < 1) return;
   const runStartedMs = Date.parse(config.executionTelemetry?.getSnapshot().startedAt ?? "");
   const now = Date.now();
-  const runElapsedMs = Number.isFinite(runStartedMs) ? now - runStartedMs : 0;
-  const analysisElapsedMs = now - active.analyzerStartedMs;
+  const runElapsedMs = Number.isFinite(runStartedMs) ? Math.max(0, now - runStartedMs - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0)) : 0;
+  const analysisElapsedMs = Math.max(0, now - active.analyzerStartedMs -
+    Math.max(0, (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0) - active.analyzerPausedMs));
   const workflowDeadline = Number(process.env.STUDY_BUDDY_WORKFLOW_DEADLINE_MS);
   const workflowBudgetAvailableToThisRun = Number.isFinite(workflowDeadline) && Number.isFinite(runStartedMs)
     ? Math.max(config.maxRuntimeMs, workflowDeadline - runStartedMs)
@@ -173,6 +184,7 @@ export async function updateAdaptiveRuntimeProgress(
     renderReserveMs: active.budget.renderReserveMs,
     alreadyExtended: active.extended,
   });
+  projection.recommendedRuntimeMs = Math.min(projection.recommendedRuntimeMs, runtimeCeiling(config, active.budget));
   if (projection.recommendedRuntimeMs > config.maxRuntimeMs) {
     config.maxRuntimeMs = projection.recommendedRuntimeMs;
     active.extended = true;
@@ -260,4 +272,83 @@ async function persistBudget(
     `${JSON.stringify({ ...budget, ...progress }, null, 2)}\n`,
     "utf8",
   );
+}
+
+function explicitRuntimeCeiling(config: MoodleRuntimeConfig): number {
+  return config.maxRuntimeLimitMs ?? (config.maxRuntimeSource === "explicit" ||
+    (config.maxRuntimeSource === undefined && config.maxRuntimeMs < DEFAULT_EXTRACTION_RUNTIME_MS)
+    ? config.maxRuntimeMs : Number.POSITIVE_INFINITY);
+}
+
+function ownerWorkflowDeadline(config: MoodleRuntimeConfig): number {
+  const envDeadline = Number(process.env.STUDY_BUDDY_WORKFLOW_DEADLINE_MS);
+  return Math.min(config.workflowDeadlineLimitMs ?? Number.POSITIVE_INFINITY,
+    Number.isFinite(envDeadline) && envDeadline > 0 ? envDeadline : Number.POSITIVE_INFINITY);
+}
+
+function runStartedMs(config: MoodleRuntimeConfig): number {
+  const started = Date.parse(config.executionTelemetry?.getSnapshot().startedAt ?? "");
+  return Number.isFinite(started) ? started : Date.now();
+}
+
+function elapsedActiveMs(config: MoodleRuntimeConfig): number {
+  return Math.max(0, Date.now() - runStartedMs(config) -
+    (config.executionTelemetry?.getRuntimeBudgetPausedMs() ?? 0));
+}
+
+function setAdaptiveWorkflowDeadline(config: MoodleRuntimeConfig, budget: AdaptiveRuntimeBudget): void {
+  config.workflowDeadlineMs = Math.min(runStartedMs(config) + budget.totalWorkflowBudgetMs,
+    ownerWorkflowDeadline(config));
+}
+
+function runtimeCeiling(config: MoodleRuntimeConfig, budget: AdaptiveRuntimeBudget): number {
+  const deadline = Math.min(config.workflowDeadlineMs ?? Number.POSITIVE_INFINITY, ownerWorkflowDeadline(config));
+  const deadlineActiveWindow = elapsedActiveMs(config) + deadline - Date.now() - budget.renderReserveMs;
+  return Math.max(0, Math.min(explicitRuntimeCeiling(config),
+    budget.totalWorkflowBudgetMs - budget.renderReserveMs, deadlineActiveWindow));
+}
+
+/** The existing node calls this only after every full packet passes preflight. */
+export async function prepareAdaptiveQualityReviewBudget(config: MoodleRuntimeConfig, packetCount: number, attempt = 1): Promise<void> {
+  await updateReviewRuntime(config, 0, packetCount, true, attempt);
+}
+
+export async function updateAdaptiveQualityReviewProgress(config: MoodleRuntimeConfig, completedPackets: number, packetCount: number, attempt = 1): Promise<void> {
+  await updateReviewRuntime(config, completedPackets, packetCount, false, attempt);
+}
+
+async function updateReviewRuntime(config: MoodleRuntimeConfig, completedPackets: number, packetCount: number, preparing: boolean, attempt: number): Promise<void> {
+  const active = ACTIVE_BUDGETS.get(config);
+  if (!active || !Number.isInteger(packetCount) || packetCount < 1) return;
+  const policy = resolveTaskModelPolicy({ profile: config.executionProfile, task: "quality_reviewer", attempt,
+    globalModel: config.codexModel, globalReasoningEffort: config.codexReasoningEffort,
+    overrides: config.modelPolicyOverrides });
+  const measured = (config.executionTelemetry?.getSnapshot().modelCalls ?? []).filter(call =>
+    call.task === "quality_reviewer" && call.operation === "content_review" && call.status === "completed" &&
+    call.model === policy.model && call.reasoningEffort === policy.reasoningEffort &&
+    (!policy.instanceId || call.providerInstanceId === policy.instanceId) && Number.isFinite(call.durationMs) && call.durationMs > 0);
+  const meanCallMs = measured.length ? measured.reduce((sum, call) => sum + call.durationMs, 0) / measured.length : policy.timeoutMs;
+  const projectedCompletionMs = Math.ceil(elapsedActiveMs(config) + Math.max(0, packetCount - completedPackets) * meanCallMs + 90_000);
+  const tiers: AdaptiveWorkloadTier[] = ["small", "normal", "large"];
+  const selectedTier = tiers.find(tier => TIER_BUDGETS[tier].runRuntimeMs >= projectedCompletionMs) ?? "large";
+  if (tiers.indexOf(selectedTier) > tiers.indexOf(active.budget.tier)) {
+    active.budget = { ...active.budget, tier: selectedTier, ...TIER_BUDGETS[selectedTier],
+      reason: "Actual complete-review packet workload exceeds the prior extraction tier." };
+    setAdaptiveWorkflowDeadline(config, active.budget);
+  }
+  const target = preparing && measured.length === 0 ? active.budget.runRuntimeMs
+    : Math.max(active.budget.runRuntimeMs, projectedCompletionMs);
+  const nextRuntime = Math.min(Math.max(config.maxRuntimeMs, target), runtimeCeiling(config, active.budget));
+  config.maxRuntimeMs = nextRuntime;
+  await persistBudget(config, active.budget, {
+    selectedRunRuntimeMs: config.maxRuntimeMs, reviewPacketCount: packetCount,
+    completedReviewPackets: completedPackets, projectedReviewCompletionMs: projectedCompletionMs,
+    reviewCallEstimateMs: meanCallMs, measuredReviewCalls: measured.length,
+    workflowDeadlineMs: config.workflowDeadlineMs,
+    maxRuntimeSource: config.maxRuntimeSource, maxRuntimeLimitMs: config.maxRuntimeLimitMs,
+  });
+  await config.diagnostics?.log("info", "analyzer", "Adaptive runtime sized for actual complete-review packets.", {
+    packetCount, completedPackets, projectedCompletionMs, measuredReviewCalls: measured.length,
+    selectedRunRuntimeMs: config.maxRuntimeMs, totalWorkflowBudgetMs: active.budget.totalWorkflowBudgetMs,
+  });
 }

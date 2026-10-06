@@ -12,6 +12,7 @@ import { acquireRunLease } from "../shared/runLease.js";
 import { installCliBrokenPipeGuard } from "../shared/cliErrorGuard.js";
 import { publishStudyBuddyDeliverables } from "../shared/deliverables.js";
 import type { OutputLanguagePreference } from "../shared/languagePolicy.js";
+import { connectWorkflowContext } from "../shared/workflowContext.js";
 
 installCliBrokenPipeGuard();
 
@@ -42,6 +43,7 @@ const program = new Command()
   .option("--idle-timeout-ms <number>", "Maximum idle time in milliseconds", parseNumber)
   .option("--codex-model <model>", "Codex model slug for Study Buddy LLM calls")
   .option("--codex-reasoning-effort <effort>", "Global Codex reasoning effort", parseReasoningEffort)
+  .option("--architecture <mode>", "Authoring architecture: hybrid or fixed")
   .option("--execution-profile <profile>", "Execution profile: fast, balanced, quality, or custom", parseExecutionProfile, "balanced")
   .option("--profile-overrides-json <json>", "Custom model policy overrides as JSON", parseModelPolicyOverrides)
   .option("--json", "Print machine-readable JSON result")
@@ -68,20 +70,29 @@ const options = program.opts<{
   idleTimeoutMs?: number;
   codexModel?: string;
   codexReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  architecture?: "fixed" | "hybrid";
   executionProfile: "auto" | "fast" | "balanced" | "quality" | "custom";
   profileOverridesJson?: StudyBuddyModelPolicyOverrides;
   json?: boolean;
 }>();
 
-const prompt = program.args.join(" ");
+let prompt = program.args.join(" ");
 const releaseRunLease = await acquireRunLease(options.runDir ?? options.resumeRunDir);
+const cancellation = new AbortController();
+const onInterrupt = () => cancellation.abort(new Error("Workflow canceled by SIGINT."));
+const onTerminate = () => cancellation.abort(new Error("Workflow canceled by SIGTERM."));
+process.on("SIGINT", onInterrupt);
+process.on("SIGTERM", onTerminate);
+let context: Awaited<ReturnType<typeof connectWorkflowContext>> = null;
 try {
+context = await connectWorkflowContext(cancellation);
+if (context) prompt = context.originalUserPrompt;
 const result = await runWebLayoutGraph({
   prompt,
-  originalUserPrompt: options.originalUserPrompt,
+  originalUserPrompt: context?.originalUserPrompt ?? options.originalUserPrompt,
   kind: options.kind,
   sourceFiles: options.sourceFile,
-  assetFiles: options.asset,
+  assetFiles: [...new Set([...(context?.images ?? []), ...options.asset])],
   sourceRunDir: options.sourceRunDir,
   resumeRunDir: options.resumeRunDir,
   requestName: options.requestName,
@@ -96,9 +107,10 @@ const result = await runWebLayoutGraph({
   idleTimeoutMs: options.idleTimeoutMs,
   codexModel: options.codexModel,
   codexReasoningEffort: options.codexReasoningEffort,
+  architectureMode: options.architecture,
   executionProfile: options.executionProfile,
   modelPolicyOverrides: options.profileOverridesJson,
-});
+}, { signal: cancellation.signal });
 
 const publishedDeliverables = result.ok
   ? await publishStudyBuddyDeliverables({
@@ -125,6 +137,9 @@ if (options.json) {
   process.exitCode = 1;
 }
 } finally {
+  context?.dispose();
+  process.off("SIGINT", onInterrupt);
+  process.off("SIGTERM", onTerminate);
   await releaseRunLease();
 }
 

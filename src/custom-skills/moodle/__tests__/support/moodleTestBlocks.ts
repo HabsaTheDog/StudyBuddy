@@ -105,6 +105,7 @@ export function moodleExtractedData(overrides: Partial<ExtractedData> = {}): Ext
     language: "de",
     course: { title: "Dynamik", url: "https://moodle.example/course" },
     sources: [],
+    document_context: [],
     sections: [],
     formulas: [],
     worked_examples: [],

@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, lstat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -48,8 +48,8 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
     );
   }
   for (const name of names) {
-    const info = await stat(resolve(directory, name));
-    if (!info.isFile() || info.size === 0) throw new Error(`Release asset is empty: ${name}`);
+    const info = await lstat(resolve(directory, name));
+    if (!info.isFile() || info.size === 0) throw new Error(`Release asset is empty or not a regular file: ${name}`);
   }
   const updaterTargets = new Map([
     [`${channel}.yml`, `Study-Buddy-${version}-x64.exe`],
@@ -112,6 +112,11 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
         "sha256",
         "hex",
       );
+      const sha256SumsSha256 = await digestFile(
+        resolve(directory, "SHA256SUMS"),
+        "sha256",
+        "hex",
+      );
       if (
         distribution.schemaVersion !== 1 ||
         distribution.product !== "Study Buddy" ||
@@ -120,6 +125,7 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
         distribution.rootCommit !== releaseManifest.rootCommit ||
         distribution.uiCommit !== releaseManifest.uiCommit ||
         distribution.releaseManifestSha256 !== releaseManifestSha256 ||
+        distribution.sha256SumsSha256 !== sha256SumsSha256 ||
         distribution.downloads?.windows !== `Study-Buddy-${version}-x64.exe` ||
         distribution.downloads?.linux !== `Study-Buddy-${version}-x86_64.AppImage`
       ) {
@@ -136,7 +142,11 @@ export async function validateDesktopReleaseAssets({ directory, version, channel
       if (!match || checksums.has(match[2])) throw new Error("SHA256SUMS is malformed.");
       checksums.set(match[2], match[1]);
     }
-    const checksummedNames = names.filter((name) => name !== "SHA256SUMS");
+    // Promotion is a later, separate approval. Hash only the immutable bundle
+    // so adding its marker cannot change or create a circular checksums digest.
+    const checksummedNames = names.filter(
+      (name) => !["SHA256SUMS", "distribution-ready.json"].includes(name),
+    );
     if (
       JSON.stringify([...checksums.keys()].sort()) !== JSON.stringify(checksummedNames.sort())
     ) {

@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { formatFormulaMath } from "../studentFirstTypstRenderer.js";
 import {
   cleanVisibleMathText,
@@ -7,10 +12,156 @@ import {
   renderTypstInlineText,
 } from "../typstInlineMath.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
-import { validateTypst } from "../validation.js";
+import { compileTypstPdf, validateTypst, writeTypstSupportFiles } from "../validation.js";
 import { studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 describe("Typst inline mathematics", () => {
+  it("renders the actual unparenthesized unary vector handoff without literal bold in PDF text", async () => {
+    const expression = "bold a_(cor) = 2 bold Omega times bold v_(rel)";
+    const normalized = formatFormulaMath(expression);
+    expect(normalized).toBe('bold(a)_"cor" = 2 bold(Omega) times bold(v)_"rel"');
+    expect(normalizeInlineMathSource(normalized)).toBe(normalized);
+    expect(cleanVisibleMathText("bold a_(cor): Coriolisbeschleunigung; bold Omega: Winkelgeschwindigkeit"))
+      .toBe("𝐚cₒᵣ: Coriolisbeschleunigung; 𝛀: Winkelgeschwindigkeit");
+    expect(cleanVisibleMathText(String.raw`Richtung von \(bold omega\) einzeichnen.`))
+      .toBe("Richtung von 𝛚 einzeichnen.");
+    const content = `$ ${normalized} $\n\n${renderTypstInlineText("bold v_(rel): Relativgeschwindigkeit", formatFormulaMath)}`;
+    const directory = await mkdtemp(path.join(os.tmpdir(), "study-buddy-bare-bold-"));
+    try {
+      await writeTypstSupportFiles(directory, await getStudyBuddyTypstSupportFiles());
+      const sourcePath = path.join(directory, "notation.typ");
+      const pdfPath = path.join(directory, "notation.pdf");
+      await writeFile(sourcePath, studyBuddyTypstDocument(content));
+      await expect(compileTypstPdf(sourcePath, pdfPath)).resolves.toEqual({ ok: true, skipped: false });
+      const { stdout } = await promisify(execFile)("pdftotext", [pdfPath, "-"]);
+      expect(stdout).not.toMatch(/\bbold\b/);
+      expect(stdout).toContain("Relativgeschwindigkeit");
+      expect(stdout).toContain("×");
+      expect(stdout).toMatch(/[Ω𝛀]/u);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("bounds bare vector styling to one symbol and preserves explicit calls and quoted text", () => {
+    expect(normalizeInlineMathSource('"bold Omega" + bold(x + y) + bold theta_i'))
+      .toBe('"bold Omega" + bold(x + y) + bold(theta)_i');
+    expect(normalizeInlineMathSource("bold α + bold Z_1")).toBe("bold(α) + bold(Z)_1");
+    expect(() => normalizeInlineMathSource("bold unknown + x")).toThrow(/Unsupported bare bold operand/);
+    expect(() => normalizeInlineMathSource("bold xy + x")).toThrow(/Unsupported bare bold operand/);
+    expect(cleanVisibleMathText("A bold statement remains prose.")).toBe("A bold statement remains prose.");
+    expect(cleanVisibleMathText("a bold decision; bold claims")).toBe("a bold decision; bold claims");
+  });
+
+  it("keeps escaped quotes and backslashes inside strings outside bare-bold normalization", () => {
+    for (const literal of ['say "bold Omega" here', 'say "bold prose" here', 'a \\ path says "bold xi"', 'bold claims with a trailing \\']) {
+      const quoted = JSON.stringify(literal);
+      expect(normalizeInlineMathSource(`${quoted} + x`)).toBe(`${quoted} + x`);
+      expect(normalizeInlineMathSource(`${quoted} + bold xi`)).toBe(`${quoted} + bold(xi)`);
+    }
+    expect(() => normalizeInlineMathSource(`${JSON.stringify('"bold prose"')} + bold unknown`))
+      .toThrow(/Unsupported bare bold operand/);
+  });
+
+  it("compiles every supported named Greek letter without quoting identifiers or subscripts", async () => {
+    const lowercase = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega", "digamma"];
+    const symbols = [...lowercase, ...lowercase.map((name) => name[0].toUpperCase() + name.slice(1))];
+    const expressions = symbols.map((name) => {
+      const normalized = formatFormulaMath(`bold ${name}_${name}`);
+      expect(normalized).toBe(`bold(${name})_${name}`);
+      return `$ ${normalized} $`;
+    });
+    expect(cleanVisibleMathText("bold xi, bold iota, bold upsilon, bold Xi, bold Gamma, bold Sigma"))
+      .toBe("𝛏, 𝛊, 𝛖, 𝚵, 𝚪, 𝚺");
+    await expect(validateTypst(studyBuddyTypstDocument(expressions.join("\n\n")), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+  it("renders hash-delimited analyzer mathematics as inline math", async () => {
+    const content = renderTypstInlineText(
+      "Rand #y=x#, #0<=x<=4#: #f(x,x)=x^2+4#. Der Wert ist #20#.",
+      formatFormulaMath,
+    );
+
+    expect(content).toContain("$y=x$");
+    expect(content).toContain("$f(x,x)=x^2+4$");
+    expect(content).not.toContain("#f(x,x)");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders separate #math(...) calls without swallowing the prose between them", async () => {
+    const content = renderTypstInlineText(
+      "Die Transformation #math(h=(g+1)/2) bildet −1 auf 0 ab. Damit #math(h(x)=1/2+g(x)/2).",
+      formatFormulaMath,
+    );
+    expect(content).not.toContain('$"math"(');
+    expect(content).toContain('#text(" bildet −1 auf 0 ab. Damit ")');
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders LaTeX-marked prose without exposing source syntax", async () => {
+    const content = renderTypstInlineText(
+      String.raw`Für \(f(x)=\frac{x_1}{x_2}\) gilt \(n\ge1\) und \(\sum_{n=1}^\infty a_n\).`,
+      formatFormulaMath,
+    );
+    expect(content).not.toContain(String.raw`\(`);
+    expect(content).not.toContain(String.raw`\frac`);
+    expect(content).toContain("∑");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups angle-bracket inner products inside a fraction", async () => {
+    const expression = formatFormulaMath("c_n = frac(<f,p_n>,<p_n,p_n>)");
+    expect(expression).toContain("frac((⟨f,p_n⟩),(⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups LaTeX angle-bracket inner products inside a fraction", async () => {
+    const expression = formatFormulaMath(String.raw`c_n = frac(\langle f,p_n \rangle,\langle p_n,p_n \rangle)`);
+    expect(expression).toContain("frac((⟨f,p_n⟩),(⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("groups analyzer angle.l/rangle inner products inside a curried fraction", async () => {
+    const expression = formatFormulaMath("c_n = frac(angle.l f,p_n rangle)(angle.l p_n,p_n rangle)");
+    expect(expression).toContain("frac((⟨f,p_n⟩), (⟨p_n,p_n⟩))");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes real-plane set difference from LaTeX", async () => {
+    const expression = formatFormulaMath(String.raw`\mathbb{R}^2\setminus\{(0,0)\}`);
+    expect(expression).toBe("RR^2 without {(0,0)}");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders adjacent coordinate variables as multiplication", async () => {
+    const expression = formatFormulaMath("f(x,y,z) = x ln z + 2xy");
+    expect(expression).toContain("2x y");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("separates the imaginary unit from adjacent variables", async () => {
+    const expression = formatFormulaMath("e^(3jx)e^(3jT)");
+    expect(expression).toContain("j x");
+    expect(expression).toContain("j T");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("normalizes abbreviated integral notation in a worked solution", async () => {
+    const expression = formatFormulaMath("a_0=1/pi int_(-pi)^pi g(x) dif x");
+    expect(expression).toContain("integral_");
+    await expect(validateTypst(studyBuddyTypstDocument(`$ ${expression} $`), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("renders dollar and backtick math as real inline math", async () => {
     const content = renderTypstInlineText(
       "Gegeben sind $A_{net} = A - ΔA = 23 µm$ und `gamma_(M2) = 1.25`; danach folgt Text.",
@@ -47,6 +198,19 @@ describe("Typst inline mathematics", () => {
     ).resolves.toEqual({ ok: true });
   }, 30_000);
 
+  it("hides unmatched math delimiters in prose without changing prices", async () => {
+    const content = renderTypstInlineText(
+      "Daraus folgt $f_x=4x^3-y sin(xy). Das Heft kostet $5.",
+      formatFormulaMath,
+    );
+
+    expect(content).not.toContain("$f");
+    expect(content).toContain("fₓ=4x³-y sin(xy)");
+    expect(content).toContain("$5");
+    await expect(validateTypst(studyBuddyTypstDocument(content), await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("cleans visible raw notation in ordinary prose and metadata", () => {
     expect(cleanVisibleMathText("tau_1 <= tau_1B / S; N/mm^2; pi dot d^2"))
       .toBe("τ₁ ≤ τ₁B / S; N/mm²; π · d²");
@@ -63,6 +227,8 @@ describe("Typst inline mathematics", () => {
     expect(cleanVisibleMathText("bold(r)_{PA} times bold(v); s^(-2)"))
       .toBe("𝐫ₚₐ × 𝐯; s⁻²");
     expect(cleanVisibleMathText("`origin: source`")).toBe("origin: source");
+    expect(cleanVisibleMathText(String.raw`math(\tilde g(x)=\frac{1}{n})`))
+      .toContain("g̃(x)=(1)/(n)");
   });
 
   it("quotes comma-separated engineering subscripts as one Typst label", () => {

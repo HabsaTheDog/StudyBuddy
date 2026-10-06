@@ -1,62 +1,42 @@
-const QUIZ_TERMS = [
-  "quiz",
-  "test",
-  "minitest",
-  "kurztest",
-  "testblock",
-  "moodle test",
-  "selbstcheck",
-  "selfcheck",
-  "self quiz",
-];
-
-const ACTION_TERMS = [
-  "mach",
-  "mache",
-  "bearbeit",
-  "füll",
-  "fuell",
-  "ausfüll",
-  "ausfuell",
-  "lös",
-  "loes",
-  "answer",
-  "solve",
-  "do",
-  "fill",
-  "complete",
-  "start",
-  "find",
-  "finde",
-  "kommend",
-  "heutig",
-  "nächst",
-  "naechst",
-];
+import { isExplicitQuizExecutionIntent, isQuizDiscoveryIntent, QUIZ_NOUN } from "../taskIntent.js";
 
 export function isQuizPrompt(prompt: string): boolean {
-  const lower = prompt.toLocaleLowerCase("de-AT");
-  return (
-    QUIZ_TERMS.some((term) => lower.includes(term)) &&
-    ACTION_TERMS.some((term) => lower.includes(term))
-  );
+  return isExplicitQuizExecutionIntent(prompt) || isQuizDiscoveryIntent(prompt) ||
+    (QUIZ_NOUN.test(prompt) && /\b(?:review|inspect|anschauen|ansehen|prüfen|pruefen)\b/i.test(prompt));
 }
 
 export function promptWantsQuizAttempt(prompt: string): boolean {
-  const lower = prompt.toLocaleLowerCase("de-AT");
-  return (
-    ACTION_TERMS.some((term) => lower.includes(term)) &&
-    !/\b(review|inspect|prüf|pruef|nur schauen)\b/i.test(lower)
-  );
+  return isExplicitQuizExecutionIntent(prompt) &&
+    !/\b(review|inspect|prüf|pruef|nur schauen)\b/i.test(prompt);
 }
 
 export function extractQuizUrl(prompt: string): string | null {
-  const match = /https?:\/\/\S+/i.exec(prompt);
-  if (!match) {
+  return extractQuizUrls(prompt)[0] ?? null;
+}
+
+/** Only navigable landing/attempt pages; never start, review, or submit URLs. */
+export function normalizeQuizUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
+    const key = /\/mod\/quiz\/view\.php$/.test(url.pathname) ? "id"
+      : /\/mod\/quiz\/attempt\.php$/.test(url.pathname) ? "attempt" : null;
+    if (!key || !/^[1-9]\d*$/.test(url.searchParams.get(key) ?? "")) return null;
+    const id = url.searchParams.get(key)!;
+    url.hash = "";
+    url.search = "";
+    url.searchParams.set(key, id);
+    return url.toString();
+  } catch {
     return null;
   }
-  const url = match[0].replace(/[),.]+$/g, "");
-  return url.includes("/mod/quiz/") ? url : null;
+}
+
+export function extractQuizUrls(prompt: string): string[] {
+  const urls = [...prompt.matchAll(/https?:\/\/[^\s<>"']+/gi)]
+    .map(match => normalizeQuizUrl(match[0].replace(/[),.;!?\]}]+$/g, "")))
+    .filter((url): url is string => url !== null);
+  return [...new Set(urls)];
 }
 
 const ASSIGNMENT_TERMS = [

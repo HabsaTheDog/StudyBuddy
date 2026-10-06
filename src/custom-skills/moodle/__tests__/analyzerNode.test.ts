@@ -1,11 +1,13 @@
+import { ExecutionTelemetry } from "../executionTelemetry.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ModelCallTimeoutError,
   NonRetryableCodexError,
   classifyCodexError,
+  resolveModelPromptBodyCharacterBudget,
   type CodexClient,
 } from "../codexClient.js";
 import {
@@ -15,13 +17,17 @@ import {
 } from "../schemas.js";
 import {
   buildChapterFragmentPrompt,
+  buildChapterSlices,
+  buildAnalyzerPrompt,
   createAnalyzerNode,
   appliedFragmentQualityError,
   ensureDirectEvidenceSelection,
   ensureOfficialTopicEvidenceSelection,
   focusMatchesError,
   fragmentFormulaQualityError,
+  locateRequestedTaskPage,
   normalizeAnalyzerFormulaSyntax,
+  scopeRequestedTaskFragment,
   visualRequestMatchesChapter,
 } from "../nodes/analyzerNode.js";
 import { compactObligationRawSource } from "../obligationDiscovery.js";
@@ -30,9 +36,285 @@ import {
   readPendingExtractionRepairs,
 } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError, StudyBuddyTimeoutError } from "../runtimeAbort.js";
-import { moodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
+import { moodleTestConfig as baseMoodleTestConfig, moodleTestState } from "./support/moodleTestBlocks.js";
+
+// Durable budgets belong to a run. Independent unit cases must not share the
+// historical fixed /tmp run directory across tests or test invocations.
+let isolatedRunDir: string;
+beforeEach(async () => { isolatedRunDir = await mkdtemp(path.join(os.tmpdir(), "analyzer-case-")); });
+afterEach(async () => { await rm(isolatedRunDir, { recursive: true, force: true }); });
+const moodleTestConfig = (overrides: Parameters<typeof baseMoodleTestConfig>[0] = {}) =>
+  baseMoodleTestConfig({ ...overrides, runDir: overrides?.runDir ?? isolatedRunDir });
 
 describe("analyzerNode", () => {
+  it.each([true, false])("accepts directly assigned native HTML lesson evidence while preserving its selection veto (selected=%s)", async selected => {
+    const native = { ...chapterResource("html", "Evidence interpretation lesson", "Methods unit", "primary_lecture"),
+      activityType: "page", originUrl: "https://moodle.example/lesson", localPath: null,
+      selection: { selected, role: "primary_lecture" as const, topic: null, priority: 900, reason: "Native course lesson" } };
+    const content = "Interpret a source by identifying its stated claim, comparing the supporting observations, and explaining the limits of the conclusion.";
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources: [native] },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", warnings: [], records: [{ id: "native-method", resourceId: native.id, kind: "claim",
+        locator: { section: "Source interpretation method" }, content, confidence: 1, pairId: null, sourceUrl: native.originUrl, localPath: null }] },
+      source_architect_decision: { round: 1, status: "sufficient", coverageSummary: "Native method available", requestedUrls: [], remainingAvailable: 0, reasons: [],
+        learningArchitecture: { schemaVersion: 1, modules: [{ id: "native-method", title: "Evidence interpretation", priority: "essential", contentMode: "conceptual",
+          learningObjectives: ["Explain the source interpretation method."], assessmentSignals: [], resourceUrls: [native.originUrl] }], supportResources: [], excludedResourceUrls: [] } } });
+    let calls = 0;
+    const result = await createAnalyzerNode(moodleTestConfig({ runtimeCacheDir: isolatedRunDir }), { async run(prompt) {
+      calls++;
+      expect(prompt).toContain(content);
+      return JSON.stringify({ document_title: "Evidence interpretation", language: "de", course: { title: "Methods course", url: "https://moodle.example/course" },
+        sources: [{ id: native.id, title: native.title, kind: "moodle_page", url: native.originUrl, path: null, page: null }],
+        sections: [{ heading: "Method", summary: content, key_concepts: ["Stated claim", "Supporting evidence"], source_ids: [native.id] }],
+        formulas: [], worked_examples: [], figures: [], visual_assets: [], quiz_style_questions: [], warnings: [] });
+    } })(state);
+    expect(calls).toBe(selected ? 1 : 0);
+    if (selected) {
+      expect(result.error_log).toBeNull();
+      expect(result.extracted_data).toMatchObject({ learning_modules: [{ id: "native-method", title: "Evidence interpretation" }] });
+    } else expect(result.error_log).toContain("no admissible acquired source");
+  });
+
+  it("binds an actually used source ID to its original manifest provenance", async () => {
+    const native = chapterResource("native", "Original source title", "Single source", "primary_lecture");
+    const result = await createAnalyzerNode(moodleTestConfig(), { async run() { return JSON.stringify({
+      document_title: "Study guide", language: "de", course: { title: "Course", url: "https://moodle.example/course" },
+      sources: [{ id: native.id, title: "Model changed title", kind: "pdf", url: "https://moodle.example/course", path: null, page: 4 }],
+      sections: [{ heading: "Method", summary: "The documented method.", key_concepts: [], source_ids: [native.id] }],
+      formulas: [], worked_examples: [], figures: [], visual_assets: [], quiz_style_questions: [], warnings: [] }); } })(moodleTestState({
+        resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources: [native] } }));
+    expect(result.error_log).toBeNull();
+    expect(result.extracted_data).toMatchObject({ sources: [{ id: native.id, title: native.title, url: native.originUrl, path: native.localPath, page: 4 }] });
+  });
+
+  it("keeps an explicit single semantic module on the assigned dense-fragment path", async () => {
+    const resources = [chapterResource("single", "Reading evidence", "Unit", "primary_lecture"),
+      chapterResource("excluded", "Unrelated acquired probe", "Other unit", "primary_lecture")];
+    const records = Array.from({ length: 25 }, (_, i) => ({ id: `reading-${i}`, resourceId: "res_single", kind: "claim" as const,
+      locator: { page: i + 1 }, content: `Exact source evidence ${i}: interpreting a document requires comparing its claims and assumptions.`,
+      confidence: 1, pairId: null, sourceUrl: resources[0].originUrl, localPath: resources[0].localPath }));
+    const state = moodleTestState({ resource_manifest: { schemaVersion: "1.0", generatedAt: "", courseUrl: "https://moodle.example/course", resources },
+      evidence_package: { schemaVersion: "1.0", generatedAt: "", records, warnings: [] },
+      source_architect_decision: { round: 2, status: "sufficient", coverageSummary: "Assigned scope", requestedUrls: [], remainingAvailable: 0, reasons: [],
+        learningArchitecture: { schemaVersion: 1, modules: [{ id: "one", title: "Evidence interpretation", priority: "essential", contentMode: "conceptual",
+          learningObjectives: ["Interpret the evidenced claims and assumptions."], assessmentSignals: [], resourceUrls: [resources[0].originUrl, resources[1].originUrl] }],
+          supportResources: [], excludedResourceUrls: [resources[1].originUrl] } } });
+    const schemas: unknown[] = [];
+    const codex: CodexClient = { async run(prompt, options) {
+      schemas.push(options?.outputSchema);
+      expect(prompt).toContain("Exact source evidence");
+      expect(prompt).not.toContain("Unrelated acquired probe");
+      return JSON.stringify({ sections: [{ heading: "Evidence interpretation", summary: "Compare claims with their stated assumptions.",
+        key_concepts: ["Claims", "Assumptions"], source_ids: ["res_single"] }], formulas: [], worked_examples: [], figures: [], warnings: [] });
+    } };
+    const result = await createAnalyzerNode(moodleTestConfig({ runtimeCacheDir: isolatedRunDir,
+      artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" } }), codex)(state);
+    expect(result.error_log).toBeNull();
+    expect(schemas.length).toBeGreaterThan(0);
+    expect(schemas.every(schema => schema === chapterFragmentJsonSchema)).toBe(true);
+    expect(result.extracted_data).toMatchObject({ learning_modules: [{ id: "one", title: "Evidence interpretation", resource_ids: ["ch1_one_res_single"] }] });
+  });
+
+  it("keeps generic solution headings attached to their own requested task", () => {
+    const original = ChapterFragmentSchema.parse({
+      sections: [
+        { heading: "Lösungsweg", summary: "Rechenschritte", key_concepts: [], source_ids: ["source"] },
+        { heading: "Aufgabe 3: Ergebnis", summary: "Ergebnis", key_concepts: [], source_ids: ["source"] },
+      ],
+      warnings: [
+        "Für Aufgabe 4 fehlen in diesem Teil die Originaldaten.",
+        "Für Aufgabe 3 fehlt eine lesbare Maßangabe.",
+        "Ein Vollständigkeitsabgleich mit allen Aufgaben der Kreuzerllisten ist anhand dieser Evidenz nicht möglich und wird durch andere Fragmente abgedeckt.",
+        "Die punktweise Konvergenz wird in der Quelle eingeschränkt.",
+      ],
+      worked_examples: [{
+        learning_goal: "Den Rechenweg begründen",
+        prompt: "Berechne den Wert.",
+        steps: ["Formel anwenden."],
+        result: "Wert",
+        source_ids: ["source"],
+      }],
+    });
+    const task3 = scopeRequestedTaskFragment(original, {
+      key: "practice-list-requested-task-3",
+      label: "Übungen – Aufgabe 3",
+      resourceIds: ["source"],
+      records: [],
+    });
+    const task4 = scopeRequestedTaskFragment(original, {
+      key: "practice-list-requested-task-4",
+      label: "Übungen – Aufgabe 4",
+      resourceIds: ["source"],
+      records: [],
+    });
+    expect(task3.sections.map((section) => section.heading)).toEqual([
+      "Übungen – Aufgabe 3 – Lösungsweg",
+      "Aufgabe 3: Ergebnis",
+    ]);
+    expect(task4.sections[0]?.heading).toBe("Übungen – Aufgabe 4 – Lösungsweg");
+    expect(task3.worked_examples[0]?.learning_goal).toBe("Übungen – Aufgabe 3: Den Rechenweg begründen");
+    expect(task4.worked_examples[0]?.learning_goal).toBe("Übungen – Aufgabe 4: Den Rechenweg begründen");
+    expect(task3.warnings).toEqual([
+      "Für Aufgabe 3 fehlt eine lesbare Maßangabe.",
+      "Die punktweise Konvergenz wird in der Quelle eingeschränkt.",
+    ]);
+    expect(original.sections[0]?.heading).toBe("Lösungsweg");
+  });
+
+  it("locates the original PDF page of a numbered task despite missing extracted math", () => {
+    const pages = [
+      "Aufgabe 1: Fourierreihe. Aufgabe 3: Bestimmen Sie die durch definierte Funktion h.",
+      "Aufgabe 4: Ermitteln Sie die komplexe Form.",
+    ];
+    expect(locateRequestedTaskPage(pages, 3)).toBe(1);
+    expect(locateRequestedTaskPage(pages, 4)).toBe(2);
+    expect(locateRequestedTaskPage(pages, 9)).toBeNull();
+  });
+
+  it("creates one evidence slice per explicitly requested task", () => {
+    const resource = chapterResource("tasks", "Kreuzerlliste Thema 8", "Thema 8", "worked_example");
+    const records = [
+      {
+        id: "ev_tasks_1",
+        resourceId: resource.id,
+        kind: "exercise" as const,
+        locator: { page: 1 },
+        content: "Kreuzerlliste. Aufgabe 3: Bestimme die Ableitung. Aufgabe 8: Berechne den Gradienten.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+      {
+        id: "ev_tasks_2",
+        resourceId: resource.id,
+        kind: "solution" as const,
+        locator: { page: 2 },
+        content: "Fortsetzung: vollständiger Lösungsweg mit allen Rechenschritten.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+      {
+        id: "ev_tasks_3",
+        resourceId: resource.id,
+        kind: "exercise" as const,
+        locator: { page: 3 },
+        content: "Aufgabe 9: Diese nicht angeforderte Aufgabe darf nicht in die Auswahl.",
+        confidence: 1,
+        pairId: null,
+        sourceUrl: resource.originUrl,
+        localPath: resource.localPath,
+      },
+    ];
+    const state = moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course",
+        generatedAt: new Date().toISOString(),
+        resources: [resource],
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records,
+        warnings: [],
+      },
+    });
+
+    const slices = buildChapterSlices(state, {
+      key: "thema-8",
+      title: "Thema 8",
+      resourceIds: [resource.id],
+      directResourceIds: [resource.id],
+      matchTerms: ["Thema 8"],
+      assessmentSignals: ["T8/A3", "T8/A8"],
+    });
+
+    expect(slices.map((slice) => slice.label)).toEqual([
+      expect.stringContaining("Aufgabe 3"),
+      expect.stringContaining("Aufgabe 8"),
+    ]);
+    expect(slices[1]?.records.map((record) => record.content).join(" ")).toContain("Fortsetzung");
+    expect(slices.flatMap((slice) => slice.records).map((record) => record.content).join(" "))
+      .not.toContain("nicht angeforderte Aufgabe");
+  });
+
+  it("keeps a large course payload below the content-analyzer request budget", async () => {
+    const resources = Array.from({ length: 357 }, (_, index) => ({
+      id: `res_${index}`,
+      parentId: null,
+      sectionPath: ["MAES", `Thema ${index}`],
+      activityType: "resource",
+      title: `${index < 15 ? "Selected" : "Cataloged"} resource ${index}`,
+      originUrl: `https://moodle.example/mod/resource/view.php?id=${index}`,
+      resolvedUrl: null,
+      localPath: `/tmp/resource-${index}.pdf`,
+      previewPath: null,
+      status: "acquired" as const,
+      checksum: `checksum-${index}`,
+      verifiedAt: null,
+      examRelevance: "unknown" as const,
+      failureReason: null,
+      selection: {
+        selected: index < 15,
+        role: "primary_lecture" as const,
+        topic: index < 15 ? `Thema ${index}` : null,
+        priority: 900 - index,
+        reason: "Relevant source metadata. ".repeat(30),
+      },
+      extraction: {
+        status: "usable" as const,
+        method: "native_pdf_text" as const,
+        characterCount: 50_000,
+        pageCount: 20,
+        warnings: ["Verbose extraction warning. ".repeat(30)],
+      },
+    }));
+    const records = Array.from({ length: 2_751 }, (_, index) => ({
+      id: `ev_${index}`,
+      resourceId: `res_${index % resources.length}`,
+      kind: index % 2 === 0 ? "exercise" as const : "solution" as const,
+      locator: { page: index + 1 },
+      content: `Aufgabe ${index}: ${"Belegter mathematischer Inhalt. ".repeat(24)}`,
+      confidence: 1,
+      pairId: null,
+      sourceUrl: resources[index % resources.length]!.originUrl,
+      localPath: resources[index % resources.length]!.localPath,
+    }));
+    const config = moodleTestConfig({
+      prompt: "Erstelle ein PDF aus den Kreuzerllisten zu den Themen 1–3 und 8–9.",
+      originalUserPrompt: "Erstelle ein PDF aus den Kreuzerllisten zu den Themen 1–3 und 8–9.",
+    });
+    const prompt = await buildAnalyzerPrompt(config, moodleTestState({
+      resource_manifest: {
+        schemaVersion: "1.0",
+        courseUrl: "https://moodle.example/course/view.php?id=30605",
+        generatedAt: new Date().toISOString(),
+        resources,
+      },
+      evidence_package: {
+        schemaVersion: "1.0",
+        generatedAt: new Date().toISOString(),
+        records,
+        warnings: [],
+      },
+    }));
+
+    expect(prompt.length).toBeLessThanOrEqual(
+      resolveModelPromptBodyCharacterBudget("content_analyzer", extractedDataJsonSchema) - 1_000,
+    );
+    expect(prompt).toContain('"totalResourceCount": 357');
+    const manifest = JSON.parse(
+      prompt.split("Resource manifest JSON:\n")[1]!
+        .split("\n\nEvidence package selection JSON:")[0]!,
+    ) as { includedResourceCount: number; resources: Array<{ selection?: { selected?: boolean } }> };
+    expect(manifest.includedResourceCount).toBeGreaterThan(0);
+    expect(manifest.includedResourceCount).toBeLessThanOrEqual(15);
+    expect(manifest.resources.every((resource) => resource.selection?.selected === true)).toBe(true);
+    expect(prompt).toContain("Analyzer context selected");
+  });
+
   it("keeps direct activity and preparation evidence in a bounded obligation handoff", () => {
     const raw = [
       "[Calendar event]\nTitle: AT1\nStart: 2026-09-07T08:00:00Z\nEnd: 2026-09-07T10:00:00Z",
@@ -250,6 +532,11 @@ describe("analyzerNode", () => {
     )).toBe(
       "vec(a) = ddot(x) vec(e)_x + ddot(bold(r)) vec(e)_r",
     );
+  });
+
+  it("drops stray control bytes from a valid analyzer formula before semantic review", () => {
+    expect(normalizeAnalyzerFormulaSyntax("grad f(x,y,z) = (ln z + 2y,\u007f2x,\u007fx/z)"))
+      .toBe("grad f(x,y,z) = (ln z + 2y,2x,x/z)");
   });
 
   it("replaces support-only selection with every bounded direct source", () => {
@@ -592,7 +879,8 @@ describe("analyzerNode", () => {
     );
 
     expect(prompt).toContain("\"id\": \"page-image\"");
-    expect(prompt).toContain("Attached images correspond to the listed candidate IDs");
+    expect(prompt).toContain("Only listed visual candidates have figure IDs");
+    expect(prompt).toContain("original task-page image is source evidence");
     expect(prompt).toContain("numerical coefficients of time functions carry their own units");
     expect(prompt).toContain("Optional arrays such as worked_examples and figures may be empty");
     expect(prompt).not.toContain("assets/visuals/example-page-1.png");
@@ -661,6 +949,7 @@ describe("analyzerNode", () => {
       [],
       [
         "Semantic quality review failed:",
+        "- [scope: document] The global source note contradicts content across chapters.",
         "- [chapter: Literature Structure] The heading hierarchy is ambiguous.",
         "- [chapter: Dynamics] A formula derivation is incomplete.",
       ].join("\n"),
@@ -670,6 +959,7 @@ describe("analyzerNode", () => {
     expect(prompt).toContain("req-structure");
     expect(prompt).not.toContain("req-visual-shell");
     expect(prompt).toContain("The heading hierarchy is ambiguous");
+    expect(prompt).toContain("The global source note contradicts content across chapters");
     expect(prompt).not.toContain("A formula derivation is incomplete");
     expect(prompt).not.toContain("vollständig nachvollziehbares Beispiel");
     expect(prompt).not.toContain("konkreter mathematischer Beziehung");
@@ -1231,16 +1521,19 @@ describe("analyzerNode", () => {
           throw new Error("Model must not start after checkpoint boundary.");
         },
       };
+      const executionTelemetry = new ExecutionTelemetry({
+        runDir, policyVersion: "test", profile: "auto", configuredDownloadConcurrency: 1,
+      });
+      const snapshot = executionTelemetry.getSnapshot();
+      executionTelemetry.getSnapshot = () => ({
+        ...snapshot, startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
+      });
       const config = moodleTestConfig({
         runDir,
         runtimeCacheDir: path.join(runDir, "runtime-cache"),
         maxRuntimeMs: 10 * 60_000,
         artifactIntent: { ...moodleTestConfig().artifactIntent, profile: "study_guide" },
-        executionTelemetry: {
-          getSnapshot: () => ({
-            startedAt: new Date(Date.now() - 9 * 60_000).toISOString(),
-          }),
-        } as never,
+        executionTelemetry,
       });
       const state = moodleTestState({
         resource_manifest: {
@@ -1258,6 +1551,7 @@ describe("analyzerNode", () => {
         StudyBuddyCheckpointError,
       );
       expect(calls).toBe(0);
+      expect(config.maxRuntimeMs).toBe(10 * 60_000);
     } finally {
       await rm(runDir, { recursive: true, force: true });
     }
@@ -1294,7 +1588,10 @@ describe("analyzerNode", () => {
     expect(receivedPrompt.length).toBeLessThan(40_000);
   });
 
-  it("caches valid chapter handoffs and repairs only the chapter named by review feedback", async () => {
+  it.each([
+    ["Chapter is too shallow: Klebeverbindungen", 3],
+    ["Semantic quality review failed:\n- [scope: document] The aggregate scope note contradicts the included Nieten content.", 4],
+  ])("preserves warning ownership and repairs the caches owned by feedback: %s", async (feedback, expectedCalls) => {
     const runDir = await mkdtemp(path.join(os.tmpdir(), "study-buddy-chapters-"));
     try {
       const calls: string[] = [];
@@ -1322,7 +1619,7 @@ describe("analyzerNode", () => {
             quiz_style_questions: [],
             visual_assets: [],
             figures: [],
-            warnings: [],
+            warnings: [`${title}: local source boundary.`],
           });
         },
       };
@@ -1349,11 +1646,15 @@ describe("analyzerNode", () => {
       const first = await createAnalyzerNode(config, codex)(baseState);
       const repaired = await createAnalyzerNode(config, codex)({
         ...baseState,
-        error_log: "Chapter is too shallow: Klebeverbindungen",
+        error_log: feedback,
       });
 
-      expect(calls).toHaveLength(3);
+      expect(calls).toHaveLength(expectedCalls);
       expect(first.extracted_data).toMatchObject({ sections: [{ heading: "Kleben" }, { heading: "Nieten" }] });
+      expect((first.extracted_data as { warnings: string[] }).warnings).toEqual([
+        "Kapitel «Eigenstudium 2 — Foliensatz: Kleben»: Kleben: local source boundary.",
+        "Kapitel «Eigenstudium 3 — Foliensatz: Nietverbindung»: Nieten: local source boundary.",
+      ]);
       expect(repaired.error_log).toBeNull();
     } finally {
       await rm(runDir, { recursive: true, force: true });

@@ -4,12 +4,11 @@ Study Buddy is a local-first AI learning companion that finds authorized course
 evidence and turns it into source-grounded answers, PDF study guides, and
 single-file offline learning webpages.
 
-> **Alpha status:** `v0.2.2-alpha` consolidates the unpublished corrective builds
-> for hands-on Windows and Fedora testing. Stable-channel promotion is separate
-> and requires owner approval and clean Windows and Fedora acceptance;
-> the `1.x` line remains reserved for the future full release. Read
-> the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance before
-> connecting an account.
+> **Alpha status:** `v0.2.4-alpha` is the next coordinated candidate. The latest
+> public version is `v0.2.2-alpha`; website promotion requires exact clean
+> Windows and Fedora acceptance. The `1.x` line remains reserved for a full
+> release. Read the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance
+> before connecting an account.
 
 [MIT licensed](LICENSE) · [Roadmap](ROADMAP.md) ·
 [Contributing](CONTRIBUTING.md) · [Support](SUPPORT.md)

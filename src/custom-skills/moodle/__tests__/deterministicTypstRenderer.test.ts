@@ -4,10 +4,11 @@ import path from "node:path";
 import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
 import { renderDeterministicStudyDocument } from "../deterministicTypstRenderer.js";
+import { createFormatterNode, replaceFailingInlineMathWithReadableText } from "../nodes/formatterNode.js";
 import { initialSourceCoverage } from "../runDiagnostics.js";
 import { getStudyBuddyTypstSupportFiles } from "../typstAssets.js";
 import { validateTypst } from "../validation.js";
-import { moodleExtractedData } from "./support/moodleTestBlocks.js";
+import { moodleExtractedData, moodleTestConfig, moodleTestState, studyBuddyTypstDocument } from "./support/moodleTestBlocks.js";
 
 let runDir: string | null = null;
 
@@ -19,6 +20,111 @@ afterEach(async () => {
 });
 
 describe("deterministic Typst renderer", () => {
+  it("renders each content object once when learning modules share course citations", async () => {
+    const module = (id: string, resource_ids: string[]) => ({
+      id, title: `Module ${id}`, priority: "essential" as const, content_mode: "mixed" as const,
+      learning_objectives: ["Interpret the supported material"], assessment_signals: [], resource_ids,
+    });
+    const source = renderDeterministicStudyDocument(moodleExtractedData({
+      learning_modules: [module("framework", ["course"]), module("methods", ["course", "lesson"])],
+      sections: [{ heading: "Unique confirmed framework", summary: "One shared assessment announcement.", key_concepts: [], source_ids: ["course"] }],
+      formulas: [{ name: "Unique shared formula", typst: "x = 2", variables: [], units: [], context: "Stated relation.", source_ids: ["course"] }],
+      worked_examples: [{ origin: "derived", learning_goal: "Unique shared practice", prompt: "Find x.", steps: ["Use the stated relation."], result: "x = 2", source_ids: ["course"] }],
+      figures: [],
+    }), structuredClone(initialSourceCoverage));
+    expect(source.split("Unique confirmed framework")).toHaveLength(2);
+    expect(source.split("Unique shared formula")).toHaveLength(2);
+    expect(source.split("Unique shared practice")).toHaveLength(2);
+    expect(source).toContain("One shared assessment announcement.");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles())).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("uses a readable text fallback for a compiler-identified malformed equation", async () => {
+    const supportFiles = await getStudyBuddyTypstSupportFiles();
+    const original = studyBuddyTypstDocument("$ badunknown(x) $");
+    const failed = await validateTypst(original, supportFiles);
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    const repaired = replaceFailingInlineMathWithReadableText(original, failed.error);
+    expect(repaired).not.toBeNull();
+    await expect(validateTypst(repaired!, supportFiles)).resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("keeps prose-heavy equality steps in wrapping prose instead of display math", async () => {
+    const step = "(d) f_4(x)=e^(sin(x)): Wegen sin(x+2 pi)=sin(x) gilt f_4(x+2 pi)=f_4(x). Da die Exponentialfunktion injektiv ist, würde eine kleinere Periode auch eine kleinere Periode von sin(x) liefern. Also T=2 pi.";
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({ worked_examples: [{
+        origin: "source", learning_goal: "Periodizität", prompt: "Prüfe die Funktion.",
+        steps: [step], result: "T=2 pi", source_ids: [],
+      }] }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).not.toContain("#block(inset: (left: 7pt))");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+  it("renders math in example titles as content, not a literal string", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        worked_examples: [{
+          origin: "source",
+          learning_goal: "Die Koeffizienten $c_1$ und $c_2$ herleiten",
+          prompt: "Berechne $c_1$.",
+          steps: ["Setze $c_1=2$ ein."],
+          result: "Es gilt $c_1=2$.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).toContain("title: [");
+    expect(source).not.toContain('title: "Die Koeffizienten $c_1$');
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
+  it("renders math in formula names as content, not a literal string", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        formulas: [{
+          name: "Gradient und Hesse-Matrix von $g$",
+          typst: "grad g = (1, 2)",
+          variables: [],
+          units: [],
+          context: "Ableitungen von $g$.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+    expect(source).toContain("name: [");
+    expect(source).not.toContain('name: "Gradient und Hesse-Matrix von $g$"');
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+  it("keeps long mixed prose and hash-delimited math steps compilable", async () => {
+    const source = renderDeterministicStudyDocument(
+      moodleExtractedData({
+        worked_examples: [{
+          origin: "source",
+          learning_goal: "Randwerte und Ableitungen prüfen",
+          prompt: "Untersuche die Funktion.",
+          steps: [
+            "Rand #y=x#, #0<=x<=4#: #f(x,x)=x^2+4#. Die Randwerte reichen von #4# bei #x=0# bis #20# bei #x=4#.",
+            "Für #f_x# wird #y# konstant behandelt: #partial_x x^4=4x^3#, #partial_x y^2=0# und #partial_x cos(xy)=-sin(xy) dot y#. Daher #f_x=4x^3-y sin(xy)#.",
+          ],
+          result: "Die Werte wurden bestimmt.",
+          source_ids: [],
+        }],
+      }),
+      structuredClone(initialSourceCoverage),
+    );
+
+    expect(source).not.toContain("$ #f(x,x)");
+    await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles()))
+      .resolves.toEqual({ ok: true });
+  }, 30_000);
+
   it("keeps deterministic fallback labels in the resolved English artifact language", () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
@@ -46,7 +152,7 @@ describe("deterministic Typst renderer", () => {
     expect(source).not.toContain("Engineering Study Documents");
   });
 
-  it("reconciles an explicit course alias and study-guide document type from the render request", () => {
+  it("preserves resolved course identity rather than guessing from request acronyms", () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
         document_title: "Blöcke – Study Guide",
@@ -56,12 +162,12 @@ describe("deterministic Typst renderer", () => {
       { prompt: "Rendere den DYN2 Study Guide als PDF", profile: "study_guide" },
     );
 
-    expect(source).toContain('title: "DYN2 – Study Guide"');
-    expect(source).toContain('course: "DYN2"');
+    expect(source).toContain('title: "Blöcke – Study Guide"');
+    expect(source).toContain('course: "Blöcke"');
     expect(source).toContain('kind: "Study Guide"');
   });
 
-  it("omits local cross-chapter scope notes after the full course is merged", () => {
+  it("preserves original source warnings for review instead of deleting their contradictions", () => {
     const source = renderDeterministicStudyDocument(
       moodleExtractedData({
         warnings: [
@@ -72,7 +178,7 @@ describe("deterministic Typst renderer", () => {
       structuredClone(initialSourceCoverage),
     );
 
-    expect(source).not.toContain("Themen 2–11 wären unbelegt");
+    expect(source).toContain("Themen 2–11 wären unbelegt");
     expect(source).toContain("Für Thema 1 fehlt");
   });
 
@@ -137,7 +243,8 @@ describe("deterministic Typst renderer", () => {
     );
 
     expect(source).toContain("1 Lineare Differentialgleichungen zweiter Ordnung");
-    expect(source).not.toContain("................................................................");
+    const roadmap = source.split("// study-buddy:chapter-roadmap")[1].split("\n    ]")[0];
+    expect(roadmap).not.toContain("................................................................");
   });
 
   it("renders validated analyzer data into a compilable standardized document", async () => {
@@ -198,7 +305,7 @@ describe("deterministic Typst renderer", () => {
     expect(source).toContain('#text(weight: "bold")[Quellen:] [#sb-source-ref("Q1", target: <source-q1>)]');
     expect(source).toContain('#sb-source-note([#sb-source-ref("Q1", target: <source-q1>)');
     expect(source).toContain("<source-q1>");
-    expect(source).toContain('#sb-divider(label: "Rechnen")');
+    expect(source).not.toContain("#sb-divider");
     expect(source).not.toContain("#sb-checklist");
     expect(source.match(/#sb-source-note/g)).toHaveLength(2);
     expect(source).toContain("$ U_a = d U_e $");
@@ -311,7 +418,7 @@ describe("deterministic Typst renderer", () => {
       structuredClone(initialSourceCoverage),
     );
 
-    expect(source).toContain('#sb-divider(label: "Lernblock 1")');
+    expect(source).not.toContain("#sb-divider");
     expect(source).toContain("// study-buddy:chapter-roadmap");
     expect(source).toContain("Kursübersicht für dieses Kapitel");
     expect(source).toContain("Thema 2");
@@ -363,7 +470,7 @@ describe("deterministic Typst renderer", () => {
       structuredClone(initialSourceCoverage),
     );
 
-    expect(source).not.toContain("In dieser Selbststudienphase");
+    expect(source).toContain("In dieser Selbststudienphase");
     expect(source).toContain("22.3 uneigentliches Integral bis exklusive Abschnitt 22.3.1");
     expect(source).not.toContain("22.3 Uneigentliches Integral#");
     expect(source).toContain("Gewöhnliche Differentialgleichungen: Grundlagen");
@@ -406,7 +513,7 @@ describe("deterministic Typst renderer", () => {
   }, 30_000);
 
   it("does not render unresolved Typst diagrams as generic block diagrams", async () => {
-    const source = renderDeterministicStudyDocument(
+    expect(() => renderDeterministicStudyDocument(
       moodleExtractedData({
         visual_assets: [
           {
@@ -437,15 +544,8 @@ describe("deterministic Typst renderer", () => {
         ],
       }),
       structuredClone(initialSourceCoverage),
-    );
-
-    expect(source).not.toContain("#sb-block-diagram");
-    expect(source).not.toContain("Visualisierung nicht gerendert");
-    expect(source).not.toContain("Visualisierungsprompt");
-    await expect(
-      validateTypst(source, await getStudyBuddyTypstSupportFiles()),
-    ).resolves.toEqual({ ok: true });
-  }, 30_000);
+    )).toThrow("Renderer cannot resolve selected figure asset: fig-missing");
+  });
 
   it("normalizes analyzer double-dot derivative formulas into valid Typst math", async () => {
     const source = renderDeterministicStudyDocument(
@@ -608,7 +708,7 @@ describe("deterministic Typst renderer", () => {
   }, 30_000);
   });
 
-  it("omits rasterized full PDF pages while retaining embedded source figures", () => {
+  it("retains every selected original figure with its caption and source", () => {
     const baseAsset = {
       title: "Quellseite",
       mime_type: "image/png" as const,
@@ -647,6 +747,59 @@ describe("deterministic Typst renderer", () => {
       structuredClone(initialSourceCoverage),
     );
 
-    expect(source).not.toContain("assets/visuals/full-page.png");
+    expect(source).toContain("assets/visuals/full-page.png");
+    expect(source).toContain("Ganze Quellseite");
     expect(source).toContain("assets/visuals/embedded-graph.png");
   });
+
+it("preserves confirmed titles, all warnings, all module objectives and document source facts", async () => {
+  const objectives = Array.from({ length: 15 }, (_, i) => `Exact objective ${i}: interpret the complete original claim without abbreviation.`);
+  const assessment_signals = Array.from({ length: 15 }, (_, i) => `Original assessment instruction ${i}`);
+  const warning = "Der Nutzerauftrag nennt Themen 1–11; dieser Teil deckt jedoch nur Thema 1 ab. Themen 2–11 wären unbelegt.";
+  const data = moodleExtractedData({
+    document_title: "Confirmed literature guide", course: { title: "Literature and criticism", url: "https://source.example/course" },
+    learning_modules: [{ id: "m", title: "Close reading", content_mode: "conceptual", priority: "essential", learning_objectives: objectives, assessment_signals, resource_ids: ["announcement"] }],
+    sources: [{ id: "announcement", title: "Original announcement", kind: "moodle_page", url: "https://source.example/notice", path: null, page: null }],
+    sections: [{ heading: "Complete original interpretation heading", summary: "Contrast viewpoints without asserting an unproven conclusion.", key_concepts: [], source_ids: ["announcement"] }],
+    warnings: [warning],
+    document_context: [{ source_id: "announcement", title: "Original announcement", url: "https://source.example/notice", omitted_records: 0, records: [{ record_id: "r1", locator: {}, excerpt: "Confirmed date 2030-02-05, duration 35 minutes." }] }],
+  });
+  const source = renderDeterministicStudyDocument(data, structuredClone(initialSourceCoverage), { prompt: "Make a PDF on AI analysis" });
+  expect(source).toContain('title: "Confirmed literature guide"');
+  expect(source).toContain('course: "Literature and criticism"');
+  for (const original of [...objectives, ...assessment_signals, warning]) expect(source).toContain(original);
+  expect(source).toContain("Confirmed date 2030-02-05, duration 35 minutes.");
+  expect(source).toContain("https://source.example/notice");
+  expect(source).not.toMatch(/#sb-divider[^\n]*\n\n\s*#heading\(level: 1/);
+  await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles())).resolves.toEqual({ ok: true });
+}, 30000);
+
+it("returns a real compiler diagnostic for unknown math without a generative fallback", async () => {
+  runDir = await mkdtemp(path.join(os.tmpdir(), "deterministic-unknown-math-"));
+  let calls = 0;
+  const data = moodleExtractedData({ formulas: [{ name: "Unsupported expression", typst: "unspecifiedfunction(x)", variables: [], units: [], context: "Meaning not resolved by layout.", source_ids: [] }] });
+  const result = await createFormatterNode(moodleTestConfig({ runDir, renderStrategy: "auto" }), { run: async () => { calls++; throw new Error("Unexpected modelcall"); } })(moodleTestState({ extracted_data: data }));
+  expect(calls).toBe(0);
+  expect(result.error_log).toContain("unknown variable");
+  expect(result.final_document).toContain("unspecifiedfunction(x)");
+}, 30000);
+
+it("preserves quoted function-like text with escaped quotes", async () => {
+  const literal = JSON.stringify('say "unspecifiedfunction(x)" here');
+  const source = renderDeterministicStudyDocument(moodleExtractedData({
+    formulas: [{ name: "Quoted label", typst: `${literal} + x`, variables: [], units: [], context: "An explicit string label.", source_ids: [] }],
+  }), structuredClone(initialSourceCoverage));
+  expect(source).toContain(literal);
+  await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles())).resolves.toEqual({ ok: true });
+}, 30000);
+
+it("retains module objectives and assessment signals even without assigned content", async () => {
+  const source = renderDeterministicStudyDocument(moodleExtractedData({
+    learning_modules: [{ id: "context-only", title: "Confirmed assessment context", priority: "essential", content_mode: "mixed", learning_objectives: ["Compare the source interpretations."], assessment_signals: ["Consult the original assessment announcement."], resource_ids: ["assessment"] }],
+    sections: [], formulas: [], figures: [], worked_examples: [],
+  }), structuredClone(initialSourceCoverage));
+  expect(source).toContain("Confirmed assessment context");
+  expect(source).toContain("Compare the source interpretations.");
+  expect(source).toContain("Consult the original assessment announcement.");
+  await expect(validateTypst(source, await getStudyBuddyTypstSupportFiles())).resolves.toEqual({ ok: true });
+}, 30000);

@@ -1,5 +1,7 @@
+import { parseReasoningEffort } from "../modelPolicy.js";
 import { requestTimeBoundary } from "../temporalRequest.js";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -69,8 +71,12 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     environment.CIS_PASSWORD || environment.MOODLE_PASSWORD
       ? "playwright"
       : requestedCisBrowserBackend;
-  if (input.approvedQuizPermission) {
-    assertApprovedQuizTarget(input.approvedQuizPermission, input.moodleUrl);
+  const approvedQuizPermission = input.approvedQuizPermission ?? input.approvedQuizPermissions?.find((permission) => {
+    try { assertApprovedQuizTarget(permission, input.moodleUrl); return true; }
+    catch { return false; }
+  });
+  if (approvedQuizPermission) {
+    assertApprovedQuizTarget(approvedQuizPermission, input.moodleUrl);
   }
   if (input.approvedAssignmentPermission) {
     assertApprovedAssignmentTarget(input.approvedAssignmentPermission, input.moodleUrl);
@@ -79,7 +85,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
     }
   }
   const quizSafetyPolicy = createQuizSafetyPolicy(
-    input.approvedQuizPermission
+    approvedQuizPermission
       ? {
           ...input.quizSafetyPolicy,
           allowStartingOrContinuingAttempts: true,
@@ -104,6 +110,7 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
   });
 
   return {
+    abortSignal: input.abortSignal,
     prompt: input.prompt,
     originalUserPrompt,
     temporalRequest: requestTimeBoundary(originalUserPrompt, input.prompt),
@@ -151,14 +158,20 @@ export function createRuntimeConfig(input: MoodleGraphInput): MoodleRuntimeConfi
       parsePositiveInteger(environment.MOODLE_BROWSER_MAX_OUTPUT, DEFAULT_BROWSER_MAX_OUTPUT),
     keepBrowserOpen: input.keepBrowserOpen ?? environment.MOODLE_BROWSER_KEEP_OPEN === "true",
     autoAnswer: input.autoAnswer ?? quizSafetyPolicy.allowFillingAnswers,
+    quizSolverConcurrency: Math.max(1, Math.min(32, Math.floor(input.quizSolverConcurrency ?? 8))),
     quizSafetyPolicy,
-    approvedQuizPermission: input.approvedQuizPermission,
+    quizAttemptLedgerRoot: environment.STUDY_BUDDY_QUIZ_ATTEMPT_LEDGER_ROOT,
+    quizAttemptAccountKey: environment.MOODLE_USERNAME ? createHash("sha256").update(environment.MOODLE_USERNAME).digest("hex") : undefined,
+    approvedQuizPermission,
     assignmentFiles: (input.assignmentFiles ?? []).map((file) =>
       resolveStudyBuddyWorkspacePath(file, workspaceRoot),
     ),
     approvedAssignmentPermission: input.approvedAssignmentPermission,
     codexModel: trimOptional(input.codexModel) ?? trimOptional(environment.STUDY_BUDDY_CODEX_MODEL),
     quizSolverModelPolicy: createQuizSolverModelPolicy(input),
+    executionProfile: input.executionProfile,
+    codexReasoningEffort: parseReasoningEffort(input.codexReasoningEffort),
+    modelPolicyOverrides: input.modelPolicyOverrides,
   };
 }
 

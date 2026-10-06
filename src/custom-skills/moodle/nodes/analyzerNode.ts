@@ -1,3 +1,6 @@
+import { pendingSourceReadPrompt } from "../sourceArchitect.js";
+import { reserveOperationAttempt, operationPolicyFingerprint } from "../../shared/operationCheckpoint.js";
+import { createObligationHandoff } from "../obligationAnswer.js";
 import { readObligationInventory } from "../obligationInventory.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -5,6 +8,7 @@ import path from "node:path";
 import {
   isNonRetryableCodexError,
   ModelCallTimeoutError,
+  resolveModelPromptBodyCharacterBudget,
   type CodexClient,
 } from "../codexClient.js";
 import {
@@ -16,7 +20,7 @@ import {
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray, validateExtractedData } from "../validation.js";
-import { readVisualManifest } from "../visualAssets.js";
+import { readVisualManifest, VISUAL_SOURCE_COMPOSITION_VERSION } from "../visualAssets.js";
 import { StudyBuddyCheckpointError, throwIfAborted } from "../runtimeAbort.js";
 import {
   resolveAnalysisBudget,
@@ -24,16 +28,19 @@ import {
   type AnalysisSliceCandidate,
 } from "../analysisBudget.js";
 import {
+  MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
   STUDENT_FIRST_POLICY,
   STUDENT_FIRST_POLICY_VERSION,
 } from "../studentFirstPolicy.js";
 import { resolveTaskBudget } from "../taskBudget.js";
 import { readObligationCoverage } from "../obligationCoverage.js";
 import { compactObligationRawSource } from "../obligationDiscovery.js";
-import { canonicalizeResourceUrl } from "../resourceAcquisition.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "../resourceAcquisition.js";
 import { resolveTaskModelPolicy } from "../modelPolicy.js";
 import { markExtractionRepairComplete } from "../pendingExtractionRepairs.js";
 import { languageName } from "../../shared/languagePolicy.js";
+import { buildDocumentContext, documentContextPrompt } from "../documentContext.js";
 import {
   extractResolvedCourseIdentity,
   resolveRequestedCourseCode,
@@ -43,26 +50,50 @@ import {
   applyAdaptiveExtractionBudget,
   updateAdaptiveRuntimeProgress,
 } from "../adaptiveRuntimeBudget.js";
+import { runBoundedProcess } from "../../shared/boundedProcess.js";
 
 const ANALYZER_RETRY_LIMIT = 3;
 // Bump whenever the semantic handoff contract changes. In particular, caches
 // produced before this version may contain topic-specific examples injected by
 // deterministic code instead of content selected from the evaluated request.
-const CHAPTER_ANALYZER_VERSION = "2026-08-09.4-localized-contract-repair";
+const CHAPTER_ANALYZER_VERSION = "2026-10-02.9-assigned-original-reading";
+const CHAPTER_MATERIALIZATION_VERSION = "2026-09-29.3-task-local-warnings";
 const FOCUSED_CONTEXT_BUDGET = 15_000;
 const FOCUSED_EVIDENCE_BUDGET = 9_000;
 const FOCUSED_SOURCE_OVERVIEW_BUDGET = 2_000;
 const FOCUSED_VISUAL_CANDIDATE_LIMIT = 6;
+const ANALYZER_MANIFEST_CHARACTER_LIMIT = 10_000;
+const ANALYZER_PROMPT_CHARACTER_MARGIN = 1_000;
+const MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT = 1_500;
 const DENSE_CHAPTER_RECORD_LIMIT = 18;
 const DENSE_CHAPTER_CHARACTER_LIMIT = 13_000;
 const FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 9_000;
 const PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT = 40_000;
 const MAX_SLICES_PER_MODEL_CALL = 4;
+const MAX_FRAGMENT_VISUAL_CANDIDATES = 2;
 const FRAGMENT_RECORD_OVERLAP = 2;
 // Codex SDK threads in one process can contend without emitting any usage when
 // launched concurrently. Sequential chapter handoffs are bounded, cacheable,
 // and avoid turning apparent parallelism into paired model timeouts.
 const CHAPTER_ANALYZER_CONCURRENCY = 1;
+
+export class AnalyzerPromptCapacityError extends Error {
+  constructor(message: string) { super(message); this.name = "AnalyzerPromptCapacityError"; }
+}
+
+function assertAnalyzerProducerCapacity(prompt: string, budget: number): string {
+  if (prompt.length > budget) throw new AnalyzerPromptCapacityError(
+    `Analyzer producer exceeds its capacity: ${prompt.length}/${budget} characters after metadata compaction. Protected request, contract and document context cannot be shortened; partition the source packet before retrying.`,
+  );
+  return prompt;
+}
+
+function evidenceProducerView(records: ChapterSlice["records"], terse: boolean) {
+  if (!terse) return records;
+  // Local paths and confidence repeat acquisition metadata, not learning
+  // evidence. Preserve each source URL even when the manifest is bounded.
+  return records.map(({ localPath: _path, confidence: _confidence, ...record }) => record);
+}
 
 class IncompleteChapterAnalysisError extends Error {
   constructor(
@@ -78,15 +109,10 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
   return async function analyzerNode(state: LangGraphAgentState): Promise<Partial<LangGraphAgentState>> {
     try {
       throwIfAborted(config.abortSignal);
-      const inventory = config.intentDecision?.obligationDiscovery?.requested
+      const inventory = (config.sourceEvidenceOnly || config.intentDecision?.obligationDiscovery?.requested)
         ? await readObligationInventory(config.runDir) : null;
-      if (inventory?.answer) {
-        const validated = validateExtractedData({ document_title: "Obligation overview", language: config.outputLanguage,
-          course: { title: inventory.scope, url: config.dashboardUrl },
-          sources: inventory.facts.map(f => ({ id: f.id, title: f.label, kind: "moodle_page", url: f.url })),
-          sections: inventory.facts.filter(f => f.disposition === "due").map(f => ({ heading: `${f.course}: ${f.label}`, summary: `${f.dueDate}: ${f.status}`, source_ids: [f.id] })),
-          warnings: inventory.gaps,
-        });
+      if (inventory && config.sourceEvidenceOnly) {
+        const validated = await createObligationHandoff(config, inventory);
         await persistExtractedData(config.runDir, validated);
         return { extracted_data: validated, error_log: null };
       }
@@ -95,7 +121,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
         : await analyzeWholeRequest(config, state, codex);
       const validated = reconcileRequestedCourseIdentity(
         config,
-        analyzed,
+        attachDocumentContext(state, analyzed),
         state.moodle_raw_text,
       );
       throwIfAborted(config.abortSignal);
@@ -118,7 +144,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
       const partialData = error instanceof IncompleteChapterAnalysisError && error.partialData
         ? reconcileRequestedCourseIdentity(
             config,
-            error.partialData,
+            attachDocumentContext(state, error.partialData),
             state.moodle_raw_text,
           )
         : null;
@@ -131,7 +157,7 @@ export function createAnalyzerNode(config: MoodleRuntimeConfig, codex: CodexClie
           { retainedSections: partialData.sections.length },
         );
       }
-      const nonRetryable = isNonRetryableCodexError(error);
+      const nonRetryable = error instanceof AnalyzerPromptCapacityError || isNonRetryableCodexError(error);
       if (nonRetryable) {
         await config.diagnostics?.log(
           "error",
@@ -200,10 +226,24 @@ async function analyzeWholeRequest(
   const response = await codex.run(await buildAnalyzerPrompt(config, state), {
     outputSchema: extractedDataJsonSchema,
     task: state.error_log ? "content_repair" : "content_analyzer",
-    attempt: state.error_log ? Math.max(1, state.retry_count) : state.retry_count + 1,
+    operation: state.error_log ? "content_extraction_repair" : "content_extraction",
+    attempt: Math.max(1, await reserveExtractionAttempt(config, state, "whole") - (state.error_log ? 1 : 0)),
     localImages: await analyzerVisualAttachments(config.runDir, state),
   });
   return validateAnalyzerResponse(response, config);
+}
+
+function attachDocumentContext(state: LangGraphAgentState, data: ReturnType<typeof validateExtractedData>) {
+  const documentContext = buildDocumentContext(state);
+  const nativeSources = new Map(state.resource_manifest.resources.map(resource => [resource.id, resource]));
+  return validateExtractedData({ ...data, document_context: documentContext, sources: uniqueBy([
+    ...documentContext.map(entry => ({ id: entry.source_id, title: entry.title, kind: "moodle_page" as const,
+      url: entry.url, path: null, page: null })),
+    ...data.sources.map(source => {
+      const native = nativeSources.get(source.id);
+      return native ? { ...source, title: native.title, url: native.originUrl, path: native.localPath ?? null } : source;
+    }),
+  ], source => source.id) });
 }
 
 function validateAnalyzerResponse(
@@ -241,7 +281,8 @@ interface CachedChapterHandoff {
 function shouldAnalyzeByChapter(config: MoodleRuntimeConfig, state: LangGraphAgentState): boolean {
   return ["study_guide", "exam_navigator", "interactive_learning", "practice_pack"].includes(
     config.artifactIntent.profile,
-  ) && chapterFocuses(state).length > 1;
+  ) && (chapterFocuses(state).length > 1 ||
+    Boolean(state.source_architect_decision.learningArchitecture?.modules.length));
 }
 
 async function analyzeCourseChapters(
@@ -253,6 +294,7 @@ async function analyzeCourseChapters(
   const focuses = chapterFocuses(state)
     .sort((left, right) => focusPriority(right) - focusPriority(left))
     .slice(0, analysisBudget.maxSelectedSlices);
+  if (focuses.length === 0) throw new Error("Assigned learning architecture has no admissible acquired source; resolve its source gap before analysis.");
   await applyAdaptiveExtractionBudget(config, state, focuses.length);
   const evidenceSlicesPerChapter = config.executionProfile === "quality" ? 4 : 2;
   const sliceBudgets = focuses.map((focus) => {
@@ -300,7 +342,7 @@ async function analyzeCourseChapters(
       const cachePath = path.join(cacheDir, `${focus.key}.json`);
       const sharedCachePath = path.join(sharedCacheDir, `${fingerprint}.json`);
       const recovered = config.resumeExtractionRunDir && !invalidKeys.has(focus.key)
-        ? await readPersistedChapterHandoff(cachePath, config.outputLanguage)
+        ? await readChapterCache(cachePath, fingerprint)
         : null;
       const cached = invalidKeys.has(focus.key)
         ? null
@@ -309,7 +351,7 @@ async function analyzeCourseChapters(
           await readChapterCache(sharedCachePath, fingerprint);
       throwIfAborted(config.abortSignal);
       if (cached) {
-        const enrichedData = await enrichCachedChapterHandoff(config, state, focus, cached.data);
+        const enrichedData = attachDocumentContext(state, await enrichCachedChapterHandoff(config, state, focus, cached.data));
         throwIfAborted(config.abortSignal);
         results[index] = enrichedData;
         const enrichedCache = { fingerprint, data: enrichedData };
@@ -354,13 +396,12 @@ async function analyzeCourseChapters(
               {
                 outputSchema: extractedDataJsonSchema,
                 task: invalidKeys.has(focus.key) ? "content_repair" : "content_analyzer",
-                attempt: invalidKeys.has(focus.key)
-                  ? Math.max(1, state.retry_count)
-                  : state.retry_count + 1,
+                operation: invalidKeys.has(focus.key) ? "content_extraction_repair" : "content_extraction",
+                attempt: Math.max(1, await reserveExtractionAttempt(config, state, focus.key) - (invalidKeys.has(focus.key) ? 1 : 0)),
                 localImages: await analyzerVisualAttachments(config.runDir, state, focus),
               },
             ), config);
-        const data = ensureFocusLearningModule(analyzed, focus);
+        const data = ensureFocusLearningModule(attachDocumentContext(state, analyzed), focus);
         throwIfAborted(config.abortSignal);
         assertChapterHandoff(data, focus);
         const serialized = `${JSON.stringify({ fingerprint, data }, null, 2)}\n`;
@@ -381,6 +422,7 @@ async function analyzeCourseChapters(
         // Do not aggregate a global abort as a chapter failure or advance to
         // another chapter. The outer node rethrows the same run-level reason.
         throwIfAborted(config.abortSignal);
+        if (error instanceof AnalyzerPromptCapacityError) throw error;
         if (error instanceof StudyBuddyCheckpointError) {
           throw error;
         }
@@ -435,6 +477,8 @@ export interface ChapterSlice {
   label: string;
   resourceIds: string[];
   records: EvidenceRecord[];
+  scopeAssessmentResourceIds?: string[];
+  sourceReadingResourceIds?: string[];
 }
 
 interface VisualRetrievalRequest {
@@ -451,7 +495,9 @@ function isDenseChapter(state: LangGraphAgentState, focus: ChapterFocus): boolea
     focus.resourceIds.includes(record.resourceId)
   );
   const characters = records.reduce((sum, record) => sum + JSON.stringify(record).length, 0);
-  return records.length > DENSE_CHAPTER_RECORD_LIMIT || characters > DENSE_CHAPTER_CHARACTER_LIMIT;
+  return records.length > DENSE_CHAPTER_RECORD_LIMIT || characters > DENSE_CHAPTER_CHARACTER_LIMIT ||
+    (state.source_architect_decision.pendingReads ?? []).some(read => read.medium === "pdf_pages" && focus.resourceIds.includes(read.resourceId)) ||
+    exploratoryReadingResources(state, focus).length > 0;
 }
 
 async function analyzeDenseChapter(
@@ -463,22 +509,30 @@ async function analyzeDenseChapter(
   repairFeedbackOverride?: string | null,
 ): Promise<ReturnType<typeof validateExtractedData>> {
   const allCandidateSlices = buildChapterSlices(state, focus);
+  const requestedTasks = requestedTaskNumbers(focus);
+  const requestedTaskSlices = allCandidateSlices.filter(isRequestedTaskSlice);
   const directResourceIds = new Set(focus.directResourceIds ?? focus.resourceIds);
   const directEvidenceCharacters = state.evidence_package.records
     .filter((record) => directResourceIds.has(record.resourceId))
     .reduce((sum, record) => sum + record.content.length, 0);
-  const candidateSlices = directEvidenceCharacters >= 600
+  const broadlyRelevantSlices = directEvidenceCharacters >= 600
     ? allCandidateSlices.filter((slice) =>
         slice.resourceIds.some((resourceId) => directResourceIds.has(resourceId)) ||
+        Boolean(slice.scopeAssessmentResourceIds?.length) ||
         supportSliceMatchesFocus(slice, focus)
       )
     : allCandidateSlices;
+  const candidateSlices = requestedTasks.length > 0 && requestedTaskSlices.length >= requestedTasks.length
+    ? [...requestedTaskSlices, ...broadlyRelevantSlices.filter(slice => slice.scopeAssessmentResourceIds?.length)]
+    : broadlyRelevantSlices;
   const profileBudget = resolveAnalysisBudget(config.executionProfile);
   const repairFeedback = repairFeedbackOverride === undefined
     ? focusMatchesError(focus, state.error_log) ? state.error_log : null
     : repairFeedbackOverride;
   const officialTopicCount = officialCourseTopics(focus).length;
-  const baseMaxSlices = officialTopicCount > 0
+  const baseMaxSlices = requestedTasks.length > 0
+    ? Math.max(maxSlices, requestedTaskSlices.length)
+    : officialTopicCount > 0
     ? Math.max(maxSlices, Math.min(4, candidateSlices.length))
     : maxSlices;
   // A support source that passed the semantic-content gate must receive one
@@ -497,7 +551,7 @@ async function analyzeDenseChapter(
       const sourceRole = dominantSliceRole(state, slice);
       const reservation = slice.resourceIds.some((id) =>
         (focus.directResourceIds ?? focus.resourceIds).includes(id)
-      )
+      ) || Boolean(slice.scopeAssessmentResourceIds?.length)
         ? "dependency" as const
         : slice.resourceIds.some((id) => dependencyResourceIds.has(id))
           ? "dependency" as const
@@ -550,7 +604,10 @@ async function analyzeDenseChapter(
     effectiveMaxSlices,
   );
   assertSelectedChapterEvidence(state, focus, selectedCandidates);
-  const slices = packSelectedSlices(selectedCandidates);
+  const slices = packSelectedSlices(
+    selectedCandidates,
+    requestedTasks.length > 0 ? 1 : MAX_SLICES_PER_MODEL_CALL,
+  );
   await config.diagnostics?.log(
     selected.omittedCount > 0 ? "warn" : "info",
     "analyzer",
@@ -566,6 +623,7 @@ async function analyzeDenseChapter(
   );
   const visualManifest = await readVisualManifest(config.runDir);
   const fragments: ChapterFragment[] = [];
+  const suppliedOriginalPages = new Map<string, Set<number>>();
   const fragmentCacheDir = path.join(config.runtimeCacheDir, "chapter-fragments");
   await mkdir(fragmentCacheDir, { recursive: true });
 
@@ -577,10 +635,17 @@ async function analyzeDenseChapter(
     // failed sliceNeedsRepair and silently reused the same cached fragment.
     let sliceRepairFeedback = repairFeedback;
     const fingerprintBase = {
+      producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
       analyzerVersion: CHAPTER_ANALYZER_VERSION,
+      pendingReads: pendingSourceReadPrompt(state, slice.resourceIds),
+      exploratorySources: state.resource_manifest.resources
+        .filter(resource => slice.sourceReadingResourceIds?.includes(resource.id))
+        .map(resource => ({ id: resource.id, checksum: resource.checksum, status: resource.status, localPath: resource.localPath })),
+      visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
       outputLanguage: config.outputLanguage,
       profile: config.artifactIntent.profile,
       requestContract: state.request_contract,
+      documentContext: buildDocumentContext(state),
       policy: STUDENT_FIRST_POLICY_VERSION,
       focus,
       slice: slice.key,
@@ -603,13 +668,20 @@ async function analyzeDenseChapter(
     const fragmentCachePaths = [...new Set([semanticFingerprint, legacyFingerprint])]
       .map((fingerprint) => path.join(fragmentCacheDir, `${fingerprint}.json`));
     let cachedFragment: ChapterFragment | null = null;
+    let cachedOriginalPages: { resourceId: string; pages: number[] }[] = [];
     for (const cachePath of fragmentCachePaths) {
       cachedFragment = await readFile(cachePath, "utf8")
-        .then((text) => normalizeFragmentReferences(
-          ChapterFragmentSchema.parse(JSON.parse(text)),
-          slice,
-          visualManifest,
-        ))
+        .then((text) => {
+          const parsed = JSON.parse(text);
+          const fragment = normalizeFragmentReferences(ChapterFragmentSchema.parse(parsed), slice, visualManifest,
+            buildDocumentContext(state).map(entry => entry.source_id));
+          cachedOriginalPages = Array.isArray(parsed.source_reading_pages)
+            ? parsed.source_reading_pages.filter((entry: { resourceId?: unknown; pages?: unknown }) =>
+              typeof entry.resourceId === "string" && slice.sourceReadingResourceIds?.includes(entry.resourceId) &&
+              Array.isArray(entry.pages) && entry.pages.every(page => Number.isInteger(page) && page > 0))
+            : [];
+          return fragment;
+        })
         .catch(() => null);
       if (cachedFragment) break;
     }
@@ -639,7 +711,12 @@ async function analyzeDenseChapter(
       );
     }
     if (cachedFragment) {
-      fragments.push(cachedFragment);
+      for (const entry of cachedOriginalPages) {
+        const pages = suppliedOriginalPages.get(entry.resourceId) ?? new Set<number>();
+        entry.pages.forEach(page => pages.add(page));
+        suppliedOriginalPages.set(entry.resourceId, pages);
+      }
+      fragments.push(scopeRequestedTaskFragment(cachedFragment, slice));
       await config.diagnostics?.log(
         "info",
         "analyzer",
@@ -653,12 +730,30 @@ async function analyzeDenseChapter(
       "analyzer",
       `Analyzing ${focus.title}, topic fragment ${index + 1}/${slices.length}: ${slice.label}`,
     );
-    const localImages = await chapterVisualAttachments(
+    const taskPageImage = await requestedTaskSourcePageImage(config, state, slice).catch(async (error) => {
+      await config.diagnostics?.log(
+        "warn", "analyzer",
+        `Could not attach the original task page for ${slice.label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    });
+    const localImages = [...new Set([
+      ...(taskPageImage ? [taskPageImage] : []),
+      ...await chapterVisualAttachments(
       config.runDir,
       slice,
       visualManifest,
       retrievalRequests,
-    );
+      ),
+    ])].slice(0, 3);
+    for (const candidate of visualManifest?.candidates ?? []) {
+      if (!candidate.source_id || !candidate.source_page || !candidate.relative_path ||
+        !slice.sourceReadingResourceIds?.includes(candidate.source_id) ||
+        !localImages.includes(path.resolve(config.runDir, candidate.relative_path))) continue;
+      const pages = suppliedOriginalPages.get(candidate.source_id) ?? new Set<number>();
+      pages.add(candidate.source_page);
+      suppliedOriginalPages.set(candidate.source_id, pages);
+    }
     let fragment: ChapterFragment | null = null;
     let localRepairFeedback = sliceRepairFeedback;
     const localAttempts = 1;
@@ -679,13 +774,12 @@ async function analyzeDenseChapter(
         const response = await codex.run(prompt, {
           outputSchema: chapterFragmentJsonSchema,
           task: repairing ? "content_repair" : "content_analyzer",
+          operation: repairing ? "content_extraction_repair" : "content_extraction",
           // A first local repair is attempt 1 of the repair task. Counting the
           // preceding analyzer call as repair attempt 1 skipped the balanced
           // Terra repair lane and escalated every ordinary validation miss to
           // Sol. Only a failed repair itself may advance to attempt 2.
-          attempt: repairing
-            ? Math.max(1, state.retry_count + localAttempt)
-            : state.retry_count + 1,
+          attempt: Math.max(1, await reserveExtractionAttempt(config, state, `${focus.key}:${slice.key}`) - (repairing ? 1 : 0)),
           localImages,
         });
         throwIfAborted(config.abortSignal);
@@ -693,6 +787,7 @@ async function analyzeDenseChapter(
           ChapterFragmentSchema.parse(parseJsonObjectOrArray(response)),
           slice,
           visualManifest,
+          buildDocumentContext(state).map(entry => entry.source_id),
         );
         const formulaError = fragmentFormulaQualityError(candidate, focus);
         if (formulaError) {
@@ -702,7 +797,7 @@ async function analyzeDenseChapter(
         break;
       } catch (error) {
         throwIfAborted(config.abortSignal);
-        if (error instanceof ModelCallTimeoutError) throw error;
+        if (error instanceof AnalyzerPromptCapacityError || error instanceof ModelCallTimeoutError || isNonRetryableCodexError(error)) throw error;
         if (localAttempt + 1 >= localAttempts) throw error;
         localRepairFeedback =
           `Validator-Diagnose für den einmaligen lokalen Reparaturversuch: ${
@@ -723,9 +818,10 @@ async function analyzeDenseChapter(
       );
     }
     await Promise.all(fragmentCachePaths.map((cachePath) =>
-      writeFile(cachePath, `${JSON.stringify(fragment, null, 2)}\n`, "utf8")
+      writeFile(cachePath, `${JSON.stringify({ ...fragment, source_reading_pages: (slice.sourceReadingResourceIds ?? [])
+        .map(resourceId => ({ resourceId, pages: [...(suppliedOriginalPages.get(resourceId) ?? [])] })) }, null, 2)}\n`, "utf8")
     ));
-    fragments.push(fragment);
+    fragments.push(scopeRequestedTaskFragment(fragment, slice));
   }
 
   const materialized = materializeDenseChapter(
@@ -736,7 +832,21 @@ async function analyzeDenseChapter(
     visualManifest,
     retrievalRequests,
   );
-  return enrichCachedChapterHandoff(config, state, focus, materialized);
+  return enrichCachedChapterHandoff(config, state, focus, validateExtractedData({
+    ...materialized,
+    warnings: [...new Set([...materialized.warnings, ...state.resource_manifest.resources.filter(resource =>
+      (focus.resourceIds.includes(resource.id) || exploratoryReadingResources(state, focus).some(source => source.id === resource.id)) &&
+      (state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.medium === "pdf_pages")
+    ).map(resource => {
+      const supplied = [...(suppliedOriginalPages.get(resource.id) ?? [])].sort((left, right) => left - right);
+      const pageCount = resource.extraction?.pageCount;
+      const remaining = pageCount ? Array.from({ length: pageCount }, (_, index) => index + 1).filter(page => !supplied.includes(page)) : null;
+      const exploratory = (state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.purpose === "scope_assessment");
+      return `${exploratory ? "Exploratory reading" : "Original-reading"} boundary for ${resource.title} (${resource.originUrl}): original pages supplied to this analysis: ${supplied.join(", ") || "none"}; ` +
+        `pages not supplied: ${remaining?.join(", ") || (remaining ? "none" : "unknown")}. ` +
+        "Page availability does not verify methods or examination scope; retain the existing request and learning goals.";
+    })])],
+  }));
 }
 
 function supportSliceMatchesFocus(
@@ -998,6 +1108,7 @@ function ensureChapterRuntimeBudget(
 
 function packSelectedSlices(
   selected: Array<AnalysisSliceCandidate & { slice: ChapterSlice }>,
+  maxSlicesPerCall = MAX_SLICES_PER_MODEL_CALL,
 ): ChapterSlice[] {
   const packed: ChapterSlice[] = [];
   const packSizes: number[] = [];
@@ -1013,7 +1124,9 @@ function packSelectedSlices(
     const previousPackSize = packSizes.at(-1) ?? 0;
     if (
       previousPack &&
-      previousPackSize < MAX_SLICES_PER_MODEL_CALL &&
+      previousPackSize < maxSlicesPerCall &&
+      (!(previousPack.sourceReadingResourceIds?.length || candidate.slice.sourceReadingResourceIds?.length) ||
+        new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds]).size <= MAX_FRAGMENT_VISUAL_CANDIDATES) &&
       combinedCharacters <= PACKED_FRAGMENT_EVIDENCE_CHARACTER_LIMIT
     ) {
       packed[packed.length - 1] = {
@@ -1021,6 +1134,12 @@ function packSelectedSlices(
         label: `${previousPack.label} + ${candidate.slice.label}`,
         resourceIds: [...new Set([...previousPack.resourceIds, ...candidate.slice.resourceIds])],
         records: combinedRecords,
+        ...((previousPack.sourceReadingResourceIds?.length || candidate.slice.sourceReadingResourceIds?.length)
+          ? { sourceReadingResourceIds: [...new Set([...(previousPack.sourceReadingResourceIds ?? []), ...(candidate.slice.sourceReadingResourceIds ?? [])])] }
+          : {}),
+        ...((previousPack.scopeAssessmentResourceIds?.length || candidate.slice.scopeAssessmentResourceIds?.length)
+          ? { scopeAssessmentResourceIds: [...new Set([...(previousPack.scopeAssessmentResourceIds ?? []), ...(candidate.slice.scopeAssessmentResourceIds ?? [])])] }
+          : {}),
       };
       packSizes[packSizes.length - 1] = previousPackSize + 1;
     } else {
@@ -1317,6 +1436,81 @@ function fragmentContainsIncompleteFormula(
   });
 }
 
+function requestedTaskNumbers(focus: ChapterFocus): number[] {
+  const topicMatch = focus.title.match(/\b(?:thema|topic)\s*(\d+)\b/i);
+  const requestedTopic = topicMatch ? Number(topicMatch[1]) : null;
+  const values = [
+    ...(focus.assessmentSignals ?? []),
+    ...(focus.learningObjectives ?? []),
+  ];
+  const numbers = new Set<number>();
+  for (const value of values) {
+    for (const match of value.matchAll(/\bT(\d+)\s*\/\s*A(\d+)\b/gi)) {
+      const topic = Number(match[1]);
+      const task = Number(match[2]);
+      if ((requestedTopic === null || topic === requestedTopic) && task > 0) numbers.add(task);
+    }
+    for (const match of value.matchAll(/\b(?:Aufgabe|Exercise)\s*(\d+)\b/gi)) {
+      const task = Number(match[1]);
+      if (task > 0) numbers.add(task);
+    }
+  }
+  return [...numbers].sort((left, right) => left - right);
+}
+
+function isRequestedTaskSlice(slice: ChapterSlice): boolean {
+  return /-requested-task-\d+$/.test(slice.key);
+}
+
+function splitRequestedTaskEvidence(
+  records: EvidenceRecord[],
+  requestedTasks: number[],
+): Map<number, EvidenceRecord[]> {
+  const requested = new Set(requestedTasks);
+  const result = new Map(requestedTasks.map((task) => [task, [] as EvidenceRecord[]]));
+  const currentTaskByResource = new Map<string, number>();
+  for (const record of records) {
+    const matches = [...record.content.matchAll(/\b(?:Aufgabe|Exercise)\s+(\d+)\b/gi)];
+    if (matches.length === 0) {
+      const currentTask = currentTaskByResource.get(record.resourceId);
+      if (currentTask !== undefined && requested.has(currentTask)) {
+        result.get(currentTask)?.push(record);
+      }
+      continue;
+    }
+    for (let index = 0; index < matches.length; index += 1) {
+      const match = matches[index]!;
+      const task = Number(match[1]);
+      currentTaskByResource.set(record.resourceId, task);
+      if (!requested.has(task)) continue;
+      const start = index === 0 ? 0 : match.index!;
+      const end = matches[index + 1]?.index ?? record.content.length;
+      const content = record.content.slice(start, end).trim();
+      if (!content) continue;
+      result.get(task)?.push({
+        ...record,
+        id: `${record.id}:requested-task-${task}-${index + 1}`,
+        content,
+      });
+    }
+  }
+  return result;
+}
+
+function exploratoryReadingResources(state: LangGraphAgentState, focus: ChapterFocus): ManifestResource[] {
+  const architecture = state.source_architect_decision.learningArchitecture;
+  const owner = chapterFocuses(state).sort((left, right) => focusPriority(right) - focusPriority(left))[0];
+  if (!architecture || owner?.key !== focus.key) return [];
+  const assigned = new Set([...architecture.modules.flatMap(module => module.resourceUrls),
+    ...architecture.supportResources.flatMap(support => support.resourceUrls)].map(canonicalizeResourceUrl));
+  const excluded = new Set(architecture.excludedResourceUrls.map(canonicalizeResourceUrl));
+  const ids = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.purpose === "scope_assessment" && read.medium !== "native_text").map(read => read.resourceId));
+  return state.resource_manifest.resources.filter(resource => ids.has(resource.id) && resource.localPath &&
+    resource.selection?.selected !== false && resource.status !== "skipped" && !isResourceFailureStatus(resource.status) &&
+    !assigned.has(canonicalizeResourceUrl(resource.originUrl)) && !excluded.has(canonicalizeResourceUrl(resource.originUrl)));
+}
+
 export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFocus): ChapterSlice[] {
   const resources = state.resource_manifest.resources.filter((resource) =>
     focus.resourceIds.includes(resource.id)
@@ -1374,8 +1568,23 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
     group.push(resource);
     practiceGroups.set(key, group);
   }
+  const requestedTasks = requestedTaskNumbers(focus);
   for (const [key, group] of practiceGroups) {
     const records = group.flatMap((resource) => recordsByResource.get(resource.id) ?? []);
+    const taskRecords = splitRequestedTaskEvidence(records, requestedTasks);
+    const availableTasks = requestedTasks.filter((task) => (taskRecords.get(task)?.length ?? 0) > 0);
+    if (requestedTasks.length > 0 && availableTasks.length === requestedTasks.length) {
+      for (const task of availableTasks) {
+        const recordsForTask = taskRecords.get(task) ?? [];
+        slices.push({
+          key: `practice-${safeChapterKey(key)}-requested-task-${task}`,
+          label: `${group.map((resource) => resource.title).join(" + ")} – Aufgabe ${task}`,
+          resourceIds: [...new Set(recordsForTask.map((record) => record.resourceId))],
+          records: recordsForTask,
+        });
+      }
+      continue;
+    }
     const chunks = chunkEvidenceRecords(records, FRAGMENT_EVIDENCE_CHARACTER_LIMIT, 1);
     chunks.forEach((chunk, index) => slices.push({
       key: `practice-${safeChapterKey(key)}-${index + 1}`,
@@ -1385,7 +1594,54 @@ export function buildChapterSlices(state: LangGraphAgentState, focus: ChapterFoc
     }));
   }
 
-  return slices.length > 0 ? slices : [{
+  // A scan can have no native text records. Preserve its assigned reading
+  // slot so existing original-page attachments can reach the fragment.
+  const representedIds = new Set(slices.flatMap(slice => slice.resourceIds));
+  const pendingIds = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.medium !== "native_text").map(read => read.resourceId));
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  for (const resource of resources) {
+    if (!pendingIds.has(resource.id) || representedIds.has(resource.id) || !resource.localPath ||
+      resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
+      excluded.has(canonicalizeResourceUrl(resource.originUrl))) continue;
+    slices.push({ key: `${resource.id}-source-reading`, label: resource.title, resourceIds: [resource.id], records: [] });
+  }
+  const explorationSlices: ChapterSlice[] = [];
+  for (const resource of exploratoryReadingResources(state, focus)) {
+    const records = state.evidence_package.records.filter(record => record.resourceId === resource.id);
+    const chunks = chunkEvidenceRecords(records, FRAGMENT_EVIDENCE_CHARACTER_LIMIT, 1);
+    (chunks.length ? chunks : [[]]).forEach((chunk, index) => explorationSlices.push({
+      key: `${resource.id}-scope-reading-${index + 1}`, label: resource.title,
+      resourceIds: [resource.id], records: chunk, scopeAssessmentResourceIds: [resource.id],
+    }));
+  }
+  slices.push(...explorationSlices);
+  const readingIds = new Set((state.source_architect_decision.pendingReads ?? [])
+    .filter(read => read.medium === "pdf_pages").map(read => read.resourceId));
+  const resourceSliceCounts = new Map<string, number>();
+  for (const slice of slices) for (const id of slice.resourceIds) resourceSliceCounts.set(id, (resourceSliceCounts.get(id) ?? 0) + 1);
+  const readingSlices = slices.map(slice => ({ ...slice,
+    ...(slice.resourceIds.some(id => readingIds.has(id)) ? { sourceReadingResourceIds: slice.resourceIds.filter(id => readingIds.has(id)) } : {}),
+  }));
+  const bundled: ChapterSlice[] = [];
+  // Compact complete sparse read candidates without crowding their original-page
+  // attachments out of the existing per-fragment visual ceiling.
+  for (const slice of readingSlices) {
+    const previous = bundled.at(-1);
+    const resourceIds = [...new Set([...(previous?.resourceIds ?? []), ...slice.resourceIds])];
+    const records = uniqueBy([...(previous?.records ?? []), ...slice.records], record => record.id);
+    if (previous?.sourceReadingResourceIds?.length && slice.sourceReadingResourceIds?.length &&
+      resourceIds.every(id => resourceSliceCounts.get(id) === 1) && resourceIds.length <= MAX_FRAGMENT_VISUAL_CANDIDATES &&
+      records.reduce((sum, record) => sum + JSON.stringify(record).length, 0) <= FRAGMENT_EVIDENCE_CHARACTER_LIMIT) {
+      bundled[bundled.length - 1] = { key: `${previous.key}-${slice.key}`, label: `${previous.label} + ${slice.label}`,
+        resourceIds, records, sourceReadingResourceIds: resourceIds,
+        ...((previous.scopeAssessmentResourceIds?.length || slice.scopeAssessmentResourceIds?.length)
+          ? { scopeAssessmentResourceIds: [...new Set([...(previous.scopeAssessmentResourceIds ?? []), ...(slice.scopeAssessmentResourceIds ?? [])])] }
+          : {}),
+      };
+    } else bundled.push(slice);
+  }
+  return bundled.length > 0 ? bundled : [{
     key: `${focus.key}-evidence`,
     label: focus.title,
     resourceIds: focus.resourceIds,
@@ -1440,6 +1696,7 @@ export function buildChapterFragmentPrompt(
   retrievalRequests: VisualRetrievalRequest[],
   repairFeedback: string | null = null,
 ): string {
+  const requestedTaskNumber = /-requested-task-(\d+)$/.exec(slice.key)?.[1];
   const localizedRepairFeedback = repairFeedback
     ? localizeChapterRepairDiagnostic(focus, repairFeedback)
     : null;
@@ -1474,21 +1731,34 @@ export function buildChapterFragmentPrompt(
     }));
 
   const documentLanguage = languageName(config.outputLanguage);
-  return [
-    "Return only schema-valid JSON. Use only the supplied evidence and allowed IDs; do not research, open files, repeat other chapters, or invent claims, sources, relationships, or values.",
-    "Let the evaluated request contract and available evidence determine the chapter depth and which content components are useful. Do not satisfy a fixed section, formula, example, figure, or warning quota. Explain meaning, relationships, method choice, boundary conditions, and typical errors only where relevant to the request.",
-    "Optional arrays such as worked_examples and figures may be empty. Populate them only when the contract asks for them or the evidence-derived content strategy justifies them.",
+  const records = slice.records;
+  let terseMetadata = false;
+  const assemble = (compact = false) => [
+    "Return only schema-valid JSON from evidence/allowed IDs. No research, file access, other chapters or invented claims, sources, relationships or values.",
+    "Contract/evidence sets depth/components, not section/formula/example/figure/warning quotas. Explain meaning, relationships, method choice, boundaries and typical errors.",
+    "Optional arrays such as worked_examples and figures may be empty. Include only what the contract or evidence-derived strategy justifies.",
     officialCourseTopics(focus).length > 0
       ? "Keep each official 'Thema N' or 'Topic N' in its own section heading. Retain the matching label in every worked-example learning_goal so the course-to-study-guide mapping is explicit."
       : "",
-    "Coverage contract: address every listed learning objective and assessment signal that the supplied evidence supports. If an item is not supported, state that exact evidence boundary in warnings instead of silently omitting it or pretending the chapter is complete.",
-    "When the request contract or evidence calls for an application, choose a discipline-appropriate path (calculation, case, source interpretation, decision, comparison, or procedure) and use only the structure that path needs. Do not invent an example merely to instantiate this path.",
-    "Use Typst math syntax. Every formula needs non-empty variables, units (or an explicit dimensionless statement), context, and allowed source_ids.",
-    "For every generated quantitative example, make each term dimensionally valid before calculating: numerical coefficients of time functions carry their own units, and equations of motion preserve the derivative order shown by the evidence. A unit written only after an entire polynomial is not sufficient.",
-    "A partial source solution must not be presented as a reproduced calculation. Use origin='derived' with simple declared values only when the cited evidence fully supports the method.",
-    "Use an attached visual only when it is necessary and legible. Attached images correspond to the listed candidate IDs; never use shell or filesystem tools to inspect them. Choose figures by candidate ID and give a concrete placement_hint.",
-    "For table, diagram, glossary, corpus, map, timeline, or other reference lookups, use concrete values or claims only when visible in evidence or an attached candidate. Otherwise teach the complete source-selection and interpretation path; a copied answer never replaces the lookup method.",
-    `Create one compact, pedagogically complete and discipline-appropriate chapter fragment in ${documentLanguage}; retain official source titles and identifiers in their original language.`,
+    "Cover evidenced listed objectives/assessment signals; warn about exact unsupported items. Never omit them silently or claim unsupported completeness.",
+    "Warnings concern this chapter/slice; local omissions prove no content/evidence gap elsewhere or document-wide.",
+    requestedTaskNumber
+      ? `This fragment covers only ${slice.label}. Other numbered tasks in the chapter objectives are handled by separate fragments; do not call them missing or unavailable here. If the user requests detailed solutions, give this task its own complete, source-grounded worked_example with intermediate steps, unless the evidence for this task is genuinely insufficient.`
+      : "",
+    "Requested/evidenced applications need only discipline-appropriate calculation/case/source interpretation/decision/comparison/procedure structure. No filler examples.",
+    "Use Typst math with nonempty variables, units (or explicit dimensionless status), context and allowed source_ids for each formula.",
+    pendingSourceReadPrompt(state, slice.resourceIds),
+    slice.scopeAssessmentResourceIds?.length
+      ? `Evaluate exploratory sources only against the existing request and learning goals: ${JSON.stringify(slice.scopeAssessmentResourceIds)}. These are document-level reading candidates, not assigned curriculum. Do not infer new examination topics or required methods from their titles/content; retain unverified, unread or irrelevant material as an explicit scoped limitation. Use a method/example only if the supplied content establishes its relevance to existing goals.`
+      : "",
+    MATHEMATICAL_INTEGRITY_POLICY,
+    SOURCE_FIDELITY_POLICY,
+    "Check dimensions term by term before calculating: numerical coefficients of time functions carry their own units; equations retain evidenced derivative order. A unit after a whole polynomial is insufficient.",
+    "Partial source solutions are not reproduced calculations. Use origin='derived' with simple declared values only if cited evidence fully supports the method.",
+    "An attached numbered original task-page image is source evidence. Read missing/distorted equations/diagrams from it; cite its allowed source ID and report illegibility.",
+    "Use attached visuals only if necessary/legible. Only listed visual candidates have figure IDs; task-page evidence is not selectable. No shell/filesystem image inspection. Choose candidate IDs and a concrete placement_hint.",
+    "Reference lookups use only visible evidence/attached-candidate values/claims. Otherwise teach complete source selection/interpretation; a copied answer never replaces the lookup method.",
+    `Create one compact, pedagogically complete, discipline-appropriate fragment in ${documentLanguage}. Preserve original-language official source titles/IDs.`,
     `Chapter context: ${JSON.stringify({
       title: focus.title,
       contentMode: focus.contentMode ?? "mixed",
@@ -1497,19 +1767,29 @@ export function buildChapterFragmentPrompt(
       part: `${index + 1}/${total}`,
       evidenceBlock: slice.label,
     })}`,
+    documentContextPrompt(state),
     `Teil ${index + 1}/${total}: ${slice.label}. Lernmodus: ${focus.contentMode ?? "mixed"}.`,
     `Nutzerauftrag: ${localizedRepairFeedback ? state.request_contract.originalPrompt : config.prompt}`,
     localizedRepairFeedback
-      ? `Relevante RequestContract-Zuweisung für diese Inhaltsreparatur: ${JSON.stringify(repairContractContext, null, 2)}`
-      : `Evaluierter Request Contract: ${JSON.stringify(state.request_contract, null, 2)}`,
+      ? `Relevante RequestContract-Zuweisung für diese Inhaltsreparatur: ${JSON.stringify(repairContractContext, null, compact ? undefined : 2)}`
+      : `Evaluierter Request Contract: ${JSON.stringify(state.request_contract, null, compact ? undefined : 2)}`,
     localizedRepairFeedback
       ? `Lokalisierte Validator-Diagnose für diesen Reparaturversuch:\n${localizedRepairFeedback}`
       : "",
-    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, 2)}`,
-    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, 2)}`,
-    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, 2)}`,
-    `Evidenz für diesen Teil: ${JSON.stringify(slice.records, null, 2)}`,
+    `Erlaubte Ressourcen: ${JSON.stringify(resources, null, compact ? undefined : 2)}`,
+    `Geplante Tabellen/Diagramme: ${JSON.stringify(requests, null, compact ? undefined : 2)}`,
+    `Verfügbare Bildkandidaten: ${JSON.stringify(candidates, null, compact ? undefined : 2)}`,
+    `Evidenz für diesen Teil: ${JSON.stringify(evidenceProducerView(records, terseMetadata), null, compact ? undefined : 2)}`,
   ].join("\n\n");
+  const task = localizedRepairFeedback ? "content_repair" : "content_analyzer";
+  const budget = resolveModelPromptBodyCharacterBudget(task, chapterFragmentJsonSchema) - ANALYZER_PROMPT_CHARACTER_MARGIN;
+  let prompt = assemble();
+  if (prompt.length <= budget) return prompt;
+  prompt = assemble(true); // lossless whitespace compaction comes first
+  if (prompt.length <= budget) return prompt;
+  terseMetadata = true;
+  prompt = assemble(true);
+  return assertAnalyzerProducerCapacity(prompt, budget);
 }
 
 function localizeChapterRepairDiagnostic(
@@ -1518,7 +1798,7 @@ function localizeChapterRepairDiagnostic(
 ): string {
   const taggedLines = repairFeedback.split(/\r?\n/).filter((line) => {
     const tag = /\[chapter:\s*([^\]]+)\]/i.exec(line)?.[1]?.trim();
-    if (!tag) return false;
+    if (!tag) return /\[scope:\s*document\]/i.test(line);
     return normalizeChapterMatch(tag) === normalizeChapterMatch(focus.title) ||
       safeChapterKey(tag) === focus.key;
   });
@@ -1565,17 +1845,62 @@ function selectChapterVisualCandidates(
     request.pages.forEach((page) => pages.add(page));
     requestedPages.set(request.resourceId, pages);
   }
-  return (visualManifest?.candidates ?? [])
+  const ranked = (visualManifest?.candidates ?? [])
     .filter((candidate) => {
       if (!candidate.source_id || !slice.resourceIds.includes(candidate.source_id)) return false;
       const pages = requestedPages.get(candidate.source_id);
       return pages?.size && candidate.source_page ? pages.has(candidate.source_page) : true;
     })
-    .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
-    .slice(0, 2);
+    .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left));
+  const sourceRepresentatives = slice.sourceReadingResourceIds?.length
+    ? slice.resourceIds.map(id => ranked.find(candidate => candidate.source_id === id))
+      .filter((candidate): candidate is VisualCandidate => Boolean(candidate))
+    : [];
+  return uniqueBy([...sourceRepresentatives, ...ranked], candidate => candidate.id).slice(0, MAX_FRAGMENT_VISUAL_CANDIDATES);
 }
 
-async function chapterVisualAttachments(
+export function locateRequestedTaskPage(pages: string[], taskNumber: number): number | null {
+  const marker = new RegExp(`\\b(?:Aufgabe|Exercise)\\s+${taskNumber}\\b`, "iu");
+  const index = pages.findIndex((page) => marker.test(page));
+  return index < 0 ? null : index + 1;
+}
+
+async function requestedTaskSourcePageImage(
+  config: MoodleRuntimeConfig,
+  state: LangGraphAgentState,
+  slice: ChapterSlice,
+): Promise<string | null> {
+  const taskNumber = Number(/-requested-task-(\d+)$/.exec(slice.key)?.[1]);
+  if (!Number.isInteger(taskNumber) || taskNumber <= 0) return null;
+  const resource = state.resource_manifest.resources.find((candidate) =>
+    slice.resourceIds.includes(candidate.id) && candidate.localPath?.toLowerCase().endsWith(".pdf")
+  );
+  if (!resource?.localPath) return null;
+  const sourcePath = path.resolve(resource.localPath);
+  const textResult = await runBoundedProcess("pdftotext", ["-layout", sourcePath, "-"], {
+    signal: config.abortSignal,
+    maxOutputBytes: 8 * 1024 * 1024,
+  });
+  if (textResult.code !== 0) throw new Error(`pdftotext exited with ${textResult.code}.`);
+  const page = locateRequestedTaskPage(textResult.stdout.split("\f"), taskNumber);
+  if (page === null) return null;
+  const imageDir = path.join(config.runDir, "assets", "task-evidence");
+  await mkdir(imageDir, { recursive: true });
+  const imageBase = path.join(imageDir, `${safeChapterKey(resource.id)}-task-${taskNumber}-page-${page}`);
+  const imagePath = `${imageBase}.png`;
+  const cached = await stat(imagePath).catch(() => null);
+  if (cached?.isFile() && cached.size > 0) return imagePath;
+  const render = await runBoundedProcess("pdftoppm", [
+    "-f", String(page), "-l", String(page), "-singlefile", "-scale-to", "1600", "-png",
+    sourcePath, imageBase,
+  ], { signal: config.abortSignal, timeoutMs: 90_000 });
+  if (render.code !== 0) throw new Error(`pdftoppm exited with ${render.code}: ${render.stderr.slice(0, 240)}`);
+  const image = await stat(imagePath);
+  if (!image.isFile() || image.size === 0) throw new Error("pdftoppm produced no task page image.");
+  return imagePath;
+}
+
+export async function chapterVisualAttachments(
   runDir: string,
   slice: ChapterSlice,
   visualManifest: VisualManifest | null,
@@ -1603,8 +1928,9 @@ function normalizeFragmentReferences(
   fragment: ChapterFragment,
   slice: ChapterSlice,
   visualManifest: VisualManifest | null,
+  documentSourceIds: string[] = [],
 ): ChapterFragment {
-  const allowedSources = new Set(slice.resourceIds);
+  const allowedSources = new Set([...slice.resourceIds, ...documentSourceIds]);
   const allowedAssets = new Set((visualManifest?.candidates ?? []).map((candidate) => candidate.id));
   const fallbackSources = slice.resourceIds.filter((id) =>
     slice.records.some((record) => record.resourceId === id)
@@ -1641,6 +1967,10 @@ function normalizeFragmentReferences(
 
 export function normalizeAnalyzerFormulaSyntax(value: string): string {
   return value
+    // Structured model output can contain stray C0/DEL control bytes. They
+    // have no mathematical meaning and must not turn a valid formula into a
+    // semantic repair loop or a broken PDF.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/\bdot\s*\.\s*double\s*\((bold\([^()]+\)|[^()]+)\)/g, "ddot($1)")
     .replace(/\$/g, " ")
     .replace(/\s+/g, " ")
@@ -1658,6 +1988,7 @@ function materializeDenseChapter(
   const resources = state.resource_manifest.resources.filter((resource) =>
     focus.resourceIds.includes(resource.id)
   );
+  const documentSourceIds = new Set(buildDocumentContext(state).map(entry => entry.source_id));
   const figures = mergeFigures(
     fragments.flatMap((fragment) => fragment.figures),
     requiredLookupFigures(focus, visualManifest, retrievalRequests),
@@ -1691,7 +2022,11 @@ function materializeDenseChapter(
     document_title: `${courseTitle} – Study Guide`,
     language: config.outputLanguage,
     course: { title: courseTitle, url: state.resource_manifest.courseUrl },
-    sources: resources.map(manifestResourceToSource),
+    sources: uniqueBy([
+      ...resources.map(manifestResourceToSource),
+      ...exploratoryReadingResources(state, focus).map(manifestResourceToSource),
+      ...state.resource_manifest.resources.filter(resource => documentSourceIds.has(resource.id)).map(manifestResourceToSource),
+    ], source => source.id),
     sections: mergeSections(fragments.flatMap((fragment) => fragment.sections)),
     formulas: uniqueBy(
       fragments.flatMap((fragment) => fragment.formulas),
@@ -1970,6 +2305,38 @@ function mergeSections(sections: ChapterFragment["sections"]): ChapterFragment["
   return [...merged.values()];
 }
 
+export function scopeRequestedTaskFragment(fragment: ChapterFragment, slice: ChapterSlice): ChapterFragment {
+  const taskNumber = /-requested-task-(\d+)$/.exec(slice.key)?.[1];
+  if (!taskNumber) return fragment;
+  const taskMarker = new RegExp(`\\b(?:Aufgabe|Exercise)\\s+${taskNumber}\\b`, "iu");
+  return {
+    ...fragment,
+    sections: fragment.sections.map((section) => ({
+      ...section,
+      heading: taskMarker.test(section.heading)
+        ? section.heading
+        : `${slice.label} – ${section.heading}`,
+    })),
+    worked_examples: fragment.worked_examples.map((example) => ({
+      ...example,
+      learning_goal: taskMarker.test(example.learning_goal)
+        ? example.learning_goal
+        : `${slice.label}: ${example.learning_goal}`,
+    })),
+    warnings: fragment.warnings.filter((warning) => {
+      // A task slice cannot certify the whole collection. Such self-referential
+      // caveats become false global scope notes after all slices are merged.
+      const collectionClaim = /(?:vollständigkeitsabgleich|vollständige\s+(?:sammlung|zusammenstellung)|alle[nr]?\s+aufgaben|andere\s+aufgaben|full\s+(?:collection|coverage)|all\s+(?:requested\s+)?tasks|other\s+tasks|pdf-erstellung)/iu.test(warning);
+      const fragmentBoundary = /(?:fragment|evidenz|separat|\bhier\b|this\s+(?:slice|fragment)|provided\s+evidence)/iu.test(warning);
+      if (collectionClaim && fragmentBoundary) return false;
+      const mentions = [...warning.matchAll(/(?:\bT\d+\s*\/\s*A|\b(?:Aufgabe|Exercise)\s+)(\d+)\b/giu)]
+        .map((match) => match[1]);
+      const claimsMissingEvidence = /\b(?:fehl\w*|nicht\s+vor|keine?\s+(?:original|quelle|evidenz)|unavailable|missing|not\s+(?:available|provided|covered))\b/iu.test(warning);
+      return !claimsMissingEvidence || !mentions.some((number) => number !== taskNumber);
+    }),
+  };
+}
+
 function mergeFigures(
   selected: ChapterFragment["figures"],
   required: ChapterFragment["figures"],
@@ -2061,25 +2428,32 @@ async function readVisualRetrievalRequests(runDir: string): Promise<VisualRetrie
 function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
   const architecture = state.source_architect_decision.learningArchitecture;
   if (architecture?.modules.length) {
+    const excluded = new Set(architecture.excludedResourceUrls.map(canonicalizeResourceUrl));
     const resourcesByUrl = new Map(state.resource_manifest.resources.map((resource) => [
       canonicalizeResourceUrl(resource.originUrl),
       resource,
     ]));
+    const admissible = (resource: ManifestResource) => resource.selection?.selected !== false && resource.status !== "skipped" &&
+      !isResourceFailureStatus(resource.status) && !excluded.has(canonicalizeResourceUrl(resource.originUrl));
     const practiceAssignments = assignPracticeResourcesToModules(state, architecture.modules);
     const supportResources = architecture.supportResources.map((support) => ({
       support,
       resourceIds: support.resourceUrls
         .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
-        .filter((resource): resource is ManifestResource => Boolean(resource?.localPath))
+        .filter((resource): resource is ManifestResource => Boolean(resource &&
+          resource.selection?.selected !== false && resource.status !== "skipped" && !isResourceFailureStatus(resource.status) &&
+          !excluded.has(canonicalizeResourceUrl(resource.originUrl)) && (resource.localPath ||
+          state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim()))))
         .map((resource) => resource.id),
     }));
     const focuses = architecture.modules.flatMap((module): ChapterFocus[] => {
       const directResources = uniqueBy([
         ...module.resourceUrls
           .map((url) => resourcesByUrl.get(canonicalizeResourceUrl(url)))
-          .filter((resource): resource is ManifestResource => Boolean(resource?.localPath)),
+          .filter((resource): resource is ManifestResource => Boolean(resource && (resource.localPath ||
+            state.evidence_package.records.some(record => record.resourceId === resource.id && record.content.trim())))),
         ...(practiceAssignments.get(module.id) ?? []),
-      ], (resource) => resource.id);
+      ], (resource) => resource.id).filter(admissible);
       const semanticTerms = matchTerms([
         module.title,
         ...module.learningObjectives,
@@ -2153,7 +2527,7 @@ function chapterFocuses(state: LangGraphAgentState): ChapterFocus[] {
         assessmentSignals: module.assessmentSignals,
       }];
     });
-    if (focuses.length > 0) return focuses;
+    return focuses;
   }
 
   const groups = new Map<string, ChapterFocus>();
@@ -2208,7 +2582,8 @@ function assignPracticeResourcesToModules(
   }
   const result = new Map<string, ManifestResource[]>();
   const practiceResources = state.resource_manifest.resources.filter((resource) =>
-    Boolean(resource.localPath) && practiceRoles.has(resource.selection?.role ?? "")
+    Boolean(resource.localPath) && practiceRoles.has(resource.selection?.role ?? "") &&
+    !(state.source_architect_decision.pendingReads ?? []).some(read => read.resourceId === resource.id && read.purpose === "scope_assessment")
   );
 
   for (const resource of practiceResources) {
@@ -2258,6 +2633,9 @@ function termFrequencyOverlap(left: string[], right: string[]): number {
 
 export function focusMatchesError(focus: ChapterFocus, errorLog: string | null): boolean {
   if (!errorLog) return false;
+  // Document-level ownership is explicit; a word matching another chapter
+  // must not turn a global contradiction into one unrelated cache repair.
+  if (/\[scope:\s*document\]/i.test(errorLog)) return true;
   const normalized = errorLog.toLowerCase();
   const taggedChapters = [...errorLog.matchAll(/\[chapter:\s*([^\]]+)\]/gi)]
     .map((match) => match[1]?.trim())
@@ -2348,11 +2726,18 @@ function chapterFingerprint(
   state: LangGraphAgentState,
   focus: ChapterFocus,
 ): string {
+  const exploratoryIds = new Set(exploratoryReadingResources(state, focus).map(resource => resource.id));
   const resources = state.resource_manifest.resources
-    .filter((resource) => focus.resourceIds.includes(resource.id))
+    .filter((resource) => focus.resourceIds.includes(resource.id) || exploratoryIds.has(resource.id))
     .map((resource) => ({ id: resource.id, checksum: resource.checksum, status: resource.status }));
   return createHash("sha256").update(JSON.stringify({
+    producerPolicies: [operationPolicyFingerprint(config, "content_extraction"), operationPolicyFingerprint(config, "content_extraction_repair")],
+    requestContract: state.request_contract,
+    documentContext: buildDocumentContext(state),
     analyzerVersion: CHAPTER_ANALYZER_VERSION,
+    pendingReads: pendingSourceReadPrompt(state, focus.resourceIds),
+    visualCompositionVersion: VISUAL_SOURCE_COMPOSITION_VERSION,
+    materializationVersion: CHAPTER_MATERIALIZATION_VERSION,
     outputLanguage: config.outputLanguage,
     policy: STUDENT_FIRST_POLICY_VERSION,
     profile: config.artifactIntent.profile,
@@ -2400,7 +2785,7 @@ function assertChapterHandoff(
   }
 }
 
-function mergeChapterHandoffs(
+export function mergeChapterHandoffs(
   handoffs: Array<ReturnType<typeof validateExtractedData>>,
   focuses: ChapterFocus[],
   config: MoodleRuntimeConfig,
@@ -2414,6 +2799,7 @@ function mergeChapterHandoffs(
     document_title: first.document_title,
     language: config.outputLanguage,
     course: first.course,
+    document_context: uniqueBy(namespaced.flatMap(data => data.document_context), entry => entry.source_id),
     sources: uniqueBy(namespaced.flatMap((data) => data.sources), (source) => source.id),
     sections: namespaced.flatMap((data) => data.sections),
     formulas: namespaced.flatMap((data) => data.formulas),
@@ -2422,7 +2808,9 @@ function mergeChapterHandoffs(
     visual_assets: uniqueBy(namespaced.flatMap((data) => data.visual_assets), (asset) => asset.id),
     figures: namespaced.flatMap((data) => data.figures),
     learning_modules: namespaced.flatMap((data) => data.learning_modules),
-    warnings: [...new Set(namespaced.flatMap((data) => data.warnings))],
+    warnings: [...new Set(namespaced.flatMap((data, index) => data.warnings.map((warning) =>
+      `${config.outputLanguage === "en" ? "Chapter" : "Kapitel"} «${focuses[index].title}»: ${warning}`
+    )))],
   });
 }
 
@@ -2430,7 +2818,9 @@ function namespaceChapterHandoff(
   data: ReturnType<typeof validateExtractedData>,
   prefix: string,
 ): ReturnType<typeof validateExtractedData> {
-  const sourceIds = new Map(data.sources.map((source) => [source.id, `${prefix}_${source.id}`]));
+  const documentSourceIds = new Set(data.document_context.map(entry => entry.source_id));
+  const sourceIds = new Map(data.sources.map((source) => [source.id,
+    documentSourceIds.has(source.id) ? source.id : `${prefix}_${source.id}`]));
   const assetIds = new Map(data.visual_assets.map((asset) => [asset.id, `${prefix}_${asset.id}`]));
   const mapSources = (ids: string[]) => ids.map((id) => sourceIds.get(id)).filter((id): id is string => Boolean(id));
   return validateExtractedData({
@@ -2535,39 +2925,16 @@ export async function buildAnalyzerPrompt(
         ),
       }
     : state.evidence_package;
-  const evidenceView = compactEvidenceForAnalyzer(
-    focusedEvidence,
-    config.prompt,
-    evidenceBudget,
-  );
-  const analyzerManifest = {
-    schemaVersion: state.resource_manifest.schemaVersion,
-    courseUrl: state.resource_manifest.courseUrl,
-    resources: state.resource_manifest.resources
-      .filter((resource) => !focus || focus.resourceIds.includes(resource.id))
-      .map((resource) => ({
-      id: resource.id,
-      sectionPath: resource.sectionPath,
-      activityType: resource.activityType,
-      title: resource.title,
-      originUrl: resource.originUrl,
-      status: resource.status,
-      selection: resource.selection,
-      extraction: resource.extraction,
-    })),
-  };
+  const analyzerManifest = compactAnalyzerManifest(state, focus);
   const analyzerVisuals = visualManifest
     ? {
         tooling: visualManifest.tooling,
         warnings: visualManifest.warnings,
         candidates: visualManifest.candidates
           .filter((candidate) => !focus || (candidate.source_id && focus.resourceIds.includes(candidate.source_id)))
-          .slice(
-            0,
-            focus
-              ? FOCUSED_VISUAL_CANDIDATE_LIMIT
-              : Math.max(6, Math.min(config.maxVisualAssets * 2, 16)),
-          )
+          .slice(0, focus
+            ? FOCUSED_VISUAL_CANDIDATE_LIMIT
+            : Math.max(4, Math.min(config.maxVisualAssets * 2, 8)))
           .map((candidate) => ({
           id: candidate.id,
           kind: candidate.kind,
@@ -2579,7 +2946,7 @@ export async function buildAnalyzerPrompt(
           source_url: candidate.source_url,
           source_page: candidate.source_page,
           confidence: candidate.confidence,
-          caption_hint: candidate.caption_hint,
+          caption_hint: truncateAnalyzerText(candidate.caption_hint, 500),
         })),
       }
     : null;
@@ -2597,7 +2964,8 @@ export async function buildAnalyzerPrompt(
     : config.maxVisualAssets > 0
       ? config.maxVisualAssets
       : 0;
-  return [
+  let terseMetadata = false;
+  const assemblePrompt = (evidenceView: LangGraphAgentState["evidence_package"], compact = false) => [
     "Extract structured study data from selected calendar events and relevant Moodle/CIS text for a learner in the requested course, regardless of discipline.",
     `Student-first policy v${STUDENT_FIRST_POLICY_VERSION}: ${STUDENT_FIRST_POLICY}`,
     "Return only schema-valid JSON. Use the evidence package as the factual boundary; resource titles and visual metadata alone do not prove subject claims. Do not open files, invoke tools, or invent missing content.",
@@ -2618,6 +2986,7 @@ export async function buildAnalyzerPrompt(
     "worked_examples, figures, questions, derivations, and other optional components may be empty. Include them only when required by the evaluated contract or justified by its evidence-derived strategy, and make every included item source-grounded and pedagogically complete.",
     "Use source-backed exercise/solution pairs when reproducible. Otherwise use origin='derived' with declared values, ordered reasoning, units, result, and plausibility check. Never copy lookup values without teaching the table/diagram selection path.",
     "Use Typst math syntax. Every formula needs variables, units (or explicit dimensionless status), context, and valid source_ids.",
+    focus ? "Warnings describe only this chapter's supplied evidence and assigned objectives. Do not claim that another chapter's content or the whole document lacks evidence merely because it is absent from this local packet." : "",
     figureLimit > 0
       ? `Use at most ${figureLimit} source-backed figures, only when they materially support the chapter. Attached images correspond to candidate IDs; never use tools to inspect other files. Prefer extracted images over full-page screenshots and keep lookup assets beside dependent examples.`
       : "Use figures only when source-supported or as a clearly identified didactic Typst diagram.",
@@ -2625,7 +2994,7 @@ export async function buildAnalyzerPrompt(
       ? "Set quiz_style_questions to an empty array. These profiles use one learning checklist and no practice bank."
       : "Practice questions must test subject knowledge, have a concrete learning purpose, and cite subject evidence. Never ask about alias, date, time, room, teacher, or source-page metadata.",
     `Output language is ${languageName(config.outputLanguage)}.`,
-    `Evaluated request contract: ${JSON.stringify(state.request_contract, null, 2)}`,
+    `Evaluated request contract: ${JSON.stringify(state.request_contract, null, compact ? undefined : 2)}`,
     `Task context: ${JSON.stringify({
       artifactProfile: config.artifactIntent.profile,
       outputLanguage: languageName(config.outputLanguage),
@@ -2638,37 +3007,139 @@ export async function buildAnalyzerPrompt(
           }
         : null,
     })}`,
+    documentContextPrompt(state),
+    pendingSourceReadPrompt(state, focus?.resourceIds),
     focus
       ? `Learning mode: ${focus.contentMode ?? "mixed"}. Objectives: ${JSON.stringify(focus.learningObjectives ?? [])}. Assessment signals: ${JSON.stringify(focus.assessmentSignals ?? [])}.`
       : "",
     state.error_log ? `Previous validation error to repair:\n${state.error_log}` : "",
     `User request:\n${config.prompt}`,
     `Source coverage JSON:\n${JSON.stringify(
-      obligationDiscovery
-        ? compactSourceCoverage(config.diagnostics?.getCoverage() ?? {})
-        : config.diagnostics?.getCoverage() ?? {},
+      compactSourceCoverage(config.diagnostics?.getCoverage() ?? {}, terseMetadata),
       null,
-      2,
+      compact ? undefined : 2,
     )}`,
     obligationCoverageView
-      ? `Obligation coverage manifest summary JSON:\n${JSON.stringify(obligationCoverageView, null, 2)}`
+      ? `Obligation coverage manifest summary JSON:\n${JSON.stringify(obligationCoverageView, null, compact ? undefined : 2)}`
       : "",
-    analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(analyzerVisuals, null, 2)}` : "Visual candidates JSON: none",
-    `Resource manifest JSON:\n${JSON.stringify(analyzerManifest, null, 2)}`,
-    `Evidence package selection JSON:\n${JSON.stringify(evidenceView, null, 2)}`,
+    analyzerVisuals ? `Visual candidates JSON:\n${JSON.stringify(terseMetadata ? { ...analyzerVisuals, warnings: (analyzerVisuals.warnings ?? []).slice(0, 3).map(warning => truncateAnalyzerText(warning, 300)) } : analyzerVisuals, null, compact ? undefined : 2)}` : "Visual candidates JSON: none",
+    `Resource manifest JSON:\n${JSON.stringify(terseMetadata ? { ...analyzerManifest, resources: analyzerManifest.resources.map(resource => ({ id: resource.id, title: resource.title, originUrl: resource.originUrl, activityType: resource.activityType, status: resource.status })) } : analyzerManifest, null, compact ? undefined : 2)}`,
+    `Evidence package selection JSON:\n${JSON.stringify(terseMetadata ? { ...evidenceView, records: evidenceProducerView(evidenceView.records, true), warnings: evidenceView.warnings.slice(0, 3).map(warning => truncateAnalyzerText(warning, 300)) } : evidenceView, null, compact ? undefined : 2)}`,
     sourceOverview ? `Moodle/CIS source overview:\n${sourceOverview}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
+
+  const task = state.error_log ? "content_repair" : "content_analyzer";
+  const promptBudget = Math.max(
+    0,
+    resolveModelPromptBodyCharacterBudget(task, extractedDataJsonSchema) -
+      ANALYZER_PROMPT_CHARACTER_MARGIN,
+  );
+  let boundedEvidenceBudget = evidenceBudget;
+  let evidenceView = compactEvidenceForAnalyzer(
+    focusedEvidence,
+    config.prompt,
+    boundedEvidenceBudget,
+  );
+  let prompt = assemblePrompt(evidenceView);
+  let compact = false;
+  if (prompt.length > promptBudget) { compact = true; prompt = assemblePrompt(evidenceView, true); }
+  if (prompt.length > promptBudget) { terseMetadata = true; prompt = assemblePrompt(evidenceView, true); }
+  while (
+    prompt.length > promptBudget &&
+    boundedEvidenceBudget > MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT
+  ) {
+    const overflow = prompt.length - promptBudget;
+    boundedEvidenceBudget = Math.max(
+      MIN_ANALYZER_EVIDENCE_CHARACTER_LIMIT,
+      boundedEvidenceBudget - overflow - ANALYZER_PROMPT_CHARACTER_MARGIN,
+    );
+    evidenceView = compactEvidenceForAnalyzer(
+      focusedEvidence,
+      config.prompt,
+      boundedEvidenceBudget,
+    );
+    prompt = assemblePrompt(evidenceView, compact);
+  }
+  return assertAnalyzerProducerCapacity(prompt, promptBudget);
 }
 
-function compactSourceCoverage(coverage: object): Record<string, unknown> {
+interface AnalyzerManifestResourceView extends Record<string, unknown> {
+  originUrl: string;
+}
+
+interface AnalyzerManifestView extends Record<string, unknown> {
+  resources: AnalyzerManifestResourceView[];
+}
+
+function compactAnalyzerManifest(
+  state: LangGraphAgentState,
+  focus?: ChapterFocus,
+): AnalyzerManifestView {
+  const resources = state.resource_manifest.resources;
+  const focusIds = focus ? new Set(focus.resourceIds) : null;
+  const selected = resources.filter((resource) =>
+    focusIds ? focusIds.has(resource.id) : resource.selection?.selected === true
+  );
+  const evidencedIds = new Set(state.evidence_package.records.map((record) => record.resourceId));
+  const candidates = selected.length > 0
+    ? selected
+    : resources.filter((resource) => evidencedIds.has(resource.id));
+  const compacted: AnalyzerManifestResourceView[] = [];
+  let characters = 0;
+  for (const resource of candidates) {
+    const entry = {
+      id: resource.id,
+      sectionPath: resource.sectionPath.slice(-4).map((part) => truncateAnalyzerText(part, 300)),
+      activityType: resource.activityType,
+      title: truncateAnalyzerText(resource.title, 500),
+      originUrl: resource.originUrl,
+      status: resource.status,
+      selection: resource.selection
+        ? {
+            ...resource.selection,
+            reason: truncateAnalyzerText(resource.selection.reason, 500),
+          }
+        : undefined,
+      extraction: resource.extraction
+        ? {
+            ...resource.extraction,
+            warnings: resource.extraction.warnings
+              .slice(0, 3)
+              .map((warning) => truncateAnalyzerText(warning, 500)),
+          }
+        : undefined,
+    };
+    const entryCharacters = JSON.stringify(entry).length;
+    if (compacted.length > 0 && characters + entryCharacters > ANALYZER_MANIFEST_CHARACTER_LIMIT) {
+      continue;
+    }
+    compacted.push(entry);
+    characters += entryCharacters;
+  }
+  return {
+    schemaVersion: state.resource_manifest.schemaVersion,
+    courseUrl: state.resource_manifest.courseUrl,
+    totalResourceCount: resources.length,
+    includedResourceCount: compacted.length,
+    omittedResourceCount: Math.max(0, resources.length - compacted.length),
+    resources: compacted,
+  };
+}
+
+function truncateAnalyzerText(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function compactSourceCoverage(coverage: object, terse = false): Record<string, unknown> {
   return Object.fromEntries(Object.entries(coverage as Record<string, unknown>).map(([source, value]) => {
     if (!value || typeof value !== "object") return [source, value];
     const entry = value as Record<string, unknown>;
     return [source, {
       status: entry.status,
-      detail: entry.detail,
+      detail: terse && typeof entry.detail === "string" ? truncateAnalyzerText(entry.detail, 500) : entry.detail,
       pages: entry.pages,
       urlCount: Array.isArray(entry.urls) ? entry.urls.length : 0,
       attemptedUrlCount: Array.isArray(entry.attemptedUrls) ? entry.attemptedUrls.length : 0,
@@ -2700,17 +3171,28 @@ function compactEvidenceForAnalyzer(
   const representedResources = new Set<string>();
   let characters = 0;
   for (const candidate of records) {
-    const serializedLength = JSON.stringify(candidate.record).length;
+    let boundedRecord = { ...candidate.record, localPath: null };
+    let serializedLength = JSON.stringify(boundedRecord).length;
+    if (selected.length === 0 && serializedLength > maxCharacters) {
+      const metadataCharacters = serializedLength - candidate.record.content.length;
+      const contentLimit = Math.max(0, maxCharacters - metadataCharacters - 16);
+      if (contentLimit === 0) continue;
+      boundedRecord = {
+        ...boundedRecord,
+        content: truncateAnalyzerText(candidate.record.content, contentLimit),
+      };
+      serializedLength = JSON.stringify(boundedRecord).length;
+    }
     const firstForResource = !representedResources.has(candidate.record.resourceId);
     if (!firstForResource && characters + serializedLength > maxCharacters) continue;
     if (characters + serializedLength > maxCharacters && selected.length > 0) continue;
-    selected.push(candidate.record);
+    selected.push(boundedRecord);
     representedResources.add(candidate.record.resourceId);
     characters += serializedLength;
   }
   return {
     ...evidence,
-    records: selected.map((record) => ({ ...record, localPath: null })),
+    records: selected,
     warnings: [
       ...evidence.warnings,
       ...(selected.length < evidence.records.length
@@ -2727,8 +3209,16 @@ async function analyzerVisualAttachments(
 ): Promise<string[]> {
   const visualManifest = await readVisualManifest(runDir);
   const allowedResourceIds = focus ? new Set(focus.resourceIds) : null;
+  const excludedUrls = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const vetoedResources = state.resource_manifest.resources.filter(resource =>
+    resource.selection?.selected === false || resource.status === "skipped" || isResourceFailureStatus(resource.status) ||
+    excludedUrls.has(canonicalizeResourceUrl(resource.originUrl)));
+  const vetoedIds = new Set(vetoedResources.map(resource => resource.id));
+  const vetoedUrls = new Set([...excludedUrls, ...vetoedResources.map(resource => canonicalizeResourceUrl(resource.originUrl))]);
   const normalizedRunDir = path.resolve(runDir);
   const paths = (visualManifest?.candidates ?? [])
+    .filter(candidate => (!candidate.source_id || !vetoedIds.has(candidate.source_id)) &&
+      (!candidate.source_url || !vetoedUrls.has(canonicalizeResourceUrl(candidate.source_url))))
     .filter((candidate) => !allowedResourceIds ||
       Boolean(candidate.source_id && allowedResourceIds.has(candidate.source_id)))
     .sort((left, right) => visualCandidateScore(right) - visualCandidateScore(left))
@@ -2757,4 +3247,10 @@ function focusedRawSource(rawText: string, resources: Array<{ originUrl: string 
       return url ? urls.has(url) : false;
     })
     .join("\n\n");
+}
+
+async function reserveExtractionAttempt(config: MoodleRuntimeConfig, state: LangGraphAgentState, unit: string): Promise<number> {
+  return reserveOperationAttempt({ runDir: config.runDir, resumeRunDir: config.resumeExtractionRunDir,
+    key: `extraction:${unit}`, binding: { originalPrompt: config.originalUserPrompt, request: state.request_contract, language: config.outputLanguage,
+      source: createHash("sha256").update(state.moodle_raw_text).digest("hex") }, signal: config.abortSignal });
 }

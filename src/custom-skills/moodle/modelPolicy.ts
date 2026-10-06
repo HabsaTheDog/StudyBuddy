@@ -1,20 +1,16 @@
-export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-08-09.1-balanced-terra-analysis";
+import { workflowModelBridgeEnvironment } from "../shared/workflowModelRuntime.js";
+export const STUDY_BUDDY_MODEL_POLICY_VERSION = "2026-10-01.1-current-provider-profiles";
 
 export type StudyBuddyExecutionProfile = "auto" | "fast" | "balanced" | "quality" | "custom";
 
-export type StudyBuddyModelTask =
-  | "source_search"
-  | "content_analyzer"
-  | "content_repair"
-  | "quiz_solver"
-  | "artifact_planner"
-  | "artifact_builder"
-  | "artifact_repair"
-  | "quality_reviewer";
+import { STUDY_BUDDY_MODEL_TASKS, type StudyBuddyModelTask, type StudyBuddyModelOperation, type StudyBuddyModelPolicyKey } from "../shared/modelTaskCatalog.js";
+export type { StudyBuddyModelTask, StudyBuddyModelOperation, StudyBuddyModelPolicyKey } from "../shared/modelTaskCatalog.js";
 
 export type StudyBuddyReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface StudyBuddyTaskModelPolicy {
+  instanceId?: string;
+  escalationInstanceId?: string;
   model: string;
   reasoningEffort: StudyBuddyReasoningEffort;
   timeoutMs: number;
@@ -24,16 +20,18 @@ export interface StudyBuddyTaskModelPolicy {
 }
 
 export type StudyBuddyModelPolicyOverrides = Partial<
-  Record<StudyBuddyModelTask, Partial<StudyBuddyTaskModelPolicy>>
+  Record<StudyBuddyModelPolicyKey, Partial<StudyBuddyTaskModelPolicy>>
 >;
 
 export interface ResolveTaskModelPolicyInput {
   profile: StudyBuddyExecutionProfile;
   task: StudyBuddyModelTask;
+  operation?: StudyBuddyModelOperation | undefined;
   attempt?: number;
   globalModel?: string;
   globalReasoningEffort?: StudyBuddyReasoningEffort;
   overrides?: StudyBuddyModelPolicyOverrides;
+  compatibilityFallbacks?: Readonly<Record<string, string>>;
 }
 
 const PROFILE_POLICIES: Record<
@@ -41,248 +39,265 @@ const PROFILE_POLICIES: Record<
   Record<StudyBuddyModelTask, StudyBuddyTaskModelPolicy>
 > = {
   auto: {
-    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
-    artifact_planner: {
-      model: "gpt-5.6-terra",
+    source_search: {
+      model: "gpt-6-luna",
       reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "medium",
-      escalationTimeoutMs: 3 * 60_000,
-    },
-    content_analyzer: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "medium",
-      timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "medium",
       escalationTimeoutMs: 90_000,
     },
     content_repair: {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-astra",
       reasoningEffort: "high",
       timeoutMs: 150_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "xhigh",
       escalationTimeoutMs: 180_000,
     },
-    quiz_solver: {
-      model: "gpt-5.6-terra",
+    artifact_repair: {
+      model: "gpt-6-astra",
       reasoningEffort: "high",
-      timeoutMs: 6 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "high",
-      escalationTimeoutMs: 8 * 60_000,
-    },
-    artifact_builder: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "medium",
       timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "high",
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
       escalationTimeoutMs: 6 * 60_000,
     },
-    artifact_repair: {
-      model: "gpt-5.6-sol",
+    content_analyzer: {
+      model: "gpt-6.1-sol",
+      reasoningEffort: "high",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6-astra",
+      escalationEffort: "medium",
+      escalationTimeoutMs: 90_000,
+    },
+    quiz_solver: {
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
+      timeoutMs: 6 * 60_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 8 * 60_000,
+    },
+    artifact_planner: {
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 3 * 60_000,
+    },
+    artifact_builder: {
+      model: "gpt-6-astra",
       reasoningEffort: "high",
       timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "xhigh",
       escalationTimeoutMs: 6 * 60_000,
     },
     quality_reviewer: {
-      model: "gpt-5.6-terra",
+      model: "gpt-6-astra",
       reasoningEffort: "medium",
       timeoutMs: 2 * 60_000,
-      escalationModel: "gpt-5.6-terra",
-      escalationEffort: "medium",
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "high",
       escalationTimeoutMs: 2 * 60_000,
     },
   },
   fast: {
-    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
-    artifact_planner: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "high",
-      timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
-      escalationEffort: "high",
-      escalationTimeoutMs: 2 * 60_000,
-    },
-    content_analyzer: {
-      model: "gpt-5.6-luna",
-      // Luna high-effort requests can remain queued without token usage on the
-      // current runtime. Medium is the validated low-latency operating point.
+    source_search: {
+      model: "gpt-6-luna",
       reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
-      escalationEffort: "high",
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "medium",
       escalationTimeoutMs: 90_000,
     },
     content_repair: {
-      model: "gpt-5.6-terra",
+      model: "gpt-6.1-sol",
       reasoningEffort: "high",
       timeoutMs: 120_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6-sol",
       escalationEffort: "high",
       escalationTimeoutMs: 180_000,
     },
-    quiz_solver: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-terra",
-      escalationEffort: "high",
-      escalationTimeoutMs: 6 * 60_000,
-    },
-    artifact_builder: {
-      model: "gpt-5.6-luna",
-      reasoningEffort: "high",
-      timeoutMs: 2 * 60_000,
-      escalationModel: "gpt-5.6-terra",
-      escalationEffort: "high",
-      escalationTimeoutMs: 4 * 60_000,
-    },
     artifact_repair: {
-      model: "gpt-5.6-terra",
+      model: "gpt-6.1-sol",
       reasoningEffort: "high",
       timeoutMs: 3 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6-sol",
       escalationEffort: "high",
       escalationTimeoutMs: 5 * 60_000,
     },
-    quality_reviewer: {
-      model: "gpt-5.6-terra",
+    content_analyzer: {
+      model: "gpt-6-luna",
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 90_000,
+    },
+    quiz_solver: {
+      model: "gpt-6-luna",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    artifact_planner: {
+      model: "gpt-6-luna",
+      reasoningEffort: "high",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 2 * 60_000,
+    },
+    artifact_builder: {
+      model: "gpt-6-luna",
       reasoningEffort: "high",
       timeoutMs: 2 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "high",
+      escalationTimeoutMs: 4 * 60_000,
+    },
+    quality_reviewer: {
+      model: "gpt-6.1-sol",
+      reasoningEffort: "high",
+      timeoutMs: 2 * 60_000,
+      escalationModel: "gpt-6-sol",
       escalationEffort: "medium",
       escalationTimeoutMs: 4 * 60_000,
     },
   },
   balanced: {
-    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
-    artifact_planner: {
-      model: "gpt-5.6-terra",
+    source_search: {
+      model: "gpt-6-luna",
       reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "medium",
-      escalationTimeoutMs: 3 * 60_000,
+      escalationTimeoutMs: 90_000,
     },
-    content_analyzer: {
-      // Live cross-checks showed that Luna needed targeted repairs for half of
-      // the quantitative DYN2 chapter fragments and emitted surplus topics in
-      // both HTML batches. Starting bounded Balanced analysis on Terra avoids
-      // those duplicate calls while Sol remains reserved for true escalation.
-      model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
-      timeoutMs: 120_000,
-      escalationModel: "gpt-5.6-sol",
+    content_repair: {
+      model: "gpt-6.1-sol",
+      reasoningEffort: "high",
+      timeoutMs: 150_000,
+      escalationModel: "gpt-6-sol",
       escalationEffort: "medium",
       escalationTimeoutMs: 180_000,
     },
-    content_repair: {
-      // One bounded Terra worker is the validated repair path for compact,
-      // structured chapter batches. Sol high/xhigh repeatedly exhausted the
-      // 180-second leaf-worker window without tokens; keep Sol medium as the
-      // second escalation instead of making the first repair slower.
-      model: "gpt-5.6-terra",
+    artifact_repair: {
+      model: "gpt-6.1-sol",
       reasoningEffort: "high",
-      timeoutMs: 150_000,
-      escalationModel: "gpt-5.6-sol",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-6-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    content_analyzer: {
+      model: "gpt-6.1-sol",
+      reasoningEffort: "medium",
+      timeoutMs: 120_000,
+      escalationModel: "gpt-6-sol",
       escalationEffort: "medium",
       escalationTimeoutMs: 180_000,
     },
     quiz_solver: {
-      model: "gpt-5.6-terra",
+      model: "gpt-6.1-sol",
       reasoningEffort: "high",
       timeoutMs: 6 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6-sol",
       escalationEffort: "high",
       escalationTimeoutMs: 8 * 60_000,
     },
+    artifact_planner: {
+      model: "gpt-6.1-sol",
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6-sol",
+      escalationEffort: "medium",
+      escalationTimeoutMs: 3 * 60_000,
+    },
     artifact_builder: {
-      model: "gpt-5.6-sol",
+      model: "gpt-6.1-sol",
       reasoningEffort: "medium",
       timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6-sol",
       escalationEffort: "high",
       escalationTimeoutMs: 6 * 60_000,
     },
-    artifact_repair: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 6 * 60_000,
-    },
     quality_reviewer: {
-      model: "gpt-5.6-terra",
+      model: "gpt-6.1-sol",
       reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-6-sol",
       escalationEffort: "medium",
       escalationTimeoutMs: 2 * 60_000,
     },
   },
   quality: {
-    source_search: { model: "gpt-5.6-luna", reasoningEffort: "medium", timeoutMs: 90_000, escalationModel: "gpt-5.6-terra", escalationEffort: "medium", escalationTimeoutMs: 90_000 },
-    artifact_planner: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      timeoutMs: 150_000,
-      escalationModel: "gpt-5.6-sol",
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 180_000,
-    },
-    content_analyzer: {
-      // Chapter analyzers run concurrently. Terra provides the necessary
-      // structured depth without the long queue observed when parallel Sol
-      // calls are used; a failed validation still escalates to Sol.
-      model: "gpt-5.6-terra",
-      reasoningEffort: "high",
-      timeoutMs: 120_000,
-      escalationModel: "gpt-5.6-sol",
+    source_search: {
+      model: "gpt-6-luna",
+      reasoningEffort: "medium",
+      timeoutMs: 90_000,
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "medium",
-      escalationTimeoutMs: 150_000,
+      escalationTimeoutMs: 90_000,
     },
     content_repair: {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-astra",
       reasoningEffort: "high",
       timeoutMs: 150_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "xhigh",
       escalationTimeoutMs: 210_000,
     },
-    quiz_solver: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      timeoutMs: 4 * 60_000,
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 6 * 60_000,
-    },
-    artifact_builder: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      timeoutMs: 3 * 60_000,
-      escalationEffort: "xhigh",
-      escalationTimeoutMs: 4 * 60_000,
-    },
     artifact_repair: {
-      model: "gpt-5.6-sol",
-      reasoningEffort: "xhigh",
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
       timeoutMs: 4 * 60_000,
-      escalationModel: "gpt-5.6-sol",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "xhigh",
       escalationTimeoutMs: 5 * 60_000,
     },
-    quality_reviewer: {
-      model: "gpt-5.6-terra",
+    content_analyzer: {
+      model: "gpt-6.1-sol",
       reasoningEffort: "high",
+      timeoutMs: 120_000,
+      escalationModel: "gpt-6-astra",
+      escalationEffort: "medium",
+      escalationTimeoutMs: 150_000,
+    },
+    quiz_solver: {
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
+      timeoutMs: 4 * 60_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 6 * 60_000,
+    },
+    artifact_planner: {
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
+      timeoutMs: 150_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 180_000,
+    },
+    artifact_builder: {
+      model: "gpt-6-astra",
+      reasoningEffort: "high",
+      timeoutMs: 3 * 60_000,
+      escalationModel: "gpt-6.1-sol",
+      escalationEffort: "xhigh",
+      escalationTimeoutMs: 4 * 60_000,
+    },
+    quality_reviewer: {
+      model: "gpt-6-astra",
+      reasoningEffort: "medium",
       timeoutMs: 90_000,
-      escalationModel: "gpt-5.6-terra",
+      escalationModel: "gpt-6.1-sol",
       escalationEffort: "high",
       escalationTimeoutMs: 120_000,
     },
@@ -298,28 +313,53 @@ export function resolveTaskModelPolicy(
       ? "quality"
       : input.profile;
   const base = PROFILE_POLICIES[profile][input.task];
-  const override = input.overrides?.[input.task];
+  const operation = input.operation && STUDY_BUDDY_MODEL_TASKS.find((entry) => entry.id === input.operation);
+  if (input.operation && (!operation || operation.task !== input.task)) {
+    throw new Error(`Unknown or mismatched model task ${input.operation} (${input.task}).`);
+  }
+  const inheritedTask = input.task === "content_repair" || input.task === "source_search"
+    ? "content_analyzer"
+    : input.task === "artifact_repair" ? "artifact_builder" : input.task;
+  const override = {
+    ...input.overrides?.[inheritedTask],
+    ...input.overrides?.[input.task],
+    ...(input.operation ? input.overrides?.[input.operation] : undefined),
+  };
+  const bridge = workflowModelBridgeEnvironment();
+  const nativeModel = bridge?.provider === "codex" ? undefined : bridge?.model;
   const configured: StudyBuddyTaskModelPolicy = {
     ...base,
     ...override,
-    model: input.globalModel ?? override?.model ?? base.model,
+    ...((override.instanceId ?? bridge?.instanceId)
+      ? { instanceId: override.instanceId ?? bridge?.instanceId } : {}),
+    ...(input.globalModel && bridge
+      ? { instanceId: bridge.instanceId, escalationInstanceId: bridge.instanceId } : {}),
+    model: input.globalModel ?? override?.model ?? nativeModel ?? base.model,
+    escalationModel: override?.escalationModel ?? nativeModel ?? base.escalationModel,
     reasoningEffort:
       input.globalReasoningEffort ?? override?.reasoningEffort ?? base.reasoningEffort,
   };
 
   if ((input.attempt ?? 1) <= 1) {
-    return configured;
+    return applyCompatibilityFallback(configured, input);
   }
 
-  return {
+  return applyCompatibilityFallback({
     ...configured,
-    model: input.globalModel ?? configured.escalationModel ?? configured.model,
+    model: input.globalModel ?? configured.escalationModel ?? nativeModel ?? configured.model,
+    instanceId: configured.escalationInstanceId ?? configured.instanceId,
     reasoningEffort:
       input.globalReasoningEffort ??
       configured.escalationEffort ??
       nextReasoningEffort(configured.reasoningEffort),
     timeoutMs: configured.escalationTimeoutMs ?? configured.timeoutMs,
-  };
+  }, input);
+}
+
+function applyCompatibilityFallback(policy: StudyBuddyTaskModelPolicy, input: ResolveTaskModelPolicyInput): StudyBuddyTaskModelPolicy {
+  if (workflowModelBridgeEnvironment()) return policy;
+  const replacement = !input.globalModel && input.compatibilityFallbacks?.[policy.model];
+  return replacement ? { ...policy, model: replacement } : policy;
 }
 
 export function parseExecutionProfile(value: string | undefined): StudyBuddyExecutionProfile {
@@ -369,7 +409,7 @@ export function parseModelPolicyOverrides(
     throw new Error("Expected profile overrides to be a JSON object.");
   }
 
-  const tasks: StudyBuddyModelTask[] = [
+  const tasks: StudyBuddyModelPolicyKey[] = [
     "source_search",
     "content_analyzer",
     "content_repair",
@@ -378,7 +418,11 @@ export function parseModelPolicyOverrides(
     "artifact_builder",
     "artifact_repair",
     "quality_reviewer",
+    ...STUDY_BUDDY_MODEL_TASKS.map((entry) => entry.id),
   ];
+  for (const key of Object.keys(parsed)) {
+    if (!tasks.includes(key as StudyBuddyModelPolicyKey)) throw new Error(`Unknown model task override: ${key}`);
+  }
   const result: StudyBuddyModelPolicyOverrides = {};
   for (const task of tasks) {
     const raw = (parsed as Record<string, unknown>)[task];
@@ -401,7 +445,11 @@ export function parseModelPolicyOverrides(
         `${task}.retryReasoningEffort`,
       ),
     );
+    const instanceId = record.instanceId === undefined ? undefined : requiredModel(record.instanceId, `${task}.instanceId`);
+    const escalationInstanceId = record.escalationInstanceId ?? record.retryInstanceId;
     result[task] = {
+      ...(instanceId ? { instanceId } : {}),
+      ...(escalationInstanceId !== undefined ? { escalationInstanceId: requiredModel(escalationInstanceId, `${task}.retryInstanceId`) } : {}),
       model,
       reasoningEffort,
       escalationModel,
@@ -438,4 +486,24 @@ function nextReasoningEffort(value: StudyBuddyReasoningEffort): StudyBuddyReason
     case "xhigh":
       return "xhigh";
   }
+}
+
+/** Origin of the selected model/effort, persisted beside usage for task-level comparisons. */
+export function taskModelPolicySource(input: ResolveTaskModelPolicyInput): string {
+  if (input.compatibilityFallbacks && !input.globalModel) {
+    const original = resolveTaskModelPolicy({ ...input, compatibilityFallbacks: undefined });
+    if (input.compatibilityFallbacks[original.model]) {
+      return `compatibility:${original.model};${taskModelPolicySource({ ...input, compatibilityFallbacks: undefined })}`;
+    }
+  }
+  if (input.globalModel || input.globalReasoningEffort) return "global override";
+  if (input.operation && input.overrides?.[input.operation]) return `task:${input.operation}`;
+  if (input.overrides?.[input.task]) {
+    const kind = ["source_search", "content_repair", "artifact_repair"].includes(input.task) ? "task" : "role";
+    return `${kind}:${input.task}`;
+  }
+  const parent = input.task === "content_repair" || input.task === "source_search" ? "content_analyzer"
+    : input.task === "artifact_repair" ? "artifact_builder" : input.task;
+  if (input.overrides?.[parent]) return `role:${parent}`;
+  return `built-in:${input.profile === "custom" ? "balanced" : input.profile === "auto" ? "quality" : input.profile}`;
 }

@@ -26,14 +26,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: true
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.16
           cache: npm
+      - name: Install pinned editor dependencies for workflow parity tests
+        uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
+        with:
+          working-directory: t3code-fork
+          node-manager: false
+          cache: true
+          run-install: true
       - uses: typst-community/setup-typst@fee4b65b091cc546f02ce3be15fad8760f38a108 # v5.3.0
         with:
           typst-version: 0.15.0
       - run: npm ci
+      - name: Verify workflow package and dependency security contracts
+        run: node --test scripts/check-workflow-package.test.mjs scripts/check-dependency-security.test.mjs
       - name: Install Linux document and browser tooling
         if: runner.os == 'Linux'
         run: |
@@ -59,6 +69,7 @@ jobs:
           pdfinfo -v
           npx playwright install chromium
       - run: npm run typecheck
+      # vitest.config.ts enforces serial files on Windows without shell flags.
       - run: npm test
       - name: Verify SDK and bundled CLI pairing
         run: npm run moodle:doctor:version
@@ -96,6 +107,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16
+          cache: npm
+      - name: Install parent workflow dependencies for editor broker tests
+        run: npm ci
       - uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
         with:
           working-directory: t3code-fork

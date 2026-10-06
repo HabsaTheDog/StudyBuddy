@@ -1,3 +1,4 @@
+import type { StudyBuddyExecutionProfile, StudyBuddyModelPolicyOverrides } from "../modelPolicy.js";
 import type { TemporalRequest } from "../temporalRequest.js";
 import type { AgentState, SourceCoverage } from "./state.js";
 import type {
@@ -16,6 +17,7 @@ export interface QuizSolverModelPolicy {
 }
 
 export interface MoodleGraphInput {
+  abortSignal?: AbortSignal;
   prompt: string;
   /** Exact, untranslated user request. Language is resolved from this boundary value. */
   originalUserPrompt?: string | undefined;
@@ -35,12 +37,16 @@ export interface MoodleGraphInput {
   keepBrowserOpen?: boolean | undefined;
   browserMaxOutput?: number | undefined;
   autoAnswer?: boolean | undefined;
+  /** Independent question threads; browsers remain serialized within each attempt. */
+  quizSolverConcurrency?: number | undefined;
   quizSafetyPolicy?: Partial<QuizSafetyPolicy> | undefined;
   approvedQuizPermission?: ApprovedQuizPermission | undefined;
+  approvedQuizPermissions?: ApprovedQuizPermission[] | undefined;
   assignmentFiles?: string[] | undefined;
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
   codexModel?: string | undefined;
-  executionProfile?: string | undefined;
+  executionProfile?: StudyBuddyExecutionProfile | undefined;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides | undefined;
   codexReasoningEffort?: string | undefined;
   quizSolverModel?: string | undefined;
   quizSolverReasoningEffort?: StudyBuddyReasoningEffort | undefined;
@@ -54,6 +60,7 @@ export interface MoodleGraphResult {
   coverageComplete: boolean;
   runDir: string;
   quizUrl?: string;
+  quizUrls?: string[];
   outputPath?: string;
   pdfPath?: string;
   answerPath?: string;
@@ -61,6 +68,7 @@ export interface MoodleGraphResult {
   state: AgentState;
   sourceCoverage: SourceCoverage;
   permissionRequestPath?: string;
+  permissionRequestPaths?: string[];
   error?: string;
 }
 
@@ -74,6 +82,7 @@ export type MoodleWorkflowStatus =
 
 export interface MoodleRuntimeConfig {
   readonly temporalRequest?: TemporalRequest;
+  abortSignal?: AbortSignal;
   prompt: string;
   originalUserPrompt: string;
   outputLanguage: SupportedLanguage;
@@ -110,12 +119,18 @@ export interface MoodleRuntimeConfig {
   browserMaxOutput?: number | undefined;
   keepBrowserOpen?: boolean | undefined;
   autoAnswer?: boolean | undefined;
+  quizSolverConcurrency?: number | undefined;
   quizSafetyPolicy?: QuizSafetyPolicy | undefined;
+  quizAttemptLedgerRoot?: string | undefined;
+  quizAttemptAccountKey?: string | undefined;
   approvedQuizPermission?: ApprovedQuizPermission | undefined;
   assignmentFiles?: string[] | undefined;
   approvedAssignmentPermission?: ApprovedAssignmentPermission | undefined;
   codexModel?: string | undefined;
   quizSolverModelPolicy?: QuizSolverModelPolicy | undefined;
+  executionProfile?: StudyBuddyExecutionProfile | undefined;
+  codexReasoningEffort?: StudyBuddyReasoningEffort | undefined;
+  modelPolicyOverrides?: StudyBuddyModelPolicyOverrides | undefined;
 }
 
 export type BrowserBackend = "agent-browser" | "playwright";
@@ -153,6 +168,8 @@ export interface AssignmentFileGrant {
 }
 
 export interface QuizSafetyPolicy {
+  /** Explicit first-only scope; finite multi-attempt quizzes are always first-only. */
+  firstAttemptOnly?: boolean;
   accessMode: QuizAccessMode;
   allowOpeningQuizPages: boolean;
   allowStartingOrContinuingAttempts: boolean;

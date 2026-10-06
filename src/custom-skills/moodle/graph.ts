@@ -1,3 +1,4 @@
+import { STUDY_BUDDY_MODEL_TASKS } from "../shared/modelTaskCatalog.js";
 import { cp, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { END, START, StateGraph } from "@langchain/langgraph";
@@ -68,7 +69,7 @@ import { ExecutionTelemetry } from "./executionTelemetry.js";
 import {
   resolveTaskModelPolicy,
   STUDY_BUDDY_MODEL_POLICY_VERSION,
-  type StudyBuddyModelTask,
+  type StudyBuddyModelOperation,
 } from "./modelPolicy.js";
 import {
   buildResourceManifest,
@@ -213,7 +214,9 @@ export async function runMoodleGraph(
           }));
         codexRuntime = await runtimePreflight(config);
         if (codexRuntime.fallbackApplied) {
-          config.codexModel = codexRuntime.fallbackApplied;
+          // Compatibility substitution is per failed model, never a global
+          // operator override that would silently flatten the entire profile.
+          config.modelCompatibilityFallbacks = codexRuntime.modelFallbacks ?? {};
           await writeJson(path.join(config.runDir, "config.json"), sanitizeConfig(config));
         }
       }
@@ -410,31 +413,45 @@ export async function runMoodleGraph(
 }
 
 export function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
-  const tasks: StudyBuddyModelTask[] = config.stage === "render"
-    ? ["artifact_builder", "artifact_repair", "quality_reviewer"]
-    : config.stage === "extract"
-      ? config.evidenceHandoffOnly
-        ? ["artifact_planner"]
-        : [
-          "artifact_planner",
-          "content_analyzer",
-          "content_repair",
-          "quality_reviewer",
-        ]
-      : config.intentDecision?.wantsQuickAnswer
-        ? ["content_analyzer", "content_repair"]
-        : [
-            "artifact_planner",
-            "content_analyzer",
-            "content_repair",
-            "artifact_builder",
-            "artifact_repair",
-            "quality_reviewer",
-          ];
-  return [...new Set(tasks.flatMap((task) => {
+  // Model canaries cover operations reachable in this graph, including their
+  // overrides. Page/quiz workers share roles but belong to different graphs.
+  const reachable = new Set<StudyBuddyModelOperation>();
+  if (config.stage === "render") {
+    reachable.add("document_build");
+    reachable.add("document_repair");
+    reachable.add("pdf_review");
+  } else {
+    for (const entry of STUDY_BUDDY_MODEL_TASKS) {
+      if (entry.task === "source_search") reachable.add(entry.id);
+    }
+    const quickAnswer = config.stage !== "extract" && config.intentDecision?.wantsQuickAnswer;
+    if (!quickAnswer) {
+      reachable.add("request_evaluation");
+      reachable.add("source_planning");
+    }
+    if (config.stage === "extract" && config.evidenceHandoffOnly) {
+      reachable.add("visual_selection");
+      reachable.add("visual_selection_repair");
+    } else {
+      reachable.add("content_extraction");
+      reachable.add("content_extraction_repair");
+      if (!quickAnswer) {
+        reachable.add("visual_planning");
+        reachable.add("content_review");
+        if (config.stage !== "extract") {
+          reachable.add("document_build");
+          reachable.add("document_repair");
+          reachable.add("pdf_review");
+        }
+      }
+    }
+  }
+  const operations = STUDY_BUDDY_MODEL_TASKS.filter((entry) => reachable.has(entry.id));
+  return [...new Set(operations.flatMap(({ task, id: operation }) => {
     const primary = resolveTaskModelPolicy({
       profile: config.executionProfile,
       task,
+      operation,
       attempt: 1,
       globalModel: config.codexModel,
       globalReasoningEffort: config.codexReasoningEffort,
@@ -443,12 +460,14 @@ export function resolvePreflightModels(config: MoodleRuntimeConfig): string[] {
     const escalation = resolveTaskModelPolicy({
       profile: config.executionProfile,
       task,
+      operation,
       attempt: 2,
       globalModel: config.codexModel,
       globalReasoningEffort: config.codexReasoningEffort,
       overrides: config.modelPolicyOverrides,
     });
-    return [primary.model, escalation.model];
+    const coordinatorInstance = process.env.STUDY_BUDDY_MODEL_BRIDGE_INSTANCE;
+    return [primary, escalation].filter((policy) => !coordinatorInstance || !policy.instanceId || policy.instanceId === coordinatorInstance).map((policy) => policy.model);
   }))];
 }
 
@@ -1815,20 +1834,7 @@ async function withRuntimeGuard<T>(
     }, 15_000);
     guard = setInterval(() => {
       const now = Date.now();
-      if (config.executionTelemetry?.runtimeBudgetPaused) return;
-      const elapsedMs = Math.max(
-        0,
-        now - startedAt - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0),
-      );
-      const idleMs = config.diagnostics
-        ? now - config.diagnostics.lastActivityAt
-        : elapsedMs;
-      const reason =
-        elapsedMs >= config.maxRuntimeMs
-          ? `Study Buddy run timed out after ${config.maxRuntimeMs}ms.`
-          : idleMs >= config.idleTimeoutMs
-            ? `Study Buddy run timed out after ${config.idleTimeoutMs}ms without pipeline progress.`
-            : null;
+      const reason = runtimeGuardTimeoutReason(config, startedAt, now);
       if (!reason || abortController.signal.aborted) {
         return;
       }
@@ -1844,4 +1850,16 @@ async function withRuntimeGuard<T>(
       clearInterval(guard);
     }
   }
+}
+
+/** Absolute workflow limits include queue time; per-run budgets count active work. */
+export function runtimeGuardTimeoutReason(config: MoodleRuntimeConfig, startedAt: number, now: number): string | null {
+  const deadline = Math.min(config.workflowDeadlineMs ?? Number.POSITIVE_INFINITY,
+    config.workflowDeadlineLimitMs ?? Number.POSITIVE_INFINITY);
+  if (now >= deadline) return "Study Buddy workflow reached its absolute runtime deadline.";
+  if (config.executionTelemetry?.runtimeBudgetPaused) return null;
+  const elapsedMs = Math.max(0, now - startedAt - (config.executionTelemetry?.getRuntimeBudgetPausedMs(now) ?? 0));
+  const idleMs = config.diagnostics ? now - config.diagnostics.lastActivityAt : elapsedMs;
+  return elapsedMs >= config.maxRuntimeMs ? `Study Buddy run timed out after ${config.maxRuntimeMs}ms.`
+    : idleMs >= config.idleTimeoutMs ? `Study Buddy run timed out after ${config.idleTimeoutMs}ms without pipeline progress.` : null;
 }

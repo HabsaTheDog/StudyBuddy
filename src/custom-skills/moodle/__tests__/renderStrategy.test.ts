@@ -32,14 +32,14 @@ describe("renderStrategy", () => {
     const decision = decideRenderStrategy(moodleTestConfig({
       prompt: "Erstelle eine einfache Zusammenfassung als kurzer Lernzettel",
     }));
-    expect(decision.strategy).toBe("llm_formatter");
+    expect(decision.strategy).toBe("deterministic");
   });
 
-  it("chooses the LLM formatter for complex lab documents", () => {
+  it("renders validated complex documents without reauthoring their content", () => {
     const decision = decideRenderStrategy(moodleTestConfig({
       prompt: "Erstelle eine ausführliche Laborvorbereitung mit Formelsammlung und Tabellen",
     }));
-    expect(decision.strategy).toBe("llm_formatter");
+    expect(decision.strategy).toBe("deterministic");
   });
 
   it("keeps validated study-guide render stages contract-adaptive by default", () => {
@@ -49,7 +49,7 @@ describe("renderStrategy", () => {
       stage: "render",
       artifactIntent: classifyArtifactIntent(prompt, { profile: "study_guide" }),
     }));
-    expect(decision.strategy).toBe("llm_formatter");
+    expect(decision.strategy).toBe("deterministic");
   });
 
   it("honors an explicit deterministic renderer override", () => {
@@ -58,4 +58,8 @@ describe("renderStrategy", () => {
     }));
     expect(decision.strategy).toBe("deterministic");
   });
+});
+
+it("honors explicit generative layout only when intentionally selected", () => {
+  expect(decideRenderStrategy(moodleTestConfig({ renderStrategy: "llm_formatter" })).strategy).toBe("llm_formatter");
 });

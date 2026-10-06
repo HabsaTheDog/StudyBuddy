@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import type { SupportedLanguage } from "../shared/languagePolicy.js";
 import path from "node:path";
 import ICAL from "ical.js";
+import { mailtoAddresses } from "./contactEvidence.js";
 import {
   extractCourseTargetHint,
   hasUnrecognizedNamedCourseTarget,
@@ -16,6 +17,13 @@ export const CALENDAR_DEFAULT_HORIZON_DAYS = 400;
 export const CALENDAR_MAX_EVENTS = 10;
 export const CALENDAR_TIME_ZONE = "Europe/Vienna";
 
+export interface CalendarContact {
+  property: "organizer" | "attendee";
+  name?: string;
+  email?: string;
+  participationRole?: string;
+}
+
 export interface CalendarEvent {
   source: "calendar_event";
   uid: string;
@@ -26,6 +34,7 @@ export interface CalendarEvent {
   end: string;
   allDay: boolean;
   recurring: boolean;
+  contacts?: CalendarContact[];
 }
 
 export interface CalendarSelection {
@@ -43,6 +52,8 @@ export interface CalendarSelection {
 export interface CalendarAdapterOptions {
   now?: Date;
   temporalRequest?: TemporalRequest;
+  /** Explicit broad evidence lookup; unsupported course names remain for the owner to resolve. */
+  allowUnrecognizedCourseEvidence?: boolean;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxBytes?: number;
@@ -88,7 +99,7 @@ export async function readCalendarEvents(
     const normalizedUrl = normalizeCalendarUrl(calendarUrl);
     const ics = await fetchCalendarText(normalizedUrl, options);
     const parsedEvents = parseCalendarEvents(ics, now);
-    const allMatches = filterCalendarEvents(parsedEvents, prompt, now, false, options.temporalRequest);
+    const allMatches = filterCalendarEvents(parsedEvents, prompt, now, false, options.temporalRequest, options.allowUnrecognizedCourseEvidence);
     const exhaustive = classifyObligationDiscovery(prompt).exhaustive;
     const events = exhaustive ? allMatches : allMatches.slice(0, CALENDAR_MAX_EVENTS);
     const range = options.temporalRequest ? temporalRange(options.temporalRequest) : resolveRequestedTimeRange(prompt, now);
@@ -102,7 +113,7 @@ export async function readCalendarEvents(
       missingFields,
       needsCisFallback: !complete || truncated,
       detail: events.length > 0
-        ? `Selected ${events.length} relevant calendar event(s)${truncated ? ` of ${allMatches.length}` : ""}.`
+        ? `Selected ${events.length} calendar event(s)${truncated ? ` of ${allMatches.length}` : ""}.${options.allowUnrecognizedCourseEvidence && hasUnrecognizedNamedCourseTarget(prompt) ? " Requested course identity is unresolved; these are time-range evidence candidates, not a confirmed course match." : ""}`
         : "Calendar was readable, but no matching event was found.",
       requestedRange: { start: range.start.toISOString(), end: range.end.toISOString() },
       totalMatches: allMatches.length,
@@ -262,12 +273,13 @@ export function filterCalendarEvents(
   now = new Date(),
   applyLimit = true,
   request?: TemporalRequest,
+  allowUnrecognizedCourseEvidence = false,
 ): CalendarEvent[] {
   const timeRange = request ? temporalRange(request) : resolveRequestedTimeRange(prompt, now);
   const courseTerms = requestedCourseTerms(prompt);
   const examOnly = EXAM_SIGNAL.test(prompt);
 
-  if (courseTerms.length === 0 && hasUnrecognizedNamedCourseTarget(prompt)) {
+  if (!allowUnrecognizedCourseEvidence && courseTerms.length === 0 && hasUnrecognizedNamedCourseTarget(prompt)) {
     return [];
   }
 
@@ -294,6 +306,7 @@ export function formatCalendarEventsForWorkflow(events: CalendarEvent[]): string
     event.location ? `Location: ${event.location}` : "",
     event.description ? `Description: ${event.description}` : "",
     `Recurring: ${event.recurring ? "yes" : "no"}`,
+    ...(event.contacts ?? []).map(contact => `Calendar contact (ICS ${contact.property}): ${JSON.stringify(contact)}`),
   ].filter(Boolean).join("\n")).join("\n\n");
 }
 
@@ -347,6 +360,7 @@ function pushOccurrence(
   const end = endTime.toJSDate();
   if (end < windowStart || start > windowEnd) return;
   const title = event.summary?.trim() || "Termin";
+  const contacts = calendarContacts(event);
   target.push({
     source: "calendar_event",
     uid: event.uid || `${title}-${start.toISOString()}`,
@@ -357,7 +371,25 @@ function pushOccurrence(
     end: end.toISOString(),
     allDay: startTime.isDate,
     recurring,
+    ...(contacts.length ? { contacts } : {}),
   });
+}
+
+function calendarContacts(event: InstanceType<typeof ICAL.Event>): CalendarContact[] {
+  const contacts: CalendarContact[] = [];
+  for (const property of ["organizer", "attendee"] as const) {
+    for (const value of event.component.getAllProperties(property)) {
+      const name = value.getFirstParameter("cn")?.trim();
+      const participationRole = value.getFirstParameter("role")?.trim();
+      const emails = mailtoAddresses(String(value.getFirstValue() ?? ""));
+      for (const email of emails.length ? emails : [undefined]) {
+        if (!name && !email) continue;
+        contacts.push({ property, ...(name ? { name } : {}), ...(email ? { email } : {}),
+          ...(participationRole ? { participationRole } : {}) });
+      }
+    }
+  }
+  return contacts;
 }
 
 function isCancelled(event: InstanceType<typeof ICAL.Event>): boolean {

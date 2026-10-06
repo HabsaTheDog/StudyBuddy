@@ -1,4 +1,8 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { readVisualManifest } from "../visualAssets.js";
+import { canonicalizeResourceUrl, isResourceFailureStatus } from "../resourceAcquisition.js";
+import { readVisualRetrievalPlan } from "../visualPlanner.js";
+import { ExtractedDataSchema } from "../schemas.js";
 import path from "node:path";
 import {
   ModelCallTimeoutError,
@@ -11,9 +15,28 @@ import {
   readPendingExtractionRepairs,
 } from "../pendingExtractionRepairs.js";
 import { StudyBuddyCheckpointError } from "../runtimeAbort.js";
+import { prepareAdaptiveQualityReviewBudget, updateAdaptiveQualityReviewProgress } from "../adaptiveRuntimeBudget.js";
 import type { LangGraphAgentState } from "../state.js";
 import type { MoodleRuntimeConfig } from "../types.js";
 import { parseJsonObjectOrArray } from "../validation.js";
+import {
+  ASSESSMENT_SCORING_POLICY,
+  MATHEMATICAL_INTEGRITY_POLICY,
+  SOURCE_FIDELITY_POLICY,
+} from "../studentFirstPolicy.js";
+
+const QUALITY_DEFECT_KINDS = [
+  "requirement_gap",
+  "factual_error",
+  "mathematical_error",
+  "citation_error",
+  "prohibition_violation",
+  "presentation",
+] as const;
+type QualityDefectKind = typeof QUALITY_DEFECT_KINDS[number];
+const CONCRETE_BLOCKING_DEFECTS = new Set<QualityDefectKind>([
+  "factual_error", "mathematical_error", "citation_error", "prohibition_violation",
+]);
 
 export const qualityReviewSchema = {
   type: "object",
@@ -34,6 +57,7 @@ export const qualityReviewSchema = {
           "deliverableId",
           "owner",
           "severity",
+          "defectKind",
           "repairTarget",
         ],
         properties: {
@@ -46,6 +70,7 @@ export const qualityReviewSchema = {
             enum: ["source", "content", "interaction", "visual", "technical"],
           },
           severity: { type: "string", enum: ["blocking", "advisory"] },
+          defectKind: { type: "string", enum: QUALITY_DEFECT_KINDS },
           repairTarget: {
             type: "string",
             enum: ["source_architect", "content_analyzer", "visual_pipeline", "formatter", "none"],
@@ -64,6 +89,8 @@ interface QualityFinding {
   deliverableId: string | null;
   owner: "source" | "content" | "interaction" | "visual" | "technical";
   severity: "blocking" | "advisory";
+  /** Null preserves legacy responses that predate explicit defect classification. */
+  defectKind: QualityDefectKind | null;
   repairTarget: "source_architect" | "content_analyzer" | "visual_pipeline" | "formatter" | "none";
 }
 
@@ -74,22 +101,40 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
     state: LangGraphAgentState,
   ): Promise<Partial<LangGraphAgentState>> {
     try {
+      await mkdir(config.runDir, { recursive: true });
+      await writeFile(path.join(config.runDir, "quality-review.json"), JSON.stringify({
+        ok: false, complete_review: false, summary: "Complete content review has not finished.",
+        findings: [], blocking_findings: [], advisory_findings: [],
+      }, null, 2) + "\n");
       const previousReview = await readPendingExtractionRepairs(config.runDir);
-      const response = await codex.run(buildQualityReviewPrompt(
-        config,
-        state,
-        previousReview?.reviewError ?? null,
-      ), {
-        outputSchema: qualityReviewSchema,
-        task: "quality_reviewer",
-        attempt: state.retry_count + 1,
-      });
-      const parsed = validateQualityReview(parseJsonObjectOrArray(response));
+      const packets = await buildQualityReviewPackets(config, state, previousReview?.reviewError ?? null);
+      await prepareAdaptiveQualityReviewBudget(config, packets.length, state.retry_count + 1);
+      const reviews = [];
+      for (const [index, packet] of packets.entries()) {
+        await config.diagnostics?.log("info", "analyzer", `Reviewing complete content packet ${index + 1}/${packets.length}.`);
+        const response = await codex.run(packet.prompt, {
+          outputSchema: qualityReviewSchema, task: "quality_reviewer", operation: "content_review",
+          localImages: packet.sourceVisuals.map(visual => visual.imagePath), attempt: state.retry_count + 1,
+        });
+        const review = validateQualityReview(parseJsonObjectOrArray(response));
+        if (!review.ok && !review.findings.length) throw new Error("Content-review packet rejected without localized findings; complete review did not pass.");
+        reviews.push(review);
+        await updateAdaptiveQualityReviewProgress(config, reviews.length, packets.length, state.retry_count + 1);
+        const progress = localizeQualityFindings(reviews.flatMap(review => review.findings), state);
+        await writeFile(path.join(config.runDir, "quality-review.json"), JSON.stringify({
+          ok: false, complete_review: false, completed_packets: reviews.length, packet_count: packets.length,
+          summary: "Complete content review has not finished.", findings: reviews.flatMap(review => review.findings),
+          blocking_findings: progress.blocking, advisory_findings: progress.advisory,
+        }, null, 2) + "\n");
+      }
+      const parsed = { ok: reviews.every(review => review.ok), summary: reviews.map(review => review.summary).join("\n"), findings: reviews.flatMap(review => review.findings) };
       const localized = localizeQualityFindings(parsed.findings, state);
       await writeFile(
         path.join(config.runDir, "quality-review.json"),
         `${JSON.stringify({
           ...parsed,
+          complete_review: true,
+          packet_count: packets.length,
           blocking_findings: localized.blocking,
           advisory_findings: localized.advisory,
         }, null, 2)}\n`,
@@ -132,65 +177,144 @@ export function createQualityReviewerNode(config: MoodleRuntimeConfig, codex: Co
   };
 }
 
+export interface QualitySourceVisual {
+  assetId: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  sourcePage: number | null;
+  title: string;
+  imagePath: string;
+}
+
+/** Use the existing review call and at most two already acquired compositions. */
+export async function selectQualitySourceVisuals(runDir: string, state: LangGraphAgentState, selection?: { sourceIds: string[]; plannedPages: boolean }): Promise<QualitySourceVisual[]> {
+  if (Array.isArray(state.extracted_data)) return [];
+  const parsed = ExtractedDataSchema.safeParse(state.extracted_data);
+  if (!parsed.success) return [];
+  const data = parsed.data;
+  const citedIds = new Set(selection?.sourceIds ?? [
+    ...data.formulas.flatMap(formula => formula.source_ids),
+    ...data.worked_examples.flatMap(example => example.source_ids),
+    ...data.figures.flatMap(figure => figure.source_ids),
+  ]);
+  const sources = data.sources.filter(source => citedIds.has(source.id));
+  const selectedAssets = new Set(data.figures.filter(figure => !selection || figure.source_ids.some(id => citedIds.has(id))).map(figure => figure.asset_id));
+  const plan = selection?.plannedPages ? await readVisualRetrievalPlan(runDir) : null;
+  const plannedSourcePages = new Set((plan?.requests ?? []).flatMap(request => {
+    const resource = state.resource_manifest.resources.find(resource => resource.id === request.resourceId);
+    return resource ? request.pages.map(page => `${canonicalizeResourceUrl(resource.originUrl)}|${page}`) : [];
+  }));
+  const selectedSourcePages = new Set(data.visual_assets.filter(asset => selectedAssets.has(asset.id) && asset.source_page != null)
+    .flatMap(asset => {
+      const url = asset.source_url ?? data.sources.find(source => source.id === asset.source_id)?.url;
+      return url ? [`${canonicalizeResourceUrl(url)}|${asset.source_page}`] : [];
+    }));
+  const excluded = new Set((state.source_architect_decision.learningArchitecture?.excludedResourceUrls ?? []).map(canonicalizeResourceUrl));
+  const vetoedResources = state.resource_manifest.resources.filter(resource => resource.selection?.selected === false ||
+    resource.status === "skipped" || isResourceFailureStatus(resource.status) || excluded.has(canonicalizeResourceUrl(resource.originUrl)));
+  const vetoed = new Set(vetoedResources.map(resource => resource.id));
+  const vetoedUrls = new Set([...excluded, ...vetoedResources.map(resource => canonicalizeResourceUrl(resource.originUrl))]);
+  const manifest = await readVisualManifest(runDir);
+  const root = path.resolve(runDir);
+  const eligible = (manifest?.candidates ?? []).flatMap(candidate => {
+    if (!candidate.relative_path || !/\.(?:png|jpe?g)$/i.test(candidate.relative_path) ||
+      (candidate.mime_type !== "image/png" && candidate.mime_type !== "image/jpeg") ||
+      (candidate.source_id && vetoed.has(candidate.source_id)) ||
+      (candidate.source_url && vetoedUrls.has(canonicalizeResourceUrl(candidate.source_url)))) return [];
+    const source = sources.find(source => source.id === candidate.source_id ||
+      (source.url && candidate.source_url && canonicalizeResourceUrl(source.url) === canonicalizeResourceUrl(candidate.source_url)));
+    if (!source || (source.url && vetoedUrls.has(canonicalizeResourceUrl(source.url)))) return [];
+    const imagePath = path.resolve(root, candidate.relative_path);
+    const relative = path.relative(root, imagePath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return [];
+    return [{ visual: { assetId: candidate.id, sourceId: source.id, sourceUrl: candidate.source_url,
+      sourcePage: candidate.source_page, title: candidate.title, imagePath },
+      score: (candidate.source_url && plannedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`) ? 200 : 0) + (selectedAssets.has(candidate.id) || (candidate.source_url && selectedSourcePages.has(`${canonicalizeResourceUrl(candidate.source_url)}|${candidate.source_page}`)) ? 100 : 0) + (source.page === candidate.source_page && source.page != null ? 20 : 0) }];
+  }).sort((left, right) => right.score - left.score);
+  const usable = [];
+  for (const entry of eligible) {
+    const file = await stat(entry.visual.imagePath).catch(() => null);
+    if (file?.isFile() && file.size > 0) usable.push(entry.visual);
+  }
+  const selected: QualitySourceVisual[] = [];
+  for (const visual of usable) {
+    if (selected.some(prior => prior.sourceId === visual.sourceId)) continue;
+    selected.push(visual);
+    if (selected.length === 2) return selected;
+  }
+  for (const visual of usable) {
+    if (selected.some(prior => prior.assetId === visual.assetId)) continue;
+    selected.push(visual);
+    if (selected.length === 2) break;
+  }
+  return selected;
+}
+
 export function buildQualityReviewPrompt(
   config: MoodleRuntimeConfig,
   state: LangGraphAgentState,
   previousReviewError: string | null = null,
+  sourceVisuals: QualitySourceVisual[] = [],
 ): string {
-  const promptBudget = Math.max(
-    8_000,
-    resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) -
-      QUALITY_REVIEW_PROMPT_MARGIN,
-  );
-  const compose = (mode: "standard" | "bounded" | "minimal") => {
-    // This node validates the extraction handoff, not a renderer preview. A
-    // prefix slice of final_document can silently omit trailing chapters and
-    // make the reviewer report them as missing even though the complete study
-    // model passed deterministic validation.
-    const artifact = `Structured study model review view:\n${JSON.stringify(
-      mode === "minimal"
-        ? minimalStudyModelForReview(state)
-        : compactStudyModelForReview(state, mode === "bounded"),
-    )}`;
+  const claims = completeReviewClaims(state);
+  const prompt = composeQualityReviewPrompt(config, state, previousReviewError, sourceVisuals, claims, { index: 1, total: 1 }, claims);
+  const budget = resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
+  if (prompt.length > budget) throw new QualityReviewCapacityError(`Complete content review needs ${prompt.length} prompt characters; use bounded complete packets. Budget ${budget}.`);
+  return prompt;
+}
+
+function composeQualityReviewPrompt(
+  config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null,
+  sourceVisuals: QualitySourceVisual[], claims: QualityReviewClaims, packet: { index: number; total: number },
+  complete?: QualityReviewClaims,
+): string {
+    const artifact = `Structured study model review view:\n${JSON.stringify(faithfulStudyModelForReview(state, claims, complete))}`;
     return [
     "Review this Study Buddy artifact against the exact original request and evaluated request contract, then for factual grounding, disciplinary and internal consistency, pedagogical usefulness, and alignment with the requested output.",
     "Return JSON only and do not rewrite, invoke tools, open files, or infer facts from omitted source material.",
-    "This is an extraction-handoff review. Deterministic gates check schema, citations, formula metadata and file integrity; do not reject renderer-owned layout, navigation, schedules, or presentation.",
-    "Set ok=false only for a localized violated explicit must requirement, explicit prohibition, factual contradiction, invalid citation, broken mathematics/units, or an included example whose shown givens and steps cannot produce its result. Missing evidence-derived should recommendations are advisory.",
-    "Do not infer required examples, calculations, applications, figures, questions, section counts, or chapter length from a subject label or generic study-guide convention. Evaluate only what the contract and evidence establish.",
+    SOURCE_FIDELITY_POLICY,
+    "An explicit request-level source record contradicts a global denial of its date/topic/format: factual_error. Uncertain exclusive/full syllabus coverage cannot deny confirmed attributes.",
+    "Extraction-handoff review: deterministic gates check schema/citations/formula metadata/file integrity. Renderer-owned layout/navigation/schedules/presentation cannot block.",
+    "Set ok=false only for a localized must/prohibition violation or concrete factual/citation/math/unit defect, including examples whose givens/steps cannot yield the result. Missing should recommendations are advisory.",
+    "Only contract/evidence establish required examples/calculations/applications/figures/questions/counts/length, never subject labels or guide conventions.",
     "Derived examples with declared values are valid when the cited rule is source-backed. A lookup-dependent example is invalid if it merely copies table/diagram values without showing the visible asset and selection method.",
-    "Narrow documented source gaps and publicationStatus='partial' are acceptable. Do not demand optional breadth, a detached practice bank, invented material, one example per formula, or one worked example per official Moodle topic.",
+    ASSESSMENT_SCORING_POLICY,
+    MATHEMATICAL_INTEGRITY_POLICY,
+    "Audit the meaning of included names and explanations separately from algebraic correctness. Where a quantitative/physical term implies sign or direction and the given assumptions permit a case, test a simple allowed sign/direction configuration in the stated frame and compare the computed behaviour with the term's defining meaning. Do not invent numeric or frame requirements for nonquantitative content. Do not treat a citation or an algebraically valid expression as proof of its interpretation. A contradictory label/direction/frame is a concrete factual_error or mathematical_error, not presentation, and is blocking even when its associated requirement is should. If a source uses a different convention, require that convention to be stated and reconciled.",
+    "Unsupported claims of official grading are factual contradictions. Check any included grading claim against exact cited scoring evidence; do not confuse a task's source basis with an official allocation. Do not speculate about scoring absent from this extraction handoff or demand a grading scheme for ordinary practice.",
+    "For any countercalculation, verify the exact ordered operands, basis/index labels and source relation against the supplied original. Never transfer an identity for a different operand pair. Derive the counterexample from unchanged givens and the declared basis; distinguish an original-source error from a transcription error.",
+    "Documented gaps and partial status are acceptable. No optional breadth, detached practice bank, invented content, one example per formula or one worked example per official Moodle topic.",
+    `Complete content-review packet ${packet.index}/${packet.total}. All included claim atoms here are complete. Other packets review the remaining claims; this is not the whole artifact. Never infer absent topics, formulas, examples or steps from this packet. Whole-document example coverage is recorded in workedExampleCoverageLedger; that ledger is bookkeeping, not mathematical evidence. Review the complete givens, conditions, steps and results actually included in this packet. Empty packet-local arrays do not mean whole-document absence: documentCoverage contains the complete global counts and topic/formula IDs. Do not allege missing document-wide summaries or relations from local arrays. Warnings are complete atoms with explicit chapterId/null ownership; quizStyleQuestions are document-owned/null. Global counts include warnings and questions reviewed in other packets, not missing content.`,
     previousReviewError
-      ? "This is a repair verification. Check whether the previously reported blocking defects are resolved. Do not introduce stricter example-count rules or unrelated new breadth requirements; add a new blocker only for a concrete contradiction, invalid mathematics/citation, or unusable method visible in the repaired handoff."
+      ? "This is a repair verification: check prior blockers. No stricter example counts or unrelated breadth; new blockers require a visible concrete contradiction, invalid math/citation or unusable method."
       : "",
     previousReviewError
       ? `Previous blocking review:\n${previousReviewError}`
       : "",
     "Formula strings use Typst, not TeX. Source-index mappings are valid citations.",
-    "Return structured findings. Use exact IDs from the contract when a finding evaluates a requirement or deliverable; otherwise use null. chapterTitle must be an exact allowed title or null. severity=blocking is reserved for an explicit must/prohibition or a concrete factual, citation, or mathematical defect. Evidence-derived should recommendations and renderer-owned presentation observations are advisory.",
-    "Choose the narrowest repairTarget: source_architect only for missing/unavailable evidence, content_analyzer for source-backed semantic content, visual_pipeline for visual evidence selection, formatter for renderer-owned presentation, and none when no automated repair is appropriate.",
+    "Compare reproduced symbols, basis/index labels and geometry against the attached original source compositions. Preserve distinct source symbols and stated assumptions; flag a concrete transcription or geometry contradiction as mathematical_error. Unattached source images are not inspected: never infer correctness or missing evidence from this bounded image selection.",
+    `Attached original source images (in attachment order): ${JSON.stringify(sourceVisuals.map(({ imagePath: _path, ...metadata }) => metadata))}`,
+    "Return structured findings with exact contract requirement/deliverable IDs, or null when inapplicable; chapterTitle is an exact allowed title or null. Blocking requires a must/prohibition violation or concrete factual/citation/math defect; should gaps and renderer presentation are advisory.",
+    "Classify defectKind: requirement_gap covers unmet requirements (should gaps advisory), never incorrect included content. factual_error/mathematical_error/citation_error/prohibition_violation remain blocking even for should; describe the exact contradiction, invalid calculation/citation or prohibition, never optional breadth/missing examples/speculation. presentation is renderer-owned/advisory.",
+    "chapterTitle owns the defect; null for global/cross-chapter findings, even if a chapter topic is mentioned. Local source notes cannot establish document-wide exclusions.",
+    "Narrowest repairTarget: source_architect=missing/unavailable evidence; content_analyzer=source-backed semantics; visual_pipeline=visual selection; formatter=presentation; none=no suitable automated repair.",
     `Exact original user request:\n${config.originalUserPrompt}`,
-    `Evaluated request contract:\n${JSON.stringify(state.request_contract, null, 2)}`,
+    `Evaluated request contract:\n${JSON.stringify(state.request_contract)}`,
+    `Direct request-level document source evidence:\n${JSON.stringify(!Array.isArray(state.extracted_data) && "document_context" in state.extracted_data ? state.extracted_data.document_context : [])}`,
     `Allowed exact chapter titles:\n${JSON.stringify(state.study_model.courseChapters.map((chapter) => chapter.title))}`,
     `Deterministic review:\n${JSON.stringify(state.review_report)}`,
     artifact,
     ].join("\n\n");
-  };
-  const standardPrompt = compose("standard");
-  if (standardPrompt.length <= promptBudget) return standardPrompt;
-  const boundedPrompt = compose("bounded");
-  return boundedPrompt.length <= promptBudget ? boundedPrompt : compose("minimal");
+
 }
 
 function localizeQualityFindings(
   findings: QualityFinding[],
   state: LangGraphAgentState,
 ): { blocking: QualityFinding[]; advisory: QualityFinding[] } {
-  const chapters = state.study_model.courseChapters.map((chapter, index) => ({
+  const chapters = state.study_model.courseChapters.map((chapter) => ({
     title: chapter.title,
-    index: index + 1,
     normalizedTitle: normalizeReviewText(chapter.title),
-    terms: reviewTerms(chapter.title),
   }));
   const requirementById = new Map(
     state.request_contract.requirements.map((requirement) => [requirement.id, requirement]),
@@ -200,24 +324,12 @@ function localizeQualityFindings(
   const advisory: QualityFinding[] = [];
 
   for (const finding of findings) {
-    const explicit = finding.chapterTitle?.trim() ??
-      /\[chapter:\s*([^\]]+)\]/i.exec(finding.message)?.[1]?.trim();
-    let matched = explicit
+    // The reviewer contract owns localization. Null denotes a global finding;
+    // matching words name affected content, not necessarily the defect's owner.
+    const explicit = finding.chapterTitle?.trim();
+    const matched = explicit
       ? chapters.filter((chapter) => chapter.normalizedTitle === normalizeReviewText(explicit))
       : [];
-    if (matched.length === 0) {
-      const numbered = /\b(?:kapitel|chapter)\s+(\d{1,2})\b/i.exec(finding.message)?.[1];
-      if (numbered) {
-        matched = chapters.filter((chapter) => chapter.index === Number(numbered));
-      }
-    }
-    if (matched.length === 0) {
-      const normalizedFinding = normalizeReviewText(finding.message);
-      matched = chapters.filter((chapter) =>
-        normalizedFinding.includes(chapter.normalizedTitle) ||
-        chapter.terms.some((term) => normalizedFinding.includes(term))
-      );
-    }
     const requirement = finding.requirementId
       ? requirementById.get(finding.requirementId)
       : undefined;
@@ -229,7 +341,11 @@ function localizeQualityFindings(
       deliverableId: finding.deliverableId && deliverableIds.has(finding.deliverableId)
         ? finding.deliverableId
         : null,
-      severity: requirement?.priority === "should" ? "advisory" : finding.severity,
+      severity: finding.defectKind && CONCRETE_BLOCKING_DEFECTS.has(finding.defectKind)
+        ? "blocking"
+        : finding.defectKind === "presentation" || requirement?.priority === "should"
+          ? "advisory"
+          : finding.severity,
     };
     if (normalizedFinding.severity === "blocking") blocking.push(normalizedFinding);
     else advisory.push(normalizedFinding);
@@ -242,10 +358,11 @@ function localizeQualityFindings(
 
 function formatFindingForRepair(finding: QualityFinding): string {
   return [
-    finding.chapterTitle ? `[chapter: ${finding.chapterTitle}]` : "",
+    finding.chapterTitle ? `[chapter: ${finding.chapterTitle}]` : "[scope: document]",
     finding.requirementId ? `[requirement: ${finding.requirementId}]` : "",
     finding.deliverableId ? `[deliverable: ${finding.deliverableId}]` : "",
     `[owner: ${finding.owner}]`,
+    finding.defectKind ? `[defect: ${finding.defectKind}]` : "",
     `[repair: ${finding.repairTarget}]`,
     finding.message,
   ].filter(Boolean).join(" ");
@@ -270,296 +387,233 @@ function normalizeReviewText(value: string): string {
     .trim();
 }
 
-function reviewTerms(title: string): string[] {
-  const ignored = new Set([
-    "kapitel", "grundlagen", "anwendungen", "berechnen", "bestimmen", "auslegen",
-    "praesenz", "eigenstudium", "unter", "sowie", "erste", "zweite", "ordnung",
-  ]);
-  return [...new Set((normalizeReviewText(title).match(/[a-z0-9]{5,}/g) ?? [])
-    .flatMap((term) => [
-      term,
-      term.replace(/(?:ungen|ung|en|e|n|er|es)$/i, ""),
-    ])
-    .filter((term) => term.length >= 5 && !ignored.has(term)))];
+type ReviewModel = LangGraphAgentState["study_model"];
+export type QualityReviewClaims = Omit<Pick<ReviewModel, "topics" | "formulas" | "workedExamples" | "figures" | "checklist">, "topics"> & {
+  topics: (ReviewModel["topics"][number] & { originalKeyConcepts?: string[] })[];
+  warnings: { id: string; chapterId: string | null; message: string; sourceIds: string[] }[];
+  quizStyleQuestions: { question: string; answer: string; source_ids: string[] }[];
+};
+export interface QualityReviewPacket {
+  prompt: string;
+  sourceVisuals: QualitySourceVisual[];
+  claims: QualityReviewClaims;
 }
-
-function compactStudyModelForReview(state: LangGraphAgentState, bounded = false) {
-  const model = state.study_model;
-  const limits = bounded
-    ? {
-      objectiveCount: 10,
-      objectiveLength: 120,
-      assessmentCount: 5,
-      assessmentLength: 100,
-      topicSummary: 260,
-      topicGoalCount: 2,
-      topicGoalLength: 120,
-      formulaCount: 2,
-      formulaText: 180,
-      formulaListCount: 5,
-      formulaListText: 90,
-      assumptionText: 120,
-      exampleCount: 1,
-      examplePrompt: 280,
-      exampleStepCount: 5,
-      exampleStep: 240,
-      exampleResult: 280,
-      figureCaption: 180,
-      checklistCount: 6,
-      checklistText: 160,
-      sourceCount: 36,
-      sourceText: 160,
-      findingCount: 16,
-      findingText: 220,
-    }
-    : {
-      objectiveCount: 14,
-      objectiveLength: 150,
-      assessmentCount: 8,
-      assessmentLength: 140,
-      topicSummary: 520,
-      topicGoalCount: 4,
-      topicGoalLength: 180,
-      formulaCount: 3,
-      formulaText: 320,
-      formulaListCount: 10,
-      formulaListText: 160,
-      assumptionText: 220,
-      exampleCount: 2,
-      examplePrompt: 400,
-      exampleStepCount: 6,
-      exampleStep: 480,
-      exampleResult: 400,
-      figureCaption: 280,
-      checklistCount: 8,
-      checklistText: 260,
-      sourceCount: 50,
-      sourceText: 260,
-      findingCount: 40,
-      findingText: 400,
-    };
-  const referencedSourceIds = new Set([
-    ...model.topics.flatMap((topic) => topic.sourceIds),
-    ...model.formulas.flatMap((formula) => formula.sourceIds),
-    ...model.workedExamples.flatMap((example) => example.sourceIds),
-    ...model.figures.flatMap((figure) => figure.sourceIds),
-  ]);
-  return {
-    profile: model.profile,
-    title: model.title,
-    courseTitle: model.courseTitle,
-    publicationStatus: model.publicationStatus,
-    scopeNote: model.scopeNote,
-    chapters: model.courseChapters.map((chapter) => {
-      const officialTopicCount = new Set(chapter.learningObjectives.flatMap((objective) =>
-        [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)]
-          .map((match) => Number(match[1]))
-      )).size;
-      const contractTerms = reviewTerms(state.request_contract.requirements
-        .filter((requirement) => requirement.appliesTo.length > 0)
-        .map((requirement) => requirement.statement)
-        .join(" "));
-      const chapterTerms = reviewTerms([
-        chapter.title,
-        ...chapter.learningObjectives,
-        ...chapter.assessmentSignals,
-      ].join(" "));
-      const priorityScore = (value: string) => {
-        const normalized = normalizeReviewText(value);
-        return contractTerms.filter((term) => normalized.includes(term)).length * 10 +
-          chapterTerms.filter((term) => normalized.includes(term)).length;
-      };
-      const prioritizeLookup = <T>(values: T[], text: (value: T) => string) => [...values].sort(
-        (left, right) => priorityScore(text(right)) - priorityScore(text(left)),
-      );
-      const topics = prioritizeLookup(
-        model.topics.filter((topic) => topic.chapterId === chapter.id),
-        (topic) => `${topic.title} ${topic.summary} ${topic.learningGoals.join(" ")}`,
-      ).slice(0, Math.max(2, officialTopicCount));
-      const examples = prioritizeLookup(
-        model.workedExamples.filter((example) => example.chapterId === chapter.id),
-        (example) => `${example.learningGoal} ${example.prompt} ${example.steps.join(" ")}`,
-      ).slice(0, limits.exampleCount);
-      const figures = prioritizeLookup(
-        model.figures.filter((figure) => figure.chapterId === chapter.id),
-        (figure) => `${figure.title} ${figure.caption}`,
-      ).slice(0, 1);
-      return {
-        id: chapter.id,
-        title: chapter.title,
-        status: chapter.status,
-        priority: chapter.priority,
-        contentMode: chapter.contentMode,
-        learningObjectives: compactReviewObjectives(
-          chapter.learningObjectives,
-          limits.objectiveCount,
-          limits.objectiveLength,
-        ),
-        assessmentSignals: chapter.assessmentSignals
-          .slice(0, limits.assessmentCount)
-          .map((signal) => compactReviewText(signal, limits.assessmentLength)),
-        topics: topics.map((topic) => ({
-          title: compactReviewText(topic.title, 180),
-          summary: compactReviewText(topic.summary, limits.topicSummary),
-          learningGoals: topic.learningGoals
-            .slice(0, limits.topicGoalCount)
-            .map((goal) => compactReviewText(goal, limits.topicGoalLength)),
-          sourceIds: topic.sourceIds,
-        })),
-        formulas: model.formulas
-          .filter((formula) => formula.chapterId === chapter.id)
-          .slice(0, limits.formulaCount)
-          .map((formula) => ({
-            name: compactReviewText(formula.name, 140),
-            expression: compactReviewText(formula.expression, limits.formulaText),
-            variables: formula.variables
-              .slice(0, limits.formulaListCount)
-              .map((value) => compactReviewText(value, limits.formulaListText)),
-            units: formula.units
-              .slice(0, limits.formulaListCount)
-              .map((value) => compactReviewText(value, limits.formulaListText)),
-            assumptions: compactReviewText(formula.assumptions, limits.assumptionText),
-          })),
-        workedExamples: examples.map((example) => ({
-          origin: example.origin,
-          learningGoal: compactReviewText(example.learningGoal, 160),
-          prompt: compactReviewText(example.prompt, limits.examplePrompt),
-          steps: example.steps
-            .slice(0, limits.exampleStepCount)
-            .map((step) => compactReviewText(step, limits.exampleStep)),
-          result: compactReviewText(example.result, limits.exampleResult),
-          sourceIds: example.sourceIds,
-        })),
-        figures: figures.map((figure) => ({
-          kind: figure.kind,
-          title: compactReviewText(figure.title, 160),
-          caption: compactReviewText(figure.caption, limits.figureCaption),
-          sourcePage: figure.sourcePage,
-        })),
-      };
-    }),
-    checklist: model.checklist
-      .slice(0, limits.checklistCount)
-      .map((item) => compactReviewText(item, limits.checklistText)),
-    sources: model.sources
-      .filter((source) => referencedSourceIds.has(source.id))
-      .slice(0, limits.sourceCount)
-      .map((source) => ({
-        id: source.id,
-        title: compactReviewText(source.title, limits.sourceText),
-        kind: source.kind,
-        originUrl: source.originUrl
-          ? compactReviewText(source.originUrl, limits.sourceText)
-          : null,
-      })),
-    deterministicFindings: state.review_report.findings
-      .slice(0, limits.findingCount)
-      .map((finding) => ({
-        ...finding,
-        message: compactReviewText(finding.message, limits.findingText),
-      })),
-  };
+export class QualityReviewCapacityError extends Error {
+  constructor(message: string) { super(message); this.name = "QualityReviewCapacityError"; }
 }
+const MAX_QUALITY_REVIEW_PACKETS = 18;
+const emptyReviewClaims = (): QualityReviewClaims => ({ topics: [], formulas: [], workedExamples: [], figures: [], checklist: [], warnings: [], quizStyleQuestions: [] });
 
-function minimalStudyModelForReview(state: LangGraphAgentState) {
+function completeReviewClaims(state: LangGraphAgentState): QualityReviewClaims {
   const model = state.study_model;
-  const referencedSourceIds = new Set<string>();
-  const chapters = model.courseChapters.map((chapter) => {
-    const officialTopicCount = new Set(chapter.learningObjectives.flatMap((objective) =>
-      [...objective.matchAll(/(?:Thema|Topic)\s+(\d{1,2})\b/gi)]
-        .map((match) => Number(match[1]))
-    )).size;
-    const topics = model.topics
-      .filter((topic) => topic.chapterId === chapter.id)
-      .slice(0, Math.max(2, officialTopicCount));
-    const formulas = model.formulas
-      .filter((formula) => formula.chapterId === chapter.id)
-      .slice(0, 1);
-    const examples = model.workedExamples
-      .filter((example) => example.chapterId === chapter.id)
-      .slice(0, 1);
-    for (const sourceId of [
-      ...topics.flatMap((topic) => topic.sourceIds),
-      ...formulas.flatMap((formula) => formula.sourceIds),
-      ...examples.flatMap((example) => example.sourceIds),
-    ]) referencedSourceIds.add(sourceId);
-    return {
-      title: chapter.title,
-      status: chapter.status,
-      priority: chapter.priority,
-      contentMode: chapter.contentMode,
-      learningObjectives: compactReviewObjectives(chapter.learningObjectives, 10, 80),
-      assessmentSignals: chapter.assessmentSignals
-        .slice(0, 3)
-        .map((signal) => compactReviewText(signal, 80)),
-      topics: topics.map((topic) => ({
-        title: compactReviewText(topic.title, 100),
-        summary: compactReviewText(topic.summary, 120),
-        sourceIds: topic.sourceIds,
-      })),
-      formulas: formulas.map((formula) => ({
-        name: compactReviewText(formula.name, 90),
-        expression: compactReviewText(formula.expression, 120),
-        units: formula.units.slice(0, 4).map((unit) => compactReviewText(unit, 60)),
-        sourceIds: formula.sourceIds,
-      })),
-      workedExamples: examples.map((example) => ({
-        origin: example.origin,
-        learningGoal: compactReviewText(example.learningGoal, 100),
-        prompt: compactReviewText(example.prompt, 120),
-        steps: example.steps.slice(0, 4).map((step) => compactReviewText(step, 120)),
-        result: compactReviewText(example.result, 120),
-        sourceIds: example.sourceIds,
-      })),
+  const data = ExtractedDataSchema.safeParse(state.extracted_data);
+  const topics = model.topics.map(topic => ({ ...topic,
+    originalKeyConcepts: data.success ? data.data.sections.find(section => section.heading === topic.title && section.summary === topic.summary)?.key_concepts : undefined,
+  }));
+  if (data.success) for (const [index, section] of data.data.sections.entries()) {
+    if (topics.some(topic => topic.title === section.heading && topic.summary === section.summary)) continue;
+    topics.push({ id: `original-handoff-section-${index}`, chapterId: null, title: section.heading,
+      summary: section.summary, learningGoals: [], originalKeyConcepts: section.key_concepts,
+      priority: "supplementary", scopeStatus: "inferred", sourceIds: section.source_ids });
+  }
+  const formulas = [...model.formulas];
+  if (data.success) for (const [index, formula] of data.data.formulas.entries()) {
+    if (formulas.some(item => item.name === formula.name && item.expression === formula.typst && item.assumptions === formula.context &&
+      JSON.stringify([item.variables, item.units, item.sourceIds]) === JSON.stringify([formula.variables, formula.units, formula.source_ids]))) continue;
+    formulas.push({ id: `original-handoff-formula-${index}`, chapterId: null, name: formula.name, expression: formula.typst,
+      variables: formula.variables, units: formula.units, assumptions: formula.context, sourceIds: formula.source_ids });
+  }
+  const warningMessages = [...new Set([...model.warnings, ...(data.success ? data.data.warnings : [])])];
+  const warnings = warningMessages.map((message, index) => {
+    // Only an explicit server-produced chapter marker establishes ownership.
+    const chapterId = model.courseChapters.find(chapter => ["Kapitel", "Chapter"].some(marker => message.startsWith(`${marker} «${chapter.title}»:`)))?.id ?? null;
+    const exactReference = (reference: string) => {
+      let start = message.indexOf(reference);
+      while (start >= 0) {
+        if (!/[\w/?=&%+-]/.test(message[start - 1] ?? "") && !/[\w/?=&%+-]/.test(message[start + reference.length] ?? "")) return true;
+        start = message.indexOf(reference, start + 1);
+      }
+      return false;
     };
+    const directIds = model.sources.filter(source => exactReference(source.id));
+    const directUrls = model.sources.filter(source => source.originUrl && exactReference(source.originUrl));
+    const urls = new Set([...directIds, ...directUrls].flatMap(source => source.originUrl ? [canonicalizeResourceUrl(source.originUrl)] : []));
+    const chapterSources = new Set([...model.topics, ...model.formulas, ...model.workedExamples, ...model.figures]
+      .filter(claim => claim.chapterId === chapterId).flatMap(claim => claim.sourceIds));
+    const seenUrls = new Set<string>();
+    const aliases = data.success ? data.data.sources.filter(source => {
+      if (!source.url || !urls.has(canonicalizeResourceUrl(source.url))) return false;
+      if (chapterId !== null) return chapterSources.has(source.id);
+      const url = canonicalizeResourceUrl(source.url);
+      if (seenUrls.has(url)) return false;
+      seenUrls.add(url); return true;
+    }) : [];
+    const nativeIds = new Set(state.resource_manifest.resources.map(resource => resource.id));
+    const direct = [...directIds, ...directUrls.filter(source => nativeIds.has(source.id))];
+    return { id: `warning-${index}`, message, chapterId, sourceIds: [...new Set([...aliases.map(source => source.id), ...direct.map(source => source.id)])] };
   });
+  return { topics, formulas, workedExamples: model.workedExamples, figures: model.figures,
+    checklist: model.checklist, warnings, quizStyleQuestions: data.success ? data.data.quiz_style_questions : [] };
+}
+
+/** Coverage bookkeeping is not a substitute for reviewing complete claims. */
+function workedExampleCoverageLedger(model: ReviewModel) {
+  return model.workedExamples.map(example => ({
+    exampleId: example.id, chapterId: example.chapterId,
+    stepCount: example.steps.length,
+  }));
+}
+
+function faithfulStudyModelForReview(state: LangGraphAgentState, claims: QualityReviewClaims, complete = completeReviewClaims(state)) {
+  const model = state.study_model;
+  const knownChapterIds = new Set(model.courseChapters.map(chapter => chapter.id));
+  const original = ExtractedDataSchema.safeParse(state.extracted_data);
+  const referenced = new Set([
+    ...claims.topics.flatMap(item => item.sourceIds), ...claims.formulas.flatMap(item => item.sourceIds),
+    ...claims.workedExamples.flatMap(item => item.sourceIds), ...claims.figures.flatMap(item => item.sourceIds),
+    ...claims.warnings.flatMap(item => item.sourceIds),
+    ...claims.quizStyleQuestions.flatMap(question => question.source_ids),
+    ...(original.success ? original.data.document_context.map(context => context.source_id) : []),
+  ]);
+  const sourceIndex = new Map(model.sources.map(source => [source.id, {
+    id: source.id, title: source.title, kind: source.kind, originUrl: source.originUrl,
+    page: original.success ? original.data.sources.find(item => item.id === source.id)?.page ?? null : null,
+  }]));
+  if (original.success) for (const source of original.data.sources) {
+    if (!sourceIndex.has(source.id)) sourceIndex.set(source.id, {
+      id: source.id, title: source.title, kind: source.kind, originUrl: source.url, page: source.page,
+    });
+  }
   return {
-    profile: model.profile,
-    title: model.title,
-    courseTitle: model.courseTitle,
-    publicationStatus: model.publicationStatus,
-    scopeNote: compactReviewText(model.scopeNote, 240),
-    chapters,
-    sources: model.sources
-      .filter((source) => referencedSourceIds.has(source.id))
-      .slice(0, 32)
-      .map((source) => ({
-        id: source.id,
-        title: compactReviewText(source.title, 100),
-        kind: source.kind,
+    profile: model.profile, title: model.title, courseTitle: model.courseTitle,
+    publicationStatus: model.publicationStatus, scopeNote: model.scopeNote,
+    documentCoverage: {
+      topicCount: complete.topics.length, topicIds: complete.topics.map(item => item.id),
+      formulaCount: complete.formulas.length, formulaIds: complete.formulas.map(item => item.id),
+      exampleCount: model.workedExamples.length, figureCount: model.figures.length, checklistCount: model.checklist.length,
+      warningCount: complete.warnings.length, warningIds: complete.warnings.map(warning => warning.id),
+      quizQuestionCount: complete.quizStyleQuestions.length,
+    },
+    workedExampleCoverageLedger: workedExampleCoverageLedger(model),
+    chapters: model.courseChapters.map(chapter => ({
+      id: chapter.id, title: chapter.title, status: chapter.status, priority: chapter.priority,
+      contentMode: chapter.contentMode, learningObjectives: chapter.learningObjectives,
+      assessmentSignals: chapter.assessmentSignals,
+      topics: claims.topics.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, title: item.title, summary: item.summary, learningGoals: item.learningGoals, originalKeyConcepts: item.originalKeyConcepts, sourceIds: item.sourceIds,
       })),
-    deterministicFindings: state.review_report.findings.slice(0, 12).map((finding) => ({
-      ...finding,
-      message: compactReviewText(finding.message, 140),
+      formulas: claims.formulas.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, name: item.name, expression: item.expression, variables: item.variables,
+        units: item.units, assumptions: item.assumptions, sourceIds: item.sourceIds,
+      })),
+      workedExamples: claims.workedExamples.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, origin: item.origin, learningGoal: item.learningGoal, prompt: item.prompt,
+        steps: item.steps, result: item.result, sourceIds: item.sourceIds,
+      })),
+      figures: claims.figures.filter(item => item.chapterId === chapter.id).map(item => ({
+        id: item.id, kind: item.kind, title: item.title, caption: item.caption,
+        sourcePage: item.sourcePage, sourceIds: item.sourceIds,
+      })),
     })),
+    unassignedClaims: {
+      topics: claims.topics.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      formulas: claims.formulas.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      workedExamples: claims.workedExamples.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+      figures: claims.figures.filter(item => !knownChapterIds.has(item.chapterId ?? "")),
+    },
+    checklist: claims.checklist,
+    warnings: claims.warnings,
+    quizStyleQuestions: claims.quizStyleQuestions,
+    sources: [...sourceIndex.values()].filter(source => referenced.has(source.id)),
   };
 }
 
-function compactReviewText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const marker = " … [review view shortened; full field passed deterministic validation] … ";
-  const remaining = Math.max(40, maxLength - marker.length);
-  const prefixLength = Math.ceil(remaining * 0.7);
-  const suffixLength = remaining - prefixLength;
-  return `${value.slice(0, prefixLength).trimEnd()}${marker}${value.slice(-suffixLength).trimStart()}`;
-}
-
-function compactReviewObjectives(
-  objectives: string[],
-  maxItems = 14,
-  maxLength = 150,
-): string[] {
-  return [...new Set(objectives
-    .filter((objective) => !/\.{5,}/.test(objective))
-    .map((objective) => {
-      const official = /^((?:Thema|Topic)\s+\d{1,2}\s*[–-]\s*[^:·]+)(?::|\s+·\s+)?\s*(.*)$/i
-        .exec(objective);
-      if (!official) return compactReviewText(objective, maxLength);
-      const detail = official[2].trim();
-      return detail
-        ? compactReviewText(`${official[1].trim()} · ${detail}`, maxLength)
-        : official[1].trim();
-    }))].slice(0, maxItems);
+/** Preflight every complete atom and packet before starting any model call. */
+export async function buildQualityReviewPackets(
+  config: MoodleRuntimeConfig, state: LangGraphAgentState, previousReviewError: string | null = null,
+): Promise<QualityReviewPacket[]> {
+  const model = completeReviewClaims(state);
+  const extracted = ExtractedDataSchema.safeParse(state.extracted_data);
+  const kinds = ["topics", "formulas", "workedExamples", "figures", "checklist", "warnings", "quizStyleQuestions"] as const;
+  type Atom = { kind: typeof kinds[number]; value: QualityReviewClaims[typeof kinds[number]][number]; sourceIds: string[] };
+  const groups = new Map<string, Atom[]>();
+  for (const kind of kinds) for (const value of model[kind]) {
+    const sourceIds = typeof value === "string" ? [] : "sourceIds" in value ? value.sourceIds : value.source_ids;
+    const primaryId = sourceIds[0];
+    const originalUrl = state.study_model.sources.find(source => source.id === primaryId)?.originUrl ??
+      (extracted.success ? extracted.data.sources.find(source => source.id === primaryId)?.url : null);
+    // Cohorts share only a known exact original. Alias IDs and owners remain
+    // on every individual atom and in the packet's source index.
+    const key = JSON.stringify(originalUrl ? ["url", canonicalizeResourceUrl(originalUrl)] : ["id", primaryId ?? null]);
+    const list = groups.get(key) ?? [];
+    list.push({ kind, value, sourceIds }); groups.set(key, list);
+  }
+  const add = (claims: QualityReviewClaims, atom: Atom): QualityReviewClaims => ({
+    ...claims, [atom.kind]: [...claims[atom.kind], atom.value],
+  });
+  const primarySourceIds = (claims: QualityReviewClaims) => [...new Set([
+    ...claims.topics, ...claims.formulas, ...claims.workedExamples, ...claims.figures,
+    ...claims.warnings,
+  ].flatMap(item => item.sourceIds.slice(0, 1)).concat(claims.quizStyleQuestions.flatMap(item => item.source_ids.slice(0, 1))))];
+  const plan = await readVisualRetrievalPlan(config.runDir);
+  const imageDemands = new Map<string, string[]>();
+  for (const id of [...new Set([...groups.values()].flatMap(group => group.flatMap(atom => atom.sourceIds)))]) {
+    const visuals = await selectQualitySourceVisuals(config.runDir, state, { sourceIds: [id], plannedPages: true });
+    const source = extracted.success ? extracted.data.sources.find(source => source.id === id) : undefined;
+    const native = state.resource_manifest.resources.find(resource => source?.url && canonicalizeResourceUrl(resource.originUrl) === canonicalizeResourceUrl(source.url));
+    const requested = plan?.requests.find(request => request.resourceId === native?.id)?.pages ?? [];
+    const suppliedRequested = visuals.filter(visual => visual.sourcePage != null && requested.includes(visual.sourcePage));
+    const demanded = suppliedRequested.length ? suppliedRequested : visuals.slice(0, 1);
+    imageDemands.set(id, demanded.map(visual => `${visual.sourceUrl ? canonicalizeResourceUrl(visual.sourceUrl) : id}|${visual.sourcePage}|${visual.imagePath}`));
+  }
+  // Different chapter aliases can refer to the exact same original composition.
+  // Count the actual URL/page/file binding once; never merge distinct originals.
+  const demand = (claims: QualityReviewClaims) => new Set(primarySourceIds(claims).flatMap(id => imageDemands.get(id) ?? [])).size;
+  const packets: QualityReviewPacket[] = [];
+  let current = emptyReviewClaims();
+  let count = 0;
+  const prepare = async (claims: QualityReviewClaims) => {
+    const ids = primarySourceIds(claims);
+    const visuals = await selectQualitySourceVisuals(config.runDir, state, { sourceIds: ids, plannedPages: true });
+    return { claims, sourceVisuals: visuals, prompt: composeQualityReviewPrompt(config, state, previousReviewError, visuals, claims, { index: MAX_QUALITY_REVIEW_PACKETS, total: MAX_QUALITY_REVIEW_PACKETS }, model) };
+  };
+  const fits = (packet: QualityReviewPacket) => packet.prompt.length <= resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN;
+  const finish = async () => {
+    const packet = await prepare(current);
+    if (!fits(packet)) throw new QualityReviewCapacityError(`Complete content-review packet needs ${packet.prompt.length} prompt characters; budget ${resolveModelPromptBodyCharacterBudget("quality_reviewer", qualityReviewSchema) - QUALITY_REVIEW_PROMPT_MARGIN}. No claim was shortened or reviewed.`);
+    packets.push(packet);
+    if (packets.length > MAX_QUALITY_REVIEW_PACKETS) throw new QualityReviewCapacityError(`Complete content review exceeds ${MAX_QUALITY_REVIEW_PACKETS} packets. No sampled pass or model call is allowed.`);
+    current = emptyReviewClaims(); count = 0;
+  };
+  // Source cohorts preserve nearby source context and avoid unrelated global figures
+  // consuming the two original-image slots. Large cohorts split only between atoms.
+  for (const group of groups.values()) for (const atom of group) {
+    let candidate = add(current, atom);
+    if (count && (demand(candidate) > 2 || !fits(await prepare(candidate)))) {
+      // Reuse free space only when the complete atom preserves the exact
+      // existing original URL/page/file attachments, including chapter aliases.
+      let backfilled = false;
+      for (let index = 0; index < packets.length; index++) {
+        const merged = add(packets[index].claims, atom);
+        if (demand(merged) > 2) continue;
+        const earlier = await prepare(merged);
+        if (!fits(earlier)) continue;
+        const bindings = (visuals: QualitySourceVisual[]) => visuals.map(visual =>
+          JSON.stringify([visual.sourceUrl ? canonicalizeResourceUrl(visual.sourceUrl) : visual.sourceId, visual.sourcePage, visual.imagePath])).sort();
+        if (JSON.stringify(bindings(earlier.sourceVisuals)) !== JSON.stringify(bindings(packets[index].sourceVisuals))) continue;
+        packets[index] = earlier;
+        backfilled = true;
+        break;
+      }
+      if (backfilled) continue;
+      await finish(); candidate = add(current, atom);
+    }
+    const packet = await prepare(candidate);
+    if (!fits(packet)) throw new QualityReviewCapacityError(`Complete ${atom.kind} atom needs ${packet.prompt.length} prompt characters; it cannot fit the existing review budget. No atom was shortened or reviewed.`);
+    current = candidate; count++;
+  }
+  if (count || !packets.length) await finish();
+  return packets.map((packet, index) => ({ ...packet, prompt: composeQualityReviewPrompt(config, state, previousReviewError, packet.sourceVisuals, packet.claims, { index: index + 1, total: packets.length }, model) }));
 }
 
 function validateQualityReview(value: unknown): {
@@ -608,6 +662,9 @@ function validateQualityFinding(value: unknown): QualityFinding {
   if (!severities.includes(record.severity as typeof severities[number])) {
     throw new Error("Quality reviewer finding severity is invalid.");
   }
+  if (record.defectKind !== undefined && record.defectKind !== null && !QUALITY_DEFECT_KINDS.includes(record.defectKind as QualityDefectKind)) {
+    throw new Error("Quality reviewer finding defectKind is invalid.");
+  }
   if (!repairTargets.includes(record.repairTarget as typeof repairTargets[number])) {
     throw new Error("Quality reviewer finding repairTarget is invalid.");
   }
@@ -618,6 +675,7 @@ function validateQualityFinding(value: unknown): QualityFinding {
     deliverableId: nullableString("deliverableId"),
     owner: record.owner as QualityFinding["owner"],
     severity: record.severity as QualityFinding["severity"],
+    defectKind: record.defectKind == null ? null : record.defectKind as QualityDefectKind,
     repairTarget: record.repairTarget as QualityFinding["repairTarget"],
   };
 }

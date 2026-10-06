@@ -42,7 +42,7 @@ export function studyBuddyDesignGuidelines(): string {
     "- Source citations must deep-link to the corresponding source entry and clear filters that would otherwise hide it.",
     "- A local source preview belongs beside the source list on desktop and in a dismissible focused layer on mobile.",
     "- Show learning progress only for real learning objectives; persist it locally and never confuse it with course completion.",
-    "- Section labels must use task-oriented student language such as Lernstoff, Formeln, Lerncheck, Training, Quellen, and Hinweise.",
+    "- Section labels must use task-oriented student language in the requested output language. For English use Learning content, Formulas, Knowledge check, Practice, Sources, and Notes; for German use Lernstoff, Formeln, Lerncheck, Training, Quellen, and Hinweise. Never mix languages in labels.",
     "- Do not hide essential learning content in tabs or accordions. Progressive disclosure is reserved for answers, supporting detail, and large source collections.",
     "- Do not use a hero taller than one compact viewport region; the first screen must contain orientation and a direct path into the material.",
     "- Use green, amber, red, and cyan for semantic feedback; do not make the page a one-note blue interface.",
