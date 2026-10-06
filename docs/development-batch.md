@@ -14,6 +14,12 @@ PR checks require fresh patched lockfiles and current-base validation. See
 [the integration record](pr-integration-2026-10-06.md). This remains the existing
 0.2.3-alpha development batch, without release freeze or packaged acceptance.
 
+CI model-policy parity repair: Ubuntu and Windows verification now check out the
+pinned UI and install its locked dependencies before loading editor policies.
+Profile imports use file URLs for Windows drive paths. The workflow provisioning
+contract passes 2/2 and coordinated runtime/editor parity passes 4/4 locally;
+fresh platform CI remains required before merge.
+
 
 ## Current line
 

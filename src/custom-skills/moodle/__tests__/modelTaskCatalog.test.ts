@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { STUDY_BUDDY_MODEL_TASKS } from "../../shared/modelTaskCatalog.js";
@@ -14,7 +15,7 @@ describe("model task integration", () => {
 
   it("shows exactly the built-in models used by the runtime, including retries", async () => {
     // Dynamic path keeps desktop-only Effect schema dependencies out of workflow compilation.
-    const profiles = await import(path.resolve("t3code-fork/packages/shared/src/studyBuddyProfiles.ts"));
+    const profiles = await import(pathToFileURL(path.resolve("t3code-fork/packages/shared/src/studyBuddyProfiles.ts")).href);
     for (const profile of profiles.STUDY_BUDDY_BUILT_IN_PROFILES) {
       const overrides = parseModelPolicyOverrides(JSON.stringify(profiles.studyBuddyProfileOverrides(profile)));
       for (const operation of STUDY_BUDDY_MODEL_TASKS) {
@@ -33,7 +34,7 @@ describe("model task integration", () => {
   });
 
   it("keeps every custom task's displayed inheritance and explicit override consistent with the CLI", async () => {
-    const profiles = await import(path.resolve("t3code-fork/packages/shared/src/studyBuddyProfiles.ts"));
+    const profiles = await import(pathToFileURL(path.resolve("t3code-fork/packages/shared/src/studyBuddyProfiles.ts")).href);
     const profile = profiles.duplicateStudyBuddyProfile(profiles.STUDY_BUDDY_BUILT_IN_PROFILES[1], "custom-parity");
     profile.taskOverrides = {};
     for (const [role, worker] of Object.entries(profile.roles)) {
