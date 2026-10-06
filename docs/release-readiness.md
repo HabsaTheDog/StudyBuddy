@@ -49,6 +49,15 @@ only the Electron-builder build graph uses it, production dependencies omit it.
 Verify absence from the final artifact SBOM and staged production package; do
 not dismiss the GitHub default-branch alert or imply it is patched.
 
+## CI fixture correction
+
+Ubuntu CI on `167dd70` failed seven release-contract integration tests because
+they requested historical0.2.0-alpha, which the new source/package version guard
+correctly rejects. Test fixtures now derive current package version and verify
+valid mismatches explicitly; guard behavior remains unchanged. CLI9/9, existing
+contract/assets23/23, root TypeScript and independent review pass. The failed
+run is retained; fresh exact-head CI remains required.
+
 ## Gates
 
 Pending: protected-branch CI and security; exact merged

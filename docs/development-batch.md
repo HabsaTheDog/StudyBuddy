@@ -144,6 +144,14 @@ no upstream fix and is explicitly deferred with final SBOM absence pending.
 The reviewed new UI pin and parent must be pushed in that order; fresh exact-head
 CI and rebuilt-artifact acceptance remain required.
 
+Release CI fixture repair (2026-10-07): Ubuntu check on `167dd70` found seven
+CLI contract tests still requesting historical `0.2.0-alpha` after the new
+mandatory package/version guard. CLI success/tag fixtures now derive the source
+package version; valid mismatched versions and unsupported channels fail closed.
+The runtime guard is unchanged. Nine actual CLI integration tests,23 existing
+contract/asset tests, TypeScript and independent review pass. Original CI failure
+logs remain retained; fresh exact-head CI is pending before packaging.
+
 ## Queued changes
 
 Local browser pairing for external agents (2026-10-06): authenticated owners
