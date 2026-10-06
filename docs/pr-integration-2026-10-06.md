@@ -69,3 +69,35 @@ repair is developed and validated in isolated worktrees.
 The newer reviewed UI integration is publicly reachable on
 `HabsaTheDog/t3code` branch `fix/pr-merge-integration-2026-10-06`, exact commit
 `52b87ec6c456be0733eef3d55afcaf7850da70d3`. Push verification precedes the root pin.
+
+## Fresh integration CI repairs
+
+The first fresh #53 run failed on both platforms. Ubuntu exposed missing editor
+source in workflow checks and omitted physical PDF pages when montage was
+unavailable. Windows also exposed short-name temporary-directory aliases,
+Unix-only provider fixtures and paths, and missing `.exe` tool discovery.
+
+Root verification now checks out and installs the exact pinned UI before parity
+tests, preserving the explicit Node 22.16 runtime. Profiles use file-URL imports.
+PDF review retains every selected page in the existing bounded review, with
+adjacent two-image fallback batches; the fixture still asserts all three real
+physical pages. Windows tool lookup uses PATHEXT. Portable fixtures retain the
+real SDK invocation and account/credential assertions.
+
+Quiz ledger paths normalize ordinary Windows aliases only after explicit
+ancestor link checks and directory identity verification. Real links/junctions,
+non-directories and replacement during resolution are rejected. Configured and
+canonical aliases share the same exclusive reservation and one-time start debit.
+Focused helper and guard tests and independent adversarial review pass without
+changing first-attempt or final-submission permissions.
+
+Exact CI Typst 0.15.0 PDF/visual regressions pass 19/19; portable fixture suites
+pass 51/51; quiz-related suites pass 165/165, with the final helper/guard rerun
+23/23. Workflow contracts and coordinated policy parity pass. TypeScript,
+repository policies and a zero-vulnerability audit pass. The combined source
+suite and fresh platform CI remain separate recorded gates.
+
+Root #52 merged as `22ee81460c77ba5aa9a41cda0d235220cc2f3aad`, and #41 merged as
+`23400c2efcdf02412b79b0695477372a94b79f25`, after their fresh required checks.
+Both updates are retained in the integration branch; remaining dependency PRs
+must receive current-base validation before merging.

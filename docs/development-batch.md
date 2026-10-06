@@ -19,6 +19,8 @@ pinned UI and install its locked dependencies before loading editor policies.
 Profile imports use file URLs for Windows drive paths. The workflow provisioning
 contract passes 2/2 and coordinated runtime/editor parity passes 4/4 locally;
 fresh platform CI remains required before merge.
+The pinned Vite+ setup keeps the explicit system Node 22.16 runtime for root
+checks (`node-manager: false`); the provisioning contract guards that choice.
 
 PDF review fallback and Windows tool discovery repair: retain every selected
 physical page when ImageMagick is absent, with overlapping two-image batches

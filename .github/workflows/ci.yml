@@ -35,7 +35,7 @@ jobs:
         uses: voidzero-dev/setup-vp@313600b80b104eadebb9111787d37a2e83e014ca # v1.17.0
         with:
           working-directory: t3code-fork
-          node-version-file: package.json
+          node-manager: false
           cache: true
           run-install: true
       - uses: typst-community/setup-typst@fee4b65b091cc546f02ce3be15fad8760f38a108 # v5.3.0

@@ -28,4 +28,7 @@ test('cross-platform workflow CI provisions the pinned editor used by model-poli
   assert.ok(testStep > setup && setup >= 0, 'editor dependencies must be installed before workflow tests');
   assert.match(verify.slice(0, setup), /submodules: true/u, 'checkout must include the pinned editor source');
   assert.match(verify.slice(setup, testStep), /working-directory: t3code-fork[\s\S]*run-install: true/u);
+  const editorSetup = verify.slice(setup, verify.indexOf('      - uses:', setup));
+  assert.match(editorSetup, /node-manager: false/u, 'editor installation must retain the root workflow Node runtime');
+  assert.doesNotMatch(editorSetup, /node-version(?:-file)?:/u, 'disabled Node management cannot request another runtime');
 });
