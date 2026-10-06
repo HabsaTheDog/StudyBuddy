@@ -136,6 +136,14 @@ updates; overlapping demo redesign work is explicitly deferred. Source checks,
 receipt registration and deployment remain separately recorded in website
 `docs/releases/0.2.4-alpha.md`; no staged site is live by implication.
 
+Final release dependency follow-up: DOMPurify3.4.16, Hono4.13.7 and
+ip-address10.7.1 patch seven shipped medium/low alerts. Frozen install,
+zero-advisory production audit,95 focused tests, real dependency security probes,
+focused types and independent review pass. Build-only sprintf-js alert245 has
+no upstream fix and is explicitly deferred with final SBOM absence pending.
+The reviewed new UI pin and parent must be pushed in that order; fresh exact-head
+CI and rebuilt-artifact acceptance remain required.
+
 ## Queued changes
 
 Local browser pairing for external agents (2026-10-06): authenticated owners

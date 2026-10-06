@@ -7,7 +7,7 @@ Decision: **BLOCKED — preparation in progress; no exact packaged candidate yet
 - Scope: complete accumulated batch plus remote October 6 security/Windows
   integration and local browser pairing; see [inventory](release-inventory-0.2.4-alpha.md).
 - Source: isolated `release/0.2.4-alpha`, integrating root remote `24f3c8c`
-  and local `b53e2b6`; reviewed merged UI `82ab434f1190f59c050bc7599cb1e227eb3073c9`.
+  and local `b53e2b6`; reviewed merged UI `8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1`.
 - Final build must use the reviewed protected `master` commit and reviewed UI pin.
 - Supported lanes: Windows 11 x64, Fedora x64. Windows intentionally unsigned;
   warning evidence and disclosure required. macOS excluded.
@@ -33,6 +33,21 @@ Independent App/website review resolves all preparation findings.
 Website prepared separately at `404c8b8932023226d7aa10f59d872cfebfdf844f`:
 types/build/audit and focused tests pass; synthetic compiled-browser cases pass.
 Those local checks do not establish public download acceptance.
+
+## New dependency advisory reconciliation
+
+The final UI pin additionally updates DOMPurify3.4.16, Hono4.13.7 and
+ip-address10.7.1. All seven feasible shipped alerts are patched; frozen install,
+production audit0 advisories/474 dependencies, workspace security gate,
+95 focused tests, seven real-package security assertions, web/server/script
+TypeScript and independent lock/advisory review pass. The earlier3984-test UI
+result belongs to its parent pin; mandatory exact-head CI must validate this
+final dependency graph before packaging.
+
+UI alert245 (`sprintf-js`1.1.3) has no upstream fix and is explicitly deferred:
+only the Electron-builder build graph uses it, production dependencies omit it.
+Verify absence from the final artifact SBOM and staged production package; do
+not dismiss the GitHub default-branch alert or imply it is patched.
 
 ## Gates
 

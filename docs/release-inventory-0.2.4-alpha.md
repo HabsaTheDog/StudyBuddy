@@ -13,6 +13,16 @@ Version: `0.2.4-alpha`, GitHub prerelease, Windows 11 x64 and Fedora x64; intent
 - Root dependency PRs #36/#41/#51/#52 merged; UI #23 merged as `8a91a450d`, #22 closed as equivalent. Selected UI integration/tests are advertised separately; default UI branch need not be mistaken for the selected pin.
 - PR #53 at intake: Windows/Ubuntu/policy/CodeQL/Gitleaks pass; pinned UI still running. Source CI is not installed acceptance. Final package must be built from the reviewed protected-default commit.
 
+## Final security dependency integration
+
+Reviewed UI `8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1` adds DOMPurify3.4.16, Hono4.13.7 and
+ip-address10.7.1 over the merged pairing/dependency source. Seven shipped alerts
+are patched; source production audit has0 advisories across474dependencies.
+Build-only sprintf-js alert245 lacks an upstream patch and is explicitly
+deferred, subject to final shipped SBOM absence verification. Exact-head CI
+and final packaged acceptance still gate this pin. Full dispositions are in
+canonical ignored `security-alert-dispositions.json` preparation evidence.
+
 ## Included scope and full backlog mapping
 
 Every existing table row is included as implementation. Historical “fresh native round pending” text is retained evidence, superseded only by named later results; it does not become a new success claim. The machine-readable inventory preserves each row’s status, evidence, remaining-work text and commit references. Links below identify the original backlog row; grouped scope is not an omission.
