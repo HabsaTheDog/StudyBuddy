@@ -439,6 +439,17 @@ claims. These repairs are local-only and await holistic packaged acceptance.
 
 ## Freeze policy
 
+Windows release CI repair (2026-10-07): `9adc95f` passed Ubuntu and all other
+required checks; Windows passed 1,809 tests/20 existing skips but its real graph
+render fixture exceeded 30 seconds. Logs show file concurrency despite the
+shell worker flag. Enforce serial Windows files in Vitest configuration and use
+the same `npm test` command on both platforms. Preserve the real render/retry
+assertions, add a PDF signature assertion, and bound this fixture with a
+55-second cancellation deadline inside its 60-second test budget. Graph33/33
+(9.77s), TypeScript and five workflow/security checks pass locally. No product
+runtime, retry-limit or acceptance-policy change. Failed evidence is retained;
+fresh exact-head Windows CI and packaged acceptance remain pending.
+
 Continue adding compatible, individually tested changes and scoped commits to this line. Roughly 10–20 fixes is a useful batching target, not a hard requirement. When the owner freezes the batch, use the applicable Study Buddy review and release skills, resolve the combined findings, build exact immutable candidate bytes, and test those bytes on clean Fedora and Windows VMs before requesting publication approval.
 
 If candidate bytes change, previous packaged acceptance no longer applies. Public tags are immutable and must never be moved or reused.

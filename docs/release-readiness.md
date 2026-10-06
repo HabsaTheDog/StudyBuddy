@@ -58,6 +58,16 @@ valid mismatches explicitly; guard behavior remains unchanged. CLI9/9, existing
 contract/assets23/23, root TypeScript and independent review pass. The failed
 run is retained; fresh exact-head CI remains required.
 
+Windows CI on `9adc95f` passed 1,809 tests with 20 existing platform skips but
+timed out the real graph render fixture at 30 seconds. Its log shows concurrent
+test files despite the intended shell-forwarded worker limit; Ubuntu and every
+other required check passed. Windows file serialization is now enforced in
+Vitest configuration. That fixture retains its retry assertions and real
+renderer, additionally verifies the PDF signature, and has a 55-second abort
+deadline inside a 60-second test budget. Graph33/33 (9.77s), root TypeScript and
+five workflow/security tool checks pass locally. Runtime behavior and validation
+retry limits are unchanged. Retain the failed run and require fresh Windows CI.
+
 ## Gates
 
 Pending: protected-branch CI and security; exact merged

@@ -69,12 +69,8 @@ jobs:
           pdfinfo -v
           npx playwright install chromium
       - run: npm run typecheck
+      # vitest.config.ts enforces serial files on Windows without shell flags.
       - run: npm test
-        if: runner.os != 'Windows'
-      - name: Test workflows with bounded Windows parallelism
-        if: runner.os == 'Windows'
-        # Chromium and Typst fixtures compete for filesystem/CPU on hosted Windows.
-        run: npm test -- --maxWorkers=1
       - name: Verify SDK and bundled CLI pairing
         run: npm run moodle:doctor:version
 
