@@ -14,6 +14,21 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Direct agent-owned email context (2026-10-06): remove prompt keyword gates and
+implicit body prefetch; native inventory/list/search/read tools reuse existing
+server-owned login through the authenticated owner/workspace-bound broker.
+Broad overviews choose pages and bodies without a guessed final-word search;
+bounded sanitized HTML preserves text-empty MIME evidence. Read state, source/
+folder permissions and exact-message send guards remain enforced. Six unchanged
+fresh Electron Balanced prompts pass: three open-obligation variants and search
+independently score 4/4, negation and draft invoke zero tools/approvals. 174 focused
+tests, full UI format/lint, 13 typechecks, backend build, HTTP6 and independent
+integration review pass. Scope and minor model-output limits retained in
+[mail-access report](direct-email-access-2026-10-06.md).
+UI dependency `a0918bed6e30dd512f5f66d40d5389b59581bce7` committed locally and pinned by this root
+integration; root fallback, targeted tests and handoff included. Not pushed,
+merged, installation-deployed, packaged, published or release-accepted.
+
 Scored-answer correction (2026-10-05): user confirms the sole Q5.3 True→False
 change reduced9 to8.67. Withdraw the earlier Q5 culprit/literalFalse advice for
 this assessed item; controlled user comparison supports True. Authenticated

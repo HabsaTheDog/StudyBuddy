@@ -18,6 +18,26 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Current direct-email repair, 2026-10-06
+
+Include [the direct-mail acceptance report](direct-email-access-2026-10-06.md)
+and the provider-native read-only email tools. The original “E Mails” request
+was excluded by regex/last-word search; native account policy now permits the
+agent to select existing authenticated inventory/list/search/read operations.
+No new model bridge, worker or login flow; broker ownership, folder/read policy,
+secret isolation, preserved seen flags and exact-message send approvals remain.
+Six final fresh actual Electron Balanced chats are terminal on unchanged
+runtime: original/paraphrase/English/search score 4/4; negated read and draft have
+zero tool/approval events. 174 targeted tests, 13 typechecks, full format/lint,
+backend bundle, HTTP6 and independent review pass. Initial pre-HTML diagnostic,
+projected seen evidence, partial mailbox scopes and minor model-output limits
+are retained; do not turn this into exhaustive-mailbox or artifact-render proof.
+UI `a0918bed6e30dd512f5f66d40d5389b59581bce7` is committed locally; this root integration
+pins it with wrapper/test/docs. Nothing is pushed, merged, installation-deployed,
+packaged, published or release-accepted. Reconcile both development branches
+before freezing a candidate; exact Windows/Fedora acceptance remains owned by
+the release workflow. This is part of the existing 0.2.3-alpha batch.
+
 ## Current first-attempt recovery follow-up, 2026-10-05
 
 Include [the first-attempt recovery report](quiz-first-attempt-recovery-2026-10-05.md)

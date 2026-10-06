@@ -1485,6 +1485,10 @@ action="$1"
 shift
 
 case "$action" in
+  email)
+    echo "Email tools require the authenticated Study Buddy desktop service." >&2
+    exit 1
+    ;;
   sources|document)
     if [[ "${STUDY_BUDDY_BROKER_EXECUTION:-}" != "1" ]]; then
       echo "Direct Study Buddy tools require the app-owned workflow broker." >&2

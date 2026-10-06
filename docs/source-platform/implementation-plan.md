@@ -74,6 +74,17 @@
 
 ## Phase 5 — email read and draft
 
+- [x] Direct agent-owned email context (`direct-agent-email-access`, approved
+  2026-10-06): expose the existing authenticated broker's inventory/list/search/read
+  operations through the native desktop tool client. Replace prompt regex gates
+  and automatic body prefetch with account policy only; the native agent chooses
+  retrieval and reports evidence and coverage. Preserve read state, source/folder
+  scope, credential isolation and exact-message send approval. Source regressions
+  and multiple fresh Balanced desktop prompts are required before closing this
+  development repair: six final fresh desktop prompts pass, four grounded cases
+  independently score 4/4 and two no-read cases pass; 174 focused tests, full UI
+  checks/typechecks and HTTP6 pass. See [acceptance report](../direct-email-access-2026-10-06.md).
+  Packaged release acceptance remains separate.
 - [ ] Add provider-neutral thread/message/attachment records.
 - [ ] Prefer provider/API or mail-protocol adapters; use bounded webmail as a
   fallback.
