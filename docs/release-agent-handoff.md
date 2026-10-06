@@ -18,6 +18,21 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
+## Current local browser pairing repair, 2026-10-06
+
+Include [the local pairing report](local-browser-pairing-2026-10-06.md), the root
+CLI helper and UI dependency `c0bd23bf9`. Pairing management no longer depends on
+network exposure; existing access-management scope gates and loopback policy
+remain enforced. Seven helper cases plus package guard, 23 auth unit cases,
+HTTP2 and browser4 pass; full check/typechecks and independent review pass.
+Live normal-UI exchange proved authenticated standard access without network
+exposure in a separate diagnostic browser. The original T3 preview disconnected;
+its browser session is unverified. Preserve this distinction from desktop or
+packaged acceptance. Global skill installation/archive is local-only outside Git;
+include the helper in future checkout/distribution workflows used by that skill.
+No push, merge, restart, release package or publication. Active backend already
+supports grants; corrected descriptor requires updated server startup.
+
 ## Current latest-unread mail reliability repair, 2026-10-06
 
 Include [the accepted reliability repair](email-latest-read-reliability-2026-10-06.md).

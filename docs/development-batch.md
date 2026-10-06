@@ -14,6 +14,20 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Local browser pairing for external agents (2026-10-06): authenticated owners
+can manage pairing on loopback without enabling network access. Desktop auth
+metadata advertises existing one-time pairing. Safe explicit-runtime CLI issues
+fresh standard grants to private files, protects independent T3 state/secret/output
+symlink targets, and is taught by the installed global `study-buddy-ui` skill.
+Eight root checks, 23 auth unit tests, two HTTP regressions, four browser
+regressions, full UI check and typechecks pass; independent review resolved both
+isolation findings. Actual normal-UI pairing succeeds in a separate diagnostic
+browser. The original T3 automation client disconnected; that view is unverified.
+See [the local pairing report](local-browser-pairing-2026-10-06.md). UI
+`c0bd23bf9`, root integration and global skill are local-only; no push, merge, backend restart, publication,
+packaged acceptance or study request. Existing runtime supports the helper now;
+corrected descriptor takes effect on updated startup.
+
 Latest-unread email reliability repair (2026-10-06): the approved targeted fix
 passes all three fresh unchanged native Balanced cases independently 4/4, including
 the exact failed wording and an English contextual chat draft. Three body reads
