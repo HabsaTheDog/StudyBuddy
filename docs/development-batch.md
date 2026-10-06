@@ -50,6 +50,13 @@ editor broker integration tests invoke the real tsx CLI. Both editor and parent
 verification use the merged stable setup-vp action pin. The bidirectional
 provisioning and package contracts pass 3/3; new UI behavioral test repairs are
 tracked with the public parent pin after focused validation.
+UI test corrections: await actual voice provider dispatch before transcript
+assertions (89 reactor/title tests) and verify all seven same-grant quiz
+continuation operations plus expiry/final-submit safeguards (25 runtime tests).
+Real broker template preparation passes 64/64 with installed parent dependencies;
+format/lint and all 13 UI typechecks pass. Public reviewed UI commit
+`0aae142c9b3948735ba8dd7a40e37f9b2aa264de` replaces the parent integration pin.
+Production UI behavior is unchanged; fresh pinned-UI CI remains required.
 
 
 ## Current line

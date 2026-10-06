@@ -106,3 +106,23 @@ The final combined source run uses exact CI Typst 0.15.0 and passes all 181 test
 files: 1,808 passed, four existing skips, zero failures (190.85 seconds). The
 final package/security contracts pass 4/4. Fresh Ubuntu/Windows GitHub checks
 still gate integration; this local result is not packaged release acceptance.
+
+The completed pinned-UI job also exposed missing parent CLI dependencies, an
+asynchronous voice test race and a stale quiz instruction assertion. Editor CI
+now installs the parent workflow before testing the real broker template route.
+The voice test waits for actual provider dispatch before its unchanged transcript
+and privacy assertions. The quiz test verifies all seven supported continuation
+operations, original grant path/expiry, no replacement start and blocked final
+submission. Only UI tests changed: reactor/title suites pass 89/89, instruction
+runtime tests 25/25 and the real broker suite 64/64; format/lint and all 13 UI
+typechecks pass. Final parent package/provisioning/security contracts pass 5/5.
+
+The reviewed UI test corrections are pushed and advertised as exact commit
+`0aae142c9b3948735ba8dd7a40e37f9b2aa264de` on branch
+`fix/pr-ci-integration-2026-10-06`, before updating the parent pin. The earlier
+52b87 integration branch remains advertised for already-pushed parent heads.
+Root #36 merged as `3b1dbed121e6a6a3eb02ceb93cf64b26087dd237`. The integrated SDK
+and bundled CLI both verify 0.153.4; all 53 focused SDK/provider tests, TypeScript,
+contracts and a zero-vulnerability audit pass after carrying that update forward.
+Root #51 preserves both SDK and production upgrades in pushed conflict repair
+`ea3d0d5636e21ec7d3244d2850aa1abccca3286a`; its fresh required CI remains pending.
