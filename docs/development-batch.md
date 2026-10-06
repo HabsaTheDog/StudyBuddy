@@ -45,6 +45,12 @@ Combined CI-repair validation with exact Typst 0.15.0: 181 files, 1,808 passed,
 four existing skips, zero failures in 190.85 seconds. Final contracts pass 4/4.
 Fresh GitHub platform and pinned-UI checks remain the merge gate.
 
+Pinned-UI broker CI provisioning: install the parent workflow lock before
+editor broker integration tests invoke the real tsx CLI. Both editor and parent
+verification use the merged stable setup-vp action pin. The bidirectional
+provisioning and package contracts pass 3/3; new UI behavioral test repairs are
+tracked with the public parent pin after focused validation.
+
 
 ## Current line
 

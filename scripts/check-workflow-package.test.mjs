@@ -32,3 +32,14 @@ test('cross-platform workflow CI provisions the pinned editor used by model-poli
   assert.match(editorSetup, /node-manager: false/u, 'editor installation must retain the root workflow Node runtime');
   assert.doesNotMatch(editorSetup, /node-version(?:-file)?:/u, 'disabled Node management cannot request another runtime');
 });
+
+test('editor CI provisions the parent workflow CLI used by native broker integration tests', () => {
+  const workflow = readFileSync(new URL('.github/workflows/ci.yml', root), 'utf8');
+  const editor = workflow.slice(workflow.indexOf('  ui-submodule:'));
+  const install = editor.indexOf('run: npm ci');
+  const tests = editor.indexOf('run: vp run -r --concurrency-limit 2 test');
+  assert.ok(install >= 0 && tests > install, 'parent workflow dependencies must exist before broker tests');
+  assert.match(editor.slice(0, install), /uses: actions\/setup-node@/u);
+  assert.ok(editor.indexOf('working-directory: t3code-fork') > install,
+    'the parent install must run at the workflow root, before changing to the editor');
+});

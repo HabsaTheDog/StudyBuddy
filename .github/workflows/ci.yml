@@ -32,7 +32,7 @@ jobs:
           node-version: 22.16
           cache: npm
       - name: Install pinned editor dependencies for workflow parity tests
-        uses: voidzero-dev/setup-vp@313600b80b104eadebb9111787d37a2e83e014ca # v1.17.0
+        uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
         with:
           working-directory: t3code-fork
           node-manager: false
@@ -106,6 +106,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16
+          cache: npm
+      - name: Install parent workflow dependencies for editor broker tests
+        run: npm ci
       - uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
         with:
           working-directory: t3code-fork
