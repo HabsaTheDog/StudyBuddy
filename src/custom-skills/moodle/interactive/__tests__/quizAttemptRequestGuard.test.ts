@@ -356,7 +356,10 @@ async function browserFixture(
   }
 }
 
-describe("real browser request gate", () => {
+// Each case starts and closes Chromium; shared CI workers need lifecycle headroom.
+const realBrowserOptions = { timeout: 20_000 };
+
+describe("real browser request gate", realBrowserOptions, () => {
   it.each(["read-only", "bound-first"])(
     "loads actual HTTP Moodle JavaScript without sticky capture failure (%s)",
     async (kind) => {
@@ -579,7 +582,7 @@ describe("real browser request gate", () => {
   });
 });
 
-describe("real browser with the persistent shared first-attempt debit", () => {
+describe("real browser with the persistent shared first-attempt debit", realBrowserOptions, () => {
   const firstEvidence = {
     attemptsUsed: 0,
     hasActiveAttempt: false,

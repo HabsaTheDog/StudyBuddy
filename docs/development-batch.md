@@ -94,6 +94,16 @@ Production lease behavior is
 unchanged; snapshots retain ordinary identity/generation checks without an
 atomic conditional-deletion guarantee against arbitrary filesystem mutation.
 
+Windows browser-guard test timing: the repaired source passes 1,808 tests with
+20 skips; one fresh-Chromium unsafe-redirect case exceeds Vitest's default
+five-second limit. Adjacent cases take up to 2.813 seconds and the same case
+passed in an earlier Windows run. The two real-browser groups receive a bounded
+20-second per-test allowance for browser startup, request checks and cleanup.
+HTTP admission unit tests keep their default budget. Redirect rejection,
+single-debit/POST and zero attempt-read/final-submission assertions are retained.
+Unmodified local baseline passes 59/59; final four-suite validation passes
+105/105 (8.44 seconds), with TypeScript and independent review clear.
+
 
 ## Current line
 

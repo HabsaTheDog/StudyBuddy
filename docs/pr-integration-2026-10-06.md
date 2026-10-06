@@ -171,3 +171,19 @@ is unchanged. Path
 snapshots and generation checks do not provide atomic conditional deletion
 against arbitrary same-inode mutation or replacement after the final check;
 the cooperative exclusive-acquisition/live-process protocol remains enforced.
+
+Windows CI on `efd11a0` passes 1,808 tests with 20 skips; its only failure is
+the unsafe 303-final-endpoint redirect browser test reaching the default
+five-second test timeout. All earlier lock/catalogue failures are resolved.
+The same redirect passed in an earlier Windows run, while neighboring cases
+now take up to 2.813 seconds. The log does not identify which browser lifecycle
+stage exceeded the budget. Only the two real-browser test groups receive a
+bounded 20-second allowance, covering fresh Chromium startup and cleanup as
+well as the request checks. Unit budgets, production behavior and all safety
+assertions remain unchanged; no automatic test retry is added.
+
+The unchanged local guard baseline passes 59/59 in 6.27 seconds (the formerly
+timed-out redirect takes 265 ms). Final browser/safety/client validation passes
+105/105 across four files in 8.44 seconds; that redirect takes 295 ms. TypeScript,
+repository policies, diff checks and independent review pass. These timings
+support intermittent CI lifecycle contention without identifying its exact stage.
