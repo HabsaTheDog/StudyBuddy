@@ -157,7 +157,17 @@ enforced. A simulated Windows volume discrepancy fails with the old comparison
 and passes with the repair. All 202 affected quiz/browser/permission tests pass
 across 11 files (83 seconds); all 16 final portable lease regressions,
 TypeScript, repository policies, five package/security contracts and independent
-review pass. The
-catalogue comparison normalizes only CRLF, with five tests preserving rejection
+review pass. The catalogue comparison normalizes only CRLF, with five tests preserving rejection
 of policy changes, other whitespace and bare carriage returns. Fresh required
 GitHub checks still gate the final integration.
+
+Fresh Ubuntu CI on `efd11a0` passes 1,821 tests with seven skips and fails only
+the newly added inode-replacement fixture. Its unlink/recreate operation may
+reuse the original inode; preallocating a distinct replacement before rename
+establishes the intended changed-identity premise. Independent review confirms
+this is a fixture correction; all 16 helper tests, 200 repeated replacement
+scenarios, TypeScript, policies and diff checks pass. Production lease behavior
+is unchanged. Path
+snapshots and generation checks do not provide atomic conditional deletion
+against arbitrary same-inode mutation or replacement after the final check;
+the cooperative exclusive-acquisition/live-process protocol remains enforced.

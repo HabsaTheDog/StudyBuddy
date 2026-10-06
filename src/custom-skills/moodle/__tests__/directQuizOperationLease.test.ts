@@ -163,16 +163,22 @@ describe("direct quiz operation lease", () => {
   it("preserves a replacement inode introduced during release's token read", async () => {
     let replace = false;
     const replacement = generation();
+    const replacementFile = path.join(workspace, "replacement-lock");
     const lease = await acquireDirectQuizOperationLease(workspace, file, {
       readOwnedFile: async (root, target) => {
         const contents = await readOwnedFile(root, target);
         if (replace) {
-          await unlink(target);
-          await writeFile(target, JSON.stringify(replacement));
+          await rename(replacementFile, target);
         }
         return contents;
       },
     });
+    // Keep both files alive until the swap: unlink followed by write may reuse
+    // the original inode, which would not exercise the changed-identity check.
+    await writeFile(replacementFile, JSON.stringify(replacement));
+    const before = await lstat(file, { bigint: true });
+    const after = await lstat(replacementFile, { bigint: true });
+    expect({ dev: after.dev, ino: after.ino }).not.toEqual({ dev: before.dev, ino: before.ino });
     replace = true;
     await lease.release();
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual(replacement);

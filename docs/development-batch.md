@@ -85,6 +85,15 @@ quiz/browser/permission tests pass, followed by all 16 final portable lease
 regressions; TypeScript and independent review find no blocker.
 Fresh platform CI remains required before merge.
 
+Ubuntu lease fixture correction: the new replacement-inode regression must
+preallocate a distinct file before renaming it during the token read. Immediate
+unlink/recreation can reuse an inode and did not establish that test's premise.
+CI otherwise passed 1,821 tests with seven skips. All 16 final helper tests,
+200 repeated distinct-inode scenarios, TypeScript and independent review pass.
+Production lease behavior is
+unchanged; snapshots retain ordinary identity/generation checks without an
+atomic conditional-deletion guarantee against arbitrary filesystem mutation.
+
 
 ## Current line
 
