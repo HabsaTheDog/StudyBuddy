@@ -140,3 +140,24 @@ passes 64/64 with the updated dependencies; final package/provisioning/security
 contracts pass 5/5. TypeScript, link/privacy/license/SBOM policies, advertised
 UI pin and a zero-vulnerability audit pass. This final integration still needs
 fresh current-base GitHub checks before merging #53 and closing superseded #48.
+
+The Windows run on `fb2155f` subsequently exposed 54 quiz failures from retained
+operation locks and one catalogue checkout-line-ending mismatch. Node 22.16.0
+is the actual runner runtime; the lock symptom matches the upstream
+[libuv volume-serial discrepancy](https://github.com/libuv/libuv/pull/4698)
+between handle and path metadata APIs. The runner's raw stat values were not
+logged, so the upstream mechanism is an inference supported by a controlled
+regression, not a captured runner metadata trace.
+
+Quiz lease acquisition/release now compares BigInt path snapshots and binds
+ownership to the exact written PID/token. Stale recovery also checks the same
+generation before replacement. Exclusive acquisition, live-process protection,
+initializing/malformed lock rejection, and link/replacement safeguards remain
+enforced. A simulated Windows volume discrepancy fails with the old comparison
+and passes with the repair. All 202 affected quiz/browser/permission tests pass
+across 11 files (83 seconds); all 16 final portable lease regressions,
+TypeScript, repository policies, five package/security contracts and independent
+review pass. The
+catalogue comparison normalizes only CRLF, with five tests preserving rejection
+of policy changes, other whitespace and bare carriage returns. Fresh required
+GitHub checks still gate the final integration.

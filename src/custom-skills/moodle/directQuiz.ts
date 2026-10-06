@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, unlink, lstat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import {
   directDocumentContext,
@@ -9,6 +9,7 @@ import {
   readOwnedFile,
   writeOwnedFile,
 } from "./directDocumentPaths.js";
+import { acquireDirectQuizOperationLease } from "./directQuizOperationLease.js";
 import { createPlaywrightBrowserClient } from "./interactive/playwrightBrowserClient.js";
 import { createBrowserLoginConfig, ensureAgentBrowserLoggedIn } from "./interactive/browserAuth.js";
 import { createQuizSafetyPolicy } from "./interactive/config.js";
@@ -266,7 +267,7 @@ export async function executeDirectQuiz(
     quizTarget(state.targetUrl, env);
   }
   const lock = path.join(state.runDir, ".operation-lock");
-  const lease = await acquireOperationLease(state.workspace, lock);
+  const lease = await acquireDirectQuizOperationLease(state.workspace, lock);
   let client: AgentBrowserClient | undefined;
   try {
     const policy = await effectivePolicy(state, request, env);
@@ -1504,65 +1505,4 @@ function out(state: QuizState, ok: boolean, extra: Record<string, unknown> = {})
     },
     ...extra,
   };
-}
-
-async function acquireOperationLease(
-  workspace: string,
-  file: string,
-): Promise<{ release: () => Promise<void> }> {
-  const message =
-    "Another operation is active for this quiz; do not run browser tools concurrently.";
-  const create = async () => {
-    const handle = await open(file, "wx", 0o600);
-    try {
-      await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: randomUUID() }));
-      await handle.sync();
-    } catch (error) {
-      await handle.close();
-      throw error;
-    }
-    const owned = await handle.stat();
-    return {
-      release: async () => {
-        await handle.close();
-        const current = await lstat(file).catch(() => null);
-        if (current?.ino === owned.ino && current.dev === owned.dev) await unlink(file);
-      },
-    };
-  };
-  try {
-    return await create();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const previous = await lstat(file);
-  let stale;
-  try {
-    stale = z
-      .object({ version: z.literal(1), pid: z.number().int().positive(), token: z.string().uuid() })
-      .strict()
-      .parse(JSON.parse((await readOwnedFile(workspace, file)).toString()));
-  } catch {
-    throw Error(message);
-  } // Empty/initializing/malformed locks are never considered dead.
-  try {
-    process.kill(stale.pid, 0);
-    throw Error(message);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-  }
-  // Serialize reclaimers for this exact generation; no losing reclaimer may unlink a replacement live lease.
-  const reclaimFile = `${file}.reclaim-${stale.token}`;
-  const reclaim = await open(reclaimFile, "wx", 0o600).catch(() => {
-    throw Error("Quiz lock recovery is already in progress.");
-  });
-  try {
-    const current = await lstat(file);
-    if (current.ino !== previous.ino || current.dev !== previous.dev) throw Error(message);
-    await unlink(file);
-    return await create();
-  } finally {
-    await reclaim.close();
-    await unlink(reclaimFile);
-  }
 }

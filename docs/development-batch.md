@@ -74,6 +74,17 @@ working-tree newlines. Compare CRLF-normalized text while preserving every
 other byte. Five parity tests pass, including independent newline combinations
 and rejection of changed policies, whitespace and bare carriage returns.
 
+Windows quiz operation lock repair: use consistent BigInt path metadata and
+the exact private PID/token generation to release an owned lock. The CI symptom
+matches [libuv's documented Windows volume-serial discrepancy](https://github.com/libuv/libuv/pull/4698)
+in the supported Node 22.16 runtime; raw runner stat values were not logged.
+Exclusive creation, live-process blocking, serialized stale recovery and
+replacement/link protections remain enforced. The simulated Windows regression
+fails with the old comparison and passes with the repair. All 202 affected
+quiz/browser/permission tests pass, followed by all 16 final portable lease
+regressions; TypeScript and independent review find no blocker.
+Fresh platform CI remains required before merge.
+
 
 ## Current line
 
