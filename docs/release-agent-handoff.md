@@ -18,7 +18,23 @@ scope decisions that cannot be inferred, and final publishing approval require
 the owner's action. Keep uncommitted work intact and explicitly pending; do not
 claim it is pushed or silently include it in a candidate.
 
-## Current existing-mail capability audit, 2026-10-06
+## Current latest-unread mail reliability repair, 2026-10-06
+
+Include [the accepted reliability repair](email-latest-read-reliability-2026-10-06.md).
+All three fresh unchanged native Electron Balanced cases independently 4/4,
+including the exact previous failure and an English chat-only response draft.
+Exactly three reads per case, nine explicit preserved-seen receipts, zero errors
+or additional sends. 208 focused tests, full check, all 13 typechecks, backend build
+and independent source review pass. Proper UID-page order, explicit provider-order
+metadata and honest localized date labels remove unnecessary read-to-sort work.
+The separately reproduced concurrent stale registry write is fixed in-process;
+do not claim the seven historical permission denials are causally explained.
+Unproven/threaded UID pages fail closed; cross-process registry coordination,
+other live providers and packaged acceptance remain outside this development proof.
+UI `fcff044e1` and root pin/report are local-only, not pushed or merged.
+Runtime is active in the development app, not packaged/release-accepted.
+
+## Initial existing-mail capability audit, 2026-10-06
 
 Include [the capability audit](email-capabilities-audit-2026-10-06.md) and retain
 its failed cases. Ten actual native Electron Balanced chats: eight pass, one
@@ -31,8 +47,8 @@ and the agent itself terminates 18 waiting clients, leaving no complete answer.
 No 180-second timeout or account mutex exists in the reviewed direct path.
 Missing dates/unstable header order and possible stale registry writes are
 documented; the registry incident cause and upstream latency are unproven.
-The follow-up `email-latest-read-reliability` goal is draft pending required
-explicit plan approval. Runtime was not changed in this audit; no new saved
+The follow-up `email-latest-read-reliability` goal was explicitly approved and is
+now accepted/completed as described above. Runtime was not changed in this initial audit; no new saved
 drafts or additional real mail were authorized. Do not hide these findings in a
 release readiness claim. All own chats/tools are terminal and own read wrapper
 processes absent; backend promise completion is not independently observable.

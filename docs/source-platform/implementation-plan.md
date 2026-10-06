@@ -74,6 +74,15 @@
 
 ## Phase 5 — email read and draft
 
+- [x] Latest-unread reliability follow-up (`email-latest-read-reliability`,
+  explicitly approved 2026-10-06): preserve SOGo UID-selected arrival order and
+  pagination, expose truthful order/date-label metadata, fail closed on unproven
+  UID pages, use exact times from only the requested bodies. Reproduce/fix stale
+  in-process registry updates while keeping network work outside transactions.
+  Three fresh unchanged native Balanced cases independently 4/4 with three reads
+  each; nine seen proofs, no errors or further send. 208 focused checks,
+  full check/13 typechecks/backend bundle and independent review pass. See
+  [accepted follow-up](../email-latest-read-reliability-2026-10-06.md).
 - [x] Direct agent-owned email context (`direct-agent-email-access`, approved
   2026-10-06): expose the existing authenticated broker's inventory/list/search/read
   operations through the native desktop tool client. Replace prompt regex gates

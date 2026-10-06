@@ -14,6 +14,20 @@ The owner does not need to enumerate changes or remember their regression tests.
 
 ## Queued changes
 
+Latest-unread email reliability repair (2026-10-06): the approved targeted fix
+passes all three fresh unchanged native Balanced cases independently 4/4, including
+the exact failed wording and an English contextual chat draft. Three body reads
+per case, nine explicit unread-state preservation proofs, no errors or further
+send. Provider-ordered UID pagination, honest localized date labels/order metadata
+and native bounded read guidance prevent the previous body-overfetch. Deterministic
+registry lost-update reproduction is fixed through shared in-process transactions
+and avoidance of unchanged snapshot writes. 208 focused tests, full check,
+13 typechecks, backend bundle and independent review pass. See
+[the accepted reliability report](email-latest-read-reliability-2026-10-06.md).
+UI `fcff044e1` committed locally; root pin/docs integrated locally. Not pushed,
+merged, packaged, published or release-accepted. Exactly one prior self-test
+delivery remains the only real mail; no permission expansion or saved drafts.
+
 Existing mail capability audit (2026-10-06): all three displayed permissions
 tested in ten fresh native Electron Balanced cases, plus 149 deterministic
 existing email tests. Chat drafting, contextual reply drafting, two native
@@ -23,8 +37,8 @@ policy denials), and its exact-prompt repetition fails after unnecessary paralle
 body acquisition and 18 model-terminated reads. Do not claim consistent mail
 reliability from the earlier six passing overview cases. Runtime unchanged;
 see [the capability audit](email-capabilities-audit-2026-10-06.md).
-Targeted metadata/order and proven concurrency/registry fixes are pending in
-the draft `email-latest-read-reliability` plan, not implemented or accepted.
+This initial finding is now followed by the accepted targeted reliability repair
+above; retain all original failed evidence rather than rewriting its outcomes.
 No second real email, saved-draft feature, permission expansion or release.
 
 Direct agent-owned email context (2026-10-06): remove prompt keyword gates and

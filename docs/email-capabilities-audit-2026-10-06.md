@@ -1,5 +1,11 @@
 # Study Buddy: bestehende Mailfunktionen geprüft, 6. Oktober 2026
 
+**Nachtrag:** Der anschließend ausdrücklich freigegebene
+[gezielte Zuverlässigkeitsfix](email-latest-read-reliability-2026-10-06.md) ist
+umgesetzt und mit drei neuen frischen Desktopfällen unabhängig 4/4 akzeptiert.
+Die folgenden Zahlen und Fehler bleiben die unveränderten Ergebnisse dieses
+vorherigen Audits; sie werden nicht rückwirkend in erfolgreiche Tests umgewandelt.
+
 **Ergebnis: acht Fälle bestanden, ein Fall teilweise bestanden, ein Fall fehlgeschlagen. Die drei vorhandenen Funktionen sind grundsätzlich nachgewiesen, konsistente Zuverlässigkeit ist noch nicht erreicht.** Ein neuer gezielter Reparaturplan liegt als Entwurf vor; dessen erforderliche Planfreigabe ist offen. In diesem Audit wurde kein Runtime-Code geändert.
 
 Geprüft werden alle drei Funktionen der vom Nutzer gezeigten Oberfläche: **Read email**, **Prepare drafts** (Text ausschließlich im Chat) und **Ask to send** (vollständige Nachricht anzeigen, native Freigabe vor Versand). Kein gespeicherter Kontodraft wurde hinzugefügt. Die Freigaben wurden für die Tests nicht erweitert.
