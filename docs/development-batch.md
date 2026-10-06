@@ -58,6 +58,16 @@ format/lint and all 13 UI typechecks pass. Public reviewed UI commit
 `0aae142c9b3948735ba8dd7a40e37f9b2aa264de` replaces the parent integration pin.
 Production UI behavior is unchanged; fresh pinned-UI CI remains required.
 
+Final dependency integration: root #36, #41, #51 and #52 are merged after
+fresh required CI. The provider branch retains every SDK, production,
+development and workflow update against master `39bcc2baada893a65a692e2569657d1cc5d89e07`.
+Combined validation on those exact dependency versions passes all 181 files:
+1,808 tests passed, four existing skips, zero failures (228.53 seconds), plus
+five package/provisioning/security contracts and 64 real editor broker tests.
+TypeScript, repository policies, public UI pin and zero-vulnerability audit pass.
+Independent manifest/lock/entrypoint review has no blocking concerns. #53 still
+requires fresh current-base CI before merge; #48 is superseded only after it lands.
+
 
 ## Current line
 

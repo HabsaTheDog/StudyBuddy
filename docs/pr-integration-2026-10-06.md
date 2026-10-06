@@ -126,3 +126,17 @@ and bundled CLI both verify 0.153.4; all 53 focused SDK/provider tests, TypeScri
 contracts and a zero-vulnerability audit pass after carrying that update forward.
 Root #51 preserves both SDK and production upgrades in pushed conflict repair
 `ea3d0d5636e21ec7d3244d2850aa1abccca3286a`; its fresh required CI remains pending.
+
+Root #51 merged as `39bcc2baada893a65a692e2569657d1cc5d89e07` after all required
+checks passed on its repaired head. The root integration carries all four
+merged dependency/workflow PRs forward. Independent final review confirms all
+locked dependency identities, executable entrypoints, CI provisioning and the
+public UI pin; the staged base merge changes only the manifest and lockfile.
+
+Final combined source validation with the merged production dependencies and
+exact CI Typst 0.15.0 passes all 181 files: 1,808 tests passed, four existing
+skips, zero failures (228.53 seconds). The real editor/parent CLI broker suite
+passes 64/64 with the updated dependencies; final package/provisioning/security
+contracts pass 5/5. TypeScript, link/privacy/license/SBOM policies, advertised
+UI pin and a zero-vulnerability audit pass. This final integration still needs
+fresh current-base GitHub checks before merging #53 and closing superseded #48.
