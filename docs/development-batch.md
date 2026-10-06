@@ -33,6 +33,13 @@ real Node executable and controlled import fixture on both platforms, retaining
 argument, account isolation, secret filtering and event assertions. All 51
 focused tests pass; the final runtime fixture rerun passes 17/17.
 
+Windows quiz ledger repair: accept ordinary short-name/case aliases through
+canonical directory identity while explicitly rejecting ancestor links, Windows
+junctions, non-directories and replacement during resolution. Canonical and
+configured paths share the same durable reservation and one-time start debit.
+Six applicable suites pass 165 tests; final helper/guard tests pass 23/23.
+First-attempt and final-submission permission boundaries remain enforced.
+
 
 ## Current line
 

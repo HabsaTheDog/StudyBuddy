@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -33,6 +33,14 @@ async function config(accountKey = "account-one") {
 const fresh = () =>
   normalizeQuizMetadata({ attemptsUsed: 0, attemptsAllowed: 2, hasStartControl: true });
 describe("durable first quiz attempt", () => {
+  it("shares one durable start debit across configured and canonical directory aliases", async () => {
+    const c = await config();
+    const canonical = { ...c, ledgerRoot: await realpath(c.ledgerRoot) };
+    await reserveFirstQuizAttempt(c, fresh());
+    await expect(reserveFirstQuizAttempt(canonical, fresh())).rejects.toThrow(/already reserved/);
+    await consumeFirstQuizStartRequest(canonical);
+    await expect(consumeFirstQuizStartRequest(c)).rejects.toThrow(/already consumed/);
+  });
   it("recovers an ID-less native first-attempt card only from its own durable verified start response", async () => {
     const c = await config();
     const card: ReturnType<typeof normalizeQuizMetadata> = {
@@ -302,7 +310,7 @@ describe("durable first quiz attempt", () => {
     const c = await config();
     const parent = await config();
     const link = path.join(parent.ledgerRoot, "link");
-    await symlink(c.ledgerRoot, link);
+    await symlink(c.ledgerRoot, link, process.platform === "win32" ? "junction" : "dir");
     await expect(reserveFirstQuizAttempt({ ...c, ledgerRoot: link }, fresh())).rejects.toThrow(
       /symlink/,
     );

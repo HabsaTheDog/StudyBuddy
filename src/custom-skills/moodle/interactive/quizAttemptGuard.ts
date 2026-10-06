@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath } from "node:fs/promises";
+import { mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import {
   extractQuizMetadata,
@@ -15,6 +15,7 @@ import {
   createReadOnlyQuizRequestGuard,
   assertNoFinalQuizSubmission,
 } from "./quizAttemptRequestGuard.js";
+import { resolveQuizLedgerDirectory } from "./quizLedgerDirectory.js";
 
 /** These inputs are supplied by the authenticated broker, never a model request. */
 export interface QuizAttemptGuardConfig {
@@ -69,18 +70,15 @@ function target(value: string): string {
 async function directory(config: QuizAttemptGuardConfig): Promise<string> {
   if (!path.isAbsolute(config.ledgerRoot) || !config.accountKey.trim())
     throw new Error("Missing trusted quiz ledger configuration.");
-  const root = path.resolve(config.ledgerRoot);
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  if ((await lstat(root)).isSymbolicLink() || (await realpath(root)) !== root)
-    throw new Error("Quiz ledger root must not contain symlinks.");
+  const requestedRoot = path.resolve(config.ledgerRoot);
+  await mkdir(requestedRoot, { recursive: true, mode: 0o700 });
+  const root = await resolveQuizLedgerDirectory(requestedRoot);
   const key = createHash("sha256")
     .update(JSON.stringify([config.accountKey, target(config.targetUrl)]))
     .digest("hex");
   const dir = path.join(root, key);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  if ((await lstat(dir)).isSymbolicLink() || (await realpath(dir)) !== dir)
-    throw new Error("Quiz ledger directory must not contain symlinks.");
-  return dir;
+  return resolveQuizLedgerDirectory(dir);
 }
 async function read(
   config: QuizAttemptGuardConfig,
