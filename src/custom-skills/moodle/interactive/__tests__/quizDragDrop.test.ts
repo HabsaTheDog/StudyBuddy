@@ -57,6 +57,10 @@ async function fixture(run: (client: ReturnType<typeof createPlaywrightBrowserCl
 const answer: AnswerSpec = { confidence:0.99, citations:["Visible diagram"], risk_flags:[],
   control_answers:[{control_id:"q42:1_p1",answer:"1",selected:false},{control_id:"q42:1_p2",answer:"2",selected:false}] };
 
+// These negative cases deliberately exhaust the production four-second widget
+// readiness wait. Allow Chromium startup/teardown without changing that bound.
+const readinessRejectionTestTimeout = 10_000;
+
 describe("Moodle image drag and drop", () => {
   it("waits for Moodle's asynchronously created visible zones before extracting and using the existing UI adapter", async () => {
     await fixture(async (client) => {
@@ -92,7 +96,7 @@ describe("Moodle image drag and drop", () => {
       ).toEqual(["2", "1"]);
       expect(await client.evalJson("JSON.stringify(Boolean(window.submitted))")).toBe(false);
     }, "never");
-  });
+  }, readinessRejectionTestTimeout);
 
 
   it("extracts the complete response surface, captures its image, and persists a keyboard swap in the form", async () => {
@@ -206,8 +210,12 @@ describe("Moodle image drag and drop", () => {
       })())`);
       const q=(await extractQuizPage(client)).questions[0];
       expect(q.response_model?.support).toBe('adapter_required');
+      expect(q.controls).toEqual([]);
+      expect(await fillVisibleQuestion(client,q,answer)).toMatchObject({filled:false});
+      expect(await client.evalJson("JSON.stringify([...document.querySelectorAll('input.placeinput')].map(i=>i.value))")).toEqual(["2","1"]);
+      expect(await client.evalJson("JSON.stringify(Boolean(window.submitted))")).toBe(false);
     });
-  });
+  }, readinessRejectionTestTimeout);
 
   it("binds per-choice query variants and external public source URLs without fetching or exposing auth values", async () => {
     await fixture(async client => {

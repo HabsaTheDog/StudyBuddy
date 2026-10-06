@@ -439,6 +439,18 @@ claims. These repairs are local-only and await holistic packaged acceptance.
 
 ## Freeze policy
 
+Drag/drop release CI fixture repair (2026-10-07): `b514412` resolves the graph
+timeout and serializes Windows files. Its sole remaining Windows failure is the
+reusable conflicting-clone test exceeding default five seconds; the production
+readiness loop deliberately spends four seconds rejecting all three ambiguous
+clone variants and the never-initialized widget. Use a scoped ten-second test
+budget for those four negative cases, preserving the production bound. Strengthen
+clone assertions to require no controls, refused fill, unchanged answers and no
+final submission. Ubuntu and all other required checks passed on `b514412`;
+Windows recorded 1,809 pass/20 existing skips in 458.45s. Retain failed evidence
+and require fresh exact-head CI; no product behavior or permission change.
+Local drag/drop17/17 (19.70s), root TypeScript and independent review pass.
+
 Windows release CI repair (2026-10-07): `9adc95f` passed Ubuntu and all other
 required checks; Windows passed 1,809 tests/20 existing skips but its real graph
 render fixture exceeded 30 seconds. Logs show file concurrency despite the

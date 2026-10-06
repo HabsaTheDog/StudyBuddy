@@ -68,6 +68,18 @@ deadline inside a 60-second test budget. Graph33/33 (9.77s), root TypeScript and
 five workflow/security tool checks pass locally. Runtime behavior and validation
 retry limits are unchanged. Retain the failed run and require fresh Windows CI.
 
+On `b514412`, Windows serialization and all graph tests passed; Ubuntu and other
+required checks passed again. The sole Windows failure was the conflicting
+reusable drag/drop clone fixture exceeding the default five-second timeout
+(1,809 pass/20 existing skips, 458.45s). Production intentionally spends up to
+four seconds checking incomplete or ambiguous widgets; sibling rejection cases
+took about 4.24s including Chromium overhead. Only those four negative cases now
+have a ten-second test budget. Production readiness and safety stay unchanged;
+conflicting-clone tests additionally verify no controls, refusal to fill,
+unchanged hidden responses and no final submission. Fresh exact-head CI remains
+required. Local drag/drop17/17 (19.70s), root TypeScript and independent review
+pass.
+
 ## Gates
 
 Pending: protected-branch CI and security; exact merged
