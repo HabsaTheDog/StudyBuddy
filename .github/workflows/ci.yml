@@ -38,7 +38,7 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
-      - uses: typst-community/setup-typst@40d32bb6ccb235bd7f5164cb47cfd40a5ea3a314 # v5
+      - uses: typst-community/setup-typst@fee4b65b091cc546f02ce3be15fad8760f38a108 # v5.3.0
         with:
           typst-version: 0.15.0
       - run: npm ci
@@ -106,7 +106,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
-      - uses: voidzero-dev/setup-vp@313600b80b104eadebb9111787d37a2e83e014ca # v1.17.0
+      - uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
         with:
           working-directory: t3code-fork
           node-version-file: package.json
