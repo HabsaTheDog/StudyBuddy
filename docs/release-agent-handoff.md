@@ -1,5 +1,14 @@
 # Release-agent entry point
 
+## PR merge repair, 2026-10-06
+
+Reconcile the published squash history with the provider development branch;
+retain newer native behavior and the published source/security fixes. Dependency
+PR checks require fresh patched lockfiles and current-base validation. See
+[the integration record](pr-integration-2026-10-06.md). This remains the existing
+0.2.3-alpha development batch, without release freeze or packaged acceptance.
+
+
 ## Owner contract
 
 "Prepare the next release" means discover and reconcile the complete development

@@ -209,6 +209,19 @@ test("accepts final evidence only when its manifest and checksums are internally
   );
   await writeFile(distributionPath, distributionContents);
 
+  // An owner-testing alpha must contain the same integrity evidence without
+  // accidentally carrying the website's stable-channel promotion signal.
+  const checksumPath = join(value.directory, "SHA256SUMS");
+  const promotedChecksums = await readFile(checksumPath, "utf8");
+  await rm(distributionPath);
+  await writeFile(checksumPath, promotedChecksums.split("\n").filter(line => !line.endsWith("  distribution-ready.json")).join("\n"));
+  const unpromoted = { directory: value.directory, version: value.version, channel: "alpha", final: true, promoted: false };
+  assert.equal((await validateDesktopReleaseAssets(unpromoted)).assets.length, 10);
+  await assert.rejects(validateDesktopReleaseAssets({ ...unpromoted, promoted: true }), /missing=\[distribution-ready.json\]/);
+  await writeFile(distributionPath, distributionContents);
+  await assert.rejects(validateDesktopReleaseAssets(unpromoted), /unexpected=\[distribution-ready.json\]/);
+  await writeFile(checksumPath, promotedChecksums);
+
   await writeFile(join(value.directory, `Study-Buddy-${value.version}-x64.exe`), "tampered");
   await assert.rejects(
     validateDesktopReleaseAssets({

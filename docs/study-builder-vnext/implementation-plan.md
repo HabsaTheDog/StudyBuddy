@@ -2316,3 +2316,49 @@ User reports 9/10 after submitting the recovered first attempt. Audit all ten ar
 User confirms only Q5.3 changed True→False between reported9 and8.67. Withdraw the earlier Q5 culprit/literalFalse recommendation for this Moodle item; the controlled comparison supports True as its accepted answer. Current authenticated overview shows both attempts completed, best-attempt grading, no attempts left, review available6October23:59. No tool may change/start/submit anything. The original one-point loss is not proven; native Q2/4/6/7 multichoiceset is all-or-nothing (official MoodleDocs), and Q6 missing−∞ is a plausible full-point author-key conflict with explicit real domain, not a verified key. In bounded campaign quiz-grading-metadata, add only native-proven all-or-nothing metadata/conditional selected-and-excluded option check to existing question packets, leave all other grading methods/points/keys unknown, and correct the report/development handoff. No extra model stage, heuristic answer rewriting, institution/course matcher or answer authorization. Verify identical checkbox controls with known versus standard/unknown types; preserve old score evidence and actual first-attempt archives.
 
 Scoped checkpoint: native grading metadata implemented without changing selections or adding solver stages; 93 relevant regression tests across three files pass, root TypeScript and diff checks pass. Controlled Q5 score evidence is recorded, prior False recommendation withdrawn. Official attribution of the original full-point deduction remains pending visible Moodle feedback; no live quiz, desktop, or release acceptance is claimed.
+
+
+## Preserved 0.2.2 source reliability integration
+
+The following source-reliability checkpoints came from the published 0.2.2 line and remain part of the development integration.
+
+## Source search and deadline reliability
+
+- [x] Retain one original time boundary across calendar, acquisition and quiz
+  selection, including shared-month ranges and unsettled source dates.
+- [x] Resolve uncertain course/activity names through bounded, read-only semantic
+  search with observed identities, source quotations and verified caching.
+- [x] Enumerate all enrolled courses and all selected-course activities. Default
+  broad obligation requests to the source-confirmed current semester; include
+  historical enrollments only when explicitly requested and persist exclusions.
+- [x] Verify deadline, personal-status and resource-purpose evidence, including
+  embedded metadata and actual failed-source handling; stop after three failed
+  validation attempts and expose genuine gaps.
+- [x] Publish meaningful source progress and preserve the canonical-answer
+  handoff; recover desktop stream subscriptions after heartbeat reconnects.
+- [x] Verify the current-semester and colloquial mathematics cases in the actual
+  installed desktop; retain source and UI evidence separately.
+- [x] Reject additive inclusion phrases used as whole-request restrictions,
+  preserve explicit historical inclusion for named subjects, and verify the
+  interpretation independently before narrowing a course query.
+- [x] Execute the explicit historical-enrollment desktop verification and record
+  its actual partial result: all enrollments inventoried, seven unresolved facts.
+- [x] Obtain complete historical source coverage and reliable long-run desktop
+  delivery before promoting this candidate as fully accepted.
+
+See [validation results](../semantic-source-search-validation.md).
+
+## Remaining reliability completion
+
+- [x] Distinguish opening/grading metadata from closing instructions in undated-task validation.
+- [x] Reconcile already-read source evidence and positive resource purpose without hiding actual gaps.
+- [x] Preserve the canonical answer and reliable desktop terminal delivery.
+- [x] Patch dependency advisories with isolated installs and run repository checks.
+- [x] Recover misdirected external task links through bounded observed navigation, with native identifier matching, independent semantic review when ambiguous, and rejection of optional cookies only.
+- [x] Reject generic external-home evidence in direct classification, model extraction and legacy proof caching.
+- [x] Recover transient empty external/embedded metadata within the existing three-acquisition limit; retain authentication and quiz boundaries.
+- [x] Require task-focused external source content; a matching identifier in a chapter link list cannot satisfy acquisition or cache validation.
+- [x] Keep date fields empty for non-deadline facts and reject unsupported legacy date quotations.
+- [x] Distinguish a cited textbook used to prepare/consult for a separate test from an assessed reading deliverable; verify actual failed resource cards and negative reading/interactive cases.
+- [x] Require actual task/deadline metadata with the requested external identity; reject title-only embedded launch shells and retry them within the existing acquisition limit. Avoid re-navigation after a fresh correct landing.
+- [x] Pass historical/current-semester/Mathe desktop gates before local promotion (R37: 46/1,030, 8/101, 1/16; exact canonical desktop answers and independent source review passed).

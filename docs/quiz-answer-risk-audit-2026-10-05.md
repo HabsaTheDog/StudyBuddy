@@ -4,7 +4,7 @@
 
 Alle zehn archivierten Fragen wurden nochmals unabhängig geprüft, einschließlich nativer Fragetypen, ursprünglicher Antwortpläne, Reload-Controls, Originalgrafiken und Drag-and-drop-Zonen. Kein reproduzierter Übertragungs- oder Label-/Value-Fehler. Der konkrete ursprüngliche Punktabzug ist weiterhin nicht direkt nachgewiesen.
 
-Die authentifizierte [Quizübersicht](https://moodle.technikum-wien.at/mod/quiz/view.php?id=2318134) zeigt inzwischen beide Versuche beendet, keine weiteren Versuche zugelassen und die Bewertungsmethode **Bester Versuch**. Unter dieser Methode bleibt der bessere erste Versuch maßgeblich. Rückmeldungen sind weiterhin erst **6.10.2026 23:59 verfügbar**; es gibt keinen entdeckten Review-Link oder Einzelnoten. Die Noten 9 und 8,67 sowie die einzige Änderung stammen aus der bestätigten Nutzerangabe, nicht aus einer unabhängig gelesenen Einzelbewertung. Die Tools haben in dieser Untersuchung keinen Versuch gestartet oder eine Antwort verändert.
+Die authentifizierte [Quizübersicht](https://moodle.example.invalid/mod/quiz/view.php?id=REDACTED) zeigt inzwischen beide Versuche beendet, keine weiteren Versuche zugelassen und die Bewertungsmethode **Bester Versuch**. Unter dieser Methode bleibt der bessere erste Versuch maßgeblich. Rückmeldungen sind weiterhin erst **6.10.2026 23:59 verfügbar**; es gibt keinen entdeckten Review-Link oder Einzelnoten. Die Noten 9 und 8,67 sowie die einzige Änderung stammen aus der bestätigten Nutzerangabe, nicht aus einer unabhängig gelesenen Einzelbewertung. Die Tools haben in dieser Untersuchung keinen Versuch gestartet oder eine Antwort verändert.
 
 ## Prüfung aller zehn Fragen
 
@@ -39,11 +39,11 @@ Q2, Q4 und Q7 wurden samt ausgewählten und ausgeschlossenen Checkboxen nochmals
 
 Wichtig beim späteren Review: **angezeigte Frage 6 = Slot 9**, question-2350411-9 / q2350411:9_choice*. Die angezeigte Frage 9 ist dagegen Slot 5. Der Agent darf diese Nummern nicht verwechseln. Erst die sichtbare Einzelbewertung kann Q6 bestätigen oder ausschließen; falls kein Item null hat, müssen die tatsächlichen Teilnoten anderer Fragen zusammengezählt werden.
 
-Der [zugewiesene Studienbrief 22](https://moodle.technikum-wien.at/mod/resource/view.php?id=2318214), Abschnitt 22.3, definiert sowohl unendliche Grenzen als auch unbeschränkte Integranden als singuläre Fälle. Er liefert jedoch keinen gelesenen offiziellen Antwortschlüssel für die widersprüchliche Q6-Auswahl.
+Der [zugewiesene Studienbrief 22](https://moodle.example.invalid/mod/resource/view.php?id=REDACTED), Abschnitt 22.3, definiert sowohl unendliche Grenzen als auch unbeschränkte Integranden als singuläre Fälle. Er liefert jedoch keinen gelesenen offiziellen Antwortschlüssel für die widersprüchliche Q6-Auswahl.
 
 ## Umfang der Altfragenprüfung
 
-Geprüft wurden sämtliche zehn gespeicherten Fragen dieses Versuchs. Zusätzlich wurde der aktuelle [Kurskatalog](https://moodle.technikum-wien.at/course/view.php?id=33590) auf weitere Altfragen-/Altprüfungsbestände durchsucht; ein separat so benannter Bestand ist dort nicht gefunden worden. Andere Minitests wurden nicht gestartet. Eine vollständige geheime Moodle-Fragenbank oder künftig erst freigegebene Rückmeldungen werden hier nicht als geprüft ausgegeben.
+Geprüft wurden sämtliche zehn gespeicherten Fragen dieses Versuchs. Zusätzlich wurde der aktuelle [Kurskatalog](https://moodle.example.invalid/course/view.php?id=REDACTED) auf weitere Altfragen-/Altprüfungsbestände durchsucht; ein separat so benannter Bestand ist dort nicht gefunden worden. Andere Minitests wurden nicht gestartet. Eine vollständige geheime Moodle-Fragenbank oder künftig erst freigegebene Rückmeldungen werden hier nicht als geprüft ausgegeben.
 
 ## Implementierte Verbesserung und ihre Grenzen
 

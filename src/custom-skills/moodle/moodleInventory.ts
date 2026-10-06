@@ -186,7 +186,7 @@ export async function readActivityIndex(page: Page, course: EnrolledCourse, kind
   return new Map(rows.map(([url, text]) => [url, redactSourceText(text)]));
 }
 
-export async function readActivityLanding(page: Page, activity: ActivityCard): Promise<string> {
+export async function readActivityLanding(page: Page, activity: ActivityCard, options?: { navigateExternal?: (page: Page) => Promise<boolean>; needsExternalNavigation?: (landing: string) => boolean }): Promise<string> {
   const url = new URL(activity.url);
   if (!/\/mod\/[a-z][a-z0-9_]*\/view\.php$/.test(url.pathname) || !/^\d+$/.test(url.searchParams.get("id") ?? "")) throw new Error("Not a read-only activity landing URL");
   const popupPromise = activity.kind === "lti" ? page.waitForEvent("popup", { timeout: 5000 }).catch(() => null) : null;
@@ -208,10 +208,19 @@ export async function readActivityLanding(page: Page, activity: ActivityCard): P
     if (embeddedActivity && !parts.length && /^(?:Abschlussbedingungen|Completion requirements)?\s*$/i.test(text)) throw new Error("Embedded activity metadata unavailable; empty module shell is not deadline evidence");
     return redactSourceText([text, ...parts].filter(Boolean).join("\n"));
   }
+  const externalParts = async (source: Page, includeMain: boolean): Promise<string[]> => {
+    let parts = await readExternalFrames(source, includeMain);
+    if (options?.navigateExternal && (!options.needsExternalNavigation || options.needsExternalNavigation(redactSourceText([text, ...parts].join("\n"))))) {
+      if (!await options.navigateExternal(source)) throw new Error("External activity metadata unavailable; No verified navigation to the requested external activity");
+      parts = await readExternalFrames(source, includeMain);
+      if (options.needsExternalNavigation?.(redactSourceText([text, ...parts].join("\n")))) throw new Error("External activity metadata unavailable; requested task content is not ready");
+    }
+    return parts;
+  };
   const popup = await popupPromise;
   if (!popup) {
     if (/neuen Fenster|new window/i.test(text)) throw new Error("External activity content was not opened; launch page is not deadline evidence");
-    const parts = await readExternalFrames(page, false);
+    const parts = await externalParts(page, false);
     if (!parts.length) throw new Error("External activity metadata unavailable; empty launch page is not deadline evidence");
     return redactSourceText(`${text}\n${parts.join("\n")}`);
   }
@@ -222,7 +231,7 @@ export async function readActivityLanding(page: Page, activity: ActivityCard): P
     // attempt, login, consent or submission control.
     await popup.waitForTimeout(1500);
     if (await popup.locator("input[type='password']:visible").count()) throw new Error("External activity requires authentication");
-    const parts = await readExternalFrames(popup, true);
+    const parts = await externalParts(popup, true);
     if (!parts.length) throw new Error("External activity metadata unavailable");
     return redactSourceText(`${text}\n${parts.join("\n")}`);
   } finally { await popup.close().catch(() => undefined); }

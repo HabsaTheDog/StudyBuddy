@@ -99,7 +99,7 @@ This was not a substitute browser tab or packaged-release acceptance.
 Fresh Quick Chat `88bc15fc-a911-40a3-ae8c-bd072ccb3aa8` used the base Balanced
 profile, unchanged Full access / Help during quizzes settings, and one prompt:
 
-> Please fill both Elektrotechnik 2 self-check quizzes and leave them ready for me to review, without final submission: https://moodle.technikum-wien.at/mod/quiz/view.php?id=2246315 and https://moodle.technikum-wien.at/mod/quiz/view.php?id=2246333.
+> Please fill both Elektrotechnik 2 self-check quizzes and leave them ready for me to review, without final submission: https://moodle.example.invalid/mod/quiz/view.php?id=REDACTED and https://moodle.example.invalid/mod/quiz/view.php?id=REDACTED.
 
 No follow-up repair prompt was sent. The visible desktop turn completed in
 **5m 3s**, from 08:13:01 to 08:18:04 UTC. Both quiz workers overlapped and

@@ -14,7 +14,8 @@ export interface ObligationCourseResolution {
   unmatchedHints: string[];
 }
 
-const OBLIGATION_SIGNAL = /\b(?:haus(?:ü|ue)bung(?:en)?|homework|assignments?|aufgaben?|to[- ]?dos?|abgaben?|submission(?:s)?|erledigen|machen\s+muss|machen\s+soll|vorbereiten|prepare|complete)\b/i;
+const OBLIGATION_SIGNAL = /\b(?:haus(?:ü|ue)bung(?:en)?|homework|assignments?|aufgaben?|to[- ]?dos?|abgaben?|submission(?:s)?|erledigen|machen\s+muss|machen\s+soll)\b/i;
+const PREPARATION_QUESTION = /\b(?:what|which)\s+(?:(?:do|should|must)\s+i|i\s+(?:must|should|need\s+to|have\s+to))\s+(?:(?:need|have)\s+to\s+)?(?:prepare|complete)\b|\bwas\s+(?:muss|soll)\s+ich\b[^.!?]{0,48}\bvorbereiten\b/i;
 const DUE_LIST_SIGNAL = /\b(?:was|welche[rsn]?|what|which)\b.{0,48}\b(?:fällig|faellig|due)\b/i;
 const TEMPORAL_SIGNAL = /\b(?:heute|morgen|diese[rsn]?\s+woche|nächste[rsn]?\s+woche|naechste[rsn]?\s+woche|kommende[rsn]?\s+woche|today|tomorrow|this\s+week|next\s+week|deadline|frist|fällig|faellig|due)\b/i;
 const EXHAUSTIVE_SIGNAL = /\b(?:alles|alle[rsn]?|sämtliche[rsn]?|saemtliche[rsn]?|vollständig(?:e[rsn]?)?|vollstaendig(?:e[rsn]?)?|wirklich\s+alles|everything|all|complete(?:ly)?|every\s+course)\b/i;
@@ -26,7 +27,7 @@ export function classifyObligationDiscovery(prompt: string): ObligationDiscovery
   // Redundant semantic signals tolerate typos in one noun without fuzzy course matching.
   const listQuestion = /\b(?:welche\w*|was|alle\w*|what|which|all|list|show|zeige\w*)\b/i.test(prompt);
   const gradedOrDue = /\b(?:benotet\w*|bewertet\w*|graded|deadlines?|frist\w*|abgeben|fällig|faellig|due)\b/i.test(prompt);
-  const requested = OBLIGATION_SIGNAL.test(prompt) || DUE_LIST_SIGNAL.test(prompt) ||
+  const requested = OBLIGATION_SIGNAL.test(prompt) || PREPARATION_QUESTION.test(prompt) || DUE_LIST_SIGNAL.test(prompt) ||
     (listQuestion && gradedOrDue && !/\/mod\/(?:assign|quiz)\/view\.php/.test(prompt));
   const temporal = requested && TEMPORAL_SIGNAL.test(prompt);
   const namedCourse = requested && (NAMED_COURSE_SIGNAL.test(prompt) || /\/mod\/(?:assign|quiz)\/view\.php/.test(prompt));

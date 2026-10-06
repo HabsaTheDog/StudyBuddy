@@ -6,6 +6,15 @@ Release agents must start with [release-agent-handoff.md](release-agent-handoff.
 and reconcile this entire backlog with Git history, branches, PRs and dirty work.
 The owner does not need to enumerate changes or remember their regression tests.
 
+## PR merge repair, 2026-10-06
+
+Reconcile the published squash history with the provider development branch;
+retain newer native behavior and the published source/security fixes. Dependency
+PR checks require fresh patched lockfiles and current-base validation. See
+[the integration record](pr-integration-2026-10-06.md). This remains the existing
+0.2.3-alpha development batch, without release freeze or packaged acceptance.
+
+
 ## Current line
 
 - Version metadata: `0.2.3-alpha`

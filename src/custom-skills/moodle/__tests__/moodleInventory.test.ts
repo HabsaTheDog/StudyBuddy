@@ -1,3 +1,6 @@
+import { recoverFailedActivityRead, recoverMisroutedExternalActivity, type EvidenceCard } from "../obligationInventory.js";
+import { missingExternalTaskEvidence } from "../sourceEvidenceCache.js";
+import { moodleTestConfig } from "./support/moodleTestBlocks.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -6,6 +9,37 @@ import { readEnrolledCourses, readCourseActivities, readActivityIndex, readActiv
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch({ headless: true }); });
 afterAll(async () => { await browser?.close(); });
+
+it("retries a matching task shell whose embedded metadata was not ready after navigation", async () => {
+  const page = await browser.newPage(); let visits = 0;
+  const card: EvidenceCard = { id: 'lti-91', kind: 'lti', courseId: 12, course: 'Mechanics', label: '8.6 - Task ****', url: 'https://m.example/mod/lti/view.php?id=91', context: '', text: '', dates: [], index: '', landing: '', read: false, failed: false, readAttempts: 1 };
+  await page.route('https://m.example/**', r => { visits++; return r.fulfill({ contentType: 'text/html', body: `<main>Opened in a new window<script>window.open('https://tool.example/task');</script></main>` }); });
+  await page.context().route('https://tool.example/**', r => r.fulfill({ contentType: 'text/html', body: r.request().url().endsWith('/content')
+    ? '<main>Example 8.6 support forces. New exercise. Record results.<button onclick="throw Error(\'must not click\')">Submit answer</button></main>'
+    : `<main>8.6 - Required force under a loaded beam ****${visits > 1 ? '<iframe src="https://tool.example/content"></iframe>' : ''}</main>` }));
+  try {
+    await expect(readActivityLanding(page, card, { needsExternalNavigation: landing => missingExternalTaskEvidence({ ...card, read: true, landing }), navigateExternal: async () => true })).rejects.toThrow('External activity metadata unavailable');
+    card.failed = true; card.readError = 'External activity metadata unavailable; requested task content is not ready';
+    expect(await recoverFailedActivityRead(moodleTestConfig(), page, card)).toBe(true);
+    expect(card.readAttempts).toBe(2);
+    expect(missingExternalTaskEvidence(card)).toBe(false);
+    expect(card.landing).toContain('https://tool.example/content');
+  } finally { await page.close(); }
+}, 15000);
+
+it("does not navigate away when reacquiring an already-correct external task", async () => {
+  const page = await browser.newPage();
+  const card: EvidenceCard = { id: 'lti-91', kind: 'lti', courseId: 12, course: 'Mechanics', label: '8.6 - Task ****', url: 'https://m.example/mod/lti/view.php?id=91', context: '', text: '', dates: [], index: 'Due date: no deadline', landing: 'External source: https://tool.example/task\n8.6 - Required force under a loaded beam ****', read: true, failed: false, readAttempts: 1 };
+  await page.route('https://m.example/**', r => r.fulfill({ contentType: 'text/html', body: `<main>Opened in a new window<script>window.open('https://tool.example/task');</script></main>` }));
+  await page.context().route('https://tool.example/**', r => r.fulfill({ contentType: 'text/html', body: '<main>Example 8.6 support forces. New exercise. Record results.</main>' }));
+  try {
+    const model = { run: async () => { throw new Error('No model navigation or extraction is needed for verified direct evidence'); } };
+    const result = await recoverMisroutedExternalActivity(moodleTestConfig(), page, model, card);
+    expect(result?.disposition).toBe('no_deadline');
+    expect(card.readAttempts).toBe(2);
+    expect(missingExternalTaskEvidence(card)).toBe(false);
+  } finally { await page.close(); }
+}, 15000);
 
 it("serializes browser readers under the packaged tsx runtime", async () => {
   const script = `import {chromium} from 'playwright';
@@ -213,3 +247,23 @@ it("does not treat an embedded browser navigation error as successful deadline e
   await expect(readActivityLanding(page, { id: 'lti-91', kind: 'lti', courseId: 12, label: 'External reference', url: 'https://m.example/mod/lti/view.php?id=91', context: '', dates: [] })).rejects.toThrow('browser error page');
   await page.close();
 }, 15000);
+
+
+it("reopens a transient failed external frame once and retains the actual read evidence", async () => {
+  const page = await browser.newPage();
+  let requests = 0;
+  await page.route('https://m.example/**', r => r.fulfill({ contentType: 'text/html', body: `<main>Completion requirements<iframe src='https://retry.example/activity'></iframe></main>` }));
+  await page.context().route('https://retry.example/**', r => {
+    requests++;
+    return requests === 1 ? r.abort('failed') : r.fulfill({ contentType: 'text/html', body: '<body>External exercise: deadline 9 September 2026. Not submitted.</body>' });
+  });
+  const card: EvidenceCard = { id: 'lti-92', kind: 'lti', courseId: 12, course: 'Mechanics', label: 'External exercise', url: 'https://m.example/mod/lti/view.php?id=92', context: '', dates: [], index: '', landing: '', read: false, failed: false, readAttempts: 1 };
+  try { await readActivityLanding(page, card); throw new Error('Expected the injected transport failure'); }
+  catch (error) { card.failed = true; card.readError = (error as Error).message; }
+  expect(card.readError).toContain('browser error page');
+  expect(await recoverFailedActivityRead(moodleTestConfig(), page, card)).toBe(true);
+  expect(card).toMatchObject({ read: true, failed: false, readAttempts: 2 });
+  expect(card.landing).toContain('deadline 9 September 2026');
+  expect(requests).toBe(2);
+  await page.close();
+}, 20000);
