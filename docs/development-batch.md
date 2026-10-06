@@ -27,6 +27,12 @@ Exact CI Typst 0.15.0 reproduces three physical fixture pages; all 19 focused
 PDF/visual/image-evidence tests pass, including forced montage unavailability.
 Builder plan updated; platform CI and release acceptance remain distinct.
 
+Windows fixture portability: canonical temporary workspaces and native path
+separators match the application output. The selected-provider SDK test uses a
+real Node executable and controlled import fixture on both platforms, retaining
+argument, account isolation, secret filtering and event assertions. All 51
+focused tests pass; the final runtime fixture rerun passes 17/17.
+
 
 ## Current line
 

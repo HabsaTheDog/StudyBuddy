@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   createWorkflowModelRuntime,
   workflowModelBridgeEnvironment,
@@ -33,26 +34,28 @@ describe("selected-provider workflow execution", () => {
     bridge("codex", "catalog-current-model");
     const directory = await mkdtemp(path.join(os.tmpdir(), "workflow-cli-"));
     try {
-      const executable = path.join(directory, "provider-codex");
+      // Use a real executable on every OS; Windows cannot spawn a shebang file.
+      const executable = process.execPath;
+      const fixture = path.join(directory, "provider-codex.mjs");
       const capture = path.join(directory, "invocation.json");
-      await writeFile(executable, `#!/usr/bin/env node
-const fs = require("node:fs");
+      await writeFile(fixture, `import fs from "node:fs";
 fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify({args: process.argv.slice(2), home: process.env.CODEX_HOME, password: process.env.MOODLE_PASSWORD}));
 process.stdin.resume();
-process.stdin.on("end", () => {
-  for (const event of [
+await new Promise(resolve => process.stdin.on("end", resolve));
+const events = [
     {type:"thread.started",thread_id:"fixture"},
     {type:"turn.started"},
     {type:"item.completed",item:{id:"answer",type:"agent_message",text:"ok"}},
     {type:"turn.completed",usage:{input_tokens:12,cached_input_tokens:2,output_tokens:3}}
-  ]) process.stdout.write(JSON.stringify(event) + "\\n");
-});
+];
+await new Promise(resolve => process.stdout.write(events.map(event => JSON.stringify(event) + "\\n").join(""), resolve));
+process.exit(0);
 `);
-      await chmod(executable, 0o700);
       vi.stubEnv("STUDY_BUDDY_CODEX_PATH", executable);
       vi.stubEnv("MOODLE_PASSWORD", "portal-secret-canary");
       const runtime = createWorkflowModelRuntime({
-        env: { PATH: process.env.PATH!, CODEX_HOME: "/private/selected-codex-home" },
+        env: { PATH: process.env.PATH!, CODEX_HOME: "/private/selected-codex-home",
+          NODE_OPTIONS: `--import=${pathToFileURL(fixture).href}` },
       });
       const result = await runtime.startThread({
         model: "catalog-current-model", sandboxMode: "read-only", approvalPolicy: "never",

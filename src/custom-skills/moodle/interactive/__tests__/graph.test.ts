@@ -230,7 +230,7 @@ describe("interactive Moodle graph", () => {
     expect(result.permissionRequestPaths).toHaveLength(2);
     for (const file of result.permissionRequestPaths!) expect(await readFile(file, "utf8")).toBe("{}");
     expect(JSON.parse(await readFile(path.join(workspace, "interaction-result.json"), "utf8"))).toMatchObject({ requiredArtifacts: [
-      "quiz-review.typ", "quiz-review.json", "quizzes/quiz-1/quiz-permission-request.json", "quizzes/quiz-2/quiz-permission-request.json",
+      "quiz-review.typ", "quiz-review.json", path.join("quizzes", "quiz-1", "quiz-permission-request.json"), path.join("quizzes", "quiz-2", "quiz-permission-request.json"),
     ] });
   });
 

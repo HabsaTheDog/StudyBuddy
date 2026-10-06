@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, unlink, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, symlink, link, unlink, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -11,7 +11,8 @@ let workspace: string;
 let environment: NodeJS.ProcessEnv;
 let deliveries: string[];
 beforeEach(async () => {
-  workspace = await mkdtemp(path.join(os.tmpdir(), "direct-document-test-"));
+  // Windows TMP can use an 8.3 alias while owner paths use the canonical name.
+  workspace = await realpath(await mkdtemp(path.join(os.tmpdir(), "direct-document-test-")));
   environment = { ...process.env, STUDY_BUDDY_WORKSPACE: workspace,
     STUDY_BUDDY_DOCUMENT_OWNER_THREAD_ID: "owner-a", STUDY_BUDDY_WORKSPACE_KIND: "project",
     MOODLE_PASSWORD: "sentinel-portal-password", CIS_PASSWORD: "sentinel-other-password", TEST_API_KEY: "sentinel-api-key" };
