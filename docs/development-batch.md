@@ -439,6 +439,15 @@ claims. These repairs are local-only and await holistic packaged acceptance.
 
 ## Freeze policy
 
+Release preflight dependency-order repair (2026-10-07): PR53 merged at `e449e78`
+with all required source checks passing. Buildrun37548167424 failed two model
+policy parity tests because root release verification ran before the pinned UI
+workspace install; normal CI already installs that dependency first. Move the
+existing frozen UI install/audit before root `check:release` and add a scoped
+preflight ordering contract. No runtime, dependency bytes or release gates
+change. No installer was built; retain the failed run and require fresh protected
+CI, merge and an exact new merged-source build for `0.2.4-alpha`.
+
 Drag/drop release CI fixture repair (2026-10-07): `b514412` resolves the graph
 timeout and serializes Windows files. Its sole remaining Windows failure is the
 reusable conflicting-clone test exceeding default five seconds; the production
