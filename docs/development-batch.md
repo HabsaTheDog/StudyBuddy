@@ -166,6 +166,24 @@ exact-byte Windows/Fedora acceptance remain required. Packaging run37549939939
 succeeded on the prior source, with draft publication skipped; its unaccepted
 bundle remains retained rather than receiving transferable acceptance.
 
+Shared drag/drop browser fixture budget (2026-10-07): PR55's reviewed screenshot
+repair merged at `f87eaa6f`. Exact-head CI run37601685518 still timed out a
+different positive fixture, asynchronous visible zones, at 5,004ms (Windows
+1,809 pass/20 existing skips; all other required checks pass). The screenshot
+case passed in 2,430ms, and an explicitly bounded readiness rejection took
+5,049ms. All real-browser cases share fresh Chromium, loopback-server and awaited
+cleanup overhead, so apply one finite ten-second suite budget rather than adding
+positive-case allowances individually. Preserve the explicit negative readiness
+budgets, production four-second readiness bound and every PNG/header, keyboard
+swap, permission and no-submission assertion. No production change or retries.
+Focused suite passes 17/17 (20.11 seconds), TypeScript passes, and the focused
+process exits normally with no new Chromium processes in the before/after
+process inventory. This does not diagnose the precise CI stage or prove that all
+possible browser leaks are absent. Source follow-up is committed locally;
+independent review, push, protected CI/merge and a rebuilt merged candidate with
+exact-byte Windows/Fedora acceptance remain required. Successful unaccepted
+build37601707996 and every original failed CI/build record remain retained.
+
 ## Queued changes
 
 Local browser pairing for external agents (2026-10-06): authenticated owners
