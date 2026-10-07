@@ -94,6 +94,48 @@ no-submission checks remain intact. Focused drag/drop tests pass 17/17 locally
 (19.83 seconds), and root TypeScript passes. Independent review and fresh
 protected-head Windows CI remain required.
 
+PR55 merged the reviewed screenshot repair at
+`f87eaa6f023183c50d35127311085037e5936267`.
+[CI run 37601685518](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37601685518)
+passed every other required check but timed out a different drag/drop fixture:
+the asynchronous visible-zone test still had the default five-second budget
+(5,004ms; Windows 1,809 pass/20 existing skips, 517.55 seconds total). The repaired
+real screenshot case passed in 2,430ms; the explicitly bounded readiness
+rejection passed in 5,049ms. This demonstrates that per-positive-test budget
+repairs did not cover the common real-Chromium fixture lifecycle. The suite now
+inherits one finite ten-second budget while retaining the explicit negative
+readiness budgets and all image, swap, permission and no-submission assertions.
+Every browser fixture starts a loopback server and Chromium, then awaits browser
+and server closure in its cleanup path. There is no stage trace proving a runtime
+defect or resource leak; Vitest deadlines themselves do not cancel an unfinished
+fixture. Production readiness remains bounded at four seconds, and runtime code,
+test serialization, assertions, retries and test inclusion are unchanged.
+Focused tests pass 17/17 (20.11 seconds), root TypeScript passes, and the test
+process exits normally with no new Chromium processes in a before/after process
+inventory. This local observation does not establish leak absence in Windows CI.
+Independent review, fresh protected-head CI and a rebuilt candidate remain required.
+
+PR56's first
+[CI run 37603824007](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37603824007)
+passed drag/drop 17/17 and every other required check, but the real native
+attempt-metadata fixture in `quizAttemptGuard.test.ts` timed out at 5,006ms
+(Windows 1,809 pass/20 existing skips, 515.25 seconds). This different fixture
+starts Chromium, makes five localhost navigations with actual metadata
+assertions, then awaits browser/server cleanup. Discovery finds 13 root test
+files invoking real browser clients or Chromium, so isolated file allowances
+do not cover the shared Windows runner overhead. Root Vitest now uses one
+finite ten-second Windows default while Linux retains five seconds and its
+existing parallelism. Windows file serialization, explicit test/suite budgets,
+all assertions, test selection, retries and production safety deadlines remain
+unchanged. This is a test failure deadline, not browser cancellation or proof
+that the untraced CI stage is harmless. Local guard+drag/drop tests pass 33/33
+serially (20.91 seconds), TypeScript passes, and platform config readback verifies
+Windows ten-second/serial versus Linux five-second/parallel policies with
+identical inclusion/exclusion and unset retries. The focused process exits
+normally with the same before/after Chromium PID inventory. Fresh full Windows
+CI, independent review, protected merge and a new merged-source build remain
+required; no installer acceptance or promotion follows from these local checks.
+
 ## Gates
 
 PR53 merged through protected `master` at
@@ -115,6 +157,15 @@ packaged acceptance, and the failed exact-head Windows CI above prevents their
 promotion. The screenshot fixture follow-up needs reviewed protected CI/merge
 and a rebuilt candidate from the new merged SHA; retain this existing bundle and
 all earlier failed runs as historical evidence.
+
+[Packaging run 37601707996](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37601707996)
+also succeeded on `f87eaa6f`, including preflight, Windows/Linux installers and
+the immutable unpromoted bundle; draft publication was skipped. Its failed
+exact-head Windows CI prevents acceptance/promotion. Retain both successful
+build records and their failed CI evidence. The shared fixture-budget repair
+must be reviewed, merged through protected CI and rebuilt from its new merged
+SHA before exact-byte Windows/Fedora acceptance; prior bundle checks never
+transfer to the new artifact bytes.
 
 Pending: protected-branch CI and security; exact merged
 source build; full artifact hashes/manifests; clean Windows/Fedora installed

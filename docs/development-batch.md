@@ -166,6 +166,44 @@ exact-byte Windows/Fedora acceptance remain required. Packaging run37549939939
 succeeded on the prior source, with draft publication skipped; its unaccepted
 bundle remains retained rather than receiving transferable acceptance.
 
+Shared drag/drop browser fixture budget (2026-10-07): PR55's reviewed screenshot
+repair merged at `f87eaa6f`. Exact-head CI run37601685518 still timed out a
+different positive fixture, asynchronous visible zones, at 5,004ms (Windows
+1,809 pass/20 existing skips; all other required checks pass). The screenshot
+case passed in 2,430ms, and an explicitly bounded readiness rejection took
+5,049ms. All real-browser cases share fresh Chromium, loopback-server and awaited
+cleanup overhead, so apply one finite ten-second suite budget rather than adding
+positive-case allowances individually. Preserve the explicit negative readiness
+budgets, production four-second readiness bound and every PNG/header, keyboard
+swap, permission and no-submission assertion. No production change or retries.
+Focused suite passes 17/17 (20.11 seconds), TypeScript passes, and the focused
+process exits normally with no new Chromium processes in the before/after
+process inventory. This does not diagnose the precise CI stage or prove that all
+possible browser leaks are absent. Source follow-up is committed locally;
+independent review, push, protected CI/merge and a rebuilt merged candidate with
+exact-byte Windows/Fedora acceptance remain required. Successful unaccepted
+build37601707996 and every original failed CI/build record remain retained.
+
+Windows root test deadline policy (2026-10-07): PR56 CI run37603824007 passed
+the repaired drag/drop suite 17/17 and all other required checks, but a different
+file's native attempt-metadata browser test hit the five-second default (5,006ms;
+Windows 1,809 pass/20 existing skips, 515.25 seconds). That case launches fresh
+Chromium, performs five localhost navigations and metadata checks, then awaits
+browser/server cleanup. Root discovery found 13 files invoking real browser
+clients or Chromium, including mixed browser/filesystem suites. Configure a
+single finite Windows Vitest default of ten seconds; Linux keeps five seconds
+and normal file parallelism, Windows keeps serialized files. Existing explicit
+test/suite budgets still take precedence, with no retry, skip, assertion,
+inclusion, lifecycle or production deadline changes. Local guard+drag/drop
+checks pass 33/33 serially (20.91 seconds; formerly failing metadata case 240ms),
+TypeScript passes, and config readback verifies both platform policies plus
+unchanged selection/unset retries. The focused process exits normally with
+the same Chromium PID inventory before/after. This local observation does not
+prove the precise Windows failure stage or leak absence; fresh full Windows CI
+is mandatory. This follow-up is committed locally on the existing PR56 branch,
+not yet pushed/merged/accepted. All prior failures and unaccepted build records
+remain retained; a new reviewed merged-source build is still required.
+
 ## Queued changes
 
 Local browser pairing for external agents (2026-10-06): authenticated owners

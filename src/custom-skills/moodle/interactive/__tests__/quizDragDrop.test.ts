@@ -60,11 +60,14 @@ const answer: AnswerSpec = { confidence:0.99, citations:["Visible diagram"], ris
 // These negative cases deliberately exhaust the production four-second widget
 // readiness wait. Allow Chromium startup/teardown without changing that bound.
 const readinessRejectionTestTimeout = 10_000;
-// Real Chromium screenshot capture and temporary-file cleanup can exceed the
-// default five seconds on cold Windows CI runners. Keep this fixture bounded.
-const screenshotTestTimeout = 10_000;
+// Every browser fixture starts and closes Chromium plus a loopback HTTP server.
+// Windows CI exceeded the default five seconds in both screenshot (5,002ms)
+// and async-zone (5,004ms) cases; a passing readiness rejection took 5,049ms.
+// Allow a ten-second test deadline for that shared lifecycle, keeping production's
+// four-second readiness wait and the explicit rejection-case budgets unchanged.
+const browserFixtureTestTimeout = 10_000;
 
-describe("Moodle image drag and drop", () => {
+describe("Moodle image drag and drop", { timeout: browserFixtureTestTimeout }, () => {
   it("waits for Moodle's asynchronously created visible zones before extracting and using the existing UI adapter", async () => {
     await fixture(async (client) => {
       const q = (await extractQuizPage(client)).questions[0];
@@ -119,7 +122,7 @@ describe("Moodle image drag and drop", () => {
       expect(await client.evalJson("JSON.stringify([...document.querySelectorAll('input.placeinput')].map(i=>i.value))")).toEqual(["1","2"]);
       expect(await client.evalJson("JSON.stringify(Boolean(window.submitted))")).toBe(false);
     });
-  }, screenshotTestTimeout);
+  });
 
   it.each(["incomplete","unknown","reused"])("rejects a %s plan before changing any existing response", async kind=>{
     await fixture(async client=>{
