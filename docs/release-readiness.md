@@ -115,6 +115,27 @@ process exits normally with no new Chromium processes in a before/after process
 inventory. This local observation does not establish leak absence in Windows CI.
 Independent review, fresh protected-head CI and a rebuilt candidate remain required.
 
+PR56's first
+[CI run 37603824007](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37603824007)
+passed drag/drop 17/17 and every other required check, but the real native
+attempt-metadata fixture in `quizAttemptGuard.test.ts` timed out at 5,006ms
+(Windows 1,809 pass/20 existing skips, 515.25 seconds). This different fixture
+starts Chromium, makes five localhost navigations with actual metadata
+assertions, then awaits browser/server cleanup. Discovery finds 13 root test
+files invoking real browser clients or Chromium, so isolated file allowances
+do not cover the shared Windows runner overhead. Root Vitest now uses one
+finite ten-second Windows default while Linux retains five seconds and its
+existing parallelism. Windows file serialization, explicit test/suite budgets,
+all assertions, test selection, retries and production safety deadlines remain
+unchanged. This is a test failure deadline, not browser cancellation or proof
+that the untraced CI stage is harmless. Local guard+drag/drop tests pass 33/33
+serially (20.91 seconds), TypeScript passes, and platform config readback verifies
+Windows ten-second/serial versus Linux five-second/parallel policies with
+identical inclusion/exclusion and unset retries. The focused process exits
+normally with the same before/after Chromium PID inventory. Fresh full Windows
+CI, independent review, protected merge and a new merged-source build remain
+required; no installer acceptance or promotion follows from these local checks.
+
 ## Gates
 
 PR53 merged through protected `master` at
