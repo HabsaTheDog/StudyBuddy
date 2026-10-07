@@ -152,6 +152,20 @@ The runtime guard is unchanged. Nine actual CLI integration tests,23 existing
 contract/asset tests, TypeScript and independent review pass. Original CI failure
 logs remain retained; fresh exact-head CI is pending before packaging.
 
+Release screenshot fixture repair (2026-10-07): protected master `0021a20c`
+CI run37549930023 passed Ubuntu, pinned UI and repository policy; Windows passed
+1,809 tests with 20 existing skips but the positive real screenshot/keyboard-swap
+fixture exceeded its default five-second deadline (5,002ms). The identical
+fixture passed in 582ms in PR54's earlier Windows CI run37548732674. Give only
+this fixture a bounded ten-second budget and verify the actual PNG signature in
+addition to its non-empty image, keyboard plan and no-final-submission checks.
+Production behavior and widget readiness bounds remain unchanged. Local focused
+drag/drop checks pass 17/17 (19.83 seconds) and root TypeScript passes. This is a
+local committed follow-up; independent review, push, protected CI/merge and rebuilt
+exact-byte Windows/Fedora acceptance remain required. Packaging run37549939939
+succeeded on the prior source, with draft publication skipped; its unaccepted
+bundle remains retained rather than receiving transferable acceptance.
+
 ## Queued changes
 
 Local browser pairing for external agents (2026-10-06): authenticated owners

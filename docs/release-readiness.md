@@ -1,6 +1,6 @@
 # 0.2.4-alpha release contract
 
-Decision: **BLOCKED — preparation in progress; no exact packaged candidate yet.**
+Decision: **BLOCKED — source CI fixture follow-up required; existing packaged bundle is unaccepted.**
 
 - Version/channel: `0.2.4-alpha`, GitHub prerelease; intended website stable
   download promotion only after all exact-byte gates pass.
@@ -80,6 +80,20 @@ unchanged hidden responses and no final submission. Fresh exact-head CI remains
 required. Local drag/drop17/17 (19.70s), root TypeScript and independent review
 pass.
 
+On protected `master` commit `0021a20c607bc684d0b884dcadd03303b0504eff`,
+[CI run 37549930023](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37549930023)
+passed Ubuntu 1,823/7 existing skips, pinned UI and repository policy, but Windows
+passed 1,809/20 existing skips and timed out the real screenshot/keyboard-swap
+fixture at its default five-second budget (5,002ms). The same unchanged fixture
+passed in 582ms on the preceding PR54 Windows run37548732674. The failure has no
+behavioral assertion failure or stage timing, so fixture/resource overhead is the
+supported diagnosis, not a proven runtime regression. Only this positive
+screenshot test now receives a bounded ten-second allowance; the actual PNG
+signature is additionally checked. Existing keyboard response, permission and
+no-submission checks remain intact. Focused drag/drop tests pass 17/17 locally
+(19.83 seconds), and root TypeScript passes. Independent review and fresh
+protected-head Windows CI remain required.
+
 ## Gates
 
 PR53 merged through protected `master` at
@@ -92,6 +106,15 @@ and audit before `check:release`, preserving every gate, and add a focused
 preflight ordering contract. This source follow-up needs protected CI/merge;
 the final candidate must be rebuilt from that new merged SHA. No packaged
 acceptance or publication has occurred.
+
+PR54 fixed that preflight dependency ordering and merged at `0021a20c`.
+[Packaging run37549939939](https://github.com/HabsaTheDog/StudyBuddy/actions/runs/37549939939)
+then passed preflight, both installer builds, updater completeness and immutable
+unpromoted bundle assembly. Draft publication was skipped. These bytes have no
+packaged acceptance, and the failed exact-head Windows CI above prevents their
+promotion. The screenshot fixture follow-up needs reviewed protected CI/merge
+and a rebuilt candidate from the new merged SHA; retain this existing bundle and
+all earlier failed runs as historical evidence.
 
 Pending: protected-branch CI and security; exact merged
 source build; full artifact hashes/manifests; clean Windows/Fedora installed

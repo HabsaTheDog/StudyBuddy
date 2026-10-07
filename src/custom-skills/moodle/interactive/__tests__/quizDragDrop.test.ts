@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -60,6 +60,9 @@ const answer: AnswerSpec = { confidence:0.99, citations:["Visible diagram"], ris
 // These negative cases deliberately exhaust the production four-second widget
 // readiness wait. Allow Chromium startup/teardown without changing that bound.
 const readinessRejectionTestTimeout = 10_000;
+// Real Chromium screenshot capture and temporary-file cleanup can exceed the
+// default five seconds on cold Windows CI runners. Keep this fixture bounded.
+const screenshotTestTimeout = 10_000;
 
 describe("Moodle image drag and drop", () => {
   it("waits for Moodle's asynchronously created visible zones before extracting and using the existing UI adapter", async () => {
@@ -105,13 +108,18 @@ describe("Moodle image drag and drop", () => {
       expect(q.response_model).toMatchObject({adapter:"drag-drop-image",support:"supported",controlCount:2});
       expect(q.controls[0]).toMatchObject({control_id:"q42:1_p1",value:"2",options:[{value:"1",text:"Alpha"},{value:"2",text:"Beta"}]});
       const dir=await mkdtemp(path.join(os.tmpdir(),"quiz-image-"));
-      try { const file=path.join(dir,"question.png"); await client.captureQuestionImage!(q.question_id,file); expect((await stat(file)).size).toBeGreaterThan(0); }
+      try {
+        const file=path.join(dir,"question.png");
+        await client.captureQuestionImage!(q.question_id,file);
+        expect((await stat(file)).size).toBeGreaterThan(0);
+        expect((await readFile(file)).subarray(0,8)).toEqual(Buffer.from([137,80,78,71,13,10,26,10]));
+      }
       finally { await rm(dir,{recursive:true,force:true}); }
       expect(await fillVisibleQuestion(client,q,answer)).toMatchObject({filled:true,reason:"filled-dragdrop-keyboard-plan"});
       expect(await client.evalJson("JSON.stringify([...document.querySelectorAll('input.placeinput')].map(i=>i.value))")).toEqual(["1","2"]);
       expect(await client.evalJson("JSON.stringify(Boolean(window.submitted))")).toBe(false);
     });
-  });
+  }, screenshotTestTimeout);
 
   it.each(["incomplete","unknown","reused"])("rejects a %s plan before changing any existing response", async kind=>{
     await fixture(async client=>{
