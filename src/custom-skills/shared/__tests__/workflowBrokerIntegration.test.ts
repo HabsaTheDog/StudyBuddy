@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -57,8 +57,16 @@ describe("coordinated native document workflow", () => {
         status: "prepared",
         retry_count: 0,
       });
+      // Windows temp paths may use an 8.3 alias while the runtime returns
+      // the canonical path. Keep the real owner-tree assertion on the same directory.
       expect(prepared.runDir).toContain(
-        path.join(workspace, "study-buddy-data", "threads", "stable-owner", "direct-documents"),
+        path.join(
+          await realpath(workspace),
+          "study-buddy-data",
+          "threads",
+          "stable-owner",
+          "direct-documents",
+        ),
       );
       const state = JSON.parse(
         await readFile(path.join(prepared.runDir, "direct-document.json"), "utf8"),

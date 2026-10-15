@@ -1,5 +1,17 @@
 # Study Buddy Development Batch
 
+## Windows workspace-alias test portability, 2026-10-15
+
+Root PR #62 Windows verification completed real document preparation, but the
+owner-tree assertion compared the temporary directory's `RUNNER~1` short-name
+alias against the runtime's canonical long path. Canonicalize only the expected
+workspace prefix with `realpath`; keep raw input, real spawning and every
+owner/state/artifact assertion. No product behavior, skip or timeout changes.
+The focused integration and root typecheck pass locally, independent review
+cleared the unchanged ownership boundary, and Windows CI must verify the fix.
+UI PR #24 is merged with a tree identical to the tested public release pin.
+
+
 ## Standalone UI CI integration ownership repair, 2026-10-15
 
 UI PR #24's initial Test job failed because a real document-preparation integration

@@ -79,3 +79,9 @@ preparation integration case without its parent source/template fixture. The
 case now lives in the coordinated root suite with all ten assertions and real
 spawning preserved. Root integration 1/1, UI broker cases 84/84, root types and
 UI check/all 13 typechecks pass; fresh exact-commit CI remains required.
+
+Windows source verification found a short-name versus canonical-long-name
+workspace comparison in that relocated test. Only its expected owner prefix now
+uses `realpath`. Focused integration/root types and independent review pass;
+fresh Windows CI is pending. All remaining ownership and artifact assertions
+stay intact.
