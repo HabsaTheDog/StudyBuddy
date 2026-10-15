@@ -1,5 +1,20 @@
 # Study Buddy Development Batch
 
+## PR review follow-up, 2026-10-15
+
+Resolved both automated findings in UI PR #24. Configured Claude homes now add
+`.local/bin` consistently for installation, discovery, authentication and runtime,
+while preserving explicit PATH/binary precedence. Older server responses without
+optional discovery metadata retain usable setup actions.
+
+UI `681e38434b1f6873219c06f8c6ede5ac5f6f6e0a` is committed, pushed and remotely verified
+(frontend `e167aaea5`, backend `681e38434`). Focused backend and existing Claude
+runtime regressions pass 101/101; onboarding browser cases pass 15/15. Full UI
+format/lint and all 13 workspace typechecks pass; independent review cleared.
+The root pin is updated with this entry. Required fresh CI, merges, exact-package
+Windows/Fedora acceptance and publication remain pending.
+
+
 ## Provider recognition hotfix, 2026-10-15
 
 The actual latest public version is `0.2.4-alpha`, root

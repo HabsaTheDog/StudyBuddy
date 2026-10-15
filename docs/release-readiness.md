@@ -41,10 +41,10 @@ not silently close those unrelated findings.
 
 | Gate | Status | Required evidence |
 | --- | --- | --- |
-| Focused provider regressions and independent review | Pass (source) | 84 focused cases; independent review cleared current binary/environment and managed PATH parity; installed restart remains packaged acceptance |
+| Focused provider regressions and independent review | Pass (source) | Initial 84 focused cases; review follow-ups pass 101 backend/Claude runtime cases and 15 onboarding browser cases. Independent review cleared custom HOME discovery and legacy metadata compatibility; installed restart remains packaged acceptance |
 | Root/UI deterministic source checks | Pass (local) | 23 release cases; 82 Markdown local links, public-tree, licenses, SBOM, root types/audit; UI full check, 13 typechecks and dependency audit pass |
 | Protected source CI and security | Pending | Windows/Ubuntu Verify, pinned UI, policy, Gitleaks and CodeQL; reviewed audit dispositions |
-| Reviewed UI pushed before root pin | UI pass; root pending | UI `a7bb21cdced52449d02f78867b51c97c5200e948` remotely verified; [PR #24](https://github.com/HabsaTheDog/t3code/pull/24); root PR follows |
+| Reviewed UI pushed before root pin | UI pass; root pending | UI `681e38434b1f6873219c06f8c6ede5ac5f6f6e0a` remotely verified; [PR #24](https://github.com/HabsaTheDog/t3code/pull/24); root PR follows |
 | Protected default-branch merge | Pending | Final root/UI commits identical to reviewed source |
 | Immutable unpromoted package | Pending | Exact build run, manifest, SBOMs, updater payloads and SHA256SUMS |
 | Clean Windows installed acceptance | Pending | Exact artifact identity, mandatory scenarios and targeted preinstalled provider regression |
