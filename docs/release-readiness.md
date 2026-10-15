@@ -44,7 +44,7 @@ not silently close those unrelated findings.
 | Focused provider regressions and independent review | Pass (source) | Initial 84 focused cases; review follow-ups pass 101 backend/Claude runtime cases and 15 onboarding browser cases. Independent review cleared custom HOME discovery and legacy metadata compatibility; installed restart remains packaged acceptance |
 | Root/UI deterministic source checks | Pass (local) | 23 release cases; 82 Markdown local links, public-tree, licenses, SBOM, root types/audit; UI full check, 13 typechecks and dependency audit pass |
 | Protected source CI and security | Pending | Windows/Ubuntu Verify, pinned UI, policy, Gitleaks and CodeQL; reviewed audit dispositions |
-| Reviewed UI pushed before root pin | UI pass; root pending | UI `681e38434b1f6873219c06f8c6ede5ac5f6f6e0a` remotely verified; [PR #24](https://github.com/HabsaTheDog/t3code/pull/24); root PR follows |
+| Reviewed UI pushed before root pin | UI pass; root pending | UI `0657031d8d889f69f82a528524010f7bc913939c` remotely verified; [PR #24](https://github.com/HabsaTheDog/t3code/pull/24); root PR follows |
 | Protected default-branch merge | Pending | Final root/UI commits identical to reviewed source |
 | Immutable unpromoted package | Pending | Exact build run, manifest, SBOMs, updater payloads and SHA256SUMS |
 | Clean Windows installed acceptance | Pending | Exact artifact identity, mandatory scenarios and targeted preinstalled provider regression |
@@ -71,3 +71,11 @@ verify the public downloads, then create the reviewed `distribution-ready.json`
 marker and verify website selection and updater discovery. Never alter public
 0.2.4 bytes or tags. A website source/deployment change is required only if the
 existing selector cannot expose the newly accepted promotion contract.
+
+## Source CI triage
+
+The standalone UI suite originally included a cross-repository real document
+preparation integration case without its parent source/template fixture. The
+case now lives in the coordinated root suite with all ten assertions and real
+spawning preserved. Root integration 1/1, UI broker cases 84/84, root types and
+UI check/all 13 typechecks pass; fresh exact-commit CI remains required.

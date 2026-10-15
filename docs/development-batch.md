@@ -1,5 +1,21 @@
 # Study Buddy Development Batch
 
+## Standalone UI CI integration ownership repair, 2026-10-15
+
+UI PR #24's initial Test job failed because a real document-preparation integration
+case assumed the parent runtime/templates existed in a standalone UI checkout.
+Moved that case into the parent shared integration suite, which already installs
+and exercises both pinned repositories. All ten assertions, real broker and
+packaged CLI execution, cleanup and the 20-second test budget remain intact;
+no test is skipped and product/runtime code is unchanged.
+
+UI `0657031d8d889f69f82a528524010f7bc913939c` is committed, pushed and remotely verified.
+The parent commit adds the relocated test and updates that pin. The real root
+integration passes 1/1, UI broker suites 84/84, root typecheck, full UI check and
+all 13 workspace typechecks pass; independent ownership review cleared.
+Fresh exact-commit CI, merges and packaged acceptance remain pending.
+
+
 ## PR review follow-up, 2026-10-15
 
 Resolved both automated findings in UI PR #24. Configured Claude homes now add
