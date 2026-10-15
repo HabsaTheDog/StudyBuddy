@@ -59,15 +59,15 @@
     "moodle:quiz": "tsx src/custom-skills/moodle/directQuizCli.ts"
   },
   "dependencies": {
-    "@langchain/langgraph": "^1.4.14",
+    "@langchain/langgraph": "^1.4.21",
     "@openai/codex-sdk": "0.153.4",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ical.js": "^2.2.1",
     "parse5": "^8.0.1",
-    "playwright": "^1.63.0",
-    "tsx": "^4.23.13",
-    "zod": "^4.5.4"
+    "playwright": "^1.64.0",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
