@@ -1,5 +1,69 @@
 # Release-agent entry point
 
+## Windows workspace-alias test portability, 2026-10-15
+
+Root PR #62 Windows verification completed real document preparation, but the
+owner-tree assertion compared the temporary directory's `RUNNER~1` short-name
+alias against the runtime's canonical long path. Canonicalize only the expected
+workspace prefix with `realpath`; keep raw input, real spawning and every
+owner/state/artifact assertion. No product behavior, skip or timeout changes.
+The focused integration and root typecheck pass locally, independent review
+cleared the unchanged ownership boundary, and Windows CI must verify the fix.
+UI PR #24 is merged with a tree identical to the tested public release pin.
+
+
+## Standalone UI CI integration ownership repair, 2026-10-15
+
+UI PR #24's initial Test job failed because a real document-preparation integration
+case assumed the parent runtime/templates existed in a standalone UI checkout.
+Moved that case into the parent shared integration suite, which already installs
+and exercises both pinned repositories. All ten assertions, real broker and
+packaged CLI execution, cleanup and the 20-second test budget remain intact;
+no test is skipped and product/runtime code is unchanged.
+
+UI `0657031d8d889f69f82a528524010f7bc913939c` is committed, pushed and remotely verified.
+The parent commit adds the relocated test and updates that pin. The real root
+integration passes 1/1, UI broker suites 84/84, root typecheck, full UI check and
+all 13 workspace typechecks pass; independent ownership review cleared.
+Fresh exact-commit CI, merges and packaged acceptance remain pending.
+
+
+## PR review follow-up, 2026-10-15
+
+Resolved both automated findings in UI PR #24. Configured Claude homes now add
+`.local/bin` consistently for installation, discovery, authentication and runtime,
+while preserving explicit PATH/binary precedence. Older server responses without
+optional discovery metadata retain usable setup actions.
+
+UI `681e38434b1f6873219c06f8c6ede5ac5f6f6e0a` is committed, pushed and remotely verified
+(frontend `e167aaea5`, backend `681e38434`). Focused backend and existing Claude
+runtime regressions pass 101/101; onboarding browser cases pass 15/15. Full UI
+format/lint and all 13 workspace typechecks pass; independent review cleared.
+The root pin is updated with this entry. Required fresh CI, merges, exact-package
+Windows/Fedora acceptance and publication remain pending.
+
+
+## Provider recognition hotfix, 2026-10-15
+
+The actual latest public version is `0.2.4-alpha`, root
+`ad92542d98c80af19f36ce1799e15bd6bbf80a34`, UI
+`8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1`. Its final ignored publication evidence
+records GO and verified public downloads; older pending prose below is retained
+history. The owner requests fixing already-installed Codex/Claude recognition,
+pushing, opening a PR and publishing the update.
+
+Prepare the narrow `0.2.5-alpha` hotfix in isolated root/UI worktrees from those
+public commits. Preserve all shipped security/Windows fixes and defer unrelated
+local startup-logo, email-review, email-permission and embedded-Moodle-document
+features explicitly. Read the [complete hotfix inventory](release-inventory-0.2.5-alpha.md)
+and [current readiness contract](release-readiness.md). Local focused tests, full UI types/check, root types and release policies pass.
+UI dependency is pushed in [PR #24](https://github.com/HabsaTheDog/t3code/pull/24);
+root push, merges, CI, exact packaging and clean Windows/Fedora acceptance are pending;
+no installed-app replacement or publication is claimed. The owner publication
+instruction is present; exact candidate-specific snapshot restoration remains a
+separate approval boundary. Push the reviewed UI dependency before its root pin.
+
+
 ## PR merge repair, 2026-10-06
 
 Reconcile the published squash history with the provider development branch;

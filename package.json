@@ -1,6 +1,6 @@
 {
   "name": "study-buddy",
-  "version": "0.2.4-alpha",
+  "version": "0.2.5-alpha",
   "description": "Local-first, source-grounded AI study workflows for Moodle and FH Technikum Wien student systems.",
   "license": "MIT",
   "private": true,

@@ -4,10 +4,10 @@ Study Buddy is a local-first AI learning companion that finds authorized course
 evidence and turns it into source-grounded answers, PDF study guides, and
 single-file offline learning webpages.
 
-> **Alpha status:** `v0.2.4-alpha` is the next coordinated candidate. The latest
-> public version is `v0.2.2-alpha`; website promotion requires exact clean
-> Windows and Fedora acceptance. The `1.x` line remains reserved for a full
-> release. Read the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance
+> **Alpha status:** The latest public version is `v0.2.4-alpha`.
+> `v0.2.5-alpha` is the provider recognition hotfix candidate; publication and
+> website promotion remain pending exact Windows and Fedora acceptance.
+> The `1.x` line remains reserved for a full release. Read the [security](SECURITY.md) and [privacy](PRIVACY.md) guidance
 > before connecting an account.
 
 [MIT licensed](LICENSE) · [Roadmap](ROADMAP.md) ·
@@ -25,10 +25,11 @@ the same release bundle. macOS binaries are not currently supported.
 
 The desktop app includes its JavaScript/Codex runtime and does not need a
 developer checkout, system Node.js, Git Bash, or WSL. Browser-backed sources use
-an installed Edge, Chrome, or Chromium. Typst is required only for PDF output;
-Poppler enables complete PDF extraction, and LibreOffice enables optional
-Office-document conversion. Offline HTML output does not need those document
-tools.
+an installed Edge, Chrome, or Chromium. PDF output requires Typst and Poppler
+with `typst`, `pdfinfo`, `pdftotext`, and `pdftoppm` on the application PATH.
+The current doctor omits `pdfinfo`, so verify all four commands before requesting
+a PDF. LibreOffice enables optional Office-document conversion. Offline HTML
+output does not need those document tools.
 
 ## Current scope
 
