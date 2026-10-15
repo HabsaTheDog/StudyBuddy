@@ -1,5 +1,29 @@
 # Study Buddy Development Batch
 
+## Provider recognition hotfix, 2026-10-15
+
+The actual latest public version is `0.2.4-alpha`, root
+`ad92542d98c80af19f36ce1799e15bd6bbf80a34`, UI
+`8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1`. Its final ignored publication evidence
+records GO and verified public downloads; older pending prose below is retained
+history. The owner requests fixing already-installed Codex/Claude recognition,
+pushing, opening a PR and publishing the update.
+
+Prepare the narrow `0.2.5-alpha` hotfix in isolated root/UI worktrees from those
+public commits. Preserve all shipped security/Windows fixes and defer unrelated
+local startup-logo, email-review, email-permission and embedded-Moodle-document
+features explicitly. Read the [complete hotfix inventory](release-inventory-0.2.5-alpha.md)
+and [current readiness contract](release-readiness.md). Source implementation and local validation pass: 84 focused provider/onboarding
+cases, full UI format/lint and 13 workspace typechecks, root typecheck, 23 release
+contract tests, links/public-tree/licenses/SBOM and root/UI dependency audits.
+Independent review cleared both execution parity findings. UI `a7bb21cdced52449d02f78867b51c97c5200e948`
+is pushed and remotely verified in [UI PR #24](https://github.com/HabsaTheDog/t3code/pull/24).
+Root push/PR, merges, CI, exact packaging and clean Windows/Fedora acceptance
+remain pending; no installed-app replacement or publication is claimed. The owner publication
+instruction is present; exact candidate-specific snapshot restoration remains a
+separate approval boundary. Push the reviewed UI dependency before its root pin.
+
+
 This is the waiting list for changes accumulating before the next release freeze. It records development work, not release acceptance.
 
 Release agents must start with [release-agent-handoff.md](release-agent-handoff.md)

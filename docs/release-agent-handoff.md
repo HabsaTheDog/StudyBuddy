@@ -1,5 +1,26 @@
 # Release-agent entry point
 
+## Provider recognition hotfix, 2026-10-15
+
+The actual latest public version is `0.2.4-alpha`, root
+`ad92542d98c80af19f36ce1799e15bd6bbf80a34`, UI
+`8e3d0f7e48f2187adf3d106aa662dd5aed9e10e1`. Its final ignored publication evidence
+records GO and verified public downloads; older pending prose below is retained
+history. The owner requests fixing already-installed Codex/Claude recognition,
+pushing, opening a PR and publishing the update.
+
+Prepare the narrow `0.2.5-alpha` hotfix in isolated root/UI worktrees from those
+public commits. Preserve all shipped security/Windows fixes and defer unrelated
+local startup-logo, email-review, email-permission and embedded-Moodle-document
+features explicitly. Read the [complete hotfix inventory](release-inventory-0.2.5-alpha.md)
+and [current readiness contract](release-readiness.md). Local focused tests, full UI types/check, root types and release policies pass.
+UI dependency is pushed in [PR #24](https://github.com/HabsaTheDog/t3code/pull/24);
+root push, merges, CI, exact packaging and clean Windows/Fedora acceptance are pending;
+no installed-app replacement or publication is claimed. The owner publication
+instruction is present; exact candidate-specific snapshot restoration remains a
+separate approval boundary. Push the reviewed UI dependency before its root pin.
+
+
 ## PR merge repair, 2026-10-06
 
 Reconcile the published squash history with the provider development branch;

@@ -1,12 +1,23 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/) for tagged
-releases. Version `0.2.2-alpha` consolidates the unpublished corrective candidates
-for owner testing; the `1.x` line remains reserved for the first full release.
+releases. The `1.x` line remains reserved for the first full release.
 
 ## Unreleased
 
-## 0.2.4-alpha — candidate
+## 0.2.5-alpha — candidate
+
+- Recognize supported Codex and Claude installations already present on the
+  computer during provider setup and connection checks, avoiding unnecessary
+  reinstall prompts.
+- Keep provider refresh, version detection and startup resolution consistent
+  across the supported Windows and Fedora desktop packages.
+
+This focused hotfix retains the public 0.2.4 feature and security baseline.
+Exact-candidate source, package and Windows/Fedora acceptance checks remain
+pending; the owner has requested publication after those gates pass.
+
+## 0.2.4-alpha — 2026-10-07
 
 - Added Codex, Gemini and Claude provider installation, connection management,
   task profiles and provider-independent study workflows.
@@ -22,9 +33,10 @@ for owner testing; the `1.x` line remains reserved for the first full release.
 - Updated production dependencies and repaired cross-platform Windows tests,
   lock/alias handling, PDF tool discovery and packaged release provenance.
 
-This candidate includes the complete accumulated development batch. Historical
-`v0.2.3-alpha` remains untouched. Publication and website distribution are pending
-exact Windows/Fedora packaged acceptance; source checks alone are insufficient.
+This public release includes the complete accumulated development batch.
+Windows and Fedora packaged acceptance and public download verification passed
+for its exact bytes. Historical `v0.2.3-alpha` remains untouched; those acceptance
+results do not transfer to later candidates.
 
 ## 0.2.2-alpha — 2026-09-10
 
