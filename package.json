@@ -70,10 +70,10 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@types/node": "^24.13.4",
-    "postcss": "^8.5.28",
+    "@types/node": "^24.19.2",
+    "postcss": "^8.5.30",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "engines": {
     "node": ">=22.16"
